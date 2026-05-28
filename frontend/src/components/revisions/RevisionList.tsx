@@ -18,15 +18,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   listRevisions,
-  signRevision,
   discardRevision,
-  rejectRevision,
-  requestChanges,
   type Revision,
   type ApproverSignStatus,
 } from "@/api/revisions";
 import { CreateRevisionDialog } from "./CreateRevisionDialog";
-import { DecisionDialog, type DecisionAction } from "./DecisionDialog";
 
 function relativeTime(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -143,16 +139,12 @@ function PendingRevisionCard({
   projectId,
   rev,
   actionLoading,
-  onSign,
   onDiscard,
-  onDecide,
 }: {
   projectId: string;
   rev: Revision;
   actionLoading: string | null;
-  onSign: (r: Revision) => void;
   onDiscard: (r: Revision) => void;
-  onDecide: (r: Revision, action: DecisionAction) => void;
 }) {
   return (
     <div className="relative overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/[0.04] p-5 shadow-soft-sm">
@@ -172,48 +164,17 @@ function PendingRevisionCard({
           <p className="mt-1 text-xs text-muted-foreground">
             Created by {rev.created_by_name ?? "Unknown"} · {relativeTime(rev.created_at)}
           </p>
-          <Link
-            to={`/projects/${projectId}/revisions/${rev.id}`}
-            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-          >
-            <GitCompare className="h-3 w-3" />
-            Review changes before signing
-          </Link>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Review the changes and schedule snapshot before deciding.
+          </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => onSign(rev)}
-            disabled={actionLoading === rev.id}
-            data-testid="sign-revision"
-          >
-            <PenLine className="h-3.5 w-3.5" />
-            {actionLoading === rev.id ? "Signing…" : "Sign & Approve"}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onDecide(rev, "request-changes")}
-            disabled={actionLoading === rev.id}
-            className="text-muted-foreground hover:bg-orange-500/10 hover:text-orange-600"
-            data-testid="request-changes-revision"
-            title="Request changes"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span className="ml-1.5">Request changes</span>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onDecide(rev, "reject")}
-            disabled={actionLoading === rev.id}
-            className="text-muted-foreground hover:bg-red-500/10 hover:text-red-600"
-            data-testid="reject-revision"
-            title="Reject revision"
-          >
-            <Ban className="h-3.5 w-3.5" />
-            <span className="ml-1.5">Reject</span>
+          <Button size="sm" asChild data-testid="review-revision">
+            <Link to={`/projects/${projectId}/revisions/${rev.id}`}>
+              <GitCompare className="h-3.5 w-3.5" />
+              <span className="ml-1.5">Review &amp; sign</span>
+            </Link>
           </Button>
           <Button
             size="sm"
@@ -324,9 +285,6 @@ export function RevisionList({ projectId }: RevisionListProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [decision, setDecision] = useState<{ rev: Revision; action: DecisionAction } | null>(
-    null,
-  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -344,19 +302,6 @@ export function RevisionList({ projectId }: RevisionListProps) {
     load();
   }, [load]);
 
-  async function handleSign(revision: Revision) {
-    setActionLoading(revision.id);
-    setError(null);
-    try {
-      const updated = await signRevision(projectId, revision.id);
-      setRevisions((prev) => prev.map((r) => (r.id === revision.id ? updated : r)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to sign revision");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
   async function handleDiscard(revision: Revision) {
     if (!confirm(`Discard "${revLabel(revision)}"? This will unlock all activities.`)) return;
     setActionLoading(revision.id);
@@ -368,25 +313,6 @@ export function RevisionList({ projectId }: RevisionListProps) {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to discard revision");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleDecision(reason: string) {
-    if (!decision) return;
-    const { rev, action } = decision;
-    setActionLoading(rev.id);
-    setError(null);
-    try {
-      const updated =
-        action === "reject"
-          ? await rejectRevision(projectId, rev.id, reason)
-          : await requestChanges(projectId, rev.id, reason);
-      setRevisions((prev) => prev.map((r) => (r.id === rev.id ? updated : r)));
-      setDecision(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update revision");
     } finally {
       setActionLoading(null);
     }
@@ -458,9 +384,7 @@ export function RevisionList({ projectId }: RevisionListProps) {
               projectId={projectId}
               rev={rev}
               actionLoading={actionLoading}
-              onSign={handleSign}
               onDiscard={handleDiscard}
-              onDecide={(r, action) => setDecision({ rev: r, action })}
             />
           ))}
         </div>
@@ -487,17 +411,6 @@ export function RevisionList({ projectId }: RevisionListProps) {
           </div>
         </div>
       )}
-
-      <DecisionDialog
-        open={decision !== null}
-        action={decision?.action ?? "reject"}
-        revLabel={decision ? revLabel(decision.rev) : ""}
-        loading={decision !== null && actionLoading === decision.rev.id}
-        onOpenChange={(open) => {
-          if (!open) setDecision(null);
-        }}
-        onConfirm={handleDecision}
-      />
     </div>
   );
 }

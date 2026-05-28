@@ -165,7 +165,7 @@ Replaces the HTML export as the primary mechanism for formal document control.
 
 1. Planner creates a **revision snapshot** (e.g., Rev. 01) — freezes the current state of the schedule and **locks** its activities from editing
 2. Designated approvers are **notified by email** that their approval is needed, and the revision appears in their in-app "Pending Approvals" (the source of truth — see §4.4)
-3. Each approver logs in, views the live interactive chart for that revision, reviews **what changed since the previous version** (see "Change comparison" below), and takes one of three actions:
+3. Each approver opens the **revision detail page** — the single place a decision is made. The Approvals list only offers a **"Review & sign"** button that links here, so a decision can't be taken without first seeing the schedule snapshot and what changed. On that page the approver reviews the interactive chart and **what changed since the previous version** (see "Change comparison" below), then takes one of three actions:
    - **Sign & Approve** — records signer name, role, and timestamp, immutably attached to the revision
    - **Request changes** — sends the revision back so the planner can revise and resubmit; activities are unlocked
    - **Reject** — declines the revision (terminal); activities are unlocked
@@ -248,10 +248,10 @@ The following are explicitly deferred:
 /projects/:id/chart             Gantt chart (default project view)
 /projects/:id/data              In-app data grid editor
 /projects/:id/readiness         Readiness check tracker
-/projects/:id/signatures        Revision list + approval workflow (sign / request-changes / reject)
+/projects/:id/signatures        Revision list — "Review & sign" links to the detail page; planner can discard
 /projects/:id/activity          Project activity & governance audit log
 
-/projects/:id/revisions/:revId  Read-only revision snapshot (print via Ctrl+P — print CSS on this page)
+/projects/:id/revisions/:revId  Revision snapshot + decision actions (sign / request-changes / reject); print via Ctrl+P
 ```
 
 ---

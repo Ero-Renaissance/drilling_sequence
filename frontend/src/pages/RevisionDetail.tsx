@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import {
   ArrowLeft,
+  Ban,
   CheckCircle2,
   ChevronDown,
   Circle,
   Clock,
   PenLine,
   Printer,
+  RotateCcw,
   XCircle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -17,10 +19,13 @@ import {
   getRevision,
   listRevisions,
   signRevision,
+  rejectRevision,
+  requestChanges,
   type Revision,
   type RevisionDetail as RevisionDetailType,
 } from "@/api/revisions";
 import { RevisionDiff } from "@/components/revisions/RevisionDiff";
+import { DecisionDialog, type DecisionAction } from "@/components/revisions/DecisionDialog";
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { useAuthStore } from "@/store/auth";
@@ -79,6 +84,22 @@ function StatusBadge({ status }: { status: RevisionDetailType["status"] }) {
       <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
         <XCircle className="h-3 w-3" />
         Discarded
+      </span>
+    );
+  }
+  if (status === "rejected") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-red-500/12 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+        <Ban className="h-3 w-3" />
+        Rejected
+      </span>
+    );
+  }
+  if (status === "changes_requested") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-orange-500/30 bg-orange-500/12 px-2 py-0.5 text-xs font-medium text-orange-600 dark:text-orange-400">
+        <RotateCcw className="h-3 w-3" />
+        Changes requested
       </span>
     );
   }
@@ -319,6 +340,8 @@ export function RevisionDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
+  const [decision, setDecision] = useState<DecisionAction | null>(null);
+  const [deciding, setDeciding] = useState(false);
   const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
@@ -358,6 +381,24 @@ export function RevisionDetail() {
       setError(err instanceof Error ? err.message : "Failed to sign revision");
     } finally {
       setSigning(false);
+    }
+  }
+
+  async function handleDecision(reason: string) {
+    if (!projectId || !revisionId || !decision) return;
+    setDeciding(true);
+    setError(null);
+    try {
+      const updated =
+        decision === "reject"
+          ? await rejectRevision(projectId, revisionId, reason)
+          : await requestChanges(projectId, revisionId, reason);
+      setRevision((prev) => (prev ? { ...prev, ...updated } : null));
+      setDecision(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update revision");
+    } finally {
+      setDeciding(false);
     }
   }
 
@@ -417,6 +458,30 @@ export function RevisionDetail() {
               <CheckCircle2 className="h-3.5 w-3.5" /> You have signed
             </span>
           )}
+          {revision.status === "pending_approval" && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDecision("request-changes")}
+                className="text-orange-600 hover:bg-orange-500/10 hover:text-orange-600 dark:text-orange-400"
+                data-testid="request-changes-revision"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Request changes
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDecision("reject")}
+                className="text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                data-testid="reject-revision"
+              >
+                <Ban className="h-4 w-4" />
+                Reject
+              </Button>
+            </>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -469,6 +534,34 @@ export function RevisionDetail() {
         </div>
       )}
 
+      {/* Decision outcome — reviewer's reason for reject / changes-requested */}
+      {revision.decision_reason &&
+        (revision.status === "rejected" || revision.status === "changes_requested") && (
+          <div
+            className={cn(
+              "rounded-xl border px-4 py-3 text-sm print:break-inside-avoid",
+              revision.status === "rejected"
+                ? "border-red-500/30 bg-red-500/[0.06]"
+                : "border-orange-500/30 bg-orange-500/[0.06]",
+            )}
+          >
+            <div className="flex items-center gap-2 font-medium text-foreground">
+              {revision.status === "rejected" ? (
+                <Ban className="h-4 w-4 text-red-600 dark:text-red-400" />
+              ) : (
+                <RotateCcw className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+              )}
+              {revision.status === "rejected" ? "Rejected" : "Changes requested"}
+              {revision.decision_by_name && (
+                <span className="font-normal text-muted-foreground">
+                  by {revision.decision_by_name}
+                </span>
+              )}
+            </div>
+            <p className="mt-1.5 italic text-muted-foreground">“{revision.decision_reason}”</p>
+          </div>
+        )}
+
       {/* Signatures */}
       <SignaturesPanel revision={revision} />
 
@@ -492,6 +585,17 @@ export function RevisionDetail() {
         )}
         {snapshotActivities.length > 0 && <TabularDetail rows={snapshot} />}
       </div>
+
+      <DecisionDialog
+        open={decision !== null}
+        action={decision ?? "reject"}
+        revLabel={revLabel(revision)}
+        loading={deciding}
+        onOpenChange={(open) => {
+          if (!open) setDecision(null);
+        }}
+        onConfirm={handleDecision}
+      />
     </div>
   );
 }
