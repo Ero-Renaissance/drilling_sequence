@@ -1,0 +1,73 @@
+import uuid
+from datetime import date, datetime
+from typing import Optional
+
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+class Activity(Base):
+    """One row of a drilling schedule — maps 1:1 to a CSV row after import."""
+
+    __tablename__ = "activities"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # ── Mandatory ──────────────────────────────────────────────────────────────
+    activity_type: Mapped[str] = mapped_column(String(256), nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # ── Entity (well / item / task / name) ────────────────────────────────────
+    well_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # ── Resource (rig / team / equipment) ─────────────────────────────────────
+    rig_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # ── Grouping (project / group / category) ─────────────────────────────────
+    project_group: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # ── Location ──────────────────────────────────────────────────────────────
+    location: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # ── Readiness ─────────────────────────────────────────────────────────────
+    # Comma-separated check codes: "BUD,LOC,FID"
+    readiness_check: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    readiness_check_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # ── Status / quality ──────────────────────────────────────────────────────
+    risk: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    comment: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    plan_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # ── Contract ──────────────────────────────────────────────────────────────
+    rig_contract_expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rig_contract_days_remaining: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ── Audit ─────────────────────────────────────────────────────────────────
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    locked_by_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("revisions.id", ondelete="SET NULL"), nullable=True
+    )
+
+    project: Mapped["Project"] = relationship()  # type: ignore[name-defined]
+    updated_by_user: Mapped[Optional["User"]] = relationship(  # type: ignore[name-defined]
+        foreign_keys=[updated_by], lazy="selectin"
+    )
+
+    @property
+    def updated_by_name(self) -> str | None:
+        return self.updated_by_user.name if self.updated_by_user else None

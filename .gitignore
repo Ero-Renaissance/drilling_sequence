@@ -98,5 +98,5 @@ node_modules/
 DrillingChartApp_Standalone/
 dummy/
 build/
-Timeline_v1.2_0603/SETUP.bat
-Timeline_v1.2_0603/START_APP.bat
+legacy_drilling_sequence/Timeline_v1.2_0603/SETUP.bat
+legacy_drilling_sequence/Timeline_v1.2_0603/START_APP.bat
