@@ -13,10 +13,10 @@ from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.project import Project, ProjectRole
-from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.revision import Revision, Signature
 from app.models.user import User
 from app.schemas.approver import ApproverSignStatus
+from app.schemas.diff import RevisionDiffResponse
 from app.schemas.revision import (
     DecisionRequest,
     RevisionCreate,
@@ -26,6 +26,8 @@ from app.schemas.revision import (
 )
 from app.services.audit import ENTITY_REVISION, governance_event
 from app.services.email import notify_revision_decision, notify_revision_pending
+from app.services.revision_diff import diff_snapshots
+from app.services.snapshot import build_project_snapshot
 
 router = APIRouter(
     prefix="/api/projects/{project_id}/revisions",
@@ -190,14 +192,8 @@ async def create_revision(
     if not activities:
         raise HTTPException(status_code=400, detail="No activities to snapshot")
 
-    # Capture readiness state at the moment the revision is created
-    activity_ids = [a.id for a in activities]
-    checks_result = await db.execute(
-        select(ReadinessCheck).where(ReadinessCheck.activity_id.in_(activity_ids))
-    )
-    checks_by_activity: dict[uuid.UUID, dict[str, str]] = {}
-    for check in checks_result.scalars().all():
-        checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check.status
+    # Capture activities + readiness state at the moment the revision is created
+    snapshot = await build_project_snapshot(project_id, db)
 
     rev_result = await db.execute(
         select(Revision.rev_number)
@@ -207,26 +203,6 @@ async def create_revision(
     )
     last_rev = rev_result.scalar_one_or_none()
     rev_number = (last_rev or 0) + 1
-
-    snapshot = [
-        {
-            "id": str(a.id),
-            "activity_type": a.activity_type,
-            "start_date": a.start_date.isoformat(),
-            "end_date": a.end_date.isoformat(),
-            "well_name": a.well_name,
-            "rig_name": a.rig_name,
-            "location": a.location,
-            "plan_type": a.plan_type,
-            "risk": a.risk,
-            "comment": a.comment,
-            "readiness": {
-                code: checks_by_activity.get(a.id, {}).get(code, "Not Started")
-                for code in CHECK_CODES
-            },
-        }
-        for a in activities
-    ]
 
     revision = Revision(
         project_id=project_id,
@@ -262,6 +238,48 @@ async def create_revision(
 
     return RevisionResponse.model_validate(
         await _to_response(revision, required_approvers, db)
+    )
+
+
+async def _resolve_diff_side(
+    project_id: uuid.UUID, ref: str, db: AsyncSession
+) -> tuple[list[dict], dict]:
+    """Resolve a diff ref to (snapshot, side-descriptor). `ref` is either the
+    literal "live" (current working plan) or a revision UUID."""
+    if ref == "live":
+        return await build_project_snapshot(project_id, db), {"kind": "live"}
+    try:
+        rev_id = uuid.UUID(ref)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid revision reference: {ref!r}")
+    revision = await db.get(Revision, rev_id)
+    if not revision or revision.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    return json.loads(revision.snapshot_json), {
+        "kind": "revision",
+        "revision_id": str(revision.id),
+        "rev_number": revision.rev_number,
+        "label": revision.label,
+    }
+
+
+@router.get("/compare", response_model=RevisionDiffResponse)
+async def compare_revisions(
+    project_id: uuid.UUID,
+    base: str,
+    target: str = "live",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RevisionDiffResponse:
+    """Diff two snapshots of a project. `base` and `target` are each a revision
+    UUID or the literal "live" (the current working plan). `base` is the older
+    side; `target` defaults to the live plan."""
+    await assert_member(project_id, current_user, db)
+    base_snapshot, base_side = await _resolve_diff_side(project_id, base, db)
+    target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
+    diff = diff_snapshots(base_snapshot, target_snapshot)
+    return RevisionDiffResponse.model_validate(
+        {"base": base_side, "target": target_side, **diff}
     )
 
 

@@ -15,9 +15,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   getRevision,
+  listRevisions,
   signRevision,
+  type Revision,
   type RevisionDetail as RevisionDetailType,
 } from "@/api/revisions";
+import { RevisionDiff } from "@/components/revisions/RevisionDiff";
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { useAuthStore } from "@/store/auth";
@@ -312,6 +315,7 @@ function SignaturesPanel({ revision }: { revision: RevisionDetailType }) {
 export function RevisionDetail() {
   const { projectId, revisionId } = useParams<{ projectId: string; revisionId: string }>();
   const [revision, setRevision] = useState<RevisionDetailType | null>(null);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
@@ -325,6 +329,13 @@ export function RevisionDetail() {
       .catch(() => setError("Revision not found"))
       .finally(() => setLoading(false));
   }, [projectId, revisionId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    listRevisions(projectId)
+      .then(setRevisions)
+      .catch(() => setRevisions([]));
+  }, [projectId]);
 
   const snapshot = useMemo<SnapshotRow[]>(
     () => (revision ? JSON.parse(revision.snapshot_json) : []),
@@ -460,6 +471,11 @@ export function RevisionDetail() {
 
       {/* Signatures */}
       <SignaturesPanel revision={revision} />
+
+      {/* What changed — diff against a prior revision (or the live plan) */}
+      <div className="print:hidden">
+        <RevisionDiff projectId={projectId!} target={revision} revisions={revisions} />
+      </div>
 
       {/* Schedule snapshot — Gantt (with readiness icons) + collapsible detail */}
       <div className="space-y-3 print:break-inside-avoid">
