@@ -165,7 +165,7 @@ Replaces the HTML export as the primary mechanism for formal document control.
 
 1. Planner creates a **revision snapshot** (e.g., Rev. 01) — freezes the current state of the schedule and **locks** its activities from editing
 2. Designated approvers are **notified by email** that their approval is needed, and the revision appears in their in-app "Pending Approvals" (the source of truth — see §4.4)
-3. Each approver logs in, views the live interactive chart for that revision, and takes one of three actions:
+3. Each approver logs in, views the live interactive chart for that revision, reviews **what changed since the previous version** (see "Change comparison" below), and takes one of three actions:
    - **Sign & Approve** — records signer name, role, and timestamp, immutably attached to the revision
    - **Request changes** — sends the revision back so the planner can revise and resubmit; activities are unlocked
    - **Reject** — declines the revision (terminal); activities are unlocked
@@ -176,6 +176,8 @@ Replaces the HTML export as the primary mechanism for formal document control.
 **Revision statuses:** `pending_approval` → `approved` | `rejected` | `changes_requested` | `discarded`.
 
 **Revision history:** Any past revision can be viewed as a read-only snapshot — chart, KPI summary, readiness matrix, full signature record, and the decision reason where applicable.
+
+**Change comparison (revision diff):** The revision detail page carries a **"Compare with"** panel so approvers can see exactly what changed before signing, and planners can review their work. It defaults to comparing the revision against the **previous revision**, and can also compare against any other revision or the **current working plan (live)**. Activities are matched by stable id, so the diff reports **added / removed / modified** activities with field-level **old → new** values (including per-readiness-check changes), under a headline summary of counts and the **start / end / duration day-shifts**. Backed by `GET /api/projects/:id/revisions/compare` (any project member).
 
 **Print to PDF (fallback path):**
 
@@ -302,6 +304,7 @@ DELETE /api/projects/:id/approvers/:approverId      # Planner only
 # Revisions, signatures & decisions
 GET    /api/projects/:id/revisions
 POST   /api/projects/:id/revisions                  # Snapshot current state → locks activities (Planner)
+GET    /api/projects/:id/revisions/compare          # Diff two snapshots: ?base=<revId|live>&target=<revId|live>
 GET    /api/projects/:id/revisions/:revId
 PUT    /api/projects/:id/revisions/:revId/sign
 DELETE /api/projects/:id/revisions/:revId           # Discard a pending revision (Planner)
