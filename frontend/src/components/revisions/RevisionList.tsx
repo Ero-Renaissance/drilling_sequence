@@ -6,6 +6,7 @@ import {
   Circle,
   Clock,
   ExternalLink,
+  GitCompare,
   PenLine,
   RefreshCw,
   RotateCcw,
@@ -171,6 +172,13 @@ function PendingRevisionCard({
           <p className="mt-1 text-xs text-muted-foreground">
             Created by {rev.created_by_name ?? "Unknown"} · {relativeTime(rev.created_at)}
           </p>
+          <Link
+            to={`/projects/${projectId}/revisions/${rev.id}`}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <GitCompare className="h-3 w-3" />
+            Review changes before signing
+          </Link>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">

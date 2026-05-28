@@ -21,6 +21,20 @@ function sideLabel(rev: { label: string | null; rev_number: number }): string {
   return rev.label ?? `Rev. ${String(rev.rev_number).padStart(2, "0")}`;
 }
 
+const STATUS_TAG: Record<Revision["status"], string> = {
+  pending_approval: "pending",
+  approved: "approved",
+  discarded: "discarded",
+  rejected: "rejected",
+  changes_requested: "changes requested",
+};
+
+function optionLabel(rev: Revision): string {
+  return rev.status === "approved" || rev.status === "pending_approval"
+    ? sideLabel(rev)
+    : `${sideLabel(rev)} (${STATUS_TAG[rev.status]})`;
+}
+
 function signed(n: number | null): string {
   if (n === null) return "—";
   if (n === 0) return "no change";
@@ -168,11 +182,12 @@ interface RevisionDiffProps {
 }
 
 export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps) {
-  // Candidate base revisions: everything except the one we're viewing and discarded ones.
+  // Candidate base revisions: every other revision (incl. discarded/rejected —
+  // they're still valid "before" snapshots), most recent first.
   const candidates = useMemo(
     () =>
       revisions
-        .filter((r) => r.id !== target.id && r.status !== "discarded")
+        .filter((r) => r.id !== target.id)
         .sort((a, b) => b.rev_number - a.rev_number),
     [revisions, target.id],
   );
@@ -229,7 +244,7 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
         >
           {candidates.map((r) => (
             <option key={r.id} value={r.id}>
-              {sideLabel(r)}
+              {optionLabel(r)}
             </option>
           ))}
           <option value={LIVE_REF}>Current working plan (live)</option>
