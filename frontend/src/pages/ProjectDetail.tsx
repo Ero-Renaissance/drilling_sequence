@@ -19,6 +19,7 @@ import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
 import { detectRigConflicts, type RigConflict } from "@/lib/conflicts";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { ApproverSettings } from "@/components/revisions/ApproverSettings";
+import { ComparePanel } from "@/components/revisions/ComparePanel";
 import { RevisionList } from "@/components/revisions/RevisionList";
 import { ProjectAuditLog } from "@/components/activity/ProjectAuditLog";
 import { ViewerStrip } from "@/components/viewers/ViewerStrip";
@@ -265,6 +266,10 @@ export function ChartTab() {
           conflictIds={conflictIds}
           onActivityClick={setEditActivityId}
         />
+      )}
+
+      {projectId && activities && activities.length > 0 && (
+        <ComparePanel projectId={projectId} />
       )}
 
       {editActivityId && activities && (
