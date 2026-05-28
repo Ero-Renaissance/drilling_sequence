@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History } from "lucide-react";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 // PenSquare kept for the tab icon
@@ -28,6 +28,7 @@ const tabs = [
   { to: "chart", label: "Sequence", icon: BarChart2 },
   { to: "data", label: "Activities", icon: Table2 },
   { to: "readiness", label: "Readiness", icon: CheckSquare },
+  { to: "compare", label: "Compare", icon: GitCompare },
   { to: "signatures", label: "Approvals", icon: PenSquare },
   { to: "activity", label: "Activity Log", icon: History },
 ];
@@ -268,10 +269,6 @@ export function ChartTab() {
         />
       )}
 
-      {projectId && activities && activities.length > 0 && (
-        <ComparePanel projectId={projectId} />
-      )}
-
       {editActivityId && activities && (
         (() => {
           const activity = activities.find((a) => a.id === editActivityId);
@@ -312,6 +309,12 @@ export function ReadinessTab() {
   const { projectId } = useParams<{ projectId: string }>();
   if (!projectId) return null;
   return <ReadinessGrid projectId={projectId} />;
+}
+
+export function CompareTab() {
+  const { projectId } = useParams<{ projectId: string }>();
+  if (!projectId) return null;
+  return <ComparePanel projectId={projectId} />;
 }
 
 export function SignaturesTab() {

@@ -8,6 +8,7 @@ import {
   ChartTab,
   DataTab,
   ReadinessTab,
+  CompareTab,
   SignaturesTab,
   ActivityLogTab,
 } from "@/pages/ProjectDetail";
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="chart" element={<ChartTab />} />
             <Route path="data" element={<DataTab />} />
             <Route path="readiness" element={<ReadinessTab />} />
+            <Route path="compare" element={<CompareTab />} />
             <Route path="signatures" element={<SignaturesTab />} />
             <Route path="activity" element={<ActivityLogTab />} />
             <Route path="revisions/:revisionId" element={<RevisionDetail />} />

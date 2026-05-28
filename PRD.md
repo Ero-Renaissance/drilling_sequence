@@ -177,7 +177,11 @@ Replaces the HTML export as the primary mechanism for formal document control.
 
 **Revision history:** Any past revision can be viewed as a read-only snapshot — chart, KPI summary, readiness matrix, full signature record, and the decision reason where applicable.
 
-**Change comparison (revision diff):** The revision detail page carries a **"Compare with"** panel so approvers can see exactly what changed before signing, and planners can review their work. It defaults to comparing the revision against the **previous revision**, and can also compare against any other revision or the **current working plan (live)**. Activities are matched by stable id, so the diff reports **added / removed / modified** activities with field-level **old → new** values (including per-readiness-check changes), under a headline summary of counts and the **start / end / duration day-shifts**. Backed by `GET /api/projects/:id/revisions/compare` (any project member).
+**Change comparison (revision diff):** Surfaced in two places, by audience:
+- **Compare tab** (project nav, after Readiness) — planner-driven, with **free base + target pickers** (either side can be any revision or the **current working plan (live)**). Defaults to **latest approved revision → live** ("what have I changed since sign-off?").
+- **Revision detail page** "Compare with" panel — approver-driven, auto-anchored to the revision being reviewed (defaults to the **previous revision**) so changes are visible before signing.
+
+Activities are matched by stable id, so the diff reports **added / removed / modified** activities with field-level **old → new** values (including per-readiness-check changes), under a headline summary of counts and the **start / end / duration day-shifts**. Both views share one UI (`diff-shared.tsx`) and are backed by `GET /api/projects/:id/revisions/compare` (any project member).
 
 **Print to PDF (fallback path):**
 
@@ -248,6 +252,7 @@ The following are explicitly deferred:
 /projects/:id/chart             Gantt chart (default project view)
 /projects/:id/data              In-app data grid editor
 /projects/:id/readiness         Readiness check tracker
+/projects/:id/compare           Change comparison — free base/target pickers (revision or live)
 /projects/:id/signatures        Revision list — "Review & sign" links to the detail page; planner can discard
 /projects/:id/activity          Project activity & governance audit log
 
