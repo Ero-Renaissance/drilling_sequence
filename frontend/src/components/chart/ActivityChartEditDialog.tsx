@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { AlertTriangle, FileSignature, Lock } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileSignature, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { updateActivity, type Activity } from "@/api/activities";
+import { setActivityCompletion, updateActivity, type Activity } from "@/api/activities";
 import {
   upsertCheck,
   CHECK_CODES,
@@ -150,6 +150,8 @@ export function ActivityChartEditDialog({
   onSaved,
 }: Props) {
   const locked = !!activity.locked_by_revision_id;
+  const isCompleted = !!activity.completed_at;
+  const [completing, setCompleting] = useState(false);
 
   const [checkStatuses, setCheckStatuses] = useState<Record<CheckCode, CheckStatus>>(
     () =>
@@ -297,12 +299,32 @@ export function ActivityChartEditDialog({
     }
   }
 
+  async function toggleCompletion() {
+    setCompleting(true);
+    setError(null);
+    try {
+      await setActivityCompletion(projectId, activity.id, !isCompleted);
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update completion");
+    } finally {
+      setCompleting(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             Edit Activity
+            {isCompleted && (
+              <span className="flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-3 w-3" />
+                Completed
+              </span>
+            )}
             {locked && (
               <span className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/12 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                 <Lock className="h-3 w-3" />
@@ -494,6 +516,26 @@ export function ActivityChartEditDialog({
           )}
 
           <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="mr-auto"
+              onClick={toggleCompletion}
+              disabled={completing}
+              data-testid="toggle-completion"
+            >
+              {isCompleted ? (
+                <>
+                  <RotateCcw className="h-4 w-4" />
+                  {completing ? "Reopening…" : "Reopen"}
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  {completing ? "Completing…" : "Mark complete"}
+                </>
+              )}
+            </Button>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               {locked ? "Close" : "Cancel"}
             </Button>

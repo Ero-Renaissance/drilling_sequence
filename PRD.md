@@ -177,11 +177,13 @@ Replaces the HTML export as the primary mechanism for formal document control.
 
 **Revision history:** Any past revision can be viewed as a read-only snapshot — chart, KPI summary, readiness matrix, full signature record, and the decision reason where applicable.
 
-**Change comparison (revision diff):** Surfaced in two places, by audience:
-- **Compare tab** (project nav, after Readiness) — planner-driven, with **free base + target pickers** (either side can be any revision or the **current working plan (live)**). Defaults to **latest approved revision → live** ("what have I changed since sign-off?").
-- **Revision detail page** "Compare with" panel — approver-driven, auto-anchored to the revision being reviewed (defaults to the **previous revision**) so changes are visible before signing.
+**Change comparison:** Surfaced in two places, by audience:
+- **Compare tab** (project nav, after Readiness) — planner-driven **cross-schedule** comparison: pick **another project** (e.g. last quarter Q1) on the *From* side and compare it against **this** schedule (Q2) on the *To* side. Each side can be any revision or the **current working plan (live)**; defaults to the *From* project's **latest approved revision → this project's live plan**. Backed by `GET /api/projects/:id/revisions/cross-compare?base_project_id=…&base=…&target=…` (caller must be a member of both projects).
+- **Revision detail page** "Compare with" panel — approver-driven, auto-anchored to the revision being reviewed (defaults to the **previous revision**) so within-project changes are visible before signing. Backed by `GET /api/projects/:id/revisions/compare`.
 
-Activities are matched by stable id, so the diff reports **added / removed / modified** activities with field-level **old → new** values (including per-readiness-check changes), under a headline summary of counts and the **start / end / duration day-shifts**. Both views share one UI (`diff-shared.tsx`) and are backed by `GET /api/projects/:id/revisions/compare` (any project member).
+The diff reports **added / removed / modified** activities with field-level **old → new** values (including per-readiness-check changes), under a headline summary of counts and the **start / end / duration day-shifts**. Both views share one UI (`diff-shared.tsx`). Matching strategy differs by view: within-project compare matches by **stable row id**; cross-schedule compare matches by **lineage** — a stable identity carried forward when a project is cloned, falling back to the natural key (**well + activity type**, rig deliberately excluded so a rig reassignment reads as a *modified* field, not add+remove) for schedules with no shared lineage.
+
+**Activity completion & quarterly cloning:** A planner can **mark an activity complete** (or reopen it) from the chart edit dialog. Cloning a project into the next quarter (`POST /api/projects/:id/clone`) carries each activity's **lineage** forward and **drops completed activities** — finished work doesn't roll into the new schedule, and the cloned activities still line up against their origins in cross-schedule compare.
 
 **Print to PDF (fallback path):**
 
@@ -252,7 +254,7 @@ The following are explicitly deferred:
 /projects/:id/chart             Gantt chart (default project view)
 /projects/:id/data              In-app data grid editor
 /projects/:id/readiness         Readiness check tracker
-/projects/:id/compare           Change comparison — free base/target pickers (revision or live)
+/projects/:id/compare           Cross-schedule comparison — pick another project + version vs this one
 /projects/:id/signatures        Revision list — "Review & sign" links to the detail page; planner can discard
 /projects/:id/activity          Project activity & governance audit log
 
@@ -286,6 +288,8 @@ GET    /api/projects/:id/activities
 POST   /api/projects/:id/activities
 PATCH  /api/projects/:id/activities/:actId          # Optimistic lock via expected_updated_at → 409 on stale write
 DELETE /api/projects/:id/activities/:actId
+POST   /api/projects/:id/activities/:actId/complete # Mark complete (Planner) — dropped on next clone
+POST   /api/projects/:id/activities/:actId/reopen   # Reopen a completed activity (Planner)
 POST   /api/projects/:id/activities/import          # CSV / Excel upload
 GET    /api/projects/:id/activities/:actId/history  # Audit log for one activity
 
@@ -309,7 +313,8 @@ DELETE /api/projects/:id/approvers/:approverId      # Planner only
 # Revisions, signatures & decisions
 GET    /api/projects/:id/revisions
 POST   /api/projects/:id/revisions                  # Snapshot current state → locks activities (Planner)
-GET    /api/projects/:id/revisions/compare          # Diff two snapshots: ?base=<revId|live>&target=<revId|live>
+GET    /api/projects/:id/revisions/compare          # Diff two snapshots (same project): ?base=<revId|live>&target=<revId|live>
+GET    /api/projects/:id/revisions/cross-compare     # Diff vs another project by lineage: ?base_project_id=&base=&target=
 GET    /api/projects/:id/revisions/:revId
 PUT    /api/projects/:id/revisions/:revId/sign
 DELETE /api/projects/:id/revisions/:revId           # Discard a pending revision (Planner)

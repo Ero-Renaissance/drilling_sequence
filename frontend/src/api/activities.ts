@@ -17,6 +17,7 @@ export interface Activity {
   plan_type: string | null;
   rig_contract_expiry_date: string | null;
   rig_contract_days_remaining: number | null;
+  completed_at: string | null;
   updated_at: string;
   updated_by_name: string | null;
   locked_by_revision_id: string | null;
@@ -103,6 +104,23 @@ export async function updateActivity(
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({ detail: resp.statusText }));
     throw new Error(data.detail ?? "Failed to update activity");
+  }
+  return resp.json();
+}
+
+export async function setActivityCompletion(
+  projectId: string,
+  activityId: string,
+  completed: boolean,
+): Promise<Activity> {
+  const action = completed ? "complete" : "reopen";
+  const resp = await fetch(
+    `/api/projects/${projectId}/activities/${activityId}/${action}`,
+    { method: "POST", headers: await authHeaders() },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(body.detail ?? "Failed to update completion");
   }
   return resp.json();
 }

@@ -22,6 +22,8 @@ export interface ChartDataItem {
     risk: string | null;
     checks: Record<CheckCode, { status: CheckStatus }> | null;
   };
+  isConflict?: boolean;
+  isCompleted?: boolean;
 }
 
 export interface ChartData {

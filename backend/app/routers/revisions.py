@@ -283,6 +283,30 @@ async def compare_revisions(
     )
 
 
+@router.get("/cross-compare", response_model=RevisionDiffResponse)
+async def cross_compare(
+    project_id: uuid.UUID,
+    base_project_id: uuid.UUID,
+    base: str = "live",
+    target: str = "live",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RevisionDiffResponse:
+    """Diff this project (the `target` side, e.g. the new quarter Q2) against
+    another project (`base_project_id`, e.g. Q1). Each side's ref is a revision
+    UUID within that project or the literal "live". Activities are matched by
+    lineage (carried across clones), so a rig reassigned to another well reads
+    as a modified field rather than add+remove."""
+    await assert_member(project_id, current_user, db)
+    await assert_member(base_project_id, current_user, db)
+    base_snapshot, base_side = await _resolve_diff_side(base_project_id, base, db)
+    target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
+    diff = diff_snapshots(base_snapshot, target_snapshot, match_by="lineage")
+    return RevisionDiffResponse.model_validate(
+        {"base": base_side, "target": target_side, **diff}
+    )
+
+
 @router.get("/{revision_id}", response_model=RevisionDetailResponse)
 async def get_revision(
     project_id: uuid.UUID,

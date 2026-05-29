@@ -18,6 +18,11 @@ class ActivityDiff(BaseModel):
     end_date: str | None = None
     # Populated for "modified" rows; empty for added/removed.
     fields: list[FieldChange] = []
+    # For "removed" rows only: "completed" (finished, dropped on clone) or
+    # "dropped" (deleted while still open). None for added/modified.
+    removal_reason: str | None = None
+    # True when the activity is marked done on the surviving (target) side.
+    completed: bool = False
 
 
 class DiffSide(BaseModel):

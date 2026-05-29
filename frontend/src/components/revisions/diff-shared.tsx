@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, ChevronDown, MinusCircle, PencilLine, PlusCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PaginationFooter } from "@/components/ui/pagination-footer";
+import { SearchInput } from "@/components/ui/search-input";
 import type { ActivityDiff, RevisionDiff as RevisionDiffData } from "@/api/compare";
 import type { Revision } from "@/api/revisions";
 
@@ -122,6 +124,23 @@ export function ActivityRow({ act }: { act: ActivityDiff }) {
             <span className={cn("text-[10px] font-semibold uppercase tracking-wide", meta.tone)}>
               {meta.label}
             </span>
+            {act.change === "removed" && act.removal_reason && (
+              <span
+                className={cn(
+                  "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                  act.removal_reason === "completed"
+                    ? "border-emerald-500/25 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                    : "border-border bg-muted text-muted-foreground",
+                )}
+              >
+                {act.removal_reason === "completed" ? "Completed" : "Dropped"}
+              </span>
+            )}
+            {act.change !== "removed" && act.completed && (
+              <span className="rounded-full border border-emerald-500/25 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                Completed
+              </span>
+            )}
           </div>
           {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
         </div>
@@ -156,6 +175,74 @@ export function ActivityRow({ act }: { act: ActivityDiff }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Paginated list of change rows ───────────────────────────────────────────────
+
+export function ActivityDiffList({ activities }: { activities: ActivityDiff[] }) {
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
+  const [search, setSearch] = useState("");
+
+  // Reset to the first page when the underlying set or the search changes (e.g.
+  // a new base/target is picked) so we never land on a now-empty page.
+  useEffect(() => {
+    setPageIndex(0);
+  }, [activities, search]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? activities.filter((a) =>
+        [a.activity_type, a.well_name, a.rig_name]
+          .filter(Boolean)
+          .some((v) => v!.toLowerCase().includes(q)),
+      )
+    : activities;
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safeIndex = Math.min(pageIndex, pageCount - 1);
+  const start = safeIndex * pageSize;
+  const visible = filtered.slice(start, start + pageSize);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search well, rig, type…"
+          ariaLabel="Search changes"
+          testId="compare-search"
+        />
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {q ? `${filtered.length} of ${activities.length}` : `${activities.length} changes`}
+        </span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
+          No changes match &ldquo;{search}&rdquo;.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {visible.map((a) => (
+            <ActivityRow key={`${a.change}-${a.activity_id}`} act={a} />
+          ))}
+        </div>
+      )}
+
+      <PaginationFooter
+        pageIndex={safeIndex}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        onPageChange={setPageIndex}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+      />
     </div>
   );
 }

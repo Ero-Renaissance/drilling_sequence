@@ -115,6 +115,7 @@ interface ChartTheme {
   todayLine: string;
   todayLabel: string;
   barLabel: string;
+  completedFill: string;
 }
 
 const LIGHT_THEME: ChartTheme = {
@@ -132,6 +133,7 @@ const LIGHT_THEME: ChartTheme = {
   todayLine: "#ef4444",
   todayLabel: "#ef4444",
   barLabel: "#ffffff",
+  completedFill: "#94a3b8",
 };
 
 const DARK_THEME: ChartTheme = {
@@ -149,6 +151,7 @@ const DARK_THEME: ChartTheme = {
   todayLine: "#f87171",
   todayLabel: "#f87171",
   barLabel: "#ffffff",
+  completedFill: "#64748b",
 };
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -168,12 +171,20 @@ export function DrillChart({
     [activities, readinessMap],
   );
 
+  const completedIds = useMemo(
+    () => new Set(activities.filter((a) => a.completed_at).map((a) => a.id)),
+    [activities],
+  );
+
   const displayData = useMemo(() => {
-    if (!conflictIds?.size) return data;
-    return data.map((item) =>
-      conflictIds.has(item.activityId) ? { ...item, isConflict: true } : item,
-    );
-  }, [data, conflictIds]);
+    if (!conflictIds?.size && !completedIds.size) return data;
+    return data.map((item) => {
+      const next = { ...item };
+      if (conflictIds?.has(item.activityId)) next.isConflict = true;
+      if (completedIds.has(item.activityId)) next.isCompleted = true;
+      return next;
+    });
+  }, [data, conflictIds, completedIds]);
 
   const option: EChartsOption = useMemo(() => {
     const ROW_HEIGHT = 56;
@@ -224,17 +235,22 @@ export function DrillChart({
       const baseStyle = api.style() as Record<string, unknown>;
       const item = displayData[params.dataIndex] as {
         isConflict?: boolean;
+        isCompleted?: boolean;
         tooltip?: { checks?: Record<string, { status: CheckStatus }> | null };
       };
       const isConflict = item?.isConflict ?? false;
+      const isCompleted = item?.isCompleted ?? false;
 
       // Bar fill: solid family color from itemStyle, with a conflict hatch
       // overlay when this activity participates in a rig schedule clash. We
       // intentionally do not apply per-sub-type patterns — each activity type
       // gets its own distinct hue in chart-colors.ts so bar + legend always
       // match without relying on canvas pattern reliability.
-      const fill =
-        isConflict && typeof baseStyle.fill === "string"
+      // Completed activities read as "done": a neutral grey (not a dimmed
+      // version of the activity-type hue, which looked like another oil shade).
+      const fill = isCompleted
+        ? theme.completedFill
+        : isConflict && typeof baseStyle.fill === "string"
           ? makeHatchPattern(baseStyle.fill)
           : baseStyle.fill;
 
@@ -245,7 +261,7 @@ export function DrillChart({
           style: {
             ...baseStyle,
             fill,
-            shadowBlur: 2,
+            shadowBlur: isCompleted ? 0 : 2,
             shadowColor: "rgba(0,0,0,0.15)",
             shadowOffsetY: 1,
           },

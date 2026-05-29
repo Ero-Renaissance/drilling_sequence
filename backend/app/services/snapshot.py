@@ -36,6 +36,8 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     return [
         {
             "id": str(a.id),
+            # Coalesce: rows predating lineage tracking match by their own id.
+            "lineage_id": str(a.lineage_id or a.id),
             "activity_type": a.activity_type,
             "start_date": a.start_date.isoformat(),
             "end_date": a.end_date.isoformat(),
@@ -45,6 +47,9 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             "plan_type": a.plan_type,
             "risk": a.risk,
             "comment": a.comment,
+            # Lets the diff tell a finished activity (dropped on clone) apart
+            # from one that was genuinely deleted while still open.
+            "completed_at": a.completed_at.isoformat() if a.completed_at else None,
             "readiness": {
                 code: checks_by_activity.get(a.id, {}).get(code, "Not Started")
                 for code in CHECK_CODES

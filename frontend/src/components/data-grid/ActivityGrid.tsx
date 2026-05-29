@@ -3,18 +3,34 @@ import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type SortingState,
   type RowData,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ArrowUp, ArrowDown, Trash2, RefreshCw, History } from "lucide-react";
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  RefreshCw,
+  History,
+  CheckCircle2,
+  RotateCcw,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   listActivities,
   updateActivity,
   deleteActivity,
+  setActivityCompletion,
   ConflictError,
   type Activity,
 } from "@/api/activities";
@@ -37,6 +53,7 @@ declare module "@tanstack/react-table" {
   interface TableMeta<TData extends RowData> {
     updateCell: (id: string, field: keyof Activity, value: string | null) => void;
     deleteRow: (id: string) => void;
+    toggleCompletion: (id: string) => void;
     openHistory: (id: string) => void;
     readinessByActivity: Map<string, Record<CheckCode, CheckState>>;
     onReadinessChange: (activityId: string, code: CheckCode, next: CheckStatus) => void;
@@ -166,6 +183,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [globalFilter, setGlobalFilter] = useState("");
   const [historyActivityId, setHistoryActivityId] = useState<string | null>(null);
   const [savingReadinessKey, setSavingReadinessKey] = useState<string | null>(null);
   const [editingContractRig, setEditingContractRig] = useState<string | null>(null);
@@ -233,6 +251,21 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     [activities, projectId],
   );
 
+  const toggleCompletion = useCallback(
+    async (id: string) => {
+      const prev = activities.find((a) => a.id === id);
+      if (!prev) return;
+      const completed = !prev.completed_at;
+      try {
+        const updated = await setActivityCompletion(projectId, id, completed);
+        setActivities((all) => all.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+      } catch {
+        setError(`Failed to ${completed ? "complete" : "reopen"} activity.`);
+      }
+    },
+    [activities, projectId],
+  );
+
   const openHistory = useCallback((id: string) => {
     setHistoryActivityId((prev) => (prev === id ? null : id));
   }, []);
@@ -286,12 +319,20 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
         header: "Activity Type",
         size: 180,
         cell: ({ getValue, row, table }) => (
-          <EditableCell
-            value={getValue()}
-            required
-            readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateCell(row.original.id, "activity_type", v)}
-          />
+          <div className="flex items-center gap-1.5">
+            <EditableCell
+              value={getValue()}
+              required
+              readOnly={!!row.original.locked_by_revision_id}
+              onSave={(v) => table.options.meta?.updateCell(row.original.id, "activity_type", v)}
+            />
+            {row.original.completed_at && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                Completed
+              </span>
+            )}
+          </div>
         ),
       }),
       helper.accessor("start_date", {
@@ -427,9 +468,36 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       }),
       helper.display({
         id: "actions",
-        size: 72,
-        cell: ({ row, table }) => (
+        size: 104,
+        cell: ({ row, table }) => {
+          const completed = !!row.original.completed_at;
+          return (
           <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => table.options.meta?.toggleCompletion(row.original.id)}
+              disabled={!!row.original.locked_by_revision_id}
+              className={cn(
+                "rounded p-1 transition-colors disabled:cursor-not-allowed disabled:opacity-30",
+                completed
+                  ? "text-emerald-600 hover:bg-accent dark:text-emerald-400"
+                  : "text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400",
+              )}
+              title={
+                row.original.locked_by_revision_id
+                  ? "Locked — in pending revision"
+                  : completed
+                    ? "Reopen activity"
+                    : "Mark complete"
+              }
+              data-testid="toggle-completion"
+            >
+              {completed ? (
+                <RotateCcw className="h-3.5 w-3.5" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+            </button>
             <button
               type="button"
               onClick={() => table.options.meta?.openHistory(row.original.id)}
@@ -454,7 +522,8 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
-        ),
+          );
+        },
       }),
     ],
     [],
@@ -463,13 +532,18 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const table = useReactTable({
     data: activities,
     columns,
-    state: { sorting },
+    state: { sorting, globalFilter },
     onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageSize: 25 } },
     meta: {
       updateCell,
       deleteRow,
+      toggleCompletion,
       openHistory,
       readinessByActivity,
       onReadinessChange,
@@ -505,8 +579,34 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           <span className="ml-1.5">Refresh</span>
         </Button>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {activities.length} {activities.length === 1 ? "activity" : "activities"}
+
+        <div className="relative ml-auto">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            placeholder="Search well, rig, type…"
+            aria-label="Search activities"
+            data-testid="activity-search"
+            className="w-48 rounded-md border border-border bg-background py-1.5 pl-8 pr-7 text-sm focus:w-64 focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          {globalFilter && (
+            <button
+              type="button"
+              onClick={() => setGlobalFilter("")}
+              aria-label="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {globalFilter
+            ? `${table.getFilteredRowModel().rows.length} of ${activities.length}`
+            : `${activities.length} ${activities.length === 1 ? "activity" : "activities"}`}
         </span>
       </div>
 
@@ -555,7 +655,11 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                   colSpan={columns.length}
                   className="py-16 text-center text-sm text-muted-foreground"
                 >
-                  {loading ? "Loading…" : "No activities yet. Add one above or import a CSV file."}
+                  {loading
+                    ? "Loading…"
+                    : globalFilter
+                      ? `No activities match "${globalFilter}".`
+                      : "No activities yet. Add one above or import a CSV file."}
                 </td>
               </tr>
             ) : (
@@ -566,6 +670,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                       "border-b border-border/40 transition-colors hover:bg-accent/30",
                       i % 2 === 1 && "bg-muted/15",
                       historyActivityId === row.original.id && "bg-primary/5",
+                      row.original.completed_at && "opacity-55",
                     )}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -592,6 +697,52 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           </tbody>
         </table>
       </div>
+
+      {table.getPageCount() > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span>Rows per page</span>
+            <select
+              value={table.getState().pagination.pageSize}
+              onChange={(e) => table.setPageSize(Number(e.target.value))}
+              aria-label="Rows per page"
+              className="rounded-md border border-border bg-background px-1.5 py-1 text-xs"
+            >
+              {[25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="tabular-nums">
+              Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+            </span>
+            <button
+              type="button"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
+              aria-label="Previous page"
+              data-testid="page-prev"
+              className="rounded-md border border-border p-1 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+              aria-label="Next page"
+              data-testid="page-next"
+              className="rounded-md border border-border p-1 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Click any cell to edit · Press{" "}

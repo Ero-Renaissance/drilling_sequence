@@ -10,6 +10,8 @@ import {
   listReadiness,
   upsertCheck,
 } from "@/api/readiness";
+import { PaginationFooter } from "@/components/ui/pagination-footer";
+import { SearchInput } from "@/components/ui/search-input";
 import { ReadinessDot } from "./ReadinessDot";
 import { CHECK_META, STATUS_DOT } from "./check-meta";
 import { ContractEditorDialog } from "./ContractEditorDialog";
@@ -143,6 +145,9 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null); // "activityId:checkCode"
   const [editingContractRig, setEditingContractRig] = useState<string | null>(null);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,6 +164,12 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Reset to the first page when the row set or the search changes, so we never
+  // land on a now-empty page.
+  useEffect(() => {
+    setPageIndex(0);
+  }, [rows.length, search]);
 
   const handleChange = useCallback(
     async (activityId: string, code: CheckCode, next: CheckStatus) => {
@@ -198,6 +209,18 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
     [projectId, rows],
   );
 
+  const q = search.trim().toLowerCase();
+  const filteredRows = q
+    ? rows.filter((r) =>
+        [r.activity_type, r.well_name, r.rig_name]
+          .filter(Boolean)
+          .some((v) => v!.toLowerCase().includes(q)),
+      )
+    : rows;
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safeIndex = Math.min(pageIndex, pageCount - 1);
+  const visibleRows = filteredRows.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
+
   return (
     <div className="space-y-3">
       {/* Toolbar */}
@@ -214,6 +237,21 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           <span className="ml-1.5">Refresh</span>
         </Button>
+
+        <div className="ml-auto flex items-center gap-3">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search well, rig, type…"
+            ariaLabel="Search readiness"
+            testId="readiness-search"
+          />
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {q
+              ? `${filteredRows.length} of ${rows.length}`
+              : `${rows.length} ${rows.length === 1 ? "activity" : "activities"}`}
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -243,6 +281,10 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             <p className="font-medium">No activities</p>
             <p className="text-sm">Add activities in the Data tab first.</p>
           </div>
+        </div>
+      ) : filteredRows.length === 0 ? (
+        <div className="flex h-48 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
+          <p className="text-sm">No activities match &ldquo;{search}&rdquo;.</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
@@ -282,7 +324,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => {
+              {visibleRows.map((row, i) => {
                 const completed = CHECK_CODES.filter(
                   (c) => row.checks[c].status === "Completed",
                 ).length;
@@ -349,6 +391,17 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           </table>
         </div>
       )}
+
+      <PaginationFooter
+        pageIndex={safeIndex}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        onPageChange={setPageIndex}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageIndex(0);
+        }}
+      />
 
       <ContractEditorDialog
         projectId={projectId}

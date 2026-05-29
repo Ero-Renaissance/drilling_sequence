@@ -8,6 +8,8 @@ export interface FieldChange {
 
 export type ChangeKind = "added" | "removed" | "modified";
 
+export type RemovalReason = "completed" | "dropped";
+
 export interface ActivityDiff {
   change: ChangeKind;
   activity_id: string;
@@ -17,6 +19,10 @@ export interface ActivityDiff {
   start_date: string | null;
   end_date: string | null;
   fields: FieldChange[];
+  /** Only on "removed" rows: why the activity left the schedule. */
+  removal_reason: RemovalReason | null;
+  /** True when the activity is marked done on the surviving (target) side. */
+  completed: boolean;
 }
 
 export interface DiffSide {
@@ -64,6 +70,32 @@ export async function compareRevisions(
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ detail: resp.statusText }));
     const msg = typeof body.detail === "string" ? body.detail : "Failed to compare revisions";
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+/**
+ * Compare this project (the `target` side, e.g. the new quarter) against
+ * another project (`baseProjectId`, e.g. last quarter). Each side's ref is a
+ * revision id or "live". Activities are matched by lineage carried across
+ * clones, so a rig reassigned to another well reads as a modified field.
+ */
+export async function crossCompareProjects(
+  targetProjectId: string,
+  baseProjectId: string,
+  base: string,
+  target: string,
+): Promise<RevisionDiff> {
+  const token = await getAccessToken();
+  const params = new URLSearchParams({ base_project_id: baseProjectId, base, target });
+  const resp = await fetch(
+    `/api/projects/${targetProjectId}/revisions/cross-compare?${params}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
+    const msg = typeof body.detail === "string" ? body.detail : "Failed to compare schedules";
     throw new Error(msg);
   }
   return resp.json();

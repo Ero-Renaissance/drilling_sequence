@@ -6,7 +6,7 @@ import {
   type RevisionDiff as RevisionDiffData,
 } from "@/api/compare";
 import type { Revision } from "@/api/revisions";
-import { ActivityRow, LIVE_REF, optionLabel, sideLabel, SummaryBar } from "./diff-shared";
+import { ActivityDiffList, LIVE_REF, optionLabel, sideLabel, SummaryBar } from "./diff-shared";
 
 // ── Main component ──────────────────────────────────────────────────────────────
 
@@ -108,11 +108,7 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
               No activity changes between these versions.
             </p>
           ) : (
-            <div className="space-y-1.5">
-              {diff.activities.map((a) => (
-                <ActivityRow key={`${a.change}-${a.activity_id}`} act={a} />
-              ))}
-            </div>
+            <ActivityDiffList activities={diff.activities} />
           )}
         </>
       )}

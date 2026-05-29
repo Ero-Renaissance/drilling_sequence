@@ -116,6 +116,58 @@ async def update_activity(
     return ActivityResponse.model_validate(activity)
 
 
+async def _set_completion(
+    project_id: uuid.UUID,
+    activity_id: uuid.UUID,
+    completed: bool,
+    current_user: User,
+    db: AsyncSession,
+) -> ActivityResponse:
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    result = await db.execute(
+        select(Activity).where(
+            Activity.id == activity_id, Activity.project_id == project_id
+        )
+    )
+    activity = result.scalar_one_or_none()
+    if activity is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
+
+    new_value = datetime.now(timezone.utc) if completed else None
+    db.add(AuditLog(
+        project_id=project_id,
+        user_id=current_user.id,
+        entity_type="activity",
+        entity_id=activity_id,
+        field="completed_at",
+        old_value=activity.completed_at.isoformat() if activity.completed_at else None,
+        new_value=new_value.isoformat() if new_value else None,
+    ))
+    activity.completed_at = new_value
+    activity.updated_by = current_user.id
+    activity.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(activity)
+    return ActivityResponse.model_validate(activity)
+
+
+@router.post("/{activity_id}/complete", response_model=ActivityResponse)
+async def complete_activity(
+    project_id: uuid.UUID, activity_id: uuid.UUID, current_user: CurrentUser, db: DB
+) -> ActivityResponse:
+    """Close a completed activity. Completed activities are dropped when the
+    project is cloned into the next quarter."""
+    return await _set_completion(project_id, activity_id, True, current_user, db)
+
+
+@router.post("/{activity_id}/reopen", response_model=ActivityResponse)
+async def reopen_activity(
+    project_id: uuid.UUID, activity_id: uuid.UUID, current_user: CurrentUser, db: DB
+) -> ActivityResponse:
+    """Reopen a previously completed activity."""
+    return await _set_completion(project_id, activity_id, False, current_user, db)
+
+
 @router.delete("/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_activity(
     project_id: uuid.UUID, activity_id: uuid.UUID, current_user: CurrentUser, db: DB

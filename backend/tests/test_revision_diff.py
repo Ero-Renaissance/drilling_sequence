@@ -86,6 +86,75 @@ def test_diff_blank_equals_none() -> None:
     assert diff["summary"]["unchanged"] == 1
 
 
+# ── Lineage matching (cross-project) ─────────────────────────────────────────
+
+
+def test_lineage_match_treats_rig_change_as_modified() -> None:
+    # Same lineage, rig reassigned to a different rig → one modified row, not add+remove.
+    base = [_act("q1-1", "Drilling", "2026-01-01", "2026-01-31",
+                 lineage_id="L1", well_name="W-1", rig_name="Rig A")]
+    target = [_act("q2-9", "Drilling", "2026-04-01", "2026-04-30",
+                   lineage_id="L1", well_name="W-1", rig_name="Rig B")]
+    diff = diff_snapshots(base, target, match_by="lineage")
+    s = diff["summary"]
+    assert (s["added"], s["removed"], s["modified"]) == (0, 0, 1)
+    fields = {f["field"]: (f["old"], f["new"]) for f in diff["activities"][0]["fields"]}
+    assert fields["Rig"] == ("Rig A", "Rig B")
+
+
+def test_lineage_falls_back_to_natural_key() -> None:
+    # No shared lineage (unrelated schedules) → match on well + activity type.
+    base = [_act("x", "Drilling", "2026-01-01", "2026-01-31",
+                 lineage_id="A", well_name="W-1", rig_name="Rig A")]
+    target = [_act("y", "Drilling", "2026-04-01", "2026-04-30",
+                   lineage_id="B", well_name="W-1", rig_name="Rig A")]
+    diff = diff_snapshots(base, target, match_by="lineage")
+    assert diff["summary"]["modified"] == 1
+    assert diff["summary"]["added"] == 0 and diff["summary"]["removed"] == 0
+
+
+def test_lineage_dropped_activity_reads_as_removed() -> None:
+    # A completed Q1 activity not carried into Q2 shows as removed.
+    base = [
+        _act("a", "Drilling", "2026-01-01", "2026-01-31", lineage_id="L1", well_name="W-1"),
+        _act("b", "Casing", "2026-02-01", "2026-02-15", lineage_id="L2", well_name="W-2"),
+    ]
+    target = [_act("c", "Drilling", "2026-04-01", "2026-04-30", lineage_id="L1", well_name="W-1")]
+    diff = diff_snapshots(base, target, match_by="lineage")
+    by_change = {a["change"]: a for a in diff["activities"]}
+    assert "removed" in by_change and by_change["removed"]["well_name"] == "W-2"
+
+
+def test_removed_reason_distinguishes_completed_from_dropped() -> None:
+    # Two activities leave the schedule: one was finished (completed_at set),
+    # the other deleted while still open. The diff should label them apart.
+    base = [
+        _act("a", "Drilling", "2026-01-01", "2026-01-31", lineage_id="L1",
+             well_name="W-done", completed_at="2026-01-30T00:00:00"),
+        _act("b", "Casing", "2026-02-01", "2026-02-15", lineage_id="L2",
+             well_name="W-cut"),
+    ]
+    target: list[dict] = []
+    diff = diff_snapshots(base, target, match_by="lineage")
+    by_well = {a["well_name"]: a for a in diff["activities"]}
+    assert by_well["W-done"]["removal_reason"] == "completed"
+    assert by_well["W-cut"]["removal_reason"] == "dropped"
+
+
+def test_completion_of_surviving_activity_reads_as_modified() -> None:
+    # An activity that stays in both schedules but got marked done shows as a
+    # modified row (Open → Completed) carrying the completed flag — it must not
+    # hide in "unchanged".
+    base = [_act("a", "Drilling", "2026-01-01", "2026-01-31", lineage_id="L1", well_name="W-1")]
+    target = [_act("a", "Drilling", "2026-01-01", "2026-01-31", lineage_id="L1",
+                   well_name="W-1", completed_at="2026-01-25T00:00:00")]
+    diff = diff_snapshots(base, target, match_by="lineage")
+    assert diff["summary"]["modified"] == 1 and diff["summary"]["unchanged"] == 0
+    row = diff["activities"][0]
+    assert row["completed"] is True
+    assert {"field": "Completion", "old": "Open", "new": "Completed"} in row["fields"]
+
+
 # ── Compare endpoint ────────────────────────────────────────────────────────
 
 

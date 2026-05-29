@@ -17,6 +17,10 @@ class Activity(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Stable identity carried across clones: a cloned activity inherits its
+    # source's lineage_id, so the same logical activity can be matched between
+    # quarterly schedules (Q1 → Q2). NULL means "use my own id" (see snapshot).
+    lineage_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
 
     # ── Mandatory ──────────────────────────────────────────────────────────────
     activity_type: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -44,6 +48,12 @@ class Activity(Base):
     risk: Mapped[str | None] = mapped_column(String(64), nullable=True)
     comment: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Set when a planner closes a completed activity. Completed activities are
+    # dropped when the project is cloned into the next quarter.
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # ── Contract ──────────────────────────────────────────────────────────────
     rig_contract_expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)

@@ -65,6 +65,7 @@ class ActivityResponse(BaseModel):
     plan_type: str | None
     rig_contract_expiry_date: date | None
     rig_contract_days_remaining: int | None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     updated_by_name: str | None = None

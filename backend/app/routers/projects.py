@@ -159,8 +159,16 @@ async def clone_project(
 
     new_activity_by_source: dict[uuid.UUID, Activity] = {}
     for src in source_activities:
+        # Completed activities are finished work — they don't carry into the
+        # next quarter's schedule.
+        if src.completed_at is not None:
+            continue
         new_activity = Activity(
             project_id=clone.id,
+            # Carry the source's lineage so this activity can be matched back to
+            # its origin across quarters. Falls back to the source's own id when
+            # the source predates lineage tracking.
+            lineage_id=src.lineage_id or src.id,
             activity_type=src.activity_type,
             start_date=src.start_date,
             end_date=src.end_date,
