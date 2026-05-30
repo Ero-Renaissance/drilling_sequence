@@ -52,8 +52,16 @@ class DiffSummary(BaseModel):
     duration_shift_days: int | None = None
 
 
+class ContractDiff(BaseModel):
+    """Rig-level contract change (status / dates), deduped across activities."""
+
+    rig_name: str
+    fields: list[FieldChange]
+
+
 class RevisionDiffResponse(BaseModel):
     base: DiffSide
     target: DiffSide
     summary: DiffSummary
     activities: list[ActivityDiff]
+    contracts: list[ContractDiff] = []

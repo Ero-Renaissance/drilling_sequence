@@ -59,6 +59,62 @@ def test_diff_unchanged_not_listed() -> None:
     assert diff["activities"] == []
 
 
+# ── Rig-level contract diff ─────────────────────────────────────────────────
+
+
+def _rig_act(aid: str, rig: str, status: str, end: str | None) -> dict:
+    return _act(
+        aid, "Drilling", "2026-01-01", "2026-01-31",
+        rig_name=rig, rig_contract_status=status, rig_contract_end=end,
+    )
+
+
+def test_diff_reports_rig_contract_change() -> None:
+    base = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
+    target = [_rig_act("a", "Rig Alpha", "In Progress", "2026-06-30")]
+    diff = diff_snapshots(base, target)
+
+    assert len(diff["contracts"]) == 1
+    c = diff["contracts"][0]
+    assert c["rig_name"] == "Rig Alpha"
+    assert any(
+        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "In Progress"
+        for f in c["fields"]
+    )
+    # Contract changes are rig-level, never per-activity.
+    assert all(
+        f["field"] not in {"Status", "Contract start", "Contract end"}
+        for a in diff["activities"]
+        for f in a.get("fields", [])
+    )
+
+
+def test_diff_dedupes_contract_to_rig_level() -> None:
+    base = [
+        _rig_act("a", "Rig Alpha", "Completed", "2026-06-30"),
+        _rig_act("b", "Rig Alpha", "Completed", "2026-06-30"),
+    ]
+    target = [
+        _rig_act("a", "Rig Alpha", "Completed", "2026-04-30"),
+        _rig_act("b", "Rig Alpha", "Completed", "2026-04-30"),
+    ]
+    diff = diff_snapshots(base, target)
+    assert len(diff["contracts"]) == 1  # one rig, not two activities
+    assert any(f["field"] == "Contract end" for f in diff["contracts"][0]["fields"])
+
+
+def test_diff_skips_contracts_when_a_side_predates_capture() -> None:
+    base = [_act("a", "Drilling", "2026-01-01", "2026-01-31", rig_name="Rig Alpha")]
+    target = [_rig_act("a", "Rig Alpha", "Completed", None)]
+    assert diff_snapshots(base, target)["contracts"] == []
+
+
+def test_diff_no_contract_change_when_equal() -> None:
+    base = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
+    target = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
+    assert diff_snapshots(base, target)["contracts"] == []
+
+
 def test_diff_readiness_change_reported() -> None:
     base = [_act("a", "Drilling", "2026-01-01", "2026-01-31", readiness={"BUD": "Not Started"})]
     target = [_act("a", "Drilling", "2026-01-01", "2026-01-31", readiness={"BUD": "Completed"})]
@@ -248,3 +304,39 @@ async def test_compare_denied_for_non_member(
         params={"base": rev1["id"]},
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None:
+    """End-to-end: the snapshot captures rig contract state and the compare
+    endpoint reports a rig-level contract change."""
+    project = (await client.post("/api/projects", json={"name": "Contract Diff"})).json()
+    pid = project["id"]
+    await client.post(
+        f"/api/projects/{pid}/activities",
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+            "rig_name": "RigAlpha",
+        },
+    )
+    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Not Started"})
+
+    rev1 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
+    # Discard to unlock, change the contract, then snapshot again.
+    await client.delete(f"/api/projects/{pid}/revisions/{rev1['id']}")
+    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "In Progress"})
+    rev2 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
+
+    diff = (
+        await client.get(
+            f"/api/projects/{pid}/revisions/compare?base={rev1['id']}&target={rev2['id']}"
+        )
+    ).json()
+    assert len(diff["contracts"]) == 1
+    contract = diff["contracts"][0]
+    assert contract["rig_name"] == "RigAlpha"
+    assert any(
+        f["field"] == "Status" and f["new"] == "In Progress" for f in contract["fields"]
+    )

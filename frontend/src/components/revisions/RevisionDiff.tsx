@@ -7,7 +7,14 @@ import {
   type RevisionDiff as RevisionDiffData,
 } from "@/api/compare";
 import type { Revision } from "@/api/revisions";
-import { ActivityDiffList, LIVE_REF, optionLabel, sideLabel, SummaryBar } from "./diff-shared";
+import {
+  ActivityDiffList,
+  ContractDiffList,
+  LIVE_REF,
+  optionLabel,
+  sideLabel,
+  SummaryBar,
+} from "./diff-shared";
 
 // Sentinel base ref: let the server resolve the most recent approved baseline
 // (this project's last approved revision, else the clone parent's).
@@ -114,6 +121,7 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
             </p>
           )}
           <SummaryBar diff={diff} />
+          <ContractDiffList contracts={diff.contracts} />
           {diff.activities.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
               No activity changes between these versions.

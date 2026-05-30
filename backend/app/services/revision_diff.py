@@ -21,6 +21,14 @@ _SCALAR_FIELDS: list[tuple[str, str]] = [
 ]
 
 
+# Per-rig contract fields, compared rig-level (deduped) rather than per activity.
+_CONTRACT_FIELDS: list[tuple[str, str]] = [
+    ("rig_contract_status", "Status"),
+    ("rig_contract_start", "Contract start"),
+    ("rig_contract_end", "Contract end"),
+]
+
+
 def _label(activity: dict) -> dict:
     return {
         "activity_id": activity.get("id", ""),
@@ -67,6 +75,42 @@ def _field_changes(base: dict, target: dict) -> list[dict]:
             "new": "Completed" if _is_done(target) else "Open",
         })
     return changes
+
+
+def _has_contract_info(snapshot: list[dict]) -> bool:
+    """True once a snapshot was built with contract capture. Old stored revisions
+    lack the key entirely — we skip contract diffing for them rather than report a
+    spurious "None → X" for every rig."""
+    return any("rig_contract_status" in a for a in snapshot)
+
+
+def _contracts_by_rig(snapshot: list[dict]) -> dict[str, dict]:
+    """Collapse the per-activity contract fields back to one entry per rig."""
+    out: dict[str, dict] = {}
+    for a in snapshot:
+        rig = _norm(a.get("rig_name"))
+        if rig is None or rig in out:
+            continue
+        out[rig] = {key: a.get(key) for key, _ in _CONTRACT_FIELDS}
+    return out
+
+
+def _contract_changes(base: list[dict], target: list[dict]) -> list[dict]:
+    """Rig-level contract changes between two snapshots (status / dates)."""
+    if not (_has_contract_info(base) and _has_contract_info(target)):
+        return []
+    base_c, target_c = _contracts_by_rig(base), _contracts_by_rig(target)
+    diffs: list[dict] = []
+    for rig in sorted(set(base_c) | set(target_c)):
+        b, t = base_c.get(rig, {}), target_c.get(rig, {})
+        fields = [
+            {"field": label, "old": old, "new": new}
+            for key, label in _CONTRACT_FIELDS
+            if (old := _norm(b.get(key))) != (new := _norm(t.get(key)))
+        ]
+        if fields:
+            diffs.append({"rig_name": rig, "fields": fields})
+    return diffs
 
 
 def _parse(d: str | None) -> date | None:
@@ -217,4 +261,8 @@ def diff_snapshots(
         "target_duration_days": target_duration,
         "duration_shift_days": duration_shift,
     }
-    return {"summary": summary, "activities": activities}
+    return {
+        "summary": summary,
+        "activities": activities,
+        "contracts": _contract_changes(base, target),
+    }

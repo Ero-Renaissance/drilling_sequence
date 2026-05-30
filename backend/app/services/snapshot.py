@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.readiness import CHECK_CODES, ReadinessCheck
+from app.models.rig_contract import RigContract
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -33,6 +34,31 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     for check in checks_result.scalars().all():
         checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check.status
 
+    # Rig contracts gate readiness (CON) and are a material part of the plan under
+    # approval, so capture each activity's rig contract state. Denormalised onto the
+    # activity (rather than a separate block) so the snapshot stays a flat list and
+    # older stored revisions keep parsing.
+    contracts_result = await db.execute(
+        select(RigContract).where(RigContract.project_id == project_id)
+    )
+    contracts_by_rig = {c.rig_name: c for c in contracts_result.scalars().all()}
+
+    def contract_fields(rig_name: str | None) -> dict:
+        contract = contracts_by_rig.get(rig_name) if rig_name else None
+        return {
+            "rig_contract_status": contract.status if contract else None,
+            "rig_contract_start": (
+                contract.contract_start.isoformat()
+                if contract and contract.contract_start
+                else None
+            ),
+            "rig_contract_end": (
+                contract.contract_end.isoformat()
+                if contract and contract.contract_end
+                else None
+            ),
+        }
+
     return [
         {
             "id": str(a.id),
@@ -54,6 +80,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
                 code: checks_by_activity.get(a.id, {}).get(code, "Not Started")
                 for code in CHECK_CODES
             },
+            **contract_fields(a.rig_name),
         }
         for a in activities
     ]

@@ -1,9 +1,20 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, ChevronDown, MinusCircle, PencilLine, PlusCircle } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  FileText,
+  MinusCircle,
+  PencilLine,
+  PlusCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
-import type { ActivityDiff, RevisionDiff as RevisionDiffData } from "@/api/compare";
+import type {
+  ActivityDiff,
+  ContractDiff,
+  RevisionDiff as RevisionDiffData,
+} from "@/api/compare";
 import type { Revision } from "@/api/revisions";
 
 export const LIVE_REF = "live";
@@ -88,6 +99,44 @@ export function SummaryBar({ diff }: { diff: RevisionDiffData }) {
   );
 }
 
+// ── Rig contract changes (rig-level, material to readiness) ─────────────────────
+
+export function ContractDiffList({ contracts }: { contracts?: ContractDiff[] }) {
+  if (!contracts || contracts.length === 0) return null;
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+        <h3 className="text-sm font-semibold text-foreground">Rig contracts</h3>
+        <span className="text-xs text-muted-foreground">
+          {contracts.length} rig{contracts.length !== 1 ? "s" : ""} changed
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {contracts.map((c) => (
+          <div key={c.rig_name} className="rounded-lg border border-border/60 bg-card px-3 py-2">
+            <p className="text-sm font-medium text-foreground">{c.rig_name}</p>
+            <div className="mt-1 space-y-1.5">
+              {c.fields.map((f) => (
+                <div key={f.field} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="min-w-[7rem] font-medium text-muted-foreground">{f.field}</span>
+                  <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-red-600 line-through dark:text-red-400">
+                    {f.old ?? "—"}
+                  </span>
+                  <ArrowRight className="h-3 w-3 text-muted-foreground/60" />
+                  <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-600 dark:text-emerald-400">
+                    {f.new ?? "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Per-activity change row ─────────────────────────────────────────────────────
 
 const CHANGE_META: Record<
@@ -100,7 +149,9 @@ const CHANGE_META: Record<
 };
 
 export function ActivityRow({ act }: { act: ActivityDiff }) {
-  const [open, setOpen] = useState(act.change === "modified");
+  // Collapsed by default — the reviewer expands the rows they want to inspect
+  // rather than being shown every field change at once.
+  const [open, setOpen] = useState(false);
   const meta = CHANGE_META[act.change];
   const Icon = meta.icon;
   const subtitle = [act.well_name, act.rig_name].filter(Boolean).join(" · ");

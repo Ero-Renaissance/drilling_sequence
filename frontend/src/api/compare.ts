@@ -50,11 +50,17 @@ export interface DiffSummary {
   duration_shift_days: number | null;
 }
 
+export interface ContractDiff {
+  rig_name: string;
+  fields: FieldChange[];
+}
+
 export interface RevisionDiff {
   base: DiffSide;
   target: DiffSide;
   summary: DiffSummary;
   activities: ActivityDiff[];
+  contracts: ContractDiff[];
 }
 
 /** A diff ref is either a revision id or the literal "live" (working plan). */
