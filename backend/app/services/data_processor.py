@@ -76,10 +76,12 @@ def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:
             if csv_col in df.columns:
                 val = row.get(csv_col)
                 # pandas NaT / NaN → None
-                if pd.isna(val) if not isinstance(val, str) else False:
+                if (not isinstance(val, str)) and pd.isna(val):
                     val = None
-                elif db_field in _DATE_DB_FIELDS and val is not None:
+                elif db_field in _DATE_DB_FIELDS:
                     val = val.date()  # Timestamp → datetime.date for SQLAlchemy Date column
+                elif hasattr(val, "item"):
+                    val = val.item()  # numpy scalar → native Python (so Pydantic can validate)
                 record.setdefault(db_field, val)
         rows.append(record)
     return rows

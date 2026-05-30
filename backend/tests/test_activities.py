@@ -245,3 +245,113 @@ async def test_import_csv_non_member_denied(
         files={"file": ("activities.csv", io.BytesIO(CSV_VALID.encode()), "text/csv")},
     )
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Domain enum enforcement (plan_type / risk / location / readiness codes)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("plan_type", "Speculative"),
+        ("risk", "Critical"),
+        ("location", "MARS"),
+        ("readiness_check", "BUD,NOPE"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_create_activity_rejects_non_canonical_enum(
+    client: AsyncClient, field: str, value: str
+) -> None:
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities",
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+            field: value,
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_create_activity_normalizes_readiness_codes(client: AsyncClient) -> None:
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities",
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+            "readiness_check": " BUD , LOC ,FID ",
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["readiness_check"] == "BUD,LOC,FID"
+
+
+@pytest.mark.asyncio
+async def test_update_activity_rejects_non_canonical_enum(client: AsyncClient) -> None:
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"])
+    response = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"plan_type": "Whenever"},
+    )
+    assert response.status_code == 422, response.text
+
+
+# ---------------------------------------------------------------------------
+# CSV import validation (rows routed through ActivityCreate)
+# ---------------------------------------------------------------------------
+
+CSV_END_BEFORE_START = (
+    "Activity Type,Start Date,End Date\n"
+    "Oil Well Drilling,2026-03-01,2026-01-01\n"
+)
+CSV_BLANK_DATE = (
+    "Activity Type,Start Date,End Date\n"
+    "Oil Well Drilling,,2026-02-01\n"
+)
+CSV_BAD_PLAN_TYPE = (
+    "Activity Type,Start Date,End Date,Plan Type\n"
+    "Oil Well Drilling,2026-01-01,2026-02-01,Speculative\n"
+)
+
+
+@pytest.mark.parametrize(
+    "csv_text", [CSV_END_BEFORE_START, CSV_BLANK_DATE, CSV_BAD_PLAN_TYPE]
+)
+@pytest.mark.asyncio
+async def test_import_csv_rejects_invalid_rows(client: AsyncClient, csv_text: str) -> None:
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities/import",
+        files={"file": ("bad.csv", io.BytesIO(csv_text.encode()), "text/csv")},
+    )
+    assert response.status_code == 422, response.text
+    # Nothing was inserted from a rejected import.
+    listing = await client.get(f"/api/projects/{project['id']}/activities")
+    assert listing.json() == []
+
+
+@pytest.mark.asyncio
+async def test_import_rejection_does_not_wipe_existing(client: AsyncClient) -> None:
+    """A rejected replace-mode import must not delete the current schedule —
+    validation happens before any write."""
+    project = await _create_project(client)
+    await _create_activity(client, project["id"], well_name="Keep Me")
+
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities/import",
+        files={"file": ("bad.csv", io.BytesIO(CSV_BLANK_DATE.encode()), "text/csv")},
+        params={"replace": "true"},
+    )
+    assert response.status_code == 422
+
+    listing = await client.get(f"/api/projects/{project['id']}/activities")
+    wells = {a["well_name"] for a in listing.json()}
+    assert "Keep Me" in wells

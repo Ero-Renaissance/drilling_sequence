@@ -5,6 +5,7 @@ from typing import Annotated
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -215,7 +216,14 @@ async def import_activities(
     file: UploadFile = File(...),
     replace: bool = Query(default=True, description="Replace all existing activities"),
 ) -> ImportResponse:
-    """Upload a CSV or Excel file and bulk-insert activities into the project."""
+    """Upload a CSV or Excel file and bulk-insert activities into the project.
+
+    Every row is validated through the same `ActivityCreate` schema the JSON API
+    uses, so an import cannot smuggle in NULL/invalid dates, end-before-start
+    ranges, or non-canonical enum values that a direct POST would reject. The file
+    is validated in full *before* any write, so a single bad row never deletes the
+    existing schedule (replace mode) or leaves a partial import behind.
+    """
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
 
     content = await file.read()
@@ -227,9 +235,10 @@ async def import_activities(
         else:
             df = pd.read_csv(io.BytesIO(content))
     except Exception as exc:
+        # Don't echo the parser's internal message (it can include file content).
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Could not parse file: {exc}",
+            detail="Could not parse the uploaded file. Provide a valid CSV or Excel file.",
         ) from exc
 
     try:
@@ -241,11 +250,37 @@ async def import_activities(
 
     rows = csv_df_to_db_rows(df, str(project_id))
 
+    # Validate every row against the schema before touching the database.
+    validated: list[ActivityCreate] = []
+    errors: list[str] = []
+    for i, row in enumerate(rows):
+        fields = {k: v for k, v in row.items() if k != "project_id"}
+        try:
+            validated.append(ActivityCreate(**fields))
+        except ValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(p) for p in err["loc"]) or "row"
+                errors.append(f"Row {i + 2}: {loc} — {err['msg']}")
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Import rejected — fix the rows below and re-upload.",
+                "errors": errors[:20],
+            },
+        )
+
     if replace:
         await db.execute(delete(Activity).where(Activity.project_id == project_id))
 
-    for row in rows:
-        db.add(Activity(**{**row, "project_id": project_id, "updated_by": current_user.id}))
+    for model in validated:
+        db.add(
+            Activity(
+                project_id=project_id,
+                updated_by=current_user.id,
+                **model.model_dump(),
+            )
+        )
 
     await db.commit()
-    return ImportResponse(imported=len(rows), replaced=replace)
+    return ImportResponse(imported=len(validated), replaced=replace)
