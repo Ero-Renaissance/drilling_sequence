@@ -35,8 +35,8 @@ describe("ActivityGrid", () => {
     renderGrid();
     await waitFor(() => {
       expect(screen.getByText(/activity type/i)).toBeInTheDocument();
-      expect(screen.getByText(/well name/i)).toBeInTheDocument();
-      expect(screen.getByText(/rig name/i)).toBeInTheDocument();
+      expect(screen.getByText("Well")).toBeInTheDocument();
+      expect(screen.getByText("Rig")).toBeInTheDocument();
     });
   });
 

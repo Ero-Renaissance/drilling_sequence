@@ -40,8 +40,8 @@ describe("ReadinessGrid", () => {
   it("shows BUD as Completed for Oil Development row", async () => {
     renderGrid();
     await waitFor(() => screen.getByText("Oil Development"));
-    // The mock sets BUD=Completed for act-001 — check mark symbol rendered
-    const completedCells = screen.getAllByTitle("Completed");
+    // Each cell's title is "<code>: <status>" (e.g. "BUD: Completed").
+    const completedCells = screen.getAllByTitle(/: Completed$/);
     expect(completedCells.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -54,25 +54,22 @@ describe("ReadinessGrid", () => {
 
   it("shows per-row completion count", async () => {
     renderGrid();
-    // 1 completed / 7 effective for Oil Development row
+    // 1 completed / 8 effective (8 check codes, none N/A) for Oil Development row
     await waitFor(() => {
-      expect(screen.getByText("1/7")).toBeInTheDocument();
+      expect(screen.getByText("1/8")).toBeInTheDocument();
     });
   });
 
-  it("cycles status when cell is clicked", async () => {
+  it("changes status via the dropdown picker", async () => {
     renderGrid();
     await waitFor(() => screen.getByText("Gas Development"));
 
-    // LLI cells for Gas Development row are all "Not Started" (—)
-    const notStartedButtons = screen.getAllByTitle("Not Started");
-    const firstNotStarted = notStartedButtons[0];
+    // Open a "Not Started" cell's picker and choose "In Progress".
+    await userEvent.click(screen.getAllByTitle(/: Not Started$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /In Progress/i }));
 
-    await userEvent.click(firstNotStarted);
-
-    // Should now show "In Progress"
     await waitFor(() => {
-      expect(screen.getAllByTitle("In Progress").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByTitle(/: In Progress$/).length).toBeGreaterThanOrEqual(1);
     });
   });
 

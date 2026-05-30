@@ -27,8 +27,10 @@ describe("ProjectCard", () => {
   });
 
   it("shows member count", () => {
-    renderCard();
-    expect(screen.getByText("1 member")).toBeInTheDocument();
+    // The count and label render as siblings (<span>1</span> member), so assert
+    // on the combined text content rather than a single element.
+    const { container } = renderCard();
+    expect(container.textContent).toMatch(/1\s*members?/i);
   });
 
   it("calls onArchive with the project id when archive button clicked", () => {

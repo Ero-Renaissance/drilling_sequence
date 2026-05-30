@@ -51,10 +51,10 @@ describe("RevisionList", () => {
     });
   });
 
-  it("shows Sign & Approve button for pending revision", async () => {
+  it("shows Review button for pending revision", async () => {
     renderList();
     await waitFor(() => {
-      expect(screen.getByTestId("sign-revision")).toBeInTheDocument();
+      expect(screen.getByTestId("review-revision")).toBeInTheDocument();
     });
   });
 
@@ -74,15 +74,14 @@ describe("RevisionList", () => {
     });
   });
 
-  it("signs a revision and shows approved status", async () => {
+  it("review button links to the revision detail page", async () => {
+    // Signing moved off the list into the review-then-decide detail page; the
+    // list's affordance is a link to that page.
     renderList();
-    await waitFor(() => screen.getByTestId("sign-revision"));
-
-    await userEvent.click(screen.getByTestId("sign-revision"));
-
-    await waitFor(() => {
-      expect(screen.getByText(/approved/i)).toBeInTheDocument();
-    });
+    const reviewLink = await screen.findByTestId("review-revision");
+    expect(reviewLink.getAttribute("href")).toContain(
+      `/projects/${PROJECT_ID}/revisions/`,
+    );
   });
 
   it("shows created_by_name in revision card", async () => {
@@ -95,7 +94,7 @@ describe("RevisionList", () => {
   it("shows locked activities warning when pending revision exists", async () => {
     renderList();
     await waitFor(() => {
-      expect(screen.getByText(/activities are locked/i)).toBeInTheDocument();
+      expect(screen.getByText(/activities locked/i)).toBeInTheDocument();
     });
   });
 });
