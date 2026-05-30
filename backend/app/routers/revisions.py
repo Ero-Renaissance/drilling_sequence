@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.rbac import assert_can_sign, assert_member
+from app.core.rbac import assert_can_sign, assert_can_view, assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
@@ -263,6 +263,72 @@ async def _resolve_diff_side(
     }
 
 
+async def _resolve_last_approved_baseline(
+    project_id: uuid.UUID, cutoff: int | None, db: AsyncSession
+) -> tuple[list[dict], dict, str]:
+    """Resolve the most recent APPROVED baseline to diff against, plus how to match
+    activities to it. Returns (snapshot, side-descriptor, match_by).
+
+    Resolution order:
+      1. the latest approved revision in this project older than `cutoff`
+         (a rev_number; None means "latest overall") → match activities by id;
+      2. else the latest approved revision of the project this one was cloned from
+         → match by lineage (activities carry lineage across the clone);
+      3. else an empty baseline — everything reads as added (first approval).
+    """
+    stmt = select(Revision).where(
+        Revision.project_id == project_id,
+        Revision.status == "approved",
+    )
+    if cutoff is not None:
+        stmt = stmt.where(Revision.rev_number < cutoff)
+    rev = (
+        await db.execute(stmt.order_by(Revision.rev_number.desc()).limit(1))
+    ).scalar_one_or_none()
+    if rev is not None:
+        return (
+            json.loads(rev.snapshot_json),
+            {
+                "kind": "revision",
+                "revision_id": str(rev.id),
+                "rev_number": rev.rev_number,
+                "label": rev.label,
+            },
+            "id",
+        )
+
+    project = await db.get(Project, project_id)
+    parent_id = project.cloned_from_project_id if project else None
+    if parent_id is not None:
+        parent_rev = (
+            await db.execute(
+                select(Revision)
+                .where(
+                    Revision.project_id == parent_id,
+                    Revision.status == "approved",
+                )
+                .order_by(Revision.rev_number.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if parent_rev is not None:
+            parent = await db.get(Project, parent_id)
+            label = f"{parent.name} · {parent_rev.label}" if parent else parent_rev.label
+            return (
+                json.loads(parent_rev.snapshot_json),
+                {
+                    "kind": "revision",
+                    "revision_id": str(parent_rev.id),
+                    "rev_number": parent_rev.rev_number,
+                    "label": label,
+                    "project_id": str(parent_id),
+                },
+                "lineage",
+            )
+
+    return [], {"kind": "none"}, "id"
+
+
 @router.get("/compare", response_model=RevisionDiffResponse)
 async def compare_revisions(
     project_id: uuid.UUID,
@@ -274,7 +340,7 @@ async def compare_revisions(
     """Diff two snapshots of a project. `base` and `target` are each a revision
     UUID or the literal "live" (the current working plan). `base` is the older
     side; `target` defaults to the live plan."""
-    await assert_member(project_id, current_user, db)
+    await assert_can_view(project_id, current_user, db)
     base_snapshot, base_side = await _resolve_diff_side(project_id, base, db)
     target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
     diff = diff_snapshots(base_snapshot, target_snapshot)
@@ -297,11 +363,40 @@ async def cross_compare(
     UUID within that project or the literal "live". Activities are matched by
     lineage (carried across clones), so a rig reassigned to another well reads
     as a modified field rather than add+remove."""
-    await assert_member(project_id, current_user, db)
-    await assert_member(base_project_id, current_user, db)
+    await assert_can_view(project_id, current_user, db)
+    await assert_can_view(base_project_id, current_user, db)
     base_snapshot, base_side = await _resolve_diff_side(base_project_id, base, db)
     target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
     diff = diff_snapshots(base_snapshot, target_snapshot, match_by="lineage")
+    return RevisionDiffResponse.model_validate(
+        {"base": base_side, "target": target_side, **diff}
+    )
+
+
+@router.get("/changes-since-approved", response_model=RevisionDiffResponse)
+async def changes_since_approved(
+    project_id: uuid.UUID,
+    target: str = "live",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RevisionDiffResponse:
+    """Diff `target` (a revision UUID, or the literal "live") against the most
+    recent approved baseline — resolved server-side so callers don't have to find
+    it themselves. Powers the approver's "what changed since the last approval"
+    view and the planner's "live vs last approved" pre-submit check.
+
+    Baseline: the latest approved revision in this project older than `target`;
+    failing that, the latest approved revision of the project this one was cloned
+    from (matched by lineage); failing that, an empty baseline (everything added).
+    """
+    await assert_can_view(project_id, current_user, db)
+
+    target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
+    cutoff = target_side.get("rev_number")  # None when target == "live"
+    base_snapshot, base_side, match_by = await _resolve_last_approved_baseline(
+        project_id, cutoff, db
+    )
+    diff = diff_snapshots(base_snapshot, target_snapshot, match_by=match_by)
     return RevisionDiffResponse.model_validate(
         {"base": base_side, "target": target_side, **diff}
     )

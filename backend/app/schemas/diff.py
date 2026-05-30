@@ -26,11 +26,14 @@ class ActivityDiff(BaseModel):
 
 
 class DiffSide(BaseModel):
-    # "revision" | "live"
+    # "revision" | "live" | "none" (no prior approved baseline)
     kind: str
     revision_id: str | None = None
     rev_number: int | None = None
     label: str | None = None
+    # Set when the baseline lives in another project (the clone parent), so the UI
+    # can show which sequence it came from.
+    project_id: str | None = None
 
 
 class DiffSummary(BaseModel):

@@ -38,6 +38,37 @@ async def assert_member(
         )
 
 
+async def assert_can_view(
+    project_id: uuid.UUID, user: User, db: AsyncSession
+) -> None:
+    """Read access to a project's plan and revision diffs.
+
+    Broader than membership on purpose: a designated approver is matched by email
+    and may not be a ProjectMember, yet must be able to review the changes they're
+    being asked to approve. Allowed: a global admin, a designated approver
+    (by lowercased email), or any project member (including a viewer).
+    """
+    if user.is_admin:
+        return
+    if user.email:
+        approver = await db.execute(
+            select(ProjectApprover).where(
+                ProjectApprover.project_id == project_id,
+                ProjectApprover.email == user.email.lower(),
+            )
+        )
+        if approver.scalar_one_or_none() is not None:
+            return
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user.id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+
 async def assert_can_sign(
     project_id: uuid.UUID, user: User, db: AsyncSession
 ) -> None:

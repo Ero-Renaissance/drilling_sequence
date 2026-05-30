@@ -26,10 +26,12 @@ export interface ActivityDiff {
 }
 
 export interface DiffSide {
-  kind: "revision" | "live";
+  kind: "revision" | "live" | "none";
   revision_id: string | null;
   rev_number: number | null;
   label: string | null;
+  /** Set when the baseline lives in another project (the clone parent). */
+  project_id?: string | null;
 }
 
 export interface DiffSummary {
@@ -96,6 +98,30 @@ export async function crossCompareProjects(
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ detail: resp.statusText }));
     const msg = typeof body.detail === "string" ? body.detail : "Failed to compare schedules";
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+/**
+ * Diff `target` (a revision id, or "live") against the most recent APPROVED
+ * baseline — resolved server-side: this project's last approved revision, else
+ * the clone parent's, else none. Powers the approver's "what changed since the
+ * last approval" view and the planner's "live vs last approved" pre-submit check.
+ */
+export async function changesSinceApproved(
+  projectId: string,
+  target: string = "live",
+): Promise<RevisionDiff> {
+  const token = await getAccessToken();
+  const params = new URLSearchParams({ target });
+  const resp = await fetch(
+    `/api/projects/${projectId}/revisions/changes-since-approved?${params}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
+    const msg = typeof body.detail === "string" ? body.detail : "Failed to load changes";
     throw new Error(msg);
   }
   return resp.json();

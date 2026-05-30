@@ -2,11 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { GitCompare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  changesSinceApproved,
   compareRevisions,
   type RevisionDiff as RevisionDiffData,
 } from "@/api/compare";
 import type { Revision } from "@/api/revisions";
 import { ActivityDiffList, LIVE_REF, optionLabel, sideLabel, SummaryBar } from "./diff-shared";
+
+// Sentinel base ref: let the server resolve the most recent approved baseline
+// (this project's last approved revision, else the clone parent's).
+const APPROVED_REF = "approved";
 
 // ── Main component ──────────────────────────────────────────────────────────────
 
@@ -29,20 +34,16 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
     [revisions, target.id],
   );
 
-  // Default base = the most recent revision older than this one.
-  const defaultBase = useMemo(
-    () => candidates.find((r) => r.rev_number < target.rev_number) ?? candidates[0],
-    [candidates, target.rev_number],
-  );
-
-  const [baseRef, setBaseRef] = useState<string>(defaultBase?.id ?? "");
+  // Default to the server-resolved "since last approved" baseline; the user can
+  // still pick a specific revision or the live plan from the dropdown.
+  const [baseRef, setBaseRef] = useState<string>(APPROVED_REF);
   const [diff, setDiff] = useState<RevisionDiffData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setBaseRef(defaultBase?.id ?? "");
-  }, [defaultBase?.id]);
+    setBaseRef(APPROVED_REF);
+  }, [target.id]);
 
   useEffect(() => {
     if (!baseRef) {
@@ -52,7 +53,11 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
     let cancelled = false;
     setLoading(true);
     setError(null);
-    compareRevisions(projectId, baseRef, target.id)
+    const request =
+      baseRef === APPROVED_REF
+        ? changesSinceApproved(projectId, target.id)
+        : compareRevisions(projectId, baseRef, target.id);
+    request
       .then((d) => !cancelled && setDiff(d))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to compare"))
       .finally(() => !cancelled && setLoading(false));
@@ -79,6 +84,7 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
           onChange={(e) => setBaseRef(e.target.value)}
           className="rounded-md border border-border bg-background px-2 py-1 text-sm"
         >
+          <option value={APPROVED_REF}>Last approved revision</option>
           {candidates.map((r) => (
             <option key={r.id} value={r.id}>
               {optionLabel(r)}
@@ -102,6 +108,11 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
 
       {diff && !loading && (
         <>
+          {diff.base.kind === "none" && (
+            <p className="text-xs text-muted-foreground">
+              No prior approved revision — showing the full plan as new.
+            </p>
+          )}
           <SummaryBar diff={diff} />
           {diff.activities.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
