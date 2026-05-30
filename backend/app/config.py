@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # checks below. Anything other than "production" is treated as a dev/test environment.
     environment: str = "development"
 
+    # Root log level for the application logger (DEBUG/INFO/WARNING/ERROR).
+    log_level: str = "INFO"
+
     azure_tenant_id: str = ""
     azure_client_id: str = ""
 

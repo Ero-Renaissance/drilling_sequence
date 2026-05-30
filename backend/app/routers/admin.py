@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Annotated
 
@@ -10,6 +11,8 @@ from app.database import get_db
 from app.models.project import ProjectMember
 from app.models.user import User
 from app.schemas.admin import AdminUserResponse, AdminUserUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -63,9 +66,23 @@ async def update_user(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    previous = user.is_admin
     user.is_admin = payload.is_admin
     await db.commit()
     await db.refresh(user)
+
+    # Global admin changes are high-privilege and rare; record a defensible,
+    # server-side trail (the project-scoped audit log can't hold a global event).
+    if previous != user.is_admin:
+        logger.info(
+            "admin_privilege_change actor=%s actor_id=%s target=%s target_id=%s is_admin=%s->%s",
+            admin.email,
+            admin.id,
+            user.email,
+            user.id,
+            previous,
+            user.is_admin,
+        )
 
     count = (
         await db.execute(

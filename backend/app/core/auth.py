@@ -8,6 +8,7 @@ Production:                Bearer token is validated against Azure AD via fastap
 Tests override get_current_user via app.dependency_overrides — no token needed.
 """
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -25,6 +26,23 @@ _DEV_CLAIMS = {
 }
 
 
+@lru_cache(maxsize=1)
+def _azure_scheme():
+    """Build the Azure AD bearer validator once and reuse it.
+
+    The validator lazily fetches and caches the tenant's OpenID config + JWKS on
+    its instance, so constructing it per request would defeat that cache and hit
+    Azure AD on every authenticated call. lru_cache pins a single instance for the
+    process; it does not cache the ImportError, so an unconfigured install retries.
+    """
+    from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer  # type: ignore
+
+    return SingleTenantAzureAuthorizationCodeBearer(
+        app_client_id=settings.azure_client_id,
+        tenant_id=settings.azure_tenant_id,
+    )
+
+
 async def _extract_claims(request: Request) -> dict:
     """Return token claims dict. In dev mode returns fixed dev claims."""
     if settings.dev_mode:
@@ -34,29 +52,22 @@ async def _extract_claims(request: Request) -> dict:
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    token = auth_header.removeprefix("Bearer ")
-
     try:
-        from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer  # type: ignore
-
-        # fastapi-azure-auth validates the token and populates request.state.user.
-        # We call it here so the claims flow through our user-upsert logic.
-        azure_scheme = SingleTenantAzureAuthorizationCodeBearer(
-            app_client_id=settings.azure_client_id,
-            tenant_id=settings.azure_tenant_id,
-        )
-        user_claims = await azure_scheme(request)  # raises 401 on invalid token
-        return {
-            "oid": user_claims.oid,
-            "name": user_claims.name,
-            "preferred_username": user_claims.preferred_username,
-            "roles": getattr(user_claims, "roles", None) or [],
-        }
+        azure_scheme = _azure_scheme()
     except ImportError:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="fastapi-azure-auth is not installed",
         )
+
+    # fastapi-azure-auth validates the token signature, audience, and expiry.
+    user_claims = await azure_scheme(request)  # raises 401 on invalid token
+    return {
+        "oid": user_claims.oid,
+        "name": user_claims.name,
+        "preferred_username": user_claims.preferred_username,
+        "roles": getattr(user_claims, "roles", None) or [],
+    }
 
 
 def _resolve_admin(email: str, claims: dict) -> bool:

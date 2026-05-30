@@ -1,8 +1,10 @@
+import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import Base, engine, _is_sqlite
@@ -24,6 +26,12 @@ from app.routers import (
     revisions,
     viewers,
 )
+
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("app")
 
 
 @asynccontextmanager
@@ -51,6 +59,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Last-resort handler for unexpected errors: log the full detail server-side
+    but return a generic message so stack traces / internals never reach the client.
+    HTTPException and request-validation errors are handled by FastAPI before they
+    reach here, so their specific status codes and messages are preserved."""
+    logger.exception("Unhandled error during %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 app.include_router(auth.router)
 app.include_router(me.router)
