@@ -229,6 +229,17 @@ async def test_viewer_member_cannot_update_project(
 
 
 @pytest.mark.asyncio
+async def test_clone_records_source_project(client: AsyncClient) -> None:
+    source = await _create_project(client, name="North Sea Q1")
+    assert source["cloned_from_project_id"] is None
+
+    clone = (
+        await client.post(f"/api/projects/{source['id']}/clone", json={"name": "North Sea Q2"})
+    ).json()
+    assert clone["cloned_from_project_id"] == source["id"]
+
+
+@pytest.mark.asyncio
 async def test_viewer_member_cannot_clone_project(
     client: AsyncClient, other_client: AsyncClient, db: AsyncSession
 ) -> None:

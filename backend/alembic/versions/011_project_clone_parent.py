@@ -1,0 +1,43 @@
+"""Add projects.cloned_from_project_id (clone-parent link)
+
+Revision ID: 011
+Revises: 010
+Create Date: 2026-05-30
+"""
+
+from alembic import op
+import sqlalchemy as sa
+
+
+revision = "011"
+down_revision = "010"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        "projects",
+        sa.Column("cloned_from_project_id", sa.Uuid(), nullable=True),
+    )
+    op.create_index(
+        "ix_projects_cloned_from_project_id",
+        "projects",
+        ["cloned_from_project_id"],
+    )
+    op.create_foreign_key(
+        "fk_projects_cloned_from_project_id",
+        "projects",
+        "projects",
+        ["cloned_from_project_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
+
+
+def downgrade() -> None:
+    op.drop_constraint(
+        "fk_projects_cloned_from_project_id", "projects", type_="foreignkey"
+    )
+    op.drop_index("ix_projects_cloned_from_project_id", table_name="projects")
+    op.drop_column("projects", "cloned_from_project_id")

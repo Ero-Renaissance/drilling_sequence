@@ -137,6 +137,7 @@ async def clone_project(
         field=payload.field if payload.field is not None else source.field,
         region=payload.region if payload.region is not None else source.region,
         created_by=current_user.id,
+        cloned_from_project_id=source.id,
     )
     db.add(clone)
     await db.flush()  # get clone.id

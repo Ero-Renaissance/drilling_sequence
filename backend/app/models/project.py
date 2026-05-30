@@ -35,6 +35,13 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Set when this project was created by cloning another (e.g. Q2 cloned from
+    # Q1). Lets quarter-to-quarter comparison resolve the prior sequence without
+    # the caller having to hunt for it. SET NULL so deleting the source doesn't
+    # cascade away the clone.
+    cloned_from_project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     members: Mapped[list["ProjectMember"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", lazy="selectin"

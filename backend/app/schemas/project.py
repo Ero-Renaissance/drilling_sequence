@@ -74,6 +74,7 @@ class ProjectResponse(BaseModel):
     status: ProjectStatus
     created_by: uuid.UUID
     created_at: datetime
+    cloned_from_project_id: uuid.UUID | None = None
     members: list[ProjectMemberResponse] = []
 
     model_config = {"from_attributes": True}
@@ -88,5 +89,6 @@ class ProjectResponse(BaseModel):
             status=project.status,
             created_by=project.created_by,
             created_at=project.created_at,
+            cloned_from_project_id=project.cloned_from_project_id,
             members=[ProjectMemberResponse.from_member(m) for m in project.members],
         )
