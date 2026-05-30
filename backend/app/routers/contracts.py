@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.locks import assert_project_not_locked
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.project import ProjectRole
@@ -41,6 +42,9 @@ async def upsert_contract(
     db: DB,
 ) -> RigContract:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # CON readiness derives from the rig contract — freeze it while a revision is
+    # awaiting approval so the snapshot under review can't shift underneath it.
+    await assert_project_not_locked(project_id, db)
 
     if not rig_name.strip():
         raise HTTPException(
@@ -87,6 +91,7 @@ async def delete_contract(
     db: DB,
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await assert_project_not_locked(project_id, db)
 
     result = await db.execute(
         select(RigContract).where(

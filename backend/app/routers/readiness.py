@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.locks import ensure_activity_unlocked
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
@@ -177,8 +178,12 @@ async def upsert_readiness_check(
             Activity.project_id == project_id,
         )
     )
-    if act_result.scalar_one_or_none() is None:
+    activity = act_result.scalar_one_or_none()
+    if activity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
+
+    # Readiness state is part of the snapshot under approval — freeze it too.
+    ensure_activity_unlocked(activity)
 
     check_result = await db.execute(
         select(ReadinessCheck).where(

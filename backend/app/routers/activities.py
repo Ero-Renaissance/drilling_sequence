@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.locks import assert_project_not_locked, ensure_activity_unlocked
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
@@ -79,6 +80,8 @@ async def update_activity(
     if activity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
 
+    ensure_activity_unlocked(activity)
+
     # ── Optimistic lock check ──────────────────────────────────────────────────
     if payload.expected_updated_at is not None:
         db_ts = _normalize_ts(activity.updated_at)
@@ -134,6 +137,8 @@ async def _set_completion(
     if activity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
 
+    ensure_activity_unlocked(activity)
+
     new_value = datetime.now(timezone.utc) if completed else None
     db.add(AuditLog(
         project_id=project_id,
@@ -182,6 +187,8 @@ async def delete_activity(
     activity = result.scalar_one_or_none()
     if activity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
+
+    ensure_activity_unlocked(activity)
     await db.delete(activity)
     await db.commit()
 
@@ -225,6 +232,10 @@ async def import_activities(
     existing schedule (replace mode) or leaves a partial import behind.
     """
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+
+    # A bulk import would delete/replace activities that may be frozen under a
+    # pending revision — refuse while any are locked.
+    await assert_project_not_locked(project_id, db)
 
     content = await file.read()
     filename = file.filename or ""
