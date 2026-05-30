@@ -1,5 +1,12 @@
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.project import ProjectMember, ProjectRole
+from app.models.user import User
 
 
 # ---------------------------------------------------------------------------
@@ -11,6 +18,15 @@ async def _create_project(client: AsyncClient, name: str = "North Sea Campaign",
     response = await client.post("/api/projects", json=payload)
     assert response.status_code == 201, response.text
     return response.json()
+
+
+async def _materialize_other_user(other_client: AsyncClient, db: AsyncSession) -> User:
+    """Force the second client's User row to be created, then return it so a test
+    can set is_admin or attach a ProjectMember row directly."""
+    await other_client.get("/api/projects")  # auth dependency upserts the user
+    return (
+        await db.execute(select(User).where(User.email == "other@company.com"))
+    ).scalar_one()
 
 
 # ---------------------------------------------------------------------------
@@ -163,3 +179,72 @@ async def test_archive_project_other_user_denied(
     project = await _create_project(client, name="Protected Project")
     response = await other_client.delete(f"/api/projects/{project['id']}")
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# RBAC: admin bypass + role gating (assert_member delegation)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_admin_can_access_non_member_project(
+    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+) -> None:
+    """A global admin reaches a project they are not a member of (assert_member bypass)."""
+    project = await _create_project(client, name="Admin Visible")
+    other = await _materialize_other_user(other_client, db)
+    other.is_admin = True
+    await db.commit()
+
+    # Read and write both succeed despite no membership row.
+    assert (await other_client.get(f"/api/projects/{project['id']}")).status_code == 200
+    patched = await other_client.patch(
+        f"/api/projects/{project['id']}", json={"name": "Renamed by Admin"}
+    )
+    assert patched.status_code == 200
+    assert patched.json()["name"] == "Renamed by Admin"
+
+
+@pytest.mark.asyncio
+async def test_viewer_member_cannot_update_project(
+    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+) -> None:
+    """A viewer member can read but is blocked from the planner-only update path —
+    exercising the allowed_roles branch distinctly from the non-member branch."""
+    project = await _create_project(client, name="Role Gated")
+    other = await _materialize_other_user(other_client, db)
+    db.add(
+        ProjectMember(
+            project_id=uuid.UUID(project["id"]),
+            user_id=other.id,
+            role=ProjectRole.viewer,
+        )
+    )
+    await db.commit()
+
+    assert (await other_client.get(f"/api/projects/{project['id']}")).status_code == 200
+    blocked = await other_client.patch(
+        f"/api/projects/{project['id']}", json={"name": "Nope"}
+    )
+    assert blocked.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_viewer_member_cannot_clone_project(
+    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+) -> None:
+    """Cloning is a planner-only action — a viewer of the source cannot spin off a copy."""
+    project = await _create_project(client, name="Source Campaign")
+    other = await _materialize_other_user(other_client, db)
+    db.add(
+        ProjectMember(
+            project_id=uuid.UUID(project["id"]),
+            user_id=other.id,
+            role=ProjectRole.viewer,
+        )
+    )
+    await db.commit()
+
+    blocked = await other_client.post(
+        f"/api/projects/{project['id']}/clone", json={"name": "Q2 Copy"}
+    )
+    assert blocked.status_code == 403

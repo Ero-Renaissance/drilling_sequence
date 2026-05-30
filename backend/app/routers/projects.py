@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
+from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
@@ -33,32 +34,25 @@ async def _get_project_for_user(
     project_id: uuid.UUID,
     user: User,
     db: AsyncSession,
-    require_role: list[ProjectRole] | None = None,
+    allowed_roles: set[ProjectRole] | None = None,
 ) -> Project:
-    """Fetch a project the user has access to. Raises 404 if not found, 403 if role check fails."""
+    """Load a project the user is authorized to act on.
+
+    Existence is checked first (404 if missing), then authorization is delegated
+    to the shared `assert_member` helper (403 for a non-member or insufficient
+    role). This keeps a single source of truth for the membership/role check while
+    still returning the eager-loaded project for the response.
+    """
     result = await db.execute(
         select(Project)
         .where(Project.id == project_id)
         .options(selectinload(Project.members).selectinload(ProjectMember.user))
     )
     project = result.scalar_one_or_none()
-
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    if user.is_admin:
-        return project
-
-    member = next((m for m in project.members if m.user_id == user.id), None)
-    if member is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-
-    if require_role and member.role not in require_role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"This action requires one of: {[r.value for r in require_role]}",
-        )
-
+    await assert_member(project_id, user, db, allowed_roles=allowed_roles)
     return project
 
 
@@ -132,8 +126,11 @@ async def clone_project(
     """Create a new project from an existing one — copies activities, their
     readiness checks, and the required-approver list. Revision/signature history
     is NOT copied; the clone starts a fresh approval cycle. Activity dates are
-    kept as-is. The current user becomes the Planner of the clone."""
-    source = await _get_project_for_user(project_id, current_user, db)
+    kept as-is. The current user becomes the Planner of the clone. Restricted to a
+    Planner on the source project."""
+    source = await _get_project_for_user(
+        project_id, current_user, db, allowed_roles={ProjectRole.planner}
+    )
 
     clone = Project(
         name=payload.name,
@@ -288,7 +285,7 @@ async def update_project(
 ) -> ProjectResponse:
     """Update project metadata. Restricted to Planner role."""
     project = await _get_project_for_user(
-        project_id, current_user, db, require_role=[ProjectRole.planner]
+        project_id, current_user, db, allowed_roles={ProjectRole.planner}
     )
 
     if payload.name is not None:
@@ -311,7 +308,7 @@ async def archive_project(
 ) -> None:
     """Archive a project (soft delete). Restricted to Planner role."""
     project = await _get_project_for_user(
-        project_id, current_user, db, require_role=[ProjectRole.planner]
+        project_id, current_user, db, allowed_roles={ProjectRole.planner}
     )
     project.status = ProjectStatus.archived
     await db.commit()
