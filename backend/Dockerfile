@@ -4,8 +4,10 @@ WORKDIR /app
 
 RUN pip install uv
 
-COPY pyproject.toml .
-RUN uv pip install --system .
+# Install the locked, fully-pinned dependency set (reproducible builds for IT
+# review). The app package itself isn't pip-installed — it runs from WORKDIR.
+COPY pyproject.toml requirements.txt ./
+RUN uv pip install --system -r requirements.txt
 
 COPY . .
 
