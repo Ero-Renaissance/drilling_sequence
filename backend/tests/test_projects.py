@@ -240,6 +240,22 @@ async def test_clone_records_source_project(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_clone_copies_rig_contracts(client: AsyncClient) -> None:
+    source = await _create_project(client, name="Q1")
+    await client.put(
+        f"/api/projects/{source['id']}/contracts/RigAlpha", json={"status": "In Progress"}
+    )
+
+    clone = (
+        await client.post(f"/api/projects/{source['id']}/clone", json={"name": "Q2"})
+    ).json()
+    contracts = (await client.get(f"/api/projects/{clone['id']}/contracts")).json()
+    assert any(
+        c["rig_name"] == "RigAlpha" and c["status"] == "In Progress" for c in contracts
+    )
+
+
+@pytest.mark.asyncio
 async def test_viewer_member_cannot_clone_project(
     client: AsyncClient, other_client: AsyncClient, db: AsyncSession
 ) -> None:

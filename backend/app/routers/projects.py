@@ -14,6 +14,7 @@ from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
 from app.models.readiness import ReadinessCheck
+from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.audit import AuditEntryResponse
 from app.schemas.project import (
@@ -209,6 +210,27 @@ async def clone_project(
                     notes=check.notes,
                 )
             )
+
+    # Carry the rig contracts over so the new quarter starts from the same
+    # contract state — otherwise the clone has no contracts, CON readiness reads
+    # as unset, and cross-quarter comparison reports every rig as "removed".
+    source_contracts = (
+        await db.execute(
+            select(RigContract).where(RigContract.project_id == project_id)
+        )
+    ).scalars().all()
+    for contract in source_contracts:
+        db.add(
+            RigContract(
+                project_id=clone.id,
+                rig_name=contract.rig_name,
+                status=contract.status,
+                contract_start=contract.contract_start,
+                contract_end=contract.contract_end,
+                notes=contract.notes,
+                updated_by=current_user.id,
+            )
+        )
 
     # Copy the required-approver list.
     source_approvers = (
