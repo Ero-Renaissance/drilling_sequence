@@ -35,12 +35,14 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    // print: drop the fixed-height/overflow-hidden shell so the document flows
+    // and paginates instead of being clipped to ~screen height.
+    <div className="flex h-screen overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden print:block print:overflow-visible">
         <Header />
-        <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-[1600px] p-6 lg:p-8">
+        <main className="flex-1 overflow-auto print:overflow-visible">
+          <div className="mx-auto max-w-[1600px] p-6 lg:p-8 print:max-w-none print:p-0">
             <Outlet />
           </div>
         </main>

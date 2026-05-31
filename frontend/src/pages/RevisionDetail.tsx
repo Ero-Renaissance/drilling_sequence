@@ -643,12 +643,11 @@ export function RevisionDetail() {
         <RevisionDiff projectId={projectId!} target={revision} revisions={revisions} />
       </div>
 
-      {/* Schedule snapshot — Gantt (with readiness icons) + collapsible detail.
-          Starts on a fresh page in print so page 1 reads as the approval record
-          (header · metadata · decision · signatures) and the schedule follows.
-          No break-inside-avoid: the chart + legend + table are taller than a page,
-          so they must be allowed to paginate rather than clip. */}
-      <div className="space-y-3 print:break-before-page">
+      {/* Schedule snapshot — Gantt + legend. Flows naturally in print (no forced
+          page break, no break-inside-avoid) so it paginates without clipping. The
+          export deliberately carries only the approval record + chart + legend;
+          the tabular detail is screen-only. */}
+      <div className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">Schedule snapshot</h2>
         {snapshotActivities.length > 0 ? (
           <DrillChart
@@ -660,7 +659,11 @@ export function RevisionDetail() {
             No activities in this snapshot.
           </div>
         )}
-        {snapshotActivities.length > 0 && <TabularDetail rows={snapshot} />}
+        {snapshotActivities.length > 0 && (
+          <div className="print:hidden">
+            <TabularDetail rows={snapshot} />
+          </div>
+        )}
       </div>
 
       <DecisionDialog
