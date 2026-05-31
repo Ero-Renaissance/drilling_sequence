@@ -110,9 +110,8 @@ Hidden when count = 0 (so an empty watchlist visibly means "all clear").
   **completed-this-quarter** (this project's `completed_at` count) and **overdue**
   (adherence — §4b). The drop is safe for
   reporting: completed activities persist in the prior (archived, not deleted)
-  quarterly projects, so the lineage retains full history — **completed YTD** and a
-  real cumulative campaign % are lineage aggregations across `cloned_from_project_id`
-  (§4e).
+  quarterly projects, so the lineage retains full history — **completed YTD** is a
+  lineage aggregation across `cloned_from_project_id` (§4e).
 - **Rig idle days** (per rig): order that rig's activities by `start_date`; sum the
   positive gaps between each activity's `end_date` and the next `start_date`.
   `busy_days` = sum of activity durations (no overlap to dedupe — conflicts are
@@ -135,9 +134,14 @@ project can't (completed activities live in the *prior* projects they were close
   summed across this year's lineage projects (≤4 quarters → bounded walk). Each
   completed activity lives in exactly one project, so no double-counting.
   *(Delivered — hero tile, §4a.)*
-- **Cumulative campaign progress** — total activities completed across all quarters
-  vs the original baseline plan size → a real "% of the 10-year plan delivered."
-  *(Backlog — overview/dashboard metric.)*
+
+> **Cumulative campaign progress (% of the 10-year plan delivered) is dropped.**
+> It needs a stable denominator — the original baseline plan size — but the
+> planner extends the 10-year horizon every quarter, so the denominator keeps
+> growing and the percentage drifts (and can fall even as work is delivered).
+> Without an agreed fixed baseline the number would mislead more than inform.
+> Completed-YTD (above) already gives a defensible delivery signal. Revisit only
+> if users ask for it *and* we settle on a frozen baseline to measure against.
 
 > **vs-last-quarter deltas live in the Compare tab, not here.** Comparison (this
 > quarter vs its lineage parent) is the Compare tab's job — it already resolves the
