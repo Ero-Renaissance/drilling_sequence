@@ -134,10 +134,18 @@ project can't (completed activities live in the *prior* projects they were close
 - **Completed YTD** — activities with `completed_at` in `[Jan 1 this year, today]`,
   summed across this year's lineage projects (≤4 quarters → bounded walk). Each
   completed activity lives in exactly one project, so no double-counting.
+  *(Delivered — hero tile, §4a.)*
 - **Cumulative campaign progress** — total activities completed across all quarters
   vs the original baseline plan size → a real "% of the 10-year plan delivered."
-- **vs-last-quarter deltas** — readiness %, activity count, overdue (▲/▼) vs the
-  immediate parent. Only when a parent exists.
+  *(Backlog — overview/dashboard metric.)*
+
+> **vs-last-quarter deltas live in the Compare tab, not here.** Comparison (this
+> quarter vs its lineage parent) is the Compare tab's job — it already resolves the
+> parent and diffs Q→Q. The summary deltas (activity count, readiness %) are headline
+> numbers *on that comparison*, shown as a strip above the diff. Keeping them there
+> avoids a split-brain IA and duplicated lineage logic. (Overdue is omitted from the
+> cross-quarter deltas: last quarter's plan is naturally all past-due, so the delta
+> isn't meaningful.)
 
 ---
 

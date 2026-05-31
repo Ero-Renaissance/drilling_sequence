@@ -41,6 +41,11 @@ class DiffSummary(BaseModel):
     removed: int
     modified: int
     unchanged: int
+    # Headline deltas (base vs target) — drive the Compare-tab summary strip.
+    base_count: int = 0
+    target_count: int = 0
+    base_readiness_pct: int | None = None
+    target_readiness_pct: int | None = None
     base_start: str | None = None
     base_end: str | None = None
     target_start: str | None = None

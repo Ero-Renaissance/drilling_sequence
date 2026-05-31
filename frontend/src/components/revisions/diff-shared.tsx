@@ -58,6 +58,11 @@ export function SummaryBar({ diff }: { diff: RevisionDiffData }) {
     { label: "Removed", value: s.removed, tone: "text-red-600 dark:text-red-400" },
     { label: "Unchanged", value: s.unchanged, tone: "text-muted-foreground" },
   ];
+  const countDelta = s.target_count - s.base_count;
+  const readinessDelta =
+    s.base_readiness_pct !== null && s.target_readiness_pct !== null
+      ? s.target_readiness_pct - s.base_readiness_pct
+      : null;
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -94,6 +99,37 @@ export function SummaryBar({ diff }: { diff: RevisionDiffData }) {
             {signed(s.duration_shift_days)}
           </span>
         </span>
+        <span>
+          Activities{" "}
+          <span className="font-medium tabular-nums text-foreground">{s.target_count}</span>
+          {countDelta !== 0 && (
+            <span className="ml-1 tabular-nums text-muted-foreground">
+              ({countDelta > 0 ? "+" : ""}
+              {countDelta})
+            </span>
+          )}
+        </span>
+        {s.target_readiness_pct !== null && (
+          <span>
+            Readiness{" "}
+            <span className="font-medium tabular-nums text-foreground">
+              {s.target_readiness_pct}%
+            </span>
+            {readinessDelta !== null && readinessDelta !== 0 && (
+              <span
+                className={cn(
+                  "ml-1 font-medium tabular-nums",
+                  readinessDelta > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400",
+                )}
+              >
+                {readinessDelta > 0 ? "▲" : "▼"}
+                {Math.abs(readinessDelta)}
+              </span>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );

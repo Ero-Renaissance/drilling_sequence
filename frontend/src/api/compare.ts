@@ -39,6 +39,10 @@ export interface DiffSummary {
   removed: number;
   modified: number;
   unchanged: number;
+  base_count: number;
+  target_count: number;
+  base_readiness_pct: number | null;
+  target_readiness_pct: number | null;
   base_start: string | null;
   base_end: string | null;
   target_start: string | null;

@@ -48,6 +48,19 @@ def _norm(value) -> str | None:
     return text or None
 
 
+def _readiness_pct(snapshot: list[dict]) -> int | None:
+    """Completed / applicable (non-N/A) readiness cells across the snapshot, as a %."""
+    applicable = completed = 0
+    for act in snapshot:
+        for status in (act.get("readiness") or {}).values():
+            if status == "N/A":
+                continue
+            applicable += 1
+            if status == "Completed":
+                completed += 1
+    return round(100 * completed / applicable) if applicable else None
+
+
 def _is_done(activity: dict) -> bool:
     return bool(_norm(activity.get("completed_at")))
 
@@ -251,6 +264,10 @@ def diff_snapshots(
         "removed": removed,
         "modified": modified,
         "unchanged": unchanged,
+        "base_count": len(base),
+        "target_count": len(target),
+        "base_readiness_pct": _readiness_pct(base),
+        "target_readiness_pct": _readiness_pct(target),
         "base_start": iso(base_start),
         "base_end": iso(base_end),
         "target_start": iso(target_start),
