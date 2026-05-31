@@ -72,32 +72,6 @@ interface DrillChartProps {
   onActivityClick?: (activityId: string) => void;
 }
 
-const _patternCache = new Map<string, CanvasPattern>();
-
-function makeHatchPattern(baseColor: string): CanvasPattern | string {
-  if (_patternCache.has(baseColor)) return _patternCache.get(baseColor)!;
-  try {
-    const size = 8;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return baseColor;
-    ctx.fillStyle = baseColor;
-    ctx.fillRect(0, 0, size, size);
-    ctx.strokeStyle = "rgba(255,255,255,0.45)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(-1, size / 2); ctx.lineTo(size / 2, -1); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(size / 2, size + 1); ctx.lineTo(size + 1, size / 2); ctx.stroke();
-    const pattern = ctx.createPattern(canvas, "repeat");
-    if (!pattern) return baseColor;
-    _patternCache.set(baseColor, pattern);
-    return pattern;
-  } catch {
-    return baseColor;
-  }
-}
-
 // ── Theme palettes ───────────────────────────────────────────────────────────
 
 interface ChartTheme {
@@ -241,18 +215,19 @@ export function DrillChart({
       const isConflict = item?.isConflict ?? false;
       const isCompleted = item?.isCompleted ?? false;
 
-      // Bar fill: solid family color from itemStyle, with a conflict hatch
-      // overlay when this activity participates in a rig schedule clash. We
-      // intentionally do not apply per-sub-type patterns — each activity type
-      // gets its own distinct hue in chart-colors.ts so bar + legend always
-      // match without relying on canvas pattern reliability.
+      // Bar fill: solid family color straight from itemStyle. Each activity type
+      // gets its own distinct hue in chart-colors.ts so bar + legend always match.
       // Completed activities read as "done": a neutral grey (not a dimmed
       // version of the activity-type hue, which looked like another oil shade).
-      const fill = isCompleted
-        ? theme.completedFill
-        : isConflict && typeof baseStyle.fill === "string"
-          ? makeHatchPattern(baseStyle.fill)
-          : baseStyle.fill;
+      const fill = isCompleted ? theme.completedFill : baseStyle.fill;
+
+      // A rig double-booking is physically impossible, so it must be unmissable.
+      // We outline the bar in solid red rather than overlaying a hatch pattern —
+      // a plain stroke renders reliably in every browser, whereas a canvas
+      // createPattern fill is flaky inside an ECharts custom series and can drop
+      // out (leaving an off-looking bar). Keep the activity-type fill so the bar
+      // still reads as its type; the red border is the conflict signal.
+      const conflictStroke = "#ef4444";
 
       const children: Array<Record<string, unknown>> = [
         {
@@ -261,6 +236,8 @@ export function DrillChart({
           style: {
             ...baseStyle,
             fill,
+            stroke: isConflict ? conflictStroke : undefined,
+            lineWidth: isConflict ? 2 : 0,
             shadowBlur: isCompleted ? 0 : 2,
             shadowColor: "rgba(0,0,0,0.15)",
             shadowOffsetY: 1,
@@ -515,11 +492,12 @@ export function DrillChart({
           renderItem,
           encode: { x: [1, 2], y: 0 },
           data: displayData,
-          // Disable ECharts' built-in series emphasis tinting (which was
-          // recolouring our patterned bars to a flat green on hover). We rely
-          // on the per-rect emphasis returned from renderItem for the shadow
-          // effect — that still fires because emphasis on individual elements
-          // inside a custom series is independent of series-level emphasis.
+          // Disable ECharts' built-in series emphasis tinting (which would
+          // recolour our activity-type bars to a flat green on hover and could
+          // wash out the red conflict outline). We rely on the per-rect emphasis
+          // returned from renderItem for the shadow effect — that still fires
+          // because emphasis on individual elements inside a custom series is
+          // independent of series-level emphasis.
           emphasis: { disabled: true },
           label: {
             show: true,
