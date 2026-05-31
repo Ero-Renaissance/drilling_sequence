@@ -57,7 +57,7 @@ export function CloneProjectDialog({ project }: CloneProjectDialogProps) {
       const clone = await cloneProject(project.id, values);
       setOpen(false);
       reset();
-      navigate(`/projects/${clone.id}/chart`);
+      navigate(`/projects/${clone.id}/overview`);
     } finally {
       setSubmitting(false);
     }

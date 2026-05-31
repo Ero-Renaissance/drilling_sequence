@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare } from "lucide-react";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 // PenSquare kept for the tab icon
@@ -18,6 +18,7 @@ import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDia
 import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
 import { detectRigConflicts, type RigConflict } from "@/lib/conflicts";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
+import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { ApproverSettings } from "@/components/revisions/ApproverSettings";
 import { ComparePanel } from "@/components/revisions/ComparePanel";
 import { RevisionList } from "@/components/revisions/RevisionList";
@@ -25,6 +26,7 @@ import { ProjectAuditLog } from "@/components/activity/ProjectAuditLog";
 import { ViewerStrip } from "@/components/viewers/ViewerStrip";
 
 const tabs = [
+  { to: "overview", label: "Overview", icon: LayoutDashboard },
   { to: "chart", label: "Sequence", icon: BarChart2 },
   { to: "data", label: "Activities", icon: Table2 },
   { to: "readiness", label: "Readiness", icon: CheckSquare },
@@ -292,6 +294,12 @@ export function ChartTab() {
       )}
     </div>
   );
+}
+
+export function OverviewTab() {
+  const { projectId } = useParams<{ projectId: string }>();
+  if (!projectId) return null;
+  return <ProjectDashboard projectId={projectId} />;
 }
 
 export function DataTab() {

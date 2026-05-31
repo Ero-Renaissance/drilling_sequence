@@ -241,7 +241,7 @@ export function Dashboard() {
               {activeProjects.slice(0, 5).map((project) => (
                 <li key={project.id}>
                   <Link
-                    to={`/projects/${project.id}/chart`}
+                    to={`/projects/${project.id}/overview`}
                     className="group flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-accent/40"
                   >
                     <div className="flex min-w-0 items-center gap-3">

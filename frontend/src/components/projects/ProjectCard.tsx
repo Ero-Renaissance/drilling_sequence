@@ -19,7 +19,7 @@ export function ProjectCard({ project, onArchive }: ProjectCardProps) {
   return (
     <Card
       className="group relative cursor-pointer overflow-hidden transition-all hover:-translate-y-0.5 hover:border-border hover:shadow-soft-md"
-      onClick={() => navigate(`/projects/${project.id}/chart`)}
+      onClick={() => navigate(`/projects/${project.id}/overview`)}
       data-testid="project-card"
     >
       {/* Top accent stripe */}

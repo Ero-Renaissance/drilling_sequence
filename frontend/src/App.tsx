@@ -5,6 +5,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { ProjectList } from "@/pages/ProjectList";
 import {
   ProjectDetail,
+  OverviewTab,
   ChartTab,
   DataTab,
   ReadinessTab,
@@ -41,7 +42,8 @@ export default function App() {
             }
           />
           <Route path="/projects/:projectId" element={<ProjectDetail />}>
-            <Route index element={<Navigate to="chart" replace />} />
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<OverviewTab />} />
             <Route path="chart" element={<ChartTab />} />
             <Route path="data" element={<DataTab />} />
             <Route path="readiness" element={<ReadinessTab />} />

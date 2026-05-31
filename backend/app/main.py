@@ -20,6 +20,7 @@ from app.routers import (
     approvers,
     auth,
     contracts,
+    dashboard,
     me,
     projects,
     readiness,
@@ -83,6 +84,7 @@ app.include_router(viewers.router)
 app.include_router(revisions.router)
 app.include_router(approvers.router)
 app.include_router(contracts.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/api/health")

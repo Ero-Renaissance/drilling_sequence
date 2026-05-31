@@ -54,8 +54,13 @@ Activity Log.
 
 ## 4. KPI catalog
 
-### 4a. Hero tiles (top row — the 5 MVP numbers)
+### 4a. Hero tiles (top row — the 4 MVP numbers)
 
+> **No "Plan position" tile.** A campaign-progress headline isn't meaningful from a
+> single quarterly project: cloning drops completed activities (§4d), so a count
+> resets each quarter and the span is just calendar context. Progress lives instead
+> in the activity stats (completed-this-quarter) and the lineage rollups (§4e).
+>
 > **No "Rig conflicts" tile.** Conflicts are hard-blocked at revision submission
 > (409, `detect_rig_conflicts`) and flagged on the chart (red outline + banner)
 > during drafting, so a tile would read 0 for any submittable/approved plan — low
@@ -64,11 +69,10 @@ Activity Log.
 
 | # | Tile | Definition | States (color) | Drill-through |
 |---|---|---|---|---|
-| 1 | **Plan position** | "Year X of N" on the 2026–2035 span + a timeline bar (today between min start / max end). Sub-stat: **N completed this quarter** (this project's `completed_at` count) — and **N completed YTD** via lineage (§4e, Phase 2). *No count-based "% complete" — cloning drops completed activities so it resets each quarter (§4d); true campaign % is a Phase-3 lineage rollup.* | neutral | Sequence |
-| 2 | **Readiness (focus window)** | Overall % = `Completed cells / applicable cells` across activities **starting within the focus window** (far-future readiness is expected-incomplete, so a plan-wide % is meaningless). Sub-stat: **Behind** cells. | green ≥80 / amber 50–79 / red <50 | Readiness |
-| 3 | **Approval status** | Status of the latest revision → `Draft` (none pending) / `Pending approval` / `Approved` / `Changes requested` / `Rejected`. For pending: "signed S of N". | red=Changes/Rejected, amber=Pending, green=Approved, neutral=Draft | Approvals |
-| 4 | **Rigs in use** | distinct `rig_name` among non-completed activities; sub-stat = total **idle rig-days** (gaps between consecutive jobs — §4d). | neutral | Sequence |
-| 5 | **Contracts at risk** | # of binding contracts that are `expired`+`critical`+`soon`. | red if any expired/critical, amber if soon, green if none | (contracts panel) |
+| 1 | **Readiness (focus window)** | Overall % = `Completed cells / applicable cells` across activities **starting within the focus window** (far-future readiness is expected-incomplete, so a plan-wide % is meaningless). Sub-stat: **Behind** cells. | green ≥80 / amber 50–79 / red <50 | Readiness |
+| 2 | **Approval status** | Status of the latest revision → `Draft` (none pending) / `Pending approval` / `Approved` / `Changes requested` / `Rejected`. For pending: "signed S of N". | red=Changes/Rejected, amber=Pending, green=Approved, neutral=Draft | Approvals |
+| 3 | **Rigs in use** | distinct `rig_name` among non-completed activities; sub-stat = total **idle rig-days** (gaps between consecutive jobs — §4d). | neutral | Sequence |
+| 4 | **Contracts at risk** | # of binding contracts that are `expired`+`critical`+`soon`. | red if any expired/critical, amber if soon, green if none | (contracts panel) |
 
 ### 4b. "Needs attention" watchlist (the core of the dashboard)
 
@@ -102,8 +106,8 @@ Hidden when count = 0 (so an empty watchlist visibly means "all clear").
   project: the clone drops completed activities
   (`projects.py`: `if src.completed_at is not None: continue`), so `completed` resets
   to 0 each quarter and the denominator (remaining plan) shrinks. Use instead:
-  **completed-this-quarter** (this project's `completed_at` count), **overdue**
-  (adherence — §4b), and **plan position** (calendar). The drop is safe for
+  **completed-this-quarter** (this project's `completed_at` count) and **overdue**
+  (adherence — §4b). The drop is safe for
   reporting: completed activities persist in the prior (archived, not deleted)
   quarterly projects, so the lineage retains full history — **completed YTD** and a
   real cumulative campaign % are lineage aggregations across `cloned_from_project_id`
@@ -205,7 +209,7 @@ rig-conflict and revision-diff logic on the client and re-fetch the readiness ma
 
 ## 8. Phasing
 
-- **MVP (Phase 1):** the 6 hero tiles + the watchlist + the `dashboard` endpoint.
+- **MVP (Phase 1):** the 4 hero tiles + the watchlist + the `dashboard` endpoint.
   This is the high-value core.
 - **Phase 2:** the 4 breakdown charts (doubles as the presentation view) + 30/60/90
   watchlist toggle.
