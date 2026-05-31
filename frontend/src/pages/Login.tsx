@@ -1,30 +1,47 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Gauge, Loader2, ShieldCheck } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { msalInstance, loginRequest } from "@/lib/auth";
 
+function MicrosoftIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 21 21" className={className} aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+    </svg>
+  );
+}
+
 export function Login() {
   const navigate = useNavigate();
-  const { user, loading, fetchMe } = useAuthStore();
+  const [searchParams] = useSearchParams();
+  const { user, loading, fetchMe, clear } = useAuthStore();
   const initTheme = useThemeStore((s) => s.init);
   const isDev = import.meta.env.VITE_DEV_MODE === "true";
+  // Dev-only: /login?preview lets you view this page without dev mode auto
+  // signing you in and bouncing to the dashboard.
+  const previewMode = isDev && searchParams.has("preview");
 
   useEffect(() => {
     return initTheme();
   }, [initTheme]);
 
   useEffect(() => {
-    if (isDev) {
+    if (previewMode) {
+      clear(); // render the login UI (no user, not loading) instead of auto-signing in
+    } else if (isDev) {
       fetchMe();
     }
-  }, [fetchMe, isDev]);
+  }, [fetchMe, clear, isDev, previewMode]);
 
   useEffect(() => {
-    if (!loading && user) navigate("/dashboard", { replace: true });
-  }, [user, loading, navigate]);
+    if (!loading && user && !previewMode) navigate("/dashboard", { replace: true });
+  }, [user, loading, navigate, previewMode]);
 
   const handleLogin = async () => {
     if (isDev) {
@@ -35,14 +52,30 @@ export function Login() {
   };
 
   return (
-    <div className="grid min-h-screen bg-background lg:grid-cols-[1.1fr_1fr]">
-      {/* Brand panel */}
-      <aside className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black p-10 text-white lg:flex">
+    <div className="flex min-h-screen flex-col bg-background">
+      {/* Renaissance brand accent strip — full width across both panels */}
+      <div
+        className="h-1 w-full shrink-0"
+        style={{
+          background:
+            "linear-gradient(90deg,#E5332A 0%,#F58220 34%,#FCD116 67%,#3CB44A 100%)",
+        }}
+      />
+      <div className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
+        {/* Brand panel */}
+        <aside className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-[#0c2a18] via-[#08160d] to-[#04100a] p-10 text-white lg:flex">
+          {/* Map-mark watermark */}
+          <img
+            src="/raec-mark.svg"
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-12 -right-10 h-72 w-auto opacity-[0.08]"
+          />
         <div
           className="pointer-events-none absolute inset-0 opacity-40"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 25% 20%, rgba(245, 158, 11, 0.18), transparent 50%), radial-gradient(circle at 80% 80%, rgba(245, 158, 11, 0.08), transparent 60%)",
+              "radial-gradient(circle at 25% 20%, rgba(60, 180, 74, 0.20), transparent 50%), radial-gradient(circle at 80% 80%, rgba(60, 180, 74, 0.08), transparent 60%)",
           }}
         />
         <div className="pointer-events-none absolute inset-0 opacity-[0.05]"
@@ -53,17 +86,11 @@ export function Login() {
           }}
         />
 
-        <div className="relative flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 shadow-lg shadow-amber-500/20">
-            <Gauge className="h-6 w-6 text-zinc-950" strokeWidth={2.5} />
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">Drilling Sequence</span>
-            <span className="text-[10px] uppercase tracking-[0.18em] text-white/50">
-              Planner
-            </span>
-          </div>
-        </div>
+        <img
+          src="/raec-logo.png"
+          alt="Renaissance Africa Energy"
+          className="relative h-10 w-auto self-start"
+        />
 
         <div className="relative space-y-3">
           <h2 className="max-w-md text-3xl font-semibold leading-tight tracking-tight">
@@ -85,10 +112,12 @@ export function Login() {
       <div className="flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-sm space-y-8">
           {/* Mobile brand */}
-          <div className="flex flex-col items-center gap-3 lg:hidden">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-amber-600 shadow-soft-md">
-              <Gauge className="h-6 w-6 text-primary-foreground" strokeWidth={2.5} />
-            </div>
+          <div className="flex justify-center lg:hidden">
+            <img
+              src="/raec-logo.png"
+              alt="Renaissance Africa Energy"
+              className="h-9 w-auto"
+            />
           </div>
 
           <div className="space-y-1.5 text-center lg:text-left">
@@ -105,6 +134,7 @@ export function Login() {
           ) : (
             <div className="space-y-3">
               <Button className="w-full" size="lg" onClick={handleLogin}>
+                {!isDev && <MicrosoftIcon className="mr-2 h-4 w-4" />}
                 {isDev ? "Continue as Dev User" : "Sign in with Microsoft"}
               </Button>
               {isDev && (
@@ -119,6 +149,7 @@ export function Login() {
             Access is restricted to authorised company personnel.
           </p>
         </div>
+      </div>
       </div>
     </div>
   );
