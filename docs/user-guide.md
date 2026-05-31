@@ -101,6 +101,41 @@ Things to look for:
   validated on upload — bad rows are rejected with a message, and a rejected import
   never wipes your existing data.
 
+### CSV / Excel import format
+Use **Import CSV / Excel** to bulk-load activities. A ready-to-fill template is in the
+repo: [`docs/activity-import-template.csv`](activity-import-template.csv).
+
+**Required columns** (the import is rejected if any are missing):
+
+| Column | Notes |
+|---|---|
+| `Activity Type` | e.g. *Oil Development*, *Gas Appraisal*, *Water Injection*. |
+| `Start Date` | A real date — `YYYY-MM-DD` is safest (e.g. `2026-01-15`). |
+| `End Date` | Must be on or after Start Date. |
+
+**Optional columns** (filled in if present, otherwise left blank):
+
+| Column | Allowed values |
+|---|---|
+| `Well Name` | free text (the well/job name shown on the bar). |
+| `Rig Name` | free text (the rig — drives the timeline rows and conflict checks). |
+| `Location` | `LAND`, `SWAMP`, or `OFFSHORE`. |
+| `Plan Type` | `Firm`, `Option`, or `Out of Plan`. |
+| `Risk` | `Low`, `Medium`, or `High`. |
+| `Readiness Check` | comma-separated codes in quotes, e.g. `"BUD,LOC,FID"` (BUD/LLI/LOC/FID/EIA/FLOOD/SUBS/CON). |
+| `Readiness Check Status` | overall status text (detailed per-check status is set on the Readiness tab). |
+| `Comment` | free text. |
+| `Rig Contract Expiry Date` | a date (`YYYY-MM-DD`). |
+| `Rig Contract Days Remaining` | a whole number. |
+
+Tips:
+- A few **column aliases** are accepted (e.g. `Well Name` ↔ `Item Name`/`Name`;
+  `Rig Name` ↔ `Resource`/`Equipment`/`Contractor`), but the names above are the
+  canonical ones.
+- **Extra/unknown columns are ignored**, so it's safe to import a richer sheet.
+- The file is **validated on upload** — bad rows are rejected with a message, and a
+  rejected import **never wipes** your existing activities.
+
 ### Mark progress
 When an activity is finished, mark it **complete**. Completed activities "release"
 the rig (they no longer count toward rig conflicts) and are dropped when you clone

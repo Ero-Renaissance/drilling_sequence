@@ -98,5 +98,6 @@ node_modules/
 DrillingChartApp_Standalone/
 dummy/
 build/
-legacy_drilling_sequence/Timeline_v1.2_0603/SETUP.bat
-legacy_drilling_sequence/Timeline_v1.2_0603/START_APP.bat
+
+# Track the documentation CSV template (all other *.csv stay ignored as data).
+!docs/activity-import-template.csv
