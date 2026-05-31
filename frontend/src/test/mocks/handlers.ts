@@ -193,6 +193,8 @@ export const handlers = [
     },
   ),
 
+  http.get("/api/projects/:projectId/contracts", () => HttpResponse.json([])),
+
   http.get("/api/projects/:projectId/viewers", () => {
     const viewers: Viewer[] = [
       { user_id: mockUser.id, user_name: mockUser.name, last_seen_at: new Date().toISOString() },

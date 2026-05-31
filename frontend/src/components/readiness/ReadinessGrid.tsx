@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { isNearTerm, checksReady } from "@/lib/watchlist";
 import {
   CHECK_CODES,
   type ActivityReadiness,
@@ -148,6 +150,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -169,7 +172,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   // land on a now-empty page.
   useEffect(() => {
     setPageIndex(0);
-  }, [rows.length, search]);
+  }, [rows.length, search, searchParams]);
 
   const handleChange = useCallback(
     async (activityId: string, code: CheckCode, next: CheckStatus) => {
@@ -210,19 +213,44 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   );
 
   const q = search.trim().toLowerCase();
-  const filteredRows = q
+  const textRows = q
     ? rows.filter((r) =>
         [r.activity_type, r.well_name, r.rig_name]
           .filter(Boolean)
           .some((v) => v!.toLowerCase().includes(q)),
       )
     : rows;
+  // Watchlist drill-through: ?focus=not-ready narrows to the near-term, not-ready set.
+  const notReadyFocus = searchParams.get("focus") === "not-ready";
+  const filteredRows = notReadyFocus
+    ? textRows.filter((r) => isNearTerm(r.start_date) && !checksReady(r.checks))
+    : textRows;
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visibleRows = filteredRows.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
 
+  function clearFocus() {
+    searchParams.delete("focus");
+    setSearchParams(searchParams, { replace: true });
+  }
+
   return (
     <div className="space-y-3">
+      {notReadyFocus && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+          <span>
+            <span className="font-semibold">{filteredRows.length}</span> shown — starting
+            within the next 90 days and not yet ready
+          </span>
+          <button
+            type="button"
+            onClick={clearFocus}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
         <span className="text-sm font-medium text-foreground">Readiness Tracker</span>

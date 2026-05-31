@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("@/lib/auth", () => ({
   getAccessToken: async () => "test-token",
@@ -10,10 +11,15 @@ vi.mock("@/lib/auth", () => ({
 
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 
+const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
 function renderGrid() {
-  return render(<ReadinessGrid projectId={PROJECT_ID} />);
+  return render(
+    <MemoryRouter future={routerFuture}>
+      <ReadinessGrid projectId={PROJECT_ID} />
+    </MemoryRouter>,
+  );
 }
 
 describe("ReadinessGrid", () => {

@@ -44,6 +44,16 @@ import {
 } from "@/api/readiness";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { ContractEditorDialog } from "@/components/readiness/ContractEditorDialog";
+import { useSearchParams } from "react-router-dom";
+import { listContracts, type RigContract } from "@/api/contracts";
+import {
+  FOCUS_LABEL,
+  isFocusFilter,
+  isNearTerm,
+  isOverdue,
+  checksReady,
+  conflictingActivityIds,
+} from "@/lib/watchlist";
 import { EditableCell } from "./EditableCell";
 import { ActivityFormDialog, LOCATIONS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
 import { HistoryPanel } from "@/components/activity/HistoryPanel";
@@ -188,22 +198,73 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const [savingReadinessKey, setSavingReadinessKey] = useState<string | null>(null);
   const [editingContractRig, setEditingContractRig] = useState<string | null>(null);
 
+  const [contracts, setContracts] = useState<RigContract[]>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [acts, readiness] = await Promise.all([
+      const [acts, readiness, rigContracts] = await Promise.all([
         listActivities(projectId),
         listReadiness(projectId).catch(() => []),
+        listContracts(projectId).catch(() => []),
       ]);
       setActivities(acts);
       setReadinessByActivity(new Map(readiness.map((r) => [r.activity_id, r.checks])));
+      setContracts(rigContracts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activities");
     } finally {
       setLoading(false);
     }
   }, [projectId]);
+
+  // Watchlist drill-through: ?focus=<filter> narrows the grid to the activities
+  // behind a dashboard "Needs attention" row (definitions mirror the backend).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusParam = searchParams.get("focus");
+  const focus = isFocusFilter(focusParam) ? focusParam : null;
+
+  const contractEndByRig = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of contracts) {
+      if (c.status === "Completed" && c.contract_end) m.set(c.rig_name, c.contract_end);
+    }
+    return m;
+  }, [contracts]);
+
+  const conflictIds = useMemo(
+    () => (focus === "conflicts" ? conflictingActivityIds(activities) : new Set<string>()),
+    [focus, activities],
+  );
+
+  const visibleActivities = useMemo(() => {
+    if (!focus) return activities;
+    return activities.filter((a) => {
+      if (a.completed_at) return false; // attention items are all live (incomplete) work
+      switch (focus) {
+        case "overdue":
+          return isOverdue(a.end_date);
+        case "high-risk":
+          return a.risk === "High" && isNearTerm(a.start_date);
+        case "conflicts":
+          return conflictIds.has(a.id);
+        case "past-contract": {
+          const end = a.rig_name ? contractEndByRig.get(a.rig_name) : undefined;
+          return !!end && a.end_date > end;
+        }
+        case "not-ready":
+          return isNearTerm(a.start_date) && !checksReady(readinessByActivity.get(a.id));
+        default:
+          return true;
+      }
+    });
+  }, [focus, activities, conflictIds, contractEndByRig, readinessByActivity]);
+
+  function clearFocus() {
+    searchParams.delete("focus");
+    setSearchParams(searchParams, { replace: true });
+  }
 
   useEffect(() => {
     load();
@@ -530,7 +591,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   );
 
   const table = useReactTable({
-    data: activities,
+    data: visibleActivities,
     columns,
     state: { sorting, globalFilter },
     onSortingChange: setSorting,
@@ -558,6 +619,21 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
 
   return (
     <div className="space-y-3">
+      {focus && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+          <span>
+            <span className="font-semibold">{visibleActivities.length}</span> shown —{" "}
+            {FOCUS_LABEL[focus]}
+          </span>
+          <button
+            type="button"
+            onClick={clearFocus}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
         <ActivityFormDialog
