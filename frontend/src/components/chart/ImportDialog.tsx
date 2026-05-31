@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Upload } from "lucide-react";
+import { Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,29 @@ import { importActivities } from "@/api/activities";
 interface ImportDialogProps {
   projectId: string;
   onImported: (count: number) => void;
+}
+
+// A blank import template offered for download from the dialog. Keep in sync with
+// docs/activity-import-template.csv; the canonical column names/values come from the
+// backend importer (backend/app/services/data_processor.py).
+const IMPORT_TEMPLATE_CSV = [
+  "Activity Type,Start Date,End Date,Well Name,Rig Name,Location,Plan Type,Risk,Readiness Check,Readiness Check Status,Comment,Rig Contract Expiry Date,Rig Contract Days Remaining",
+  'Oil Development,2026-01-15,2026-06-30,W-A1,Land Rig 1,LAND,Firm,Medium,"BUD,LOC,FID",In Progress,First development well,2027-03-31,440',
+  'Gas Appraisal,2026-07-01,2026-10-15,W-B2,Swamp Rig 2,SWAMP,Option,Low,"BUD,EIA",Not Started,,,',
+  'Water Injection,2026-11-01,2027-02-28,W-C3,Offshore Rig 1,OFFSHORE,Out of Plan,High,"FID,SUBS,CON",Behind,Pending contract,2026-12-31,60',
+  "",
+].join("\n");
+
+function downloadImportTemplate() {
+  const blob = new Blob([IMPORT_TEMPLATE_CSV], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "activity-import-template.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function ImportDialog({ projectId, onImported }: ImportDialogProps) {
@@ -74,6 +97,15 @@ export function ImportDialog({ projectId, onImported }: ImportDialogProps) {
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          <button
+            type="button"
+            onClick={downloadImportTemplate}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download a blank template
+          </button>
+
           <div
             className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:bg-muted/50 transition-colors"
             onClick={() => inputRef.current?.click()}

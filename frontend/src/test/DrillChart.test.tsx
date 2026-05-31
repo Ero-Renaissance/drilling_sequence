@@ -196,4 +196,24 @@ describe("ImportDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: /^import$/i }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(2));
   });
+
+  it("offers a downloadable CSV template", async () => {
+    // jsdom doesn't implement these — provide them so the download handler runs.
+    const createObjectURL = vi.fn(() => "blob:mock");
+    URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: /import csv/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /download a blank template/i }),
+    );
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
 });

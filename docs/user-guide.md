@@ -102,8 +102,10 @@ Things to look for:
   never wipes your existing data.
 
 ### CSV / Excel import format
-Use **Import CSV / Excel** to bulk-load activities. A ready-to-fill template is in the
-repo: [`docs/activity-import-template.csv`](activity-import-template.csv).
+Use **Import CSV / Excel** to bulk-load activities. In the import dialog, click
+**Download a blank template** to get a starter file with the right columns and a few
+example rows — fill it in and upload it. (Developers can also find the same file in
+the repo at [`docs/activity-import-template.csv`](activity-import-template.csv).)
 
 **Required columns** (the import is rejected if any are missing):
 
