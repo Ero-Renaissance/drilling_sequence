@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import type {
   EChartsOption,
@@ -72,6 +72,16 @@ interface DrillChartProps {
   onActivityClick?: (activityId: string) => void;
 }
 
+/** Pill styling for the focus-year strip — solid when active, outline otherwise. */
+function yearChipClass(active: boolean): string {
+  return [
+    "rounded-md px-2 py-0.5 text-xs font-medium transition-colors",
+    active
+      ? "bg-primary text-primary-foreground shadow-soft-sm"
+      : "border border-border/70 text-muted-foreground hover:bg-muted hover:text-foreground",
+  ].join(" ");
+}
+
 // ── Theme palettes ───────────────────────────────────────────────────────────
 
 interface ChartTheme {
@@ -140,6 +150,28 @@ export function DrillChart({
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
 
+  const [activeYear, setActiveYear] = useState<number | null>(null);
+
+  // Distinct calendar years the campaign spans — drives the focus-year strip.
+  const years = useMemo(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const a of activities) {
+      const sy = Number(a.start_date.slice(0, 4));
+      const ey = Number(a.end_date.slice(0, 4));
+      if (Number.isFinite(sy) && sy < min) min = sy;
+      if (Number.isFinite(ey) && ey > max) max = ey;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return [];
+    return Array.from({ length: max - min + 1 }, (_, i) => min + i);
+  }, [activities]);
+
+  // Focus the chart on one calendar year, or the full span (null). We drive this
+  // through the option's dataZoom window (see below) rather than an imperative
+  // dispatchAction: each change becomes a clean notMerge re-render, so no stale
+  // custom-series elements (bars/labels) linger from the previous window.
+  const focusYear = useCallback((year: number | null) => setActiveYear(year), []);
+
   const { categories, data, activityTypes, categoryToRig } = useMemo(
     () => activitiesToChartData(activities, readinessMap),
     [activities, readinessMap],
@@ -151,9 +183,19 @@ export function DrillChart({
   );
 
   const displayData = useMemo(() => {
-    if (!conflictIds?.size && !completedIds.size) return data;
     return data.map((item) => {
-      const next = { ...item };
+      // ECharts renders a data item's own `label` config regardless of
+      // series.label.show — per-item config wins. That built-in label is
+      // centered on the bar and is NOT clip-aware, so when zoomed it spills
+      // into the axis gutter. We draw bar labels ourselves (clip-aware) in
+      // renderItem, so neutralise the per-item label here and stash its text
+      // under a private field the renderItem reads (_barText: null when the
+      // bar is too short to be worth labelling).
+      const next = {
+        ...item,
+        label: { ...item.label, show: false },
+        _barText: item.label?.show ? item.label?.formatter : null,
+      };
       if (conflictIds?.has(item.activityId)) next.isConflict = true;
       if (completedIds.has(item.activityId)) next.isCompleted = true;
       return next;
@@ -167,6 +209,16 @@ export function DrillChart({
     const BAR_TO_ICON_GAP = 4;
     const chartHeight = Math.max(500, categories.length * ROW_HEIGHT + 220);
     const today = Date.now();
+
+    // Focus-year zoom window. null → full span. Local-time year bounds match how
+    // bars are positioned (chart-utils builds timestamps from local midnight).
+    const focusZoom =
+      activeYear === null
+        ? {}
+        : {
+            startValue: new Date(activeYear, 0, 1).getTime(),
+            endValue: new Date(activeYear + 1, 0, 1).getTime(),
+          };
 
     function renderItem(
       params: CustomSeriesRenderItemParams,
@@ -200,16 +252,26 @@ export function DrillChart({
         height: barH,
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const clippedBar = (window as any).echarts?.graphic?.clipRectByRect(
-        barRect,
-        clipShape,
-      ) ?? barRect;
+      // Clip the bar to the plot area horizontally (the only zoomed axis) so a
+      // bar that extends past the focused window doesn't spill over the Y-axis
+      // labels or the right edge. We clamp the rect ourselves rather than rely on
+      // echarts.graphic.clipRectByRect — that global isn't exposed by
+      // echarts-for-react, so the call was a silent no-op (it only ever looked
+      // fine because the un-zoomed axis auto-fits the data extent).
+      const clipX1 = Math.max(barRect.x, clipShape.x);
+      const clipX2 = Math.min(barRect.x + barRect.width, clipShape.x + clipShape.width);
+      const clippedBar = {
+        x: clipX1,
+        y: barRect.y,
+        width: Math.max(0, clipX2 - clipX1),
+        height: barRect.height,
+      };
 
       const baseStyle = api.style() as Record<string, unknown>;
       const item = displayData[params.dataIndex] as {
         isConflict?: boolean;
         isCompleted?: boolean;
+        _barText?: string | null;
         tooltip?: { checks?: Record<string, { status: CheckStatus }> | null };
       };
       const isConflict = item?.isConflict ?? false;
@@ -244,6 +306,34 @@ export function DrillChart({
           },
         },
       ];
+
+      // Draw the bar label here (rather than via the series-level label) so it
+      // tracks the *clipped* rect: it centers in the visible portion and is
+      // dropped entirely once a zoomed bar shrinks to a sliver — otherwise a
+      // label anchored to an off-screen bar leaks a fragment into the gutter.
+      const barText = item?._barText;
+      if (barText && clippedBar.width >= 36) {
+        children.push({
+          type: "text",
+          silent: true,
+          style: {
+            text: barText,
+            // Anchor at the visible LEFT edge of the (clipped) bar and truncate
+            // rightward. Centering would let the text overflow a thin left-edge
+            // sliver and get head-clipped by the plot edge, leaving a fragment
+            // like "…4-01" in the gutter. Left-align + truncate can't overflow.
+            x: clippedBar.x + 6,
+            y: clippedBar.y + clippedBar.height / 2,
+            align: "left",
+            verticalAlign: "middle",
+            fill: theme.barLabel,
+            fontSize: 11,
+            fontWeight: 500,
+            width: clippedBar.width - 12,
+            overflow: "truncate",
+          },
+        });
+      }
 
       // Readiness icon strip below the bar — 4 adaptive tiers by bar width.
       // Thresholds tuned for the 8-icon set (7 readiness gates + CON).
@@ -410,6 +500,9 @@ export function DrillChart({
           },
           color: theme.axisLabel,
           fontSize: 11,
+          // Emit click events from axis labels so a tap on a month/year focuses
+          // that whole calendar year (handled in onEvents.click).
+          triggerEvent: true,
         },
         axisLine: { lineStyle: { color: theme.axisLine } },
         splitLine: { show: true, lineStyle: { color: theme.splitLine, type: "solid" } },
@@ -484,12 +577,19 @@ export function DrillChart({
         },
       },
 
-      dataZoom: [{ type: "inside", xAxisIndex: 0 }],
+      // filterMode "none" keeps bars that straddle the focused window visible
+      // (clipped by renderItem) instead of dropping them — correct for a Gantt.
+      // startValue/endValue (when a year is focused) come from focusZoom.
+      dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "none", ...focusZoom }],
 
       series: [
         {
           type: "custom",
           renderItem,
+          // Clip elements (incl. bar labels) that exceed the coordinate system
+          // when zoomed into a single year — belt-and-braces with the manual
+          // rect clamp in renderItem.
+          clip: true,
           encode: { x: [1, 2], y: 0 },
           data: displayData,
           // Disable ECharts' built-in series emphasis tinting (which would
@@ -499,20 +599,10 @@ export function DrillChart({
           // because emphasis on individual elements inside a custom series is
           // independent of series-level emphasis.
           emphasis: { disabled: true },
-          label: {
-            show: true,
-            position: "inside",
-            formatter: (p: unknown) => {
-              const params = p as {
-                data: { label: { show: boolean; formatter: string } };
-              };
-              return params.data.label.show ? params.data.label.formatter : "";
-            },
-            color: theme.barLabel,
-            fontSize: 11,
-            fontWeight: "500",
-            overflow: "truncate",
-          },
+          // Bar labels are drawn clip-aware inside renderItem (see above), so the
+          // series-level label is disabled to avoid double labels that escape
+          // the plot area when zoomed.
+          label: { show: false },
           markLine: {
             silent: true,
             symbol: ["none", "none"],
@@ -536,24 +626,64 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig]);
+  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
-  const onEvents = onActivityClick
-    ? {
-        click: (params: { data?: { activityId?: string } }) => {
-          const id = params.data?.activityId;
-          if (id) onActivityClick(id);
-        },
-      }
-    : undefined;
+  const onEvents = useMemo(
+    () => ({
+      click: (params: {
+        componentType?: string;
+        value?: number | string;
+        data?: { activityId?: string };
+      }) => {
+        // A click on an x-axis (month/year) label focuses that whole year.
+        if (params.componentType === "xAxis") {
+          const ts =
+            typeof params.value === "number"
+              ? params.value
+              : Date.parse(String(params.value));
+          if (!Number.isNaN(ts)) focusYear(new Date(ts).getFullYear());
+          return;
+        }
+        const id = params.data?.activityId;
+        if (id) onActivityClick?.(id);
+      },
+    }),
+    [focusYear, onActivityClick],
+  );
 
   return (
     <div
       data-testid="drill-chart"
       className="flex w-full flex-col gap-3"
     >
+      {years.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs font-medium text-muted-foreground">
+            Focus year
+          </span>
+          <button
+            type="button"
+            onClick={() => focusYear(null)}
+            aria-pressed={activeYear === null}
+            className={yearChipClass(activeYear === null)}
+          >
+            All
+          </button>
+          {years.map((y) => (
+            <button
+              key={y}
+              type="button"
+              onClick={() => focusYear(y)}
+              aria-pressed={activeYear === y}
+              className={yearChipClass(activeYear === y)}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
         <ReactECharts
           option={option}

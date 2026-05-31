@@ -61,6 +61,22 @@ const MOCK_ACTIVITIES: Activity[] = [
   },
 ];
 
+// A campaign spanning three calendar years (2026 → 2028) for the focus-year strip.
+const MULTI_YEAR_ACTIVITIES: Activity[] = [
+  {
+    ...MOCK_ACTIVITIES[0],
+    id: "act-y1",
+    start_date: "2026-02-01",
+    end_date: "2026-08-31",
+  },
+  {
+    ...MOCK_ACTIVITIES[1],
+    id: "act-y3",
+    start_date: "2028-03-01",
+    end_date: "2028-09-30",
+  },
+];
+
 // ─── DrillChart ─────────────────────────────────────────────────────────────
 
 describe("DrillChart", () => {
@@ -77,6 +93,37 @@ describe("DrillChart", () => {
   it("renders with empty activities without crashing", () => {
     render(<DrillChart activities={[]} />);
     expect(screen.getByTestId("drill-chart")).toBeInTheDocument();
+  });
+
+  it("shows a focus-year strip spanning every year the campaign covers", () => {
+    render(<DrillChart activities={MULTI_YEAR_ACTIVITIES} />);
+    expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();
+    // Inclusive 2026..2028 — the gap year 2027 must appear too.
+    for (const y of ["2026", "2027", "2028"]) {
+      expect(screen.getByRole("button", { name: y })).toBeInTheDocument();
+    }
+  });
+
+  it("highlights the focused year on click and deselects All", async () => {
+    render(<DrillChart activities={MULTI_YEAR_ACTIVITIES} />);
+    const all = screen.getByRole("button", { name: "All" });
+    const y2027 = screen.getByRole("button", { name: "2027" });
+    expect(all).toHaveAttribute("aria-pressed", "true");
+    expect(y2027).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(y2027);
+    expect(y2027).toHaveAttribute("aria-pressed", "true");
+    expect(all).toHaveAttribute("aria-pressed", "false");
+
+    // "All" resets the highlight back to the full span.
+    await userEvent.click(all);
+    expect(all).toHaveAttribute("aria-pressed", "true");
+    expect(y2027).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("hides the year strip for a single-year campaign", () => {
+    render(<DrillChart activities={MOCK_ACTIVITIES} />);
+    expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
   });
 });
 
