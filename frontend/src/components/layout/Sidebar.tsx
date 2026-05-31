@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, Settings, Gauge, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, FolderKanban, Settings, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -16,19 +16,15 @@ const secondaryNav = [
 
 function BrandMark() {
   return (
-    <div className="flex h-16 items-center gap-3 px-5">
-      <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-amber-600 shadow-soft-md">
-        <Gauge className="h-5 w-5 text-primary-foreground" strokeWidth={2.25} />
-        <span className="absolute inset-0 rounded-lg ring-1 ring-inset ring-white/15" />
-      </div>
-      <div className="flex flex-col leading-tight">
-        <span className="text-[13px] font-semibold tracking-tight text-foreground">
-          Drilling Sequence
-        </span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          Planner
-        </span>
-      </div>
+    <div className="px-4 pb-3 pt-4">
+      <img
+        src="/raec-logo.png"
+        alt="Renaissance Africa Energy"
+        className="h-9 w-auto"
+      />
+      <span className="mt-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        Drilling Sequence Planner
+      </span>
     </div>
   );
 }

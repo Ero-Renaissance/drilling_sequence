@@ -37,15 +37,25 @@ export function AppShell() {
   return (
     // print: drop the fixed-height/overflow-hidden shell so the document flows
     // and paginates instead of being clipped to ~screen height.
-    <div className="flex h-screen overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden print:block print:overflow-visible">
-        <Header />
-        <main className="flex-1 overflow-auto print:overflow-visible">
-          <div className="mx-auto max-w-[1600px] p-6 lg:p-8 print:max-w-none print:p-0">
-            <Outlet />
-          </div>
-        </main>
+    <div className="flex h-screen flex-col overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
+      {/* Renaissance brand accent strip */}
+      <div
+        className="h-[3px] w-full shrink-0 print:hidden"
+        style={{
+          background:
+            "linear-gradient(90deg,#E5332A 0%,#F58220 34%,#FCD116 67%,#3CB44A 100%)",
+        }}
+      />
+      <div className="flex flex-1 overflow-hidden print:block print:overflow-visible">
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden print:block print:overflow-visible">
+          <Header />
+          <main className="flex-1 overflow-auto print:overflow-visible">
+            <div className="mx-auto max-w-[1600px] p-6 lg:p-8 print:max-w-none print:p-0">
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   );
