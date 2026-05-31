@@ -15,6 +15,9 @@ export function detectRigConflicts(activities: Activity[]): RigConflict[] {
   const byRig = new Map<string, Activity[]>();
   for (const act of activities) {
     if (!act.rig_name) continue;
+    // A completed activity is finished work — the rig is released, so it can't
+    // double-book a later/overlapping activity. Excluding it avoids false conflicts.
+    if (act.completed_at) continue;
     const bucket = byRig.get(act.rig_name) ?? [];
     bucket.push(act);
     byRig.set(act.rig_name, bucket);
