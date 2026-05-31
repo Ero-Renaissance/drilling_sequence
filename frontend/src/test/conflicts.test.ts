@@ -18,8 +18,6 @@ function act(overrides: Partial<Activity>): Activity {
     risk: null,
     comment: null,
     plan_type: null,
-    rig_contract_expiry_date: null,
-    rig_contract_days_remaining: null,
     completed_at: null,
     updated_at: "2026-01-01T00:00:00Z",
     updated_by_name: null,

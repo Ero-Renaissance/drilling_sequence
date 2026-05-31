@@ -35,8 +35,6 @@ CSV_ALIASES: dict[str, str] = {
     "Risk": "risk",
     "Comment": "comment",
     "Plan Type": "plan_type",
-    "Rig Contract Expiry Date": "rig_contract_expiry_date",
-    "Rig Contract Days Remaining": "rig_contract_days_remaining",
 }
 
 
@@ -52,7 +50,7 @@ def validate_csv_columns(df: pd.DataFrame) -> None:
             raise ValueError(f"Invalid date format in '{col}': {exc}") from exc
 
 
-_DATE_DB_FIELDS = {"start_date", "end_date", "rig_contract_expiry_date"}
+_DATE_DB_FIELDS = {"start_date", "end_date"}
 
 
 def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:

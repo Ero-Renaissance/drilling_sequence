@@ -131,8 +131,6 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     risk: r.risk,
     comment: r.comment,
     plan_type: r.plan_type,
-    rig_contract_expiry_date: null,
-    rig_contract_days_remaining: null,
     updated_at: "",
     updated_by_name: null,
     locked_by_revision_id: null,

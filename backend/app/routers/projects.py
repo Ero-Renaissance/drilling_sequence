@@ -180,8 +180,6 @@ async def clone_project(
             risk=src.risk,
             comment=src.comment,
             plan_type=src.plan_type,
-            rig_contract_expiry_date=src.rig_contract_expiry_date,
-            rig_contract_days_remaining=src.rig_contract_days_remaining,
             updated_by=current_user.id,
         )
         db.add(new_activity)

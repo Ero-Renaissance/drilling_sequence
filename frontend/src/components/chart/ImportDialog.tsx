@@ -21,10 +21,10 @@ interface ImportDialogProps {
 // docs/activity-import-template.csv; the canonical column names/values come from the
 // backend importer (backend/app/services/data_processor.py).
 const IMPORT_TEMPLATE_CSV = [
-  "Activity Type,Start Date,End Date,Well Name,Rig Name,Location,Plan Type,Risk,Readiness Check,Readiness Check Status,Comment,Rig Contract Expiry Date",
-  'Oil Development,2026-01-15,2026-06-30,W-A1,Land Rig 1,LAND,Firm,Medium,"BUD,LOC,FID",In Progress,First development well,2027-03-31',
-  'Gas Appraisal,2026-07-01,2026-10-15,W-B2,Swamp Rig 2,SWAMP,Option,Low,"BUD,EIA",Not Started,,',
-  'Water Injection,2026-11-01,2027-02-28,W-C3,Offshore Rig 1,OFFSHORE,Out of Plan,High,"FID,SUBS,CON",Behind,Pending contract,2026-12-31',
+  "Activity Type,Start Date,End Date,Well Name,Rig Name,Location,Plan Type,Risk,Readiness Check,Readiness Check Status,Comment",
+  'Oil Development,2026-01-15,2026-06-30,W-A1,Land Rig 1,LAND,Firm,Medium,"BUD,LOC,FID",In Progress,First development well',
+  'Gas Appraisal,2026-07-01,2026-10-15,W-B2,Swamp Rig 2,SWAMP,Option,Low,"BUD,EIA",Not Started,',
+  'Water Injection,2026-11-01,2027-02-28,W-C3,Offshore Rig 1,OFFSHORE,Out of Plan,High,"FID,SUBS,CON",Behind,Pending contract',
   "",
 ].join("\n");
 

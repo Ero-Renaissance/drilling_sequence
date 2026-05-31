@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -54,10 +54,6 @@ class Activity(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-
-    # ── Contract ──────────────────────────────────────────────────────────────
-    rig_contract_expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    rig_contract_days_remaining: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # ── Audit ─────────────────────────────────────────────────────────────────
     created_at: Mapped[datetime] = mapped_column(

@@ -42,8 +42,6 @@ class ActivityCreate(BaseModel):
     risk: Risk | None = None
     comment: str | None = None
     plan_type: PlanType | None = None
-    rig_contract_expiry_date: date | None = None
-    rig_contract_days_remaining: int | None = None
 
     @field_validator("readiness_check")
     @classmethod
@@ -72,8 +70,6 @@ class ActivityUpdate(BaseModel):
     risk: Risk | None = None
     comment: str | None = None
     plan_type: PlanType | None = None
-    rig_contract_expiry_date: date | None = None
-    rig_contract_days_remaining: int | None = None
     # Optimistic lock: client sends back the updated_at it loaded; omit to skip check
     expected_updated_at: datetime | None = None
 
@@ -98,8 +94,6 @@ class ActivityResponse(BaseModel):
     risk: str | None
     comment: str | None
     plan_type: str | None
-    rig_contract_expiry_date: date | None
-    rig_contract_days_remaining: int | None
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

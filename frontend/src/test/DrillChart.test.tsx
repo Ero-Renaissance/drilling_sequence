@@ -38,8 +38,6 @@ const MOCK_ACTIVITIES: Activity[] = [
     risk: null,
     comment: null,
     plan_type: "Firm",
-    rig_contract_expiry_date: null,
-    rig_contract_days_remaining: null,
   },
   {
     id: "act-002",
@@ -56,8 +54,6 @@ const MOCK_ACTIVITIES: Activity[] = [
     risk: null,
     comment: null,
     plan_type: "Option",
-    rig_contract_expiry_date: null,
-    rig_contract_days_remaining: null,
   },
 ];
 
