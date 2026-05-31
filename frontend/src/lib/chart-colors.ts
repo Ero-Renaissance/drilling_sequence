@@ -5,12 +5,14 @@
  * so bars and legend swatches read unambiguously — no patterns required.
  */
 const ACTIVITY_COLORS: Record<string, string> = {
-  // Oil family — warm reds through orange-pinks
+  // Oil family — warm band: wine → rust → red → pink → orange. Deliberately
+  // kept out of the purple/magenta zone (reserved for HPHT / Abandonment) so
+  // Oil Sidetrack no longer reads as "purple" next to Oil Workover's pink.
   "Oil Development": "#dc2626", // crimson
   "Oil Exploration": "#f97316", // bright orange
   "Oil Appraisal": "#7f1d1d", // dark wine
   "Oil Workover": "#ec4899", // pink
-  "Oil Sidetrack": "#c026d3", // fuchsia
+  "Oil Sidetrack": "#9a3412", // rust / terracotta
   // Gas family — cool greens / teals
   "Gas Development": "#16a34a", // emerald
   "Gas Exploration": "#84cc16", // lime
