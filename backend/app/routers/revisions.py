@@ -25,6 +25,7 @@ from app.schemas.revision import (
     SignRequest,
 )
 from app.services.audit import ENTITY_REVISION, governance_event
+from app.services.conflicts import detect_rig_conflicts
 from app.services.email import notify_revision_decision, notify_revision_pending
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
@@ -191,6 +192,21 @@ async def create_revision(
     activities = list(act_result.scalars().all())
     if not activities:
         raise HTTPException(status_code=400, detail="No activities to snapshot")
+
+    # Hard-block: a rig can't run two activities at once, so a plan with an
+    # unresolved rig conflict is physically impossible and must not reach approval.
+    conflicts = detect_rig_conflicts(activities)
+    if conflicts:
+        c = conflicts[0]
+        more = f" (and {len(conflicts) - 1} more)" if len(conflicts) > 1 else ""
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Rig scheduling conflict: {c['rig']} is double-booked — "
+                f"\"{c['a']}\" overlaps \"{c['b']}\" by {c['overlap_days']} day(s){more}. "
+                f"Resolve the overlap before submitting for approval."
+            ),
+        )
 
     # Capture activities + readiness state at the moment the revision is created
     snapshot = await build_project_snapshot(project_id, db)

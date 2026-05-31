@@ -114,19 +114,21 @@ export function ProjectDetail() {
 }
 
 function RigConflictBanner({ conflicts }: { conflicts: RigConflict[] }) {
-  const [expanded, setExpanded] = useState(false);
+  // A rig can't be in two places at once — this is a hard error that blocks
+  // submitting the plan for approval, so it's red and open by default.
+  const [expanded, setExpanded] = useState(true);
   if (conflicts.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+    <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm dark:border-red-500/40 dark:bg-red-500/10">
       <button
         type="button"
-        className="flex w-full items-center gap-2 text-amber-800"
+        className="flex w-full items-center gap-2 text-red-800 dark:text-red-300"
         onClick={() => setExpanded((v) => !v)}
       >
-        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-        <span className="font-medium">
-          {conflicts.length} rig scheduling {conflicts.length === 1 ? "conflict" : "conflicts"} detected
+        <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+        <span className="font-semibold">
+          {conflicts.length} rig scheduling {conflicts.length === 1 ? "conflict" : "conflicts"} — resolve before submitting for approval
         </span>
         <span className="ml-auto">
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -134,17 +136,17 @@ function RigConflictBanner({ conflicts }: { conflicts: RigConflict[] }) {
       </button>
 
       {expanded && (
-        <ul className="mt-3 space-y-2 border-t border-amber-200 pt-3">
+        <ul className="mt-3 space-y-2 border-t border-red-200 pt-3 dark:border-red-500/30">
           {conflicts.map((c, i) => (
-            <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-amber-900">
+            <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-red-900 dark:text-red-200">
               <span className="font-semibold">{c.rig}</span>
-              <span className="text-amber-600">·</span>
+              <span className="text-red-500/70">·</span>
               <span>{c.a.well_name ?? c.a.activity_type}</span>
-              <span className="text-amber-400">({c.a.start_date} – {c.a.end_date})</span>
-              <span className="text-amber-600">overlaps</span>
+              <span className="text-red-500/60">({c.a.start_date} – {c.a.end_date})</span>
+              <span className="text-red-600/80">overlaps</span>
               <span>{c.b.well_name ?? c.b.activity_type}</span>
-              <span className="text-amber-400">({c.b.start_date} – {c.b.end_date})</span>
-              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 ring-1 ring-amber-200">
+              <span className="text-red-500/60">({c.b.start_date} – {c.b.end_date})</span>
+              <span className="rounded-full bg-red-100 px-1.5 py-0.5 font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-500/20 dark:text-red-300 dark:ring-red-500/30">
                 {c.overlapDays}d overlap
               </span>
             </li>
