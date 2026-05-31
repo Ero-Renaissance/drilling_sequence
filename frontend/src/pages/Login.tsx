@@ -64,13 +64,6 @@ export function Login() {
       <div className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
         {/* Brand panel */}
         <aside className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-[#0c2a18] via-[#08160d] to-[#04100a] p-10 text-white lg:flex">
-          {/* Map-mark watermark */}
-          <img
-            src="/raec-mark.svg"
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute -bottom-12 -right-10 h-72 w-auto opacity-[0.08]"
-          />
         <div
           className="pointer-events-none absolute inset-0 opacity-40"
           style={{
