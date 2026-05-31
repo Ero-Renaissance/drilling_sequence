@@ -21,6 +21,7 @@ export interface DashboardResponse {
   activities: {
     total: number;
     completed_this_quarter: number;
+    completed_ytd: number;
     overdue: number;
     starting_soon: number;
     by_plan_type: Record<string, number>;

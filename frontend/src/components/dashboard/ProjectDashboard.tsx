@@ -209,7 +209,12 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-6">
       {/* Hero tiles */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        <Tile
+          label="Completed YTD"
+          value={String(activities.completed_ytd)}
+          sub={`${activities.completed_this_quarter} this quarter`}
+        />
         <Tile
           label="Readiness · next 12 months"
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}

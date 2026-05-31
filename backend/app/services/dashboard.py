@@ -5,13 +5,14 @@ See docs/project-dashboard-spec.md for definitions. Phase 1: hero tiles + watchl
 """
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
+from app.models.project import Project
 from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.revision import Revision
 from app.models.rig_contract import RigContract
@@ -106,6 +107,29 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         return bool(applicable) and all(s == "Completed" for s in applicable)
 
     # ── activities ─────────────────────────────────────────────────────────────
+    # Completed YTD across the clone lineage. A completed activity lives in the
+    # project it was closed in (the clone drops it next quarter), so summing
+    # completed_at >= Jan 1 across this project + its ancestors counts each once.
+    year_start = datetime(today.year, 1, 1, tzinfo=timezone.utc)
+    lineage_ids: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    cursor: uuid.UUID | None = project_id
+    while cursor is not None and cursor not in seen:
+        seen.add(cursor)
+        lineage_ids.append(cursor)
+        ancestor = await db.get(Project, cursor)
+        cursor = ancestor.cloned_from_project_id if ancestor else None
+    completed_ytd = (
+        await db.execute(
+            select(func.count())
+            .select_from(Activity)
+            .where(
+                Activity.project_id.in_(lineage_ids),
+                Activity.completed_at >= year_start,
+            )
+        )
+    ).scalar_one()
+
     overdue = sum(1 for a in activities if not done(a) and a.end_date < today)
     by_plan_type: dict[str, int] = {}
     by_activity_type: dict[str, int] = {}
@@ -116,6 +140,7 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     activity_stats = ActivityStats(
         total=len(activities),
         completed_this_quarter=sum(1 for a in activities if done(a)),
+        completed_ytd=completed_ytd,
         overdue=overdue,
         starting_soon=sum(1 for a in activities if not done(a) and near_term(a)),
         by_plan_type=by_plan_type,

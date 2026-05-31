@@ -54,12 +54,12 @@ Activity Log.
 
 ## 4. KPI catalog
 
-### 4a. Hero tiles (top row — the 4 MVP numbers)
+### 4a. Hero tiles (top row — the 5 MVP numbers)
 
 > **No "Plan position" tile.** A campaign-progress headline isn't meaningful from a
 > single quarterly project: cloning drops completed activities (§4d), so a count
-> resets each quarter and the span is just calendar context. Progress lives instead
-> in the activity stats (completed-this-quarter) and the lineage rollups (§4e).
+> resets each quarter and the span is just calendar context. Progress is instead the
+> **Completed YTD** tile (a lineage rollup, §4e) with this-quarter as its sub-stat.
 >
 > **No "Rig conflicts" tile.** Conflicts are hard-blocked at revision submission
 > (409, `detect_rig_conflicts`) and flagged on the chart (red outline + banner)
@@ -69,10 +69,11 @@ Activity Log.
 
 | # | Tile | Definition | States (color) | Drill-through |
 |---|---|---|---|---|
-| 1 | **Readiness (focus window)** | Overall % = `Completed cells / applicable cells` across activities **starting within the focus window** (far-future readiness is expected-incomplete, so a plan-wide % is meaningless). Sub-stat: **Behind** cells. | green ≥80 / amber 50–79 / red <50 | Readiness |
-| 2 | **Approval status** | Status of the latest revision → `Draft` (none pending) / `Pending approval` / `Approved` / `Changes requested` / `Rejected`. For pending: "signed S of N". | red=Changes/Rejected, amber=Pending, green=Approved, neutral=Draft | Approvals |
-| 3 | **Rigs in use** | distinct `rig_name` among non-completed activities; sub-stat = total **idle rig-days** (gaps between consecutive jobs — §4d). | neutral | Sequence |
-| 4 | **Contracts at risk** | # of binding contracts that are `expired`+`critical`+`soon`. | red if any expired/critical, amber if soon, green if none | (contracts panel) |
+| 1 | **Completed YTD** | Activities completed this calendar year across the clone lineage (§4e). Sub-stat: **N this quarter** (current project's `completed_at` count). | neutral | — |
+| 2 | **Readiness (focus window)** | Overall % = `Completed cells / applicable cells` across activities **starting within the focus window** (far-future readiness is expected-incomplete, so a plan-wide % is meaningless). Sub-stat: **Behind** cells. | green ≥80 / amber 50–79 / red <50 | Readiness |
+| 3 | **Approval status** | Status of the latest revision → `Draft` (none pending) / `Pending approval` / `Approved` / `Changes requested` / `Rejected`. For pending: "signed S of N". | red=Changes/Rejected, amber=Pending, green=Approved, neutral=Draft | Approvals |
+| 4 | **Rigs in use** | distinct `rig_name` among non-completed activities; sub-stat = total **idle rig-days** (gaps between consecutive jobs — §4d). | neutral | Sequence |
+| 5 | **Contracts at risk** | # of binding contracts that are `expired`+`critical`+`soon`. | red if any expired/critical, amber if soon, green if none | (contracts panel) |
 
 ### 4b. "Needs attention" watchlist (the core of the dashboard)
 

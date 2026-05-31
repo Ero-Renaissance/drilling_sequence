@@ -11,6 +11,7 @@ from pydantic import BaseModel
 class ActivityStats(BaseModel):
     total: int
     completed_this_quarter: int  # this project's completed_at count (clone drops these next quarter)
+    completed_ytd: int  # completed this calendar year across the clone lineage
     overdue: int  # end_date < today and not completed
     starting_soon: int  # start within the near-term window, not completed
     by_plan_type: dict[str, int]

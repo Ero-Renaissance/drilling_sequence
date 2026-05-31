@@ -84,6 +84,7 @@ async def test_dashboard_counts(client: AsyncClient) -> None:
 
     assert d["activities"]["total"] == 6
     assert d["activities"]["completed_this_quarter"] == 1
+    assert d["activities"]["completed_ytd"] == 1
     assert d["activities"]["overdue"] == 1
     assert d["activities"]["starting_soon"] == 1  # only R2 (R4 completed)
     assert d["rigs"]["conflicts"] == 1
@@ -93,6 +94,22 @@ async def test_dashboard_counts(client: AsyncClient) -> None:
     assert d["watchlist"]["overdue"] == 1
     assert d["approval"]["current_status"] == "draft"
     assert d["approval"]["drift_since_approved"] is None
+
+
+@pytest.mark.asyncio
+async def test_completed_ytd_spans_clone_lineage(client: AsyncClient) -> None:
+    pid = await _project(client, "Q1")
+    a = await _activity(client, pid, rig="R", start=TODAY - timedelta(days=20), end=TODAY - timedelta(days=5))
+    await client.post(f"/api/projects/{pid}/activities/{a['id']}/complete")
+
+    d1 = (await client.get(f"/api/projects/{pid}/dashboard")).json()
+    assert d1["activities"]["completed_ytd"] == 1
+
+    # The clone drops the completed activity, but YTD still counts it via lineage.
+    clone = (await client.post(f"/api/projects/{pid}/clone", json={"name": "Q2"})).json()
+    d2 = (await client.get(f"/api/projects/{clone['id']}/dashboard")).json()
+    assert d2["activities"]["completed_this_quarter"] == 0
+    assert d2["activities"]["completed_ytd"] == 1
 
 
 @pytest.mark.asyncio

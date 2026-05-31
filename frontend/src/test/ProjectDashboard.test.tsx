@@ -14,7 +14,7 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
     generated_at: "2026-05-31",
     plan: { start: "2026-01-01", end: "2035-12-31" },
     activities: {
-      total: 10, completed_this_quarter: 2, overdue: 3, starting_soon: 1,
+      total: 10, completed_this_quarter: 2, completed_ytd: 9, overdue: 3, starting_soon: 1,
       by_plan_type: { Firm: 6, Option: 4 },
       by_activity_type: { "Oil Development": 5, "Gas Development": 3 },
     },
@@ -52,6 +52,8 @@ describe("ProjectDashboard", () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
     expect(await screen.findByText("Rigs in use")).toBeInTheDocument();
+    expect(screen.getByText("Completed YTD")).toBeInTheDocument();
+    expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     expect(screen.getByText("62%")).toBeInTheDocument();
     expect(screen.getByText("Pending approval")).toBeInTheDocument();
   });
