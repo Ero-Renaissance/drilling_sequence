@@ -26,6 +26,8 @@ import {
 } from "@/api/revisions";
 import { RevisionDiff } from "@/components/revisions/RevisionDiff";
 import { DecisionDialog, type DecisionAction } from "@/components/revisions/DecisionDialog";
+import { projectsApi } from "@/api/projects";
+import type { Project } from "@/types";
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { useAuthStore } from "@/store/auth";
@@ -155,7 +157,7 @@ function snapshotToReadinessMap(rows: SnapshotRow[]): ReadinessMap {
 function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm print:break-inside-avoid">
+    <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -337,6 +339,7 @@ export function RevisionDetail() {
   const { projectId, revisionId } = useParams<{ projectId: string; revisionId: string }>();
   const [revision, setRevision] = useState<RevisionDetailType | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
@@ -358,7 +361,21 @@ export function RevisionDetail() {
     listRevisions(projectId)
       .then(setRevisions)
       .catch(() => setRevisions([]));
+    projectsApi
+      .get(projectId)
+      .then(setProject)
+      .catch(() => setProject(null));
   }, [projectId]);
+
+  // Brand the tab/print title so a saved PDF defaults to a meaningful filename.
+  useEffect(() => {
+    if (project?.name && revision) {
+      document.title = `RAEC — ${project.name} — ${revLabel(revision)}`;
+    }
+    return () => {
+      document.title = "Drilling Sequence Planner";
+    };
+  }, [project, revision]);
 
   const snapshot = useMemo<SnapshotRow[]>(
     () => (revision ? JSON.parse(revision.snapshot_json) : []),
@@ -423,16 +440,51 @@ export function RevisionDetail() {
     : false;
   const canSign = revision.status === "pending_approval" && !alreadySigned;
 
+  const statusLabel =
+    revision.status === "approved"
+      ? "Approved"
+      : revision.status === "rejected"
+        ? "Rejected"
+        : revision.status === "changes_requested"
+          ? "Changes requested"
+          : revision.status === "discarded"
+            ? "Discarded"
+            : "Pending approval";
+  const docDate = new Date(revision.created_at).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
   return (
     <div className="space-y-5">
       {/* Inline print stylesheet — keeps it co-located with the page that uses it */}
       <style>{`
         @media print {
           @page { size: A4 landscape; margin: 14mm; }
+          /* Force light document tokens so a dark-mode user still gets a clean,
+             readable PDF (dark text on white), not light text on white. */
+          :root, .dark {
+            --background: 0 0% 100%;
+            --foreground: 222 24% 12%;
+            --card: 0 0% 100%;
+            --card-foreground: 222 24% 12%;
+            --muted: 220 14% 95%;
+            --muted-foreground: 220 9% 40%;
+            --border: 220 13% 85%;
+          }
           body { background: white !important; }
           aside, header, .print\\:hidden { display: none !important; }
           main { overflow: visible !important; }
+          /* Unclip scroll containers + height caps so content paginates across
+             pages and the chart legend (below the Gantt) isn't cut off. */
+          .overflow-auto, .overflow-y-auto { overflow: visible !important; }
+          .h-full, .h-screen { height: auto !important; }
           .shadow-soft-sm, .shadow-soft-md, .shadow-soft-lg { box-shadow: none !important; }
+          /* Preserve brand colours (gradient linebar, status badges) in print. */
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          /* Room for the fixed confidentiality footer. */
+          main > div { padding-bottom: 12mm; }
         }
       `}</style>
 
@@ -494,17 +546,38 @@ export function RevisionDetail() {
         </div>
       </div>
 
-      {/* Print header — only visible when printing */}
+      {/* Branded document header — only visible when printing */}
       <div className="hidden print:block">
-        <h1 className="text-2xl font-semibold">{revLabel(revision)}</h1>
-        <p className="text-sm text-muted-foreground">
-          {revision.status === "approved"
-            ? "Approved"
-            : revision.status === "discarded"
-              ? "Discarded"
-              : "Pending approval"}{" "}
-          · {snapshot.length} activities
-        </p>
+        <div className="flex items-end justify-between gap-6">
+          <img
+            src="/raec-logo.png"
+            alt="Renaissance Africa Energy"
+            className="h-11 w-auto"
+          />
+          <div className="text-right">
+            <h1 className="text-lg font-bold tracking-tight text-foreground">
+              {project?.name ?? "Drilling Sequence"}
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              {[project?.field, project?.region].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+        </div>
+        <img src="/raec-linebar.png" alt="" className="mt-1.5 h-[5px] w-full object-cover" />
+        <div className="mt-1.5 flex items-center justify-between text-[11px]">
+          <span className="font-semibold uppercase tracking-wider text-muted-foreground">
+            Drilling Sequence — Formal Approval Record
+          </span>
+          <span className="tabular-nums text-foreground">
+            {revLabel(revision)} · {statusLabel} · {docDate} · {snapshot.length} activities
+          </span>
+        </div>
+      </div>
+
+      {/* Print-only confidentiality footer (repeats per page in Chrome) */}
+      <div className="fixed inset-x-0 bottom-0 hidden border-t border-border/60 bg-white px-3 pt-1 text-[9px] text-muted-foreground print:block">
+        Renaissance Africa Energy Company Limited — Confidential ·{" "}
+        {project?.name ?? "Drilling Sequence"} · {revLabel(revision)}
       </div>
 
       {/* Compact metadata bar */}
@@ -570,8 +643,12 @@ export function RevisionDetail() {
         <RevisionDiff projectId={projectId!} target={revision} revisions={revisions} />
       </div>
 
-      {/* Schedule snapshot — Gantt (with readiness icons) + collapsible detail */}
-      <div className="space-y-3 print:break-inside-avoid">
+      {/* Schedule snapshot — Gantt (with readiness icons) + collapsible detail.
+          Starts on a fresh page in print so page 1 reads as the approval record
+          (header · metadata · decision · signatures) and the schedule follows.
+          No break-inside-avoid: the chart + legend + table are taller than a page,
+          so they must be allowed to paginate rather than clip. */}
+      <div className="space-y-3 print:break-before-page">
         <h2 className="text-sm font-semibold text-foreground">Schedule snapshot</h2>
         {snapshotActivities.length > 0 ? (
           <DrillChart

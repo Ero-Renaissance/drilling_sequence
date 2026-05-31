@@ -69,6 +69,7 @@ export function ChartLegend({
     <div
       className={cn(
         "flex flex-col gap-3 rounded-lg border border-border/70 bg-card/60 px-4 py-3 md:flex-row md:gap-8",
+        "print:break-inside-avoid",
         className,
       )}
     >

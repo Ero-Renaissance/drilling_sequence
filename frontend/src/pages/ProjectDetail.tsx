@@ -50,7 +50,7 @@ export function ProjectDetail() {
   return (
     <div className="space-y-4 h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 print:hidden">
         <Button variant="ghost" size="icon" asChild className="text-muted-foreground">
           <NavLink to="/projects">
             <ArrowLeft className="h-4 w-4" />
@@ -69,7 +69,7 @@ export function ProjectDetail() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-border/70">
+      <div className="flex items-center gap-1 border-b border-border/70 print:hidden">
         {tabs.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
