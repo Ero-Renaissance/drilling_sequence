@@ -98,6 +98,3 @@ node_modules/
 DrillingChartApp_Standalone/
 dummy/
 build/
-
-# Track the documentation CSV template (all other *.csv stay ignored as data).
-!docs/activity-import-template.csv

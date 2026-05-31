@@ -287,11 +287,11 @@ This app must pass IT security review, so dependencies are treated as liabilitie
   reverse proxy that serves the SPA and proxies `/api`. (Deployment guide §6.)
 - **`snapshot_json` is a JSON array**, parsed by `RevisionDetail.tsx` as
   `snapshot.length`. Keep it an array.
-- **The activity import template lives in two synced places:** the in-app
-  "Download a blank template" button generates it from a constant in
-  `components/chart/ImportDialog.tsx`, and `docs/activity-import-template.csv`
-  mirrors it. The canonical column names/values come from
-  `backend/app/services/data_processor.py` — change all three together.
+- **The activity import template is generated in-app** from a constant in
+  `components/chart/ImportDialog.tsx` ("Download a blank template"); the
+  human-readable column spec is the table in `docs/user-guide.md`. The canonical
+  column names/values come from `backend/app/services/data_processor.py` — keep
+  those in sync.
 - **ECharts custom series quirks** (in `components/chart/DrillChart.tsx`): a data
   item's own `label` config renders regardless of `series.label.show` — bar labels
   are drawn clip-aware inside `renderItem` instead, and the series sets `clip: true`.

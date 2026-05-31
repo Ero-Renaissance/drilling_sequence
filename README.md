@@ -18,8 +18,8 @@ Microsoft Entra ID (Azure AD) SSO.
 | **[MSSQL Migration Notes](docs/mssql-migration.md)** | Working on the database / the Postgres→MSSQL move. |
 | **[CLAUDE.md](CLAUDE.md)** | **The binding security & business rules — the source of truth.** |
 
-There's also a ready-to-fill **[activity import template](docs/activity-import-template.csv)**
-for bulk-loading activities.
+To bulk-load activities, use **Import CSV / Excel** in the app and click
+**Download a blank template** (format documented in the [User Guide](docs/user-guide.md)).
 
 ## Quick start (local development)
 
