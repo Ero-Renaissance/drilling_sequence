@@ -15,6 +15,7 @@ Microsoft Entra ID (Azure AD) SSO.
 | **[User Guide](docs/user-guide.md)** | A new user — signing in, the chart, readiness, the approval workflow, CSV import. |
 | **[Deployment Guide](docs/deployment-guide.md)** | Deploying it on the company internal server (step by step). |
 | **[Maintainer Guide](docs/maintainer-guide.md)** | A developer maintaining or extending the code. |
+| **[RBAC Reference](docs/rbac-reference.md)** | Assigning roles, or reviewing who can do what (the access model as enforced). |
 | **[MSSQL Migration Notes](docs/mssql-migration.md)** | Working on the database / the Postgres→MSSQL move. |
 | **[CLAUDE.md](CLAUDE.md)** | **The binding security & business rules — the source of truth.** |
 

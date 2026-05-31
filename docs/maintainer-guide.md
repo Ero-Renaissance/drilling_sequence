@@ -28,6 +28,7 @@ drilling_sequence/
 │   ├─ deployment-guide.md   # How to deploy on the internal server.
 │   ├─ user-guide.md         # End-user guide.
 │   ├─ maintainer-guide.md   # (this file)
+│   ├─ rbac-reference.md     # Access model as enforced (roles, helpers, approvers).
 │   └─ mssql-migration.md    # DB decision + Postgres→MSSQL notes.
 ├─ backend/
 │   ├─ app/
