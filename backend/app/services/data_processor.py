@@ -30,8 +30,6 @@ CSV_ALIASES: dict[str, str] = {
     "Start Date": "start_date",
     "End Date": "end_date",
     "Location": "location",
-    "Readiness Check": "readiness_check",
-    "Readiness Check Status": "readiness_check_status",
     "Risk": "risk",
     "Comment": "comment",
     "Plan Type": "plan_type",

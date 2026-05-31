@@ -39,11 +39,6 @@ class Activity(Base):
     # ── Location ──────────────────────────────────────────────────────────────
     location: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    # ── Readiness ─────────────────────────────────────────────────────────────
-    # Comma-separated check codes: "BUD,LOC,FID"
-    readiness_check: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    readiness_check_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
-
     # ── Status / quality ──────────────────────────────────────────────────────
     risk: Mapped[str | None] = mapped_column(String(64), nullable=True)
     comment: Mapped[str | None] = mapped_column(String(512), nullable=True)

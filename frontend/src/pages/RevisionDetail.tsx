@@ -126,8 +126,6 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     rig_name: r.rig_name,
     project_group: null,
     location: r.location,
-    readiness_check: null,
-    readiness_check_status: null,
     risk: r.risk,
     comment: r.comment,
     plan_type: r.plan_type,

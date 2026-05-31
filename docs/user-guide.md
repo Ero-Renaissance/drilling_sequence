@@ -123,14 +123,15 @@ example rows — fill it in and upload it.
 | `Location` | `LAND`, `SWAMP`, or `OFFSHORE`. |
 | `Plan Type` | `Firm`, `Option`, or `Out of Plan`. |
 | `Risk` | `Low`, `Medium`, or `High`. |
-| `Readiness Check` | comma-separated codes in quotes, e.g. `"BUD,LOC,FID"` (BUD/LLI/LOC/FID/EIA/FLOOD/SUBS/CON). |
-| `Readiness Check Status` | overall status text (detailed per-check status is set on the Readiness tab). |
 | `Comment` | free text. |
 
 Tips:
-- **Rig contracts aren't set here.** A rig has one contract per project — set its
-  **start and end dates** (and status) on the **Contracts** tab, which drives the
-  contract-expiry indicators on the chart. The importer only creates activities.
+- **Readiness isn't set here.** Set each activity's readiness checks
+  (BUD/LLI/LOC/FID/EIA/FLOOD/SUBS/CON) on the **Readiness** tab — that's what shows
+  on the chart. The importer only creates activities.
+- **Rig contracts aren't set here either.** A rig has one contract per project — set
+  its **start and end dates** (and status) on the **Contracts** tab, which drives the
+  contract-expiry indicators on the chart.
 - A few **column aliases** are accepted (e.g. `Well Name` ↔ `Item Name`/`Name`;
   `Rig Name` ↔ `Resource`/`Equipment`/`Contractor`), but the names above are the
   canonical ones.

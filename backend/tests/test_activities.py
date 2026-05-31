@@ -257,7 +257,6 @@ async def test_import_csv_non_member_denied(
         ("plan_type", "Speculative"),
         ("risk", "Critical"),
         ("location", "MARS"),
-        ("readiness_check", "BUD,NOPE"),
     ],
 )
 @pytest.mark.asyncio
@@ -275,22 +274,6 @@ async def test_create_activity_rejects_non_canonical_enum(
         },
     )
     assert response.status_code == 422, response.text
-
-
-@pytest.mark.asyncio
-async def test_create_activity_normalizes_readiness_codes(client: AsyncClient) -> None:
-    project = await _create_project(client)
-    response = await client.post(
-        f"/api/projects/{project['id']}/activities",
-        json={
-            "activity_type": "Oil Well Drilling",
-            "start_date": "2026-01-01",
-            "end_date": "2026-02-01",
-            "readiness_check": " BUD , LOC ,FID ",
-        },
-    )
-    assert response.status_code == 201, response.text
-    assert response.json()["readiness_check"] == "BUD,LOC,FID"
 
 
 @pytest.mark.asyncio

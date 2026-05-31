@@ -13,8 +13,6 @@ function act(overrides: Partial<Activity>): Activity {
     rig_name: "Rig Alpha",
     project_group: null,
     location: null,
-    readiness_check: null,
-    readiness_check_status: null,
     risk: null,
     comment: null,
     plan_type: null,

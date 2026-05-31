@@ -10,8 +10,6 @@ export interface Activity {
   rig_name: string | null;
   project_group: string | null;
   location: string | null;
-  readiness_check: string | null;
-  readiness_check_status: string | null;
   risk: string | null;
   comment: string | null;
   plan_type: string | null;
@@ -39,8 +37,6 @@ export interface ActivityCreate {
   rig_name?: string | null;
   project_group?: string | null;
   location?: string | null;
-  readiness_check?: string | null;
-  readiness_check_status?: string | null;
   risk?: string | null;
   comment?: string | null;
   plan_type?: string | null;

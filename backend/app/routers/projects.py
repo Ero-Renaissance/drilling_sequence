@@ -175,8 +175,6 @@ async def clone_project(
             rig_name=src.rig_name,
             project_group=src.project_group,
             location=src.location,
-            readiness_check=src.readiness_check,
-            readiness_check_status=src.readiness_check_status,
             risk=src.risk,
             comment=src.comment,
             plan_type=src.plan_type,
