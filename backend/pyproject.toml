@@ -14,7 +14,15 @@ dependencies = [
     "fastapi==0.136.3",
     "uvicorn[standard]==0.48.0",
     "sqlalchemy[asyncio]==2.0.50",
+    # Async DB drivers. asyncpg (PostgreSQL) is retained through the MSSQL
+    # transition and should be dropped only after the MSSQL smoke test passes
+    # (see docs/mssql-migration.md). aioodbc/pyodbc drive MSSQL via the system
+    # Microsoft ODBC Driver 18 — NEW dependencies, flagged for IT review:
+    #   pyodbc  5.2.0  (MIT-0)      — C-extension; needs the OS ODBC driver at runtime
+    #   aioodbc 0.5.0  (Apache-2.0) — async wrapper, pulls in pyodbc only
     "asyncpg==0.31.0",
+    "aioodbc==0.5.0",
+    "pyodbc==5.2.0",
     "alembic==1.18.4",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.1",

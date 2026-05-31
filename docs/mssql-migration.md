@@ -1,6 +1,36 @@
 # Migrating the Drilling Sequence backend from PostgreSQL to Microsoft SQL Server
 
-**Status:** scoping only — no code changed yet.
+**Status:** prep implemented — code, packaging, and migration portability are done
+(see "Implementation status" below). Final cutover is gated on a live MSSQL instance
++ IT sign-off (§5) and the smoke test (§4); `asyncpg` is kept until then.
+
+**Decision (2026-05-31):** MSSQL is the **single** production database (IT already
+runs it). PostgreSQL is **not** a supported production target — we keep the code
+DB-agnostic (ORM + portable migrations) purely as a low-cost exit option, not a
+maintained dual-DB matrix (which would double the driver, migration, and
+verification burden for no real benefit on a single-deployment internal tool).
+`asyncpg` ships through the transition and is removed once the MSSQL smoke test
+passes; SQLite stays dev/test only.
+
+### Implementation status
+Done in this pass (works on PostgreSQL/SQLite today, MSSQL-ready):
+- `app/database.py`: `pool_pre_ping` for server DBs (PG/MSSQL); SQLite branch unchanged.
+- Migrations `001`/`002`: literal `sa.text("now()")` → dialect-translated `sa.func.now()`;
+  `001` downgrade `DROP TYPE` guarded to PostgreSQL only. (Doc §3 missed these.)
+- `app/routers/viewers.py`: removed an unused `sqlalchemy.dialects.sqlite` import
+  (dead code — the real upsert is portable ORM).
+- `pyproject.toml` + `requirements.txt`: added `aioodbc==0.5.0`, `pyodbc==5.2.0`
+  (transitive closure = just those two). **`asyncpg` retained** for the transition.
+- `Dockerfile`: installs Microsoft ODBC Driver 18 + unixODBC (Debian 12).
+- `.env.example`: documented MSSQL `DATABASE_URL`.
+
+Still pending (cannot be done without a live instance / IT input):
+- IT review of the new deps + the OS ODBC driver (supply chain).
+- Answers to the §5 open questions (auth method materially affects the URL).
+- Smoke test against a real MSSQL instance (§4) — the only true verification of
+  `UNIQUEIDENTIFIER` / `DATETIMEOFFSET` rendering and collation.
+- Optional: the §3 squash (now optional — the existing chain is portable).
+- After smoke test passes: drop `asyncpg` and hardcode/document MSSQL as the default.
 **Bottom line:** ~0.5–1 day of work, almost all of it environment/packaging and
 migration verification. The application code barely moves because the schema and
 queries already go entirely through the SQLAlchemy ORM (a side benefit of the

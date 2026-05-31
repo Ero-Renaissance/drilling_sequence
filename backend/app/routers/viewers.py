@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user

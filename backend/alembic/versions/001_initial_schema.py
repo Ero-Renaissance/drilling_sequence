@@ -44,7 +44,9 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            # func.now() is dialect-translated (PG: now(), MSSQL/SQLite:
+            # CURRENT_TIMESTAMP); a literal text("now()") would fail on MSSQL.
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
@@ -72,5 +74,9 @@ def downgrade() -> None:
     op.drop_table("project_members")
     op.drop_table("projects")
     op.drop_table("users")
-    op.execute("DROP TYPE IF EXISTS projectstatus")
-    op.execute("DROP TYPE IF EXISTS projectrole")
+    # Native ENUM types only exist on PostgreSQL — MSSQL/SQLite render Enum as a
+    # VARCHAR + CHECK with no separate type to drop, and "DROP TYPE" is invalid
+    # SQL there, so guard the cleanup by dialect.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("DROP TYPE IF EXISTS projectstatus")
+        op.execute("DROP TYPE IF EXISTS projectrole")
