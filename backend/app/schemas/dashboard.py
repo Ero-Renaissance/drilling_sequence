@@ -14,6 +14,16 @@ class ActivityStats(BaseModel):
     overdue: int  # end_date < today and not completed
     starting_soon: int  # start within the near-term window, not completed
     by_plan_type: dict[str, int]
+    by_activity_type: dict[str, int]  # plan composition (all activities)
+
+
+class GateBreakdown(BaseModel):
+    code: str
+    completed: int
+    in_progress: int
+    not_started: int
+    behind: int
+    na: int
 
 
 class ReadinessStats(BaseModel):
@@ -21,6 +31,7 @@ class ReadinessStats(BaseModel):
     overall_pct: int | None  # Completed cells / applicable cells, across focus activities
     behind_cells: int
     ready: int  # focus activities with all applicable gates Completed
+    by_gate: list[GateBreakdown]  # status split per gate, over focus activities
 
 
 class RigDetail(BaseModel):

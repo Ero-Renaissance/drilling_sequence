@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
-import { fetchDashboard, type DashboardResponse } from "@/api/dashboard";
+import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
+import { getActivityColor } from "@/lib/chart-colors";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
 
@@ -76,6 +77,85 @@ function WatchRow({ count, label, to }: { count: number; label: string; to: stri
   );
 }
 
+// ── Breakdown panel (Phase 2) ────────────────────────────────────────────────
+
+const GATE_COLORS = {
+  completed: "#16a34a",
+  in_progress: "#f59e0b",
+  behind: "#ef4444",
+  not_started: "#94a3b8",
+  na: "#cbd5e1",
+} as const;
+
+const PLAN_COLORS: Record<string, string> = {
+  Firm: "#16a34a",
+  Option: "#f59e0b",
+  "Out of Plan": "#94a3b8",
+};
+
+function BreakdownCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
+      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+/** Label · proportional bar · count, sorted by the caller. */
+function BarList({ items, max }: { items: { label: string; value: number; color: string }[]; max: number }) {
+  if (items.length === 0) return <p className="text-xs text-muted-foreground">No data yet.</p>;
+  return (
+    <div className="space-y-1.5">
+      {items.map((it) => (
+        <div key={it.label} className="flex items-center gap-2">
+          <span className="w-28 shrink-0 truncate text-xs text-muted-foreground" title={it.label}>
+            {it.label}
+          </span>
+          <div className="h-3 flex-1 overflow-hidden rounded-sm bg-muted">
+            <div
+              className="h-full rounded-sm"
+              style={{ width: `${(it.value / max) * 100}%`, backgroundColor: it.color }}
+            />
+          </div>
+          <span className="w-8 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+            {it.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A gate's 5-status split as a single stacked bar. */
+function GateRow({ gate }: { gate: GateBreakdown }) {
+  const total =
+    gate.completed + gate.in_progress + gate.not_started + gate.behind + gate.na;
+  const seg = (value: number, color: string) =>
+    value > 0 ? (
+      <div className="h-full" style={{ width: `${(value / total) * 100}%`, backgroundColor: color }} />
+    ) : null;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-10 shrink-0 text-xs font-medium text-muted-foreground">{gate.code}</span>
+      <div className="flex h-3 flex-1 overflow-hidden rounded-sm bg-muted">
+        {total > 0 && (
+          <>
+            {seg(gate.completed, GATE_COLORS.completed)}
+            {seg(gate.in_progress, GATE_COLORS.in_progress)}
+            {seg(gate.behind, GATE_COLORS.behind)}
+            {seg(gate.not_started, GATE_COLORS.not_started)}
+            {seg(gate.na, GATE_COLORS.na)}
+          </>
+        )}
+      </div>
+      <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-destructive">
+        {gate.behind > 0 ? gate.behind : ""}
+      </span>
+    </div>
+  );
+}
+
 export function ProjectDashboard({ projectId }: { projectId: string }) {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +175,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
   if (error) return <p className="py-12 text-center text-sm text-destructive">{error}</p>;
   if (!data) return <p className="py-12 text-center text-sm text-muted-foreground">Loading dashboard…</p>;
 
-  const { readiness, rigs, contracts, approval, watchlist } = data;
+  const { activities, readiness, rigs, contracts, approval, watchlist } = data;
   const base = `/projects/${projectId}`;
 
   const contractsAtRisk = contracts.expired + contracts.critical + contracts.soon;
@@ -108,6 +188,23 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
     watchlist.high_risk_near_term +
     watchlist.stale_approval +
     watchlist.drift_since_approved;
+
+  // Breakdown data.
+  const planItems = Object.entries(activities.by_plan_type)
+    .map(([label, value]) => ({ label, value, color: PLAN_COLORS[label] ?? "#cbd5e1" }))
+    .sort((a, b) => b.value - a.value);
+  const typeItems = Object.entries(activities.by_activity_type)
+    .map(([label, value]) => ({ label, value, color: getActivityColor(label) }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+  const idleItems = rigs.per_rig
+    .filter((r) => r.idle_days > 0)
+    .sort((a, b) => b.idle_days - a.idle_days)
+    .slice(0, 8)
+    .map((r) => ({ label: r.rig, value: r.idle_days, color: "#f59e0b" }));
+  const planMax = Math.max(1, ...planItems.map((i) => i.value));
+  const typeMax = Math.max(1, ...typeItems.map((i) => i.value));
+  const idleMax = Math.max(1, ...idleItems.map((i) => i.value));
 
   return (
     <div className="space-y-6">
@@ -196,6 +293,42 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
             />
           </div>
         )}
+      </div>
+
+      {/* Breakdown */}
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-foreground">Breakdown</h3>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <BreakdownCard title="Readiness by gate · next 12 months">
+            {readiness.by_gate.length ? (
+              <div className="space-y-1.5">
+                {readiness.by_gate.map((g) => (
+                  <GateRow key={g.code} gate={g} />
+                ))}
+                <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
+                  <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
+                  <span><span style={{ color: GATE_COLORS.in_progress }}>●</span> In progress</span>
+                  <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
+                  <span><span style={{ color: GATE_COLORS.not_started }}>●</span> Not started</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No data yet.</p>
+            )}
+          </BreakdownCard>
+
+          <BreakdownCard title="Plan firmness">
+            <BarList items={planItems} max={planMax} />
+          </BreakdownCard>
+
+          <BreakdownCard title="Activity-type mix">
+            <BarList items={typeItems} max={typeMax} />
+          </BreakdownCard>
+
+          <BreakdownCard title="Rig idle gaps (days)">
+            <BarList items={idleItems} max={idleMax} />
+          </BreakdownCard>
+        </div>
       </div>
     </div>
   );

@@ -6,6 +6,15 @@ export interface RigDetail {
   idle_days: number;
 }
 
+export interface GateBreakdown {
+  code: string;
+  completed: number;
+  in_progress: number;
+  not_started: number;
+  behind: number;
+  na: number;
+}
+
 export interface DashboardResponse {
   generated_at: string;
   plan: { start: string | null; end: string | null };
@@ -15,12 +24,14 @@ export interface DashboardResponse {
     overdue: number;
     starting_soon: number;
     by_plan_type: Record<string, number>;
+    by_activity_type: Record<string, number>;
   };
   readiness: {
     focus_count: number;
     overall_pct: number | null;
     behind_cells: number;
     ready: number;
+    by_gate: GateBreakdown[];
   };
   rigs: {
     in_use: number;

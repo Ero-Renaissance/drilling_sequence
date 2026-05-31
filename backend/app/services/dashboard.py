@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
-from app.models.readiness import ReadinessCheck
+from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.revision import Revision
 from app.models.rig_contract import RigContract
 from app.schemas.dashboard import (
@@ -20,12 +20,22 @@ from app.schemas.dashboard import (
     ApprovalStats,
     ContractStats,
     DashboardResponse,
+    GateBreakdown,
     ReadinessStats,
     RigDetail,
     RigStats,
     RiskStats,
     Watchlist,
 )
+
+# Readiness status string → GateBreakdown field.
+_STATUS_KEY = {
+    "Completed": "completed",
+    "In Progress": "in_progress",
+    "Not Started": "not_started",
+    "Behind": "behind",
+    "N/A": "na",
+}
 from app.services.conflicts import detect_rig_conflicts
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
@@ -98,15 +108,18 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     # ── activities ─────────────────────────────────────────────────────────────
     overdue = sum(1 for a in activities if not done(a) and a.end_date < today)
     by_plan_type: dict[str, int] = {}
+    by_activity_type: dict[str, int] = {}
     for a in activities:
-        key = a.plan_type or "Unspecified"
-        by_plan_type[key] = by_plan_type.get(key, 0) + 1
+        plan_key = a.plan_type or "Unspecified"
+        by_plan_type[plan_key] = by_plan_type.get(plan_key, 0) + 1
+        by_activity_type[a.activity_type] = by_activity_type.get(a.activity_type, 0) + 1
     activity_stats = ActivityStats(
         total=len(activities),
         completed_this_quarter=sum(1 for a in activities if done(a)),
         overdue=overdue,
         starting_soon=sum(1 for a in activities if not done(a) and near_term(a)),
         by_plan_type=by_plan_type,
+        by_activity_type=by_activity_type,
     )
 
     # ── readiness (focus window) ───────────────────────────────────────────────
@@ -121,11 +134,24 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
                 completed_cells += 1
             elif s == "Behind":
                 behind_cells += 1
+    # Per-gate status split across the focus activities (each of the 8 gates ×
+    # 5 statuses) — surfaces the top blocking gate. A gate with no row reads as
+    # its default, "Not Started".
+    gate_buckets = {
+        c: {"completed": 0, "in_progress": 0, "not_started": 0, "behind": 0, "na": 0}
+        for c in CHECK_CODES
+    }
+    for a in focus:
+        checks = readiness_by_activity.get(a.id, {})
+        for c in CHECK_CODES:
+            gate_buckets[c][_STATUS_KEY.get(checks.get(c, "Not Started"), "not_started")] += 1
+
     readiness_stats = ReadinessStats(
         focus_count=len(focus),
         overall_pct=round(100 * completed_cells / applicable_cells) if applicable_cells else None,
         behind_cells=behind_cells,
         ready=sum(1 for a in focus if ready(a)),
+        by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in CHECK_CODES],
     )
 
     # ── rigs ───────────────────────────────────────────────────────────────────

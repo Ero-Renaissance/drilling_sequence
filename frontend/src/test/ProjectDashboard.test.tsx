@@ -13,8 +13,18 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
   return {
     generated_at: "2026-05-31",
     plan: { start: "2026-01-01", end: "2035-12-31" },
-    activities: { total: 10, completed_this_quarter: 2, overdue: 3, starting_soon: 1, by_plan_type: {} },
-    readiness: { focus_count: 4, overall_pct: 62, behind_cells: 1, ready: 2 },
+    activities: {
+      total: 10, completed_this_quarter: 2, overdue: 3, starting_soon: 1,
+      by_plan_type: { Firm: 6, Option: 4 },
+      by_activity_type: { "Oil Development": 5, "Gas Development": 3 },
+    },
+    readiness: {
+      focus_count: 4, overall_pct: 62, behind_cells: 1, ready: 2,
+      by_gate: [
+        { code: "BUD", completed: 2, in_progress: 1, not_started: 1, behind: 0, na: 0 },
+        { code: "FID", completed: 0, in_progress: 1, not_started: 2, behind: 1, na: 0 },
+      ],
+    },
     rigs: { in_use: 5, conflicts: 0, total_idle_days: 120, per_rig: [] },
     contracts: { expired: 0, critical: 0, soon: 1, healthy: 3, activities_past_contract: 0 },
     approval: { current_status: "pending_approval", signed: 1, approvers: 3, pending_days: 9, drift_since_approved: 4 },
@@ -51,6 +61,15 @@ describe("ProjectDashboard", () => {
     renderDash();
     const overdue = await screen.findByText(/overdue/i);
     expect(overdue.closest("a")).toHaveAttribute("href", "/projects/p1/data?focus=overdue");
+  });
+
+  it("renders the breakdown panel", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    expect(await screen.findByText("Plan firmness")).toBeInTheDocument();
+    expect(screen.getByText("Activity-type mix")).toBeInTheDocument();
+    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+    expect(screen.getByText("Oil Development")).toBeInTheDocument();
   });
 
   it("shows an all-clear when the watchlist is empty", async () => {

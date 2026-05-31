@@ -107,3 +107,10 @@ async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
     assert d["readiness"]["overall_pct"] == 100
     assert d["readiness"]["ready"] == 1
     assert d["watchlist"]["near_term_not_ready"] == 0
+
+    # Phase-2 breakdowns: 8 gates, BUD shows the one Completed; activity-type mix present.
+    by_gate = {g["code"]: g for g in d["readiness"]["by_gate"]}
+    assert len(by_gate) == 8
+    assert by_gate["BUD"]["completed"] == 1
+    assert by_gate["LLI"]["not_started"] == 1  # unset gate reads as Not Started
+    assert d["activities"]["by_activity_type"]["Oil Development"] == 1
