@@ -13,6 +13,13 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+_SUBJECT_PREFIX = "[Renaissance Drilling Sequence]"
+_FOOTER = (
+    "\n—\n"
+    "Renaissance Drilling Sequence · Renaissance Africa Energy Company Limited\n"
+    "Confidential. Automated message — please do not reply.\n"
+)
+
 
 def send_email(to: list[str], subject: str, body: str) -> None:
     """Send a plain-text email to one or more recipients. Never raises."""
@@ -50,11 +57,12 @@ def notify_revision_pending(
 ) -> None:
     """Notify designated approvers that a revision needs their signature."""
     link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/approvals"
-    subject = f"[Drilling Sequence] {rev_label} awaiting your approval — {project_name}"
+    subject = f"{_SUBJECT_PREFIX} {rev_label} awaiting your approval — {project_name}"
     body = (
         f"A new revision is ready for your review on project \"{project_name}\".\n\n"
         f"Revision: {rev_label}\n\n"
         f"Open the approvals page to sign, request changes, or reject:\n{link}\n"
+        f"{_FOOTER}"
     )
     send_email(recipients, subject, body)
 
@@ -73,11 +81,12 @@ def notify_revision_decision(
     back for changes, including the reviewer's reason. `outcome` is a short
     human phrase like "rejected" or "sent back for changes"."""
     link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/approvals"
-    subject = f"[Drilling Sequence] {rev_label} {outcome} — {project_name}"
+    subject = f"{_SUBJECT_PREFIX} {rev_label} {outcome} — {project_name}"
     body = (
         f"Your revision \"{rev_label}\" on project \"{project_name}\" was {outcome} "
         f"by {decided_by}.\n\n"
         f"Reason:\n{reason}\n\n"
         f"The activities have been unlocked so you can revise and resubmit:\n{link}\n"
+        f"{_FOOTER}"
     )
     send_email([recipient], subject, body)

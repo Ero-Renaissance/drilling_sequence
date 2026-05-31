@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # so the app runs fine before IT provides relay details.
     smtp_host: str = ""
     smtp_port: int = 25
-    smtp_from: str = "drilling-sequence@company.com"
+    smtp_from: str = "Renaissance Drilling Sequence <no-reply@renaissanceafrica.com>"
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_use_tls: bool = False
