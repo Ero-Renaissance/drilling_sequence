@@ -1,0 +1,21 @@
+# Keep the frontend build context lean. Docker does NOT read .gitignore.
+# (Production serves `npm run build` -> dist/, which already excludes tests; this
+# guards the dev image and any future build image from shipping bulk/secret files.)
+
+# Dependencies & build output — reinstalled/rebuilt inside the image.
+node_modules/
+dist/
+.vite/
+
+# Test/coverage artifacts.
+coverage/
+
+# Secrets (Vite bakes VITE_* at build time via env, not a copied file).
+.env
+.env.*
+
+# VCS / editor / OS noise.
+.git/
+.gitignore
+.dockerignore
+.DS_Store

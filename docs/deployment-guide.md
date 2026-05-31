@@ -171,6 +171,10 @@ docker run -d --name drilling-backend \
 Note `127.0.0.1:8000` — the backend is bound to localhost only. The public never
 hits it directly; the reverse proxy does.
 
+> A `backend/.dockerignore` keeps `tests/`, the local `.venv/`, `.env`, and the
+> dev SQLite file **out** of the image — so secrets and test code are never
+> shipped, and the image stays small. Don't delete it.
+
 ### 4c. Create the database tables (run once, and after every upgrade)
 Run the Alembic migrations **inside** the container (it has the driver + the same
 `.env`):

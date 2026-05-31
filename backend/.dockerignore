@@ -1,0 +1,30 @@
+# Keep the backend image lean and free of secrets, tests, and dev junk.
+# IMPORTANT: Docker does NOT read .gitignore — this must be maintained separately.
+# The Dockerfile uses `COPY . .`, so anything not excluded here ends up in the image.
+
+# Secrets & local data — must never be baked into an image layer.
+# (Runtime config is injected via `docker run --env-file`, not a file in the image.)
+.env
+.env.*
+*.db
+*.sqlite3
+
+# Tests & lint/test caches — not needed at runtime.
+tests/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local virtualenv (built for the host OS — wrong platform for the container)
+# and Python build/byte-code caches.
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+
+# VCS / editor / OS noise.
+.git/
+.gitignore
+.dockerignore
+.DS_Store
