@@ -58,9 +58,20 @@ function fmt(d: string | null | undefined): string {
     : "—";
 }
 
+// Stable 1..N ordering by start date (then well), so a bar's number on the Gantt
+// matches its row in the schedule table's "#" column.
+function orderRows(rows: PrintRow[]): PrintRow[] {
+  return [...rows].sort((a, b) => {
+    const sa = parse(a.start_date)?.getTime() ?? 0;
+    const sb = parse(b.start_date)?.getTime() ?? 0;
+    if (sa !== sb) return sa - sb;
+    return (a.well_name ?? "").localeCompare(b.well_name ?? "");
+  });
+}
+
 // ── Static Gantt — clean bars on a year grid, paginated by 2-year windows ──────
 
-function StaticGantt({ rows }: { rows: PrintRow[] }) {
+function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, number> }) {
   const acts = rows
     .map((r) => ({ ...r, s: parse(r.start_date), e: parse(r.end_date) }))
     .filter((a): a is PrintRow & { s: Date; e: Date } => a.s !== null && a.e !== null);
@@ -154,16 +165,22 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
                         .map((a) => {
                           const l = Math.max(0, ((a.s.getTime() - winStart) / winSpan) * 100);
                           const r = Math.min(100, ((a.e.getTime() - winStart) / winSpan) * 100);
-                          // Label always lives inside the bar (truncated if narrow); the
-                          // table carries the full name. No floating labels to overlap.
+                          const wpct = Math.max(0.8, r - l);
+                          const n = index.get(a.id);
+                          // Every bar carries its schedule number — legible even a few days
+                          // wide (a min-width keeps the digit from being clipped). The well
+                          // name rides along only when the bar is wide enough; full names
+                          // live in the numbered schedule table, keyed by the same number.
+                          const showName = wpct >= 10 && !!a.well_name;
                           return (
                             <span
                               key={a.id}
-                              title={`${a.activity_type} · ${a.well_name ?? ""}`}
-                              className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden rounded px-1 text-[8px] font-semibold text-white"
-                              style={{ left: `${l}%`, width: `${Math.max(0.8, r - l)}%`, backgroundColor: getActivityColor(a.activity_type) }}
+                              title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}`}
+                              className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center justify-center gap-1 overflow-hidden rounded px-1 text-[8px] font-semibold text-white"
+                              style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
                             >
-                              <span className="truncate">{a.well_name ?? a.activity_type}</span>
+                              <span className="shrink-0 tabular-nums">{n}</span>
+                              {showName && <span className="truncate font-medium opacity-90">{a.well_name}</span>}
                             </span>
                           );
                         })}
@@ -172,6 +189,8 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
                 ))}
               </div>
             </div>
+            {/* The colour key rides with the chart so every chart page is self-decoding. */}
+            <ActivityLegend rows={rows} />
           </div>
         );
       })}
@@ -196,9 +215,9 @@ function ActivityLegend({ rows }: { rows: PrintRow[] }) {
   );
 }
 
-function ReadinessLegend() {
+function ReadinessKey() {
   return (
-    <div className="mt-3 space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
+    <div className="space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Readiness</span>
         {CHECK_CODES.map((c) => {
@@ -237,12 +256,19 @@ function ReadinessIcons({ readiness }: { readiness?: Record<string, CheckStatus>
   );
 }
 
-function ScheduleTable({ rows }: { rows: PrintRow[] }) {
+function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, number> }) {
   return (
     <table className="w-full border-collapse text-[9.5px]">
+      {/* Both rows sit in <thead> (table-header-group) so the readiness key AND the
+          column labels reprint at the top of every table page. */}
       <thead>
+        <tr>
+          <td colSpan={10} className="pb-2 pt-1">
+            <ReadinessKey />
+          </td>
+        </tr>
         <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">
-          {["Activity", "Well", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
+          {["#", "Activity", "Well", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
             <th key={h} className="px-1.5 py-1">{h}</th>
           ))}
         </tr>
@@ -250,6 +276,7 @@ function ScheduleTable({ rows }: { rows: PrintRow[] }) {
       <tbody>
         {rows.map((r) => (
           <tr key={r.id}>
+            <td className="px-1.5 py-1 tabular-nums font-semibold text-foreground">{index.get(r.id)}</td>
             <td className="px-1.5 py-1 font-medium text-foreground">{r.activity_type}</td>
             <td className="px-1.5 py-1 text-muted-foreground">{r.well_name ?? "—"}</td>
             <td className="px-1.5 py-1 text-muted-foreground">{r.location ?? "—"}</td>
@@ -350,6 +377,22 @@ export function RevisionPrintDoc({
     .replace(/[^A-Z0-9]+/g, "-")
     .replace(/^-|-$/g, "")}/REV${String(revision.rev_number).padStart(2, "0")}`;
 
+  // One stable number per activity, shared by the Gantt bars and the table "#" column.
+  const ordered = orderRows(rows);
+  const index = new Map(ordered.map((r, i) => [r.id, i + 1]));
+
+  // Controlled-document date: when approved, the latest approval signature; otherwise
+  // the print date, clearly labelled as generated (not a formal approval date).
+  const approvedAt = isApproved
+    ? revision.signatures.reduce<string | null>(
+        (latest, s) => (latest === null || s.signed_at > latest ? s.signed_at : latest),
+        null,
+      )
+    : null;
+  const docDate = approvedAt
+    ? `Approved ${fmt(approvedAt)}`
+    : `Generated ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`;
+
   return (
     // Internal padding guarantees visible whitespace even when the browser print
     // dialog overrides the @page margin (the "Margins: None/Default" trap).
@@ -391,18 +434,17 @@ export function RevisionPrintDoc({
           <p className={cn("font-medium", isApproved ? "text-emerald-700" : "text-muted-foreground")}>
             {isApproved ? "Approved" : revision.status.replace(/_/g, " ")}
           </p>
+          <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">{docDate}</p>
         </div>
       </div>
 
-      {/* Sequence — the activity colour legend rides with the chart */}
+      {/* Sequence — each chart page carries its own activity colour key (in StaticGantt) */}
       <h2 className="mt-3 text-sm font-semibold">Sequence</h2>
-      <StaticGantt rows={rows} />
-      <ActivityLegend rows={rows} />
+      <StaticGantt rows={rows} index={index} />
 
-      {/* Activity schedule — on its own page; the readiness key rides with the table */}
+      {/* Activity schedule — on its own page; the readiness key reprints in the table header */}
       <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
-      <ReadinessLegend />
-      <ScheduleTable rows={rows} />
+      <ScheduleTable rows={ordered} index={index} />
 
       {/* Formal sign-off */}
       <SignOff revision={revision} />
