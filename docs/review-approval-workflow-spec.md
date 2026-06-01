@@ -302,12 +302,14 @@ review request-changes `reason` reuses the 1–2000-char bound (empty → 422).
    `ProjectApprover.kind`). Not roles, not disciplines.
 2. **Completion rule:** **all designated reviewers must sign** (no partial quorum).
 3. **Reviewers cast real signatures** (`Signature.stage="review"`).
+4. **Default `review_policy` = `optional`** (planner chooses per revision; a governance
+   owner can still set `required` or `off` per project).
 5. **Sign-tightening adopted:** only the designated email set for a stage (+ admin) may
    sign it; this narrows `assert_can_sign`.
+7. **Reviewer powers = request-changes only.** A reviewer signs (concur) or requests
+   changes (bounce back); the terminal `rejected` decision stays with approvers (the GMs).
 
 **Still open (recommended default in bold):**
-4. **Default `review_policy`:** **`optional`** (planner chooses per revision) vs
-   `required` (always two-stage) vs `off`.
 6. **Confirm the conceptual framing:** reviewer and approver are now mechanically the
    same (email matrix, all must sign); the only differences are *order* (review first),
    *bindingness* (review advances, approval finalises), and *no terminal reject for
