@@ -3,39 +3,28 @@ import { Link } from "react-router-dom";
 import {
   FolderOpen,
   AlertTriangle,
-  Clock,
-  Activity,
   ArrowUpRight,
   ChevronRight,
+  Gauge,
+  ListChecks,
+  Factory,
+  CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProjectsStore } from "@/store/projects";
 import { useAuthStore } from "@/store/auth";
-import { listContracts } from "@/api/contracts";
-import { getPendingApprovals } from "@/api/me";
+import { getLastApprovedDashboard, type LastApprovedDashboard } from "@/api/me";
 import { cn } from "@/lib/utils";
 
 type KpiTone = "primary" | "info" | "warning" | "success";
 
 const TONE_STYLES: Record<KpiTone, { bubble: string; icon: string }> = {
-  primary: {
-    bubble: "bg-primary/10",
-    icon: "text-primary",
-  },
-  info: {
-    bubble: "bg-info/10",
-    icon: "text-info",
-  },
-  warning: {
-    bubble: "bg-warning/15",
-    icon: "text-warning dark:text-warning",
-  },
-  success: {
-    bubble: "bg-success/12",
-    icon: "text-success",
-  },
+  primary: { bubble: "bg-primary/10", icon: "text-primary" },
+  info: { bubble: "bg-info/10", icon: "text-info" },
+  warning: { bubble: "bg-warning/15", icon: "text-warning dark:text-warning" },
+  success: { bubble: "bg-success/12", icon: "text-success" },
 };
 
 function KpiCard({
@@ -66,19 +55,99 @@ function KpiCard({
       </CardHeader>
       <CardContent className="p-5 pt-0">
         <div className="text-3xl font-semibold tabular-nums tracking-tight">{value}</div>
-        {description && (
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        )}
+        {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// The canonical rev identifier — not the free-text label, which can be anything
+// (e.g. "Draft") and reads as misleading next to "approved" on a summary banner.
+function revLabel(d: LastApprovedDashboard): string {
+  return `Rev. ${String(d.rev_number ?? 0).padStart(2, "0")}`;
+}
+
+// ── Most-recently-approved KPI section ────────────────────────────────────────
+
+function ApprovedKpis({ d }: { d: LastApprovedDashboard }) {
+  const k = d.kpis!;
+  const span =
+    k.schedule_start && k.schedule_end
+      ? `${fmtDate(k.schedule_start)} – ${fmtDate(k.schedule_end)}`
+      : "In the approved sequence";
+  return (
+    <div className="space-y-4">
+      {/* Context — which approved sequence these KPIs reflect */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-success/25 bg-success/[0.05] px-4 py-2.5 text-sm">
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+        <span className="font-medium text-muted-foreground">Most recently approved:</span>
+        {d.project_id ? (
+          <Link
+            to={`/projects/${d.project_id}/overview`}
+            className="font-semibold text-foreground hover:underline"
+          >
+            {d.project_name}
+          </Link>
+        ) : (
+          <span className="font-semibold text-foreground">{d.project_name}</span>
+        )}
+        <span className="text-muted-foreground/60">·</span>
+        <span className="text-foreground">{revLabel(d)}</span>
+        <span className="text-muted-foreground/60">·</span>
+        <span className="text-muted-foreground">
+          approved {fmtDate(d.approved_at)}
+          {d.approved_by ? ` by ${d.approved_by}` : ""}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiCard
+          title="Readiness"
+          value={k.readiness_pct === null ? "—" : `${k.readiness_pct}%`}
+          icon={Gauge}
+          description="Approved plan · next 12 months"
+          tone="success"
+        />
+        <KpiCard
+          title="Activities"
+          value={k.activities_total}
+          icon={ListChecks}
+          description={span}
+          tone="primary"
+        />
+        <KpiCard
+          title="Rigs in use"
+          value={k.rigs_in_use}
+          icon={Factory}
+          description="Rigs in the approved plan"
+          tone="info"
+        />
+        <KpiCard
+          title="Contracts at risk"
+          value={k.contracts_at_risk}
+          icon={AlertTriangle}
+          description="Expired or expiring within 90 days"
+          tone="warning"
+        />
+      </div>
+    </div>
   );
 }
 
 export function Dashboard() {
   const user = useAuthStore((s) => s.user);
   const { projects, loading, fetchProjects } = useProjectsStore();
-  const [contractAlerts, setContractAlerts] = useState<number | null>(null);
-  const [pendingApprovals, setPendingApprovals] = useState<number | null>(null);
+  const [lastApproved, setLastApproved] = useState<LastApprovedDashboard | null>(null);
+  const [kpiLoading, setKpiLoading] = useState(true);
 
   useEffect(() => {
     fetchProjects();
@@ -86,12 +155,16 @@ export function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    getPendingApprovals()
-      .then((items) => {
-        if (!cancelled) setPendingApprovals(items.length);
+    setKpiLoading(true);
+    getLastApprovedDashboard()
+      .then((d) => {
+        if (!cancelled) setLastApproved(d);
       })
       .catch(() => {
-        if (!cancelled) setPendingApprovals(null);
+        if (!cancelled) setLastApproved(null);
+      })
+      .finally(() => {
+        if (!cancelled) setKpiLoading(false);
       });
     return () => {
       cancelled = true;
@@ -99,43 +172,6 @@ export function Dashboard() {
   }, []);
 
   const activeProjects = projects.filter((p) => p.status === "active");
-
-  // Count distinct rigs (across active projects) whose contract expires within 90 days.
-  useEffect(() => {
-    if (activeProjects.length === 0) {
-      setContractAlerts(0);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const horizon = new Date();
-      horizon.setDate(horizon.getDate() + 90);
-      const seen = new Set<string>();
-
-      const results = await Promise.all(
-        activeProjects.map((p) => listContracts(p.id).catch(() => [])),
-      );
-
-      results.forEach((contracts, i) => {
-        const pid = activeProjects[i].id;
-        for (const c of contracts) {
-          // Only count in-force contracts — draft / not-started / N/A contracts
-          // don't have a real expiry to alert on.
-          if (c.status !== "Completed") continue;
-          if (!c.contract_end) continue;
-          // Counts both expiring-soon (end within next 90d) and already expired.
-          if (new Date(c.contract_end) <= horizon) {
-            seen.add(`${pid}:${c.rig_name}`);
-          }
-        }
-      });
-
-      if (!cancelled) setContractAlerts(seen.size);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProjects]);
 
   return (
     <div className="space-y-8">
@@ -146,7 +182,7 @@ export function Dashboard() {
             Welcome back{user ? `, ${user.name.split(" ")[0]}` : ""}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Here&apos;s an overview of your drilling campaigns
+            The state of your most recently approved rig sequence
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
@@ -157,10 +193,10 @@ export function Dashboard() {
         </Button>
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+      {/* Most-recently-approved KPIs */}
+      {kpiLoading ? (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
               <CardHeader className="p-5 pb-2">
                 <Skeleton className="h-3 w-24" />
@@ -169,42 +205,24 @@ export function Dashboard() {
                 <Skeleton className="h-8 w-16" />
               </CardContent>
             </Card>
-          ))
-        ) : (
-          <>
-            <KpiCard
-              title="Active Projects"
-              value={activeProjects.length}
-              icon={FolderOpen}
-              description="Drilling campaigns in progress"
-              tone="primary"
-            />
-            <KpiCard
-              title="Total Members"
-              value={
-                new Set(activeProjects.flatMap((p) => p.members.map((m) => m.user_id))).size
-              }
-              icon={Activity}
-              description="Across all active projects"
-              tone="info"
-            />
-            <KpiCard
-              title="Pending Approvals"
-              value={pendingApprovals ?? "—"}
-              icon={Clock}
-              description="Revisions awaiting your sign-off"
-              tone="warning"
-            />
-            <KpiCard
-              title="Contract Alerts"
-              value={contractAlerts ?? "—"}
-              icon={AlertTriangle}
-              description="Rigs expiring within 90 days"
-              tone="warning"
-            />
-          </>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : lastApproved?.available && lastApproved.kpis ? (
+        <ApprovedKpis d={lastApproved} />
+      ) : (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10">
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+            </div>
+            <p className="font-medium">No approved sequence yet</p>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Once a revision is approved, its KPIs will appear here. Submit a plan for
+              approval from a project&apos;s Approvals tab.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent projects */}
       <div className="space-y-4">

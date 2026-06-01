@@ -11,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.database import get_db
 from app.models.approver import ProjectApprover
-from app.models.project import Project
+from app.models.project import Project, ProjectMember, ProjectStatus
 from app.models.revision import Revision
 from app.models.user import User
+from app.schemas.dashboard import LastApprovedDashboard
+from app.services.dashboard import build_last_approved
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -82,3 +84,24 @@ async def pending_approvals(
             )
         )
     return out
+
+
+@router.get("/last-approved-dashboard", response_model=LastApprovedDashboard)
+async def last_approved_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LastApprovedDashboard:
+    """Home KPIs from the most-recently-approved revision across the caller's
+    active projects (membership-scoped, mirroring the projects list). Read-only;
+    `available=False` when none of the caller's projects has an approved revision."""
+    project_ids = (
+        await db.execute(
+            select(Project.id)
+            .join(ProjectMember, ProjectMember.project_id == Project.id)
+            .where(
+                ProjectMember.user_id == current_user.id,
+                Project.status == ProjectStatus.active,
+            )
+        )
+    ).scalars().all()
+    return await build_last_approved(list(project_ids), db)

@@ -9,12 +9,13 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.project import Project
 from app.models.readiness import CHECK_CODES, ReadinessCheck
-from app.models.revision import Revision
+from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
 from app.schemas.dashboard import (
     ActivityStats,
@@ -22,6 +23,8 @@ from app.schemas.dashboard import (
     ContractStats,
     DashboardResponse,
     GateBreakdown,
+    LastApprovedDashboard,
+    LastApprovedKPIs,
     ReadinessStats,
     RigDetail,
     RigStats,
@@ -294,4 +297,121 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         approval=approval_stats,
         risk=risk_stats,
         watchlist=watchlist,
+    )
+
+
+# ── Home dashboard: KPIs of the most-recently-approved sequence ─────────────────
+
+
+def _snap_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs:
+    """Hero-tile KPIs computed from a frozen revision snapshot (a list of activity
+    dicts with readiness + denormalised contract fields). Mirrors the per-project
+    Overview where the metrics translate to a snapshot; time-relative figures
+    (focus window, contracts at risk) are still evaluated against `today`."""
+    focus_end = today + timedelta(days=FOCUS_WINDOW_DAYS)
+
+    starts = [d for a in snapshot if (d := _snap_date(a.get("start_date")))]
+    ends = [d for a in snapshot if (d := _snap_date(a.get("end_date")))]
+
+    def is_done(a: dict) -> bool:
+        return bool(a.get("completed_at"))
+
+    focus = [
+        a
+        for a in snapshot
+        if not is_done(a) and (s := _snap_date(a.get("start_date"))) and s <= focus_end
+    ]
+
+    applicable = completed = 0
+    gate_buckets = {
+        c: {"completed": 0, "in_progress": 0, "not_started": 0, "behind": 0, "na": 0}
+        for c in CHECK_CODES
+    }
+    for a in focus:
+        readiness = a.get("readiness") or {}
+        for status in readiness.values():
+            if status == "N/A":
+                continue
+            applicable += 1
+            if status == "Completed":
+                completed += 1
+        for c in CHECK_CODES:
+            gate_buckets[c][_STATUS_KEY.get(readiness.get(c, "Not Started"), "not_started")] += 1
+
+    # Contracts at risk — dedupe the denormalised contract by rig (one row per rig).
+    contract_end_by_rig: dict[str, date] = {}
+    for a in snapshot:
+        rig = a.get("rig_name")
+        if not rig or rig in contract_end_by_rig:
+            continue
+        if a.get("rig_contract_status") == "Completed" and (
+            end := _snap_date(a.get("rig_contract_end"))
+        ):
+            contract_end_by_rig[rig] = end
+    contracts_at_risk = sum(
+        1 for end in contract_end_by_rig.values() if (end - today).days < _SOON_DAYS
+    )
+
+    return LastApprovedKPIs(
+        activities_total=len(snapshot),
+        schedule_start=min(starts).isoformat() if starts else None,
+        schedule_end=max(ends).isoformat() if ends else None,
+        readiness_pct=round(100 * completed / applicable) if applicable else None,
+        readiness_focus_count=len(focus),
+        rigs_in_use=len(
+            {a.get("rig_name") for a in snapshot if a.get("rig_name") and not is_done(a)}
+        ),
+        contracts_at_risk=contracts_at_risk,
+        by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in CHECK_CODES],
+    )
+
+
+async def build_last_approved(
+    project_ids: list[uuid.UUID], db: AsyncSession
+) -> LastApprovedDashboard:
+    """Find the most-recently-approved revision among `project_ids` and compute its
+    snapshot KPIs. Approval time = the latest approval-stage signature (there is no
+    explicit approved_at). Returns `available=False` when there's no approval."""
+    if not project_ids:
+        return LastApprovedDashboard(available=False)
+
+    revs = (
+        await db.execute(
+            select(Revision)
+            .where(Revision.project_id.in_(project_ids), Revision.status == "approved")
+            .options(selectinload(Revision.signatures).selectinload(Signature.user))
+        )
+    ).scalars().all()
+    if not revs:
+        return LastApprovedDashboard(available=False)
+
+    def approval_sigs(rev: Revision) -> list[Signature]:
+        return [s for s in rev.signatures if s.stage == "approval"]
+
+    def approved_at(rev: Revision) -> datetime:
+        times = [s.signed_at for s in approval_sigs(rev)]
+        return max(times) if times else rev.created_at
+
+    best = max(revs, key=approved_at)
+    last_sig = max(approval_sigs(best), key=lambda s: s.signed_at, default=None)
+    project = await db.get(Project, best.project_id)
+
+    return LastApprovedDashboard(
+        available=True,
+        project_id=best.project_id,
+        project_name=project.name if project else None,
+        rev_number=best.rev_number,
+        rev_label=best.label,
+        approved_at=approved_at(best),
+        approved_by=last_sig.user.name if last_sig and last_sig.user else None,
+        kpis=compute_snapshot_kpis(json.loads(best.snapshot_json), date.today()),
     )
