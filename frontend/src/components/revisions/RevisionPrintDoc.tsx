@@ -154,34 +154,16 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
                         .map((a) => {
                           const l = Math.max(0, ((a.s.getTime() - winStart) / winSpan) * 100);
                           const r = Math.min(100, ((a.e.getTime() - winStart) / winSpan) * 100);
-                          const wpct = Math.max(0.8, r - l);
-                          const inside = wpct >= 9; // wide enough to hold the label
-                          const label = a.well_name ?? a.activity_type;
+                          // Label always lives inside the bar (truncated if narrow); the
+                          // table carries the full name. No floating labels to overlap.
                           return (
-                            <span key={a.id}>
-                              <span
-                                title={a.activity_type}
-                                className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden rounded px-1 text-[8px] font-semibold text-white"
-                                style={{ left: `${l}%`, width: `${wpct}%`, backgroundColor: getActivityColor(a.activity_type) }}
-                              >
-                                {inside && <span className="truncate">{label}</span>}
-                              </span>
-                              {!inside &&
-                                (l < 80 ? (
-                                  <span
-                                    className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[8px] font-medium text-foreground"
-                                    style={{ left: `${r}%` }}
-                                  >
-                                    {label}
-                                  </span>
-                                ) : (
-                                  <span
-                                    className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pr-1 text-right text-[8px] font-medium text-foreground"
-                                    style={{ right: `${100 - l}%` }}
-                                  >
-                                    {label}
-                                  </span>
-                                ))}
+                            <span
+                              key={a.id}
+                              title={`${a.activity_type} · ${a.well_name ?? ""}`}
+                              className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden rounded px-1 text-[8px] font-semibold text-white"
+                              style={{ left: `${l}%`, width: `${Math.max(0.8, r - l)}%`, backgroundColor: getActivityColor(a.activity_type) }}
+                            >
+                              <span className="truncate">{a.well_name ?? a.activity_type}</span>
                             </span>
                           );
                         })}
@@ -197,21 +179,26 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
   );
 }
 
-// ── Legend — decodes bar colours, gate icons, and status colours ───────────────
+// ── Legends — chart colours go with the chart; readiness icons with the table ──
 
-function PrintLegend({ rows }: { rows: PrintRow[] }) {
+function ActivityLegend({ rows }: { rows: PrintRow[] }) {
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
   return (
-    <div className="mt-5 space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Activity</span>
-        {types.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getActivityColor(t) }} />
-            {t}
-          </span>
-        ))}
-      </div>
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
+      <span className="font-semibold uppercase tracking-wider text-muted-foreground">Activity</span>
+      {types.map((t) => (
+        <span key={t} className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: getActivityColor(t) }} />
+          {t}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ReadinessLegend() {
+  return (
+    <div className="mt-3 space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Readiness</span>
         {CHECK_CODES.map((c) => {
@@ -364,7 +351,9 @@ export function RevisionPrintDoc({
     .replace(/^-|-$/g, "")}/REV${String(revision.rev_number).padStart(2, "0")}`;
 
   return (
-    <div className="relative hidden text-foreground print:block">
+    // Internal padding guarantees visible whitespace even when the browser print
+    // dialog overrides the @page margin (the "Margins: None/Default" trap).
+    <div className="relative hidden px-[6mm] py-[4mm] text-foreground print:block">
       {/* Watermark — anything not approved must be unmistakable as non-final. */}
       {!isApproved && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
@@ -405,13 +394,14 @@ export function RevisionPrintDoc({
         </div>
       </div>
 
-      {/* Sequence */}
+      {/* Sequence — the activity colour legend rides with the chart */}
       <h2 className="mt-3 text-sm font-semibold">Sequence</h2>
       <StaticGantt rows={rows} />
-      <PrintLegend rows={rows} />
+      <ActivityLegend rows={rows} />
 
-      {/* Activity schedule — on its own page */}
+      {/* Activity schedule — on its own page; the readiness key rides with the table */}
       <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
+      <ReadinessLegend />
       <ScheduleTable rows={rows} />
 
       {/* Formal sign-off */}
