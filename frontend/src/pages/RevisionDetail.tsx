@@ -19,8 +19,10 @@ import {
   getRevision,
   listRevisions,
   signRevision,
+  signReview,
   rejectRevision,
   requestChanges,
+  reviewRequestChanges,
   type Revision,
   type RevisionDetail as RevisionDetailType,
 } from "@/api/revisions";
@@ -105,11 +107,66 @@ function StatusBadge({ status }: { status: RevisionDetailType["status"] }) {
       </span>
     );
   }
+  if (status === "pending_review") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/12 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400">
+        <PenLine className="h-3 w-3" />
+        In review
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/12 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
       <Clock className="h-3 w-3" />
       Pending approval
     </span>
+  );
+}
+
+// ── Reviewer status panel (review stage) ──────────────────────────────────────
+
+function ReviewerPanel({ revision }: { revision: RevisionDetailType }) {
+  if (revision.reviewer_status.length === 0) return null;
+  const signedCount = revision.reviewer_status.filter((s) => s.signed).length;
+  return (
+    <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.04] p-4 shadow-soft-sm print:break-inside-avoid">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-foreground">Technical review</h2>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {signedCount} of {revision.reviewer_status.length} reviewed
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {revision.reviewer_status.map((r) => (
+          <div key={r.email} className="flex items-center gap-2 rounded-md px-1 py-0.5 text-sm">
+            {r.signed ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-500" />
+            ) : (
+              <Circle className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+            )}
+            <span
+              className={cn(
+                "min-w-0 truncate font-medium",
+                r.signed ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {r.name ?? r.email}
+            </span>
+            <span className="text-muted-foreground/60">·</span>
+            <span className="text-muted-foreground">{r.role_label}</span>
+            {r.signed && r.signed_at ? (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {relativeTime(r.signed_at)}
+              </span>
+            ) : (
+              <span className="ml-auto rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400">
+                pending
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -341,6 +398,10 @@ export function RevisionDetail() {
   const [signing, setSigning] = useState(false);
   const [decision, setDecision] = useState<DecisionAction | null>(null);
   const [deciding, setDeciding] = useState(false);
+  // Review stage (separate from the approval-stage decision dialog).
+  const [reviewSigning, setReviewSigning] = useState(false);
+  const [reviewChangesOpen, setReviewChangesOpen] = useState(false);
+  const [reviewDeciding, setReviewDeciding] = useState(false);
   const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
@@ -397,6 +458,35 @@ export function RevisionDetail() {
     }
   }
 
+  async function handleSignReview() {
+    if (!projectId || !revisionId) return;
+    setReviewSigning(true);
+    setError(null);
+    try {
+      const updated = await signReview(projectId, revisionId);
+      setRevision((prev) => (prev ? { ...prev, ...updated } : null));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sign off review");
+    } finally {
+      setReviewSigning(false);
+    }
+  }
+
+  async function handleReviewChanges(reason: string) {
+    if (!projectId || !revisionId) return;
+    setReviewDeciding(true);
+    setError(null);
+    try {
+      const updated = await reviewRequestChanges(projectId, revisionId, reason);
+      setRevision((prev) => (prev ? { ...prev, ...updated } : null));
+      setReviewChangesOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to request changes");
+    } finally {
+      setReviewDeciding(false);
+    }
+  }
+
   async function handleDecision(reason: string) {
     if (!projectId || !revisionId || !decision) return;
     setDeciding(true);
@@ -435,6 +525,7 @@ export function RevisionDetail() {
     ? revision.signatures.some((s) => s.user_id === user.id)
     : false;
   const canSign = revision.status === "pending_approval" && !alreadySigned;
+  const canReview = revision.status === "pending_review";
 
   const statusLabel =
     revision.status === "approved"
@@ -445,7 +536,9 @@ export function RevisionDetail() {
           ? "Changes requested"
           : revision.status === "discarded"
             ? "Discarded"
-            : "Pending approval";
+            : revision.status === "pending_review"
+              ? "In review"
+              : "Pending approval";
   const docDate = new Date(revision.created_at).toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
@@ -493,8 +586,34 @@ export function RevisionDetail() {
         </Button>
         <h1 className="text-xl font-semibold tracking-tight">{revLabel(revision)}</h1>
         <StatusBadge status={revision.status} />
+        {revision.review_skipped && (
+          <span
+            className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+            title="The planner submitted this straight to approval, skipping technical review."
+          >
+            Review skipped
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
+          {canReview && (
+            <>
+              <Button onClick={handleSignReview} disabled={reviewSigning} data-testid="sign-review">
+                <PenLine className="h-4 w-4" />
+                {reviewSigning ? "Signing…" : "Sign off review"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReviewChangesOpen(true)}
+                className="text-orange-600 hover:bg-orange-500/10 hover:text-orange-600 dark:text-orange-400"
+                data-testid="review-request-changes"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Request changes
+              </Button>
+            </>
+          )}
           {canSign && (
             <Button onClick={handleSign} disabled={signing}>
               <PenLine className="h-4 w-4" />
@@ -631,6 +750,9 @@ export function RevisionDetail() {
           </div>
         )}
 
+      {/* Technical review (when the revision was routed through review) */}
+      <ReviewerPanel revision={revision} />
+
       {/* Signatures */}
       <SignaturesPanel revision={revision} />
 
@@ -671,6 +793,18 @@ export function RevisionDetail() {
           if (!open) setDecision(null);
         }}
         onConfirm={handleDecision}
+      />
+
+      {/* Review-stage request-changes (reviewers can't terminally reject) */}
+      <DecisionDialog
+        open={reviewChangesOpen}
+        action="request-changes"
+        revLabel={revLabel(revision)}
+        loading={reviewDeciding}
+        onOpenChange={(open) => {
+          if (!open) setReviewChangesOpen(false);
+        }}
+        onConfirm={handleReviewChanges}
       />
     </div>
   );

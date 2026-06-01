@@ -23,12 +23,15 @@ export interface ProjectMember {
   user_email: string;
 }
 
+export type ReviewPolicy = "required" | "optional" | "off";
+
 export interface Project {
   id: string;
   name: string;
   field: string | null;
   region: string | null;
   status: ProjectStatus;
+  review_policy: ReviewPolicy;
   created_by: string;
   created_at: string;
   members: ProjectMember[];
@@ -51,6 +54,7 @@ export interface ProjectUpdate {
   field?: string;
   region?: string;
   status?: ProjectStatus;
+  review_policy?: ReviewPolicy;
 }
 
 export interface ApiError {

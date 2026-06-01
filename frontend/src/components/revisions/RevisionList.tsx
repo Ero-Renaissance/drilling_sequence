@@ -71,6 +71,14 @@ function StatusBadge({ status }: { status: Revision["status"] }) {
       </span>
     );
   }
+  if (status === "pending_review") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/12 px-2 py-0.5 text-[11px] font-medium text-sky-600 dark:text-sky-400">
+        <PenLine className="h-3 w-3" />
+        In review
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/12 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
       <Clock className="h-3 w-3" />
@@ -79,16 +87,33 @@ function StatusBadge({ status }: { status: Revision["status"] }) {
   );
 }
 
+function ReviewSkippedBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+      title="The planner submitted this straight to approval, skipping technical review."
+    >
+      Review skipped
+    </span>
+  );
+}
+
 // ── Required-approver progress row ────────────────────────────────────────────
 
-function ApproverStatusList({ statuses }: { statuses: ApproverSignStatus[] }) {
+function ApproverStatusList({
+  statuses,
+  title = "Required signatures",
+}: {
+  statuses: ApproverSignStatus[];
+  title?: string;
+}) {
   if (statuses.length === 0) return null;
   const signedCount = statuses.filter((s) => s.signed).length;
   return (
     <div className="mt-3 border-t border-border/70 pt-3">
       <div className="mb-1.5 flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Required signatures
+          {title}
         </p>
         <span className="text-[11px] tabular-nums text-muted-foreground">
           {signedCount} of {statuses.length}
@@ -160,12 +185,15 @@ function PendingRevisionCard({
               {revLabel(rev)}
             </Link>
             <StatusBadge status={rev.status} />
+            {rev.review_skipped && <ReviewSkippedBadge />}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Created by {rev.created_by_name ?? "Unknown"} · {relativeTime(rev.created_at)}
           </p>
           <p className="mt-1.5 text-xs text-muted-foreground">
-            Review the changes and schedule snapshot before deciding.
+            {rev.status === "pending_review"
+              ? "Awaiting technical review before it can go to approval."
+              : "Review the changes and schedule snapshot before deciding."}
           </p>
         </div>
 
@@ -173,7 +201,9 @@ function PendingRevisionCard({
           <Button size="sm" asChild data-testid="review-revision">
             <Link to={`/projects/${projectId}/revisions/${rev.id}`}>
               <GitCompare className="h-3.5 w-3.5" />
-              <span className="ml-1.5">Review &amp; sign</span>
+              <span className="ml-1.5">
+                {rev.status === "pending_review" ? "Open & review" : "Review & sign"}
+              </span>
             </Link>
           </Button>
           <Button
@@ -189,6 +219,10 @@ function PendingRevisionCard({
           </Button>
         </div>
       </div>
+
+      {rev.reviewer_status.length > 0 && (
+        <ApproverStatusList statuses={rev.reviewer_status} title="Required reviews" />
+      )}
 
       {rev.approver_status.length > 0 && <ApproverStatusList statuses={rev.approver_status} />}
 
@@ -318,8 +352,10 @@ export function RevisionList({ projectId }: RevisionListProps) {
     }
   }
 
-  const pending = revisions.filter((r) => r.status === "pending_approval");
-  const history = revisions.filter((r) => r.status !== "pending_approval");
+  const isOpen = (s: Revision["status"]) =>
+    s === "pending_approval" || s === "pending_review";
+  const pending = revisions.filter((r) => isOpen(r.status));
+  const history = revisions.filter((r) => !isOpen(r.status));
 
   return (
     <div className="space-y-4">
@@ -345,7 +381,7 @@ export function RevisionList({ projectId }: RevisionListProps) {
         {pending.length > 0 && (
           <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
             <Clock className="h-3 w-3" />
-            Activities locked — revision pending approval
+            Activities locked — revision open
           </span>
         )}
       </div>

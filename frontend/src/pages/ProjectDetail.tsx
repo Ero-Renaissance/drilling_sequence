@@ -20,6 +20,7 @@ import { detectRigConflicts, type RigConflict } from "@/lib/conflicts";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { ApproverSettings } from "@/components/revisions/ApproverSettings";
+import { ReviewSettings } from "@/components/revisions/ReviewSettings";
 import { ComparePanel } from "@/components/revisions/ComparePanel";
 import { RevisionList } from "@/components/revisions/RevisionList";
 import { ProjectAuditLog } from "@/components/activity/ProjectAuditLog";
@@ -332,6 +333,7 @@ export function SignaturesTab() {
   if (!projectId) return null;
   return (
     <div className="space-y-6">
+      <ReviewSettings projectId={projectId} />
       <ApproverSettings projectId={projectId} />
       <RevisionList projectId={projectId} />
     </div>

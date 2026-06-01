@@ -18,6 +18,7 @@ export interface ApproverSignStatus {
 }
 
 export type RevisionStatus =
+  | "pending_review"
   | "pending_approval"
   | "approved"
   | "discarded"
@@ -30,10 +31,17 @@ export interface Revision {
   rev_number: number;
   label: string | null;
   status: RevisionStatus;
+  /** "review" while pending_review, else "approval". */
+  stage: "review" | "approval";
+  /** True when this revision was routed through the technical-review stage. */
+  review_required: boolean;
+  /** True when review was available (optional policy) but the planner skipped it. */
+  review_skipped: boolean;
   created_by_name: string | null;
   created_at: string;
   signatures: Signature[];
   approver_status: ApproverSignStatus[];
+  reviewer_status: ApproverSignStatus[];
   decision_reason: string | null;
   decision_by_name: string | null;
   decision_at: string | null;
@@ -59,11 +67,15 @@ export async function listRevisions(projectId: string): Promise<Revision[]> {
 export async function createRevision(
   projectId: string,
   label?: string,
+  requestReview?: boolean,
 ): Promise<Revision> {
   const resp = await fetch(`/api/projects/${projectId}/revisions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({ label: label ?? null }),
+    body: JSON.stringify({
+      label: label ?? null,
+      ...(requestReview === undefined ? {} : { request_review: requestReview }),
+    }),
   });
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -100,6 +112,48 @@ export async function signRevision(
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ detail: resp.statusText }));
     const msg = typeof body.detail === "string" ? body.detail : "Failed to sign revision";
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+export async function signReview(
+  projectId: string,
+  revisionId: string,
+  roleLabel = "Reviewer",
+): Promise<Revision> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/revisions/${revisionId}/sign-review`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify({ role_label: roleLabel }),
+    },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
+    const msg = typeof body.detail === "string" ? body.detail : "Failed to sign off review";
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+export async function reviewRequestChanges(
+  projectId: string,
+  revisionId: string,
+  reason: string,
+): Promise<Revision> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/revisions/${revisionId}/review-changes`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify({ reason }),
+    },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
+    const msg = typeof body.detail === "string" ? body.detail : "Failed to request changes";
     throw new Error(msg);
   }
   return resp.json();
