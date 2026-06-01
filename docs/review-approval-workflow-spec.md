@@ -41,7 +41,7 @@ This spec gives `reviewer` a distinct, enforced meaning for the first time:
 | Role | New capability in this workflow |
 |---|---|
 | planner | Submits a revision and picks its route (where policy allows). Cannot review or approve it (§6). |
-| reviewer | Endorses or requests-changes a revision **at the review stage**. Cannot sign, cannot terminally reject. |
+| reviewer | Casts a **review signature** or requests-changes **at the review stage**. Cannot terminally reject; a review signature *advances* the revision rather than finalising it. The *required* reviewers are a designated email matrix (§5), mirroring approvers — the role is for participation/visibility, not the binding gate. |
 | approver | Signs / rejects / requests-changes **at the approval stage** (as today), subject to §6. |
 | viewer | Read-only (unchanged). |
 | admin | Bypasses *access* checks, but **not** the separation-of-duties rule (§6). |
@@ -71,7 +71,7 @@ New status: **`pending_review`**. All others already exist.
 |---|---|---|---|---|
 | 1 | ∅ → `pending_review` | submit, **planner** | no open revision; ≥1 activity; no rig conflict; ≥1 *eligible* reviewer (§6); route resolves to review | snapshot; lock activities; audit `submitted_for_review` |
 | 2 | ∅ → `pending_approval` | submit, **planner** | same, minus reviewer requirement; ≥1 *eligible* approver (§6) | snapshot; lock activities; audit `submitted_for_approval` (flagged `review_skipped` when policy allowed review) |
-| 3 | `pending_review` → `pending_approval` | review complete (last endorsement satisfies the rule, §5) | endorsement rule met | audit `review_completed` |
+| 3 | `pending_review` → `pending_approval` | review complete (last required review signature lands, §5) | all designated reviewers signed | audit `review_completed` |
 | 4 | `pending_review` → `changes_requested` | request changes, **reviewer** (not creator) | reason 1–2000 chars | unlock; record decision; audit `review_changes_requested` |
 | 5 | `pending_approval` → `approved` | required approvers all signed | §6 satisfied; ≥1 required approver | unlock; audit `approved` |
 | 6 | `pending_approval` → `rejected` | reject, **approver** (not creator) | reason 1–2000 chars | unlock; record decision; audit `rejected` |
@@ -110,34 +110,41 @@ the submitter under deadline pressure — decides whether review can be skipped.
 
 ---
 
-## 5. Who reviews, and when review is "complete"
+## 5. Who reviews, and when review is "complete" — *decided*
 
-**Recommended defaults (open to change — see §15):**
+Review mirrors approval exactly, one stage earlier:
 
-- **Reviewer set = project members with role `reviewer`** (a pool; no separate email
-  matrix). Review is advisory and internal, so the lighter role-based pool fits; we can
-  add a named `ProjectReviewer` matrix later if specific disciplines must each concur.
-- **Completion rule = at least one reviewer endorsement** advances the revision to
-  `pending_approval`. Simple and unblocking for v1; alternatives are "all reviewers" or
-  a quorum.
-- **Reviewer powers = endorse or request-changes only.** No binding signature, no
-  terminal reject — those stay with approvers (the GMs).
+- **Reviewer set = a designated email matrix**, managed just like approvers — *not*
+  membership roles, *not* a discipline-typed matrix. Reviewers may be internal company
+  people who aren't project members, matched by lowercased email.
+- **Completion rule = ALL designated reviewers must sign.** Only when every required
+  reviewer (minus the creator, §6) has a review signature does the revision advance to
+  `pending_approval`. There is no partial-quorum advance (the strictest setting — keep
+  reviewer lists short; a reviewer who objects uses request-changes to bounce it).
+- **Reviewers cast real signatures**, recorded in the existing `Signature` table with a
+  new `stage` discriminator (`"review"` vs `"approval"`). A review signature is a formal
+  signed concurrence, but it *advances* rather than *finalises*, and reviewers still
+  can't terminally reject.
 
-Endorsements are recorded in a new **`ReviewEndorsement`** table (kept separate from
-`Signature` so approval-counting in `_all_required_have_signed` can never mistake a
-review endorsement for an approval signature):
-
-```
-ReviewEndorsement(id, revision_id → revisions, user_id → users, endorsed_at, note?)
-```
+**Implementation (symmetry over duplication):**
+- Generalise the existing approver entity with a `kind` column (`reviewer`/`approver`)
+  rather than copying the email-matching + list-management code into a parallel table.
+  Existing rows default to `kind="approver"`.
+- Add `Signature.stage` (`review`/`approval`, default `approval`). `_all_required_have_signed`
+  filters to `stage="approval"`; a symmetric `_all_reviewers_have_signed` filters to
+  `stage="review"` against the reviewer email set. A review signature can therefore never
+  be miscounted as an approval.
+- **Each stage's signing is gated to its own designated email set (+ admin).** Only a
+  designated reviewer signs the review; only a designated approver signs the approval.
+  This also resolves the old "noise signature" problem by construction (§7).
 
 ---
 
 ## 6. Separation of duties — nobody approves their own plan
 
 **Rule.** The user recorded as a revision's `created_by` may **not**, on that revision:
-endorse its review, cast an approval signature, reject it, or request-changes-as-approver.
-They *may* discard it (it's their own draft).
+cast a review signature, cast an approval signature, reject it, or
+request-changes-as-approver. They *may* discard it (it's their own draft).
 
 **Scope.** This is an **integrity** rule, not an access rule, so it holds **even for a
 global admin and even for a designated approver** — if you submitted it, you can't
@@ -156,24 +163,28 @@ set is the designated approvers **minus the revision's creator**. So:
 **Enforcement points.**
 - *Submit (#1/#2):* validate ≥1 *eligible* reviewer / approver after excluding the
   submitter; 409 with a clear message otherwise.
-- *Endorse / sign / reject / request-changes:* `403` if `current_user.id ==
+- *Sign-review / sign / reject / request-changes:* `403` if `current_user.id ==
   revision.created_by` — generic message ("You can't approve a revision you submitted").
-- *Approval counting:* `_all_required_have_signed` computes over (required − creator).
+- *Signature counting:* both `_all_reviewers_have_signed` and
+  `_all_required_have_signed` compute over (required − creator).
 
 ---
 
 ## 7. RBAC changes
 
-- **New helper `assert_can_review(project_id, user, db)`** — passes for admin or a member
-  with role `reviewer`. Used by the endorse / review-request-changes endpoints. (Open
-  decision §15.4: should `approver` also be allowed to endorse review?)
-- **Approval path keeps `assert_can_sign`** but every sign/reject/request-changes endpoint
-  adds the §6 creator-exclusion guard.
-- **Recommended companion tightening (opt-in, flagged):** today `assert_can_sign` admits
-  *any* non-viewer member, so a planner can record a non-binding "noise" signature.
-  Consider tightening binding signatures to *approval authority only* (designated
-  email-approver **or** role `approver` **or** admin). This is a behaviour change with
-  test impact, so it's called out separately rather than assumed.
+- **New helper `assert_can_review(project_id, user, db)`** — passes for admin or a
+  **designated reviewer** (by lowercased email), mirroring how `assert_can_sign` treats
+  designated approvers. Used by the sign-review / review-request-changes endpoints.
+- **`assert_can_view` extends to designated reviewers** (by email), so a reviewer who
+  isn't a project member can still see the diff they're asked to concur on — exactly as
+  it already does for approvers.
+- **Tightening, now decided (was §15.5):** signing is gated to the designated email set
+  for its stage (+ admin). Only a designated **reviewer** may sign the review; only a
+  designated **approver** may sign the approval. This removes the current "any non-viewer
+  member can record a noise signature" behaviour — a deliberate behaviour change, covered
+  by new denial tests. `assert_can_sign` is narrowed accordingly (admin **or** designated
+  approver), and every sign/reject/request-changes endpoint also adds the §6
+  creator-exclusion guard.
 
 All denials stay generic (`403 "Access denied"` / `"Insufficient role for this action"`).
 
@@ -182,7 +193,7 @@ All denials stay generic (`403 "Access denied"` / `"Insufficient role for this a
 ## 8. Audit events
 
 Add governance events (append-only, via `governance_event`) for: `submitted_for_review`,
-`submitted_for_approval` (with `review_skipped` flag in detail), `review_endorsed`,
+`submitted_for_approval` (with `review_skipped` flag in detail), `review_signed`,
 `review_completed`, `review_changes_requested`, and `review_policy_changed`. The existing
 `signed` / `approved` / `rejected` / `changes_requested` / `discarded` events are
 retained. Nothing in the audit log gains an update/delete path.
@@ -195,11 +206,13 @@ retained. Nothing in the audit log gains an update/delete path.
 |---|---|---|
 | `Project` | `+ review_policy: str` default `"optional"` | allow-list validated in the Pydantic schema (`required`/`optional`/`off`) |
 | `Revision` | `+ review_required: bool` default `False` | the resolved route; drives initial status + the `review_skipped` badge |
-| `ReviewEndorsement` | new table | `revision_id`, `user_id`, `endorsed_at`, optional `note` |
+| `ProjectApprover` | `+ kind: str` default `"approver"` | generalised to designated *signers*; `reviewer` rows are the review matrix. Existing rows backfill to `approver`. Email management endpoints parametrise on `kind`. |
+| `Signature` | `+ stage: str` default `"approval"` | `review`/`approval`; lets one table hold both, filtered when counting (§5) |
 | `Revision.status` | new value `"pending_review"` | **no migration of the column** — it's already `String(32)` |
 
 Reuse `decision_reason` / `decision_by` / `decision_at` for review request-changes (same
-columns the approval decline already uses).
+columns the approval decline already uses). No separate endorsement table — a review
+concurrence *is* a `Signature` with `stage="review"`.
 
 ---
 
@@ -207,16 +220,19 @@ columns the approval decline already uses).
 
 ```
 PATCH  /api/projects/{id}                         # set review_policy (planner)
+GET/POST/DELETE /api/projects/{id}/reviewers      # manage the reviewer email matrix (planner) — mirrors /approvers
 POST   /api/projects/{id}/revisions               # submit; body adds request_review?: bool
-POST   /api/projects/{id}/revisions/{rid}/endorse           # reviewer endorses (advances when rule met)
+POST   /api/projects/{id}/revisions/{rid}/sign-review       # reviewer signs (advances when all reviewers signed)
 POST   /api/projects/{id}/revisions/{rid}/review-changes    # reviewer requests changes (reason required)
 POST   /api/projects/{id}/revisions/{rid}/sign              # approver signs (existing; + §6 guard)
 POST   /api/projects/{id}/revisions/{rid}/reject            # existing; + §6 guard
 POST   /api/projects/{id}/revisions/{rid}/request-changes   # existing; + §6 guard
 ```
 
-`RevisionResponse` gains: `review_required`, `review_skipped`, `review_endorsements[]`
-(name + time), and a `stage` convenience field for the UI.
+`RevisionResponse` gains: `review_required`, `review_skipped`, `reviewer_status[]`
+(per-reviewer signed/not, mirroring `approver_status`), and a `stage` convenience field
+for the UI. The reviewer-list endpoints mirror the existing approver-list endpoints in
+`app/routers/approvers.py`, parametrised on `kind="reviewer"`.
 
 Pydantic: `request_review` is an optional bool; `review_policy` an allow-listed enum;
 review request-changes `reason` reuses the 1–2000-char bound (empty → 422).
@@ -228,8 +244,8 @@ review request-changes `reason` reuses the 1–2000-char bound (empty → 422).
 - **Submit dialog:** when `review_policy = optional`, a route toggle ("Send for technical
   review first" vs "Submit straight to approval"); hidden/forced for `required` / `off`.
 - **Revision detail / approval view:** render the new `pending_review` stage; an
-  endorsements panel (mirroring the signatures panel); the `review_skipped` badge; and
-  reviewer actions (Endorse / Request changes) gated by role.
+  review-signatures panel (mirroring the approval signatures panel); the `review_skipped`
+  badge; and reviewer actions (Sign review / Request changes) gated by designation.
 - **Status chips:** add "in review"; keep existing chips.
 - **Project settings:** a `review_policy` selector (planner-only).
 
@@ -238,13 +254,13 @@ review request-changes `reason` reuses the 1–2000-char bound (empty → 422).
 ## 12. Edge cases & failure modes
 
 - **No eligible reviewer/approver after §6 exclusion** → block at submit (see §6).
-- **Reviewer requests changes after another already endorsed** → still allowed while
+- **Reviewer requests changes after another already signed** → still allowed while
   `pending_review`; the revision goes to `changes_requested` and unlocks.
 - **Policy changed mid-flight** (e.g. `optional → off`) → does not retroactively move an
   already-open revision; applies to the next submission.
-- **Concurrent endorsements** → idempotent per user (one endorsement per reviewer per
-  revision, like the existing one-signature-per-user rule); advancing is guarded on the
-  current status so a double-advance is a no-op.
+- **Concurrent review signatures** → idempotent per user (one review signature per
+  reviewer per revision, like the existing one-signature-per-user rule); advancing is
+  guarded on the current status so a double-advance is a no-op.
 - **Admin acting on own submission** → blocked by §6 (integrity over bypass).
 - **Backward compatibility** → existing revisions have `review_required=false`,
   `review_policy` defaults to `optional`; nothing in history is rewritten.
@@ -255,7 +271,9 @@ review request-changes `reason` reuses the 1–2000-char bound (empty → 422).
 
 - `Revision.status` needs **no** column migration (free string).
 - Add `Project.review_policy` (string + app-level allow-list, not a DB enum — portable),
-  `Revision.review_required` (boolean, default false / 0), and create `ReviewEndorsement`.
+  `Revision.review_required` (boolean, default false / 0), `ProjectApprover.kind`
+  (string default `"approver"`, backfill existing rows), and `Signature.stage` (string
+  default `"approval"`).
 - Use `sa.func.now()` (never `sa.text("now()")`) for any server default; no Postgres-only
   `DROP TYPE`. Follow the dialect-portability rules already established in migrations.
 
@@ -264,28 +282,38 @@ review request-changes `reason` reuses the 1–2000-char bound (empty → 422).
 ## 14. Phasing (logical commits, each green before the next)
 
 1. **Model + state machine + policy** — `review_policy`, `review_required`,
-   `ReviewEndorsement`, the `pending_review` status, migration, snapshot/lock unchanged.
-2. **RBAC + endpoints + audit** — `assert_can_review`, endorse / review-changes
-   endpoints, §6 guards on submit + all decision endpoints, audit events, **denial tests**
-   (non-reviewer endorsing, creator approving own, skipped-review visibility, empty
-   eligible set).
-3. **Frontend** — submit route toggle, review stage + endorsements panel, badges, policy
-   selector.
+   `ProjectApprover.kind`, `Signature.stage`, the `pending_review` status, migration,
+   snapshot/lock unchanged.
+2. **RBAC + endpoints + audit** — `assert_can_review`, reviewer-list management,
+   sign-review / review-changes endpoints, narrowed `assert_can_sign`, §6 guards on
+   submit + all decision endpoints, audit events, **denial tests** (non-reviewer signing
+   review, creator approving own, skipped-review visibility, empty eligible set).
+3. **Frontend** — submit route toggle, review stage + review-signatures panel, badges,
+   reviewer-list + policy settings.
 4. **Docs** — update `CLAUDE.md` (workflow rules + the §6 rule), `rbac-reference.md`
    (reviewer now distinct; SoD), and `user-guide.md`.
 
 ---
 
-## 15. Open decisions (recommended default in **bold**)
+## 15. Decisions
 
-1. **Reviewer set:** **role-based pool (members with role `reviewer`)** vs a named
-   `ProjectReviewer` email matrix (discipline-specific concurrence).
-2. **Completion rule:** **≥1 reviewer endorses** vs all reviewers vs a quorum.
-3. **Default `review_policy`:** **`optional`** (planner chooses) vs `required`.
-4. **Can `approver` also endorse review?** **No (keep stages clean)** vs yes (a GM may
-   pre-endorse).
-5. **Adopt the §7 sign-tightening** (only approval-authority may cast a binding
-   signature)? **Recommended yes**, but it's a behaviour change — confirm before building.
+**Settled:**
+1. **Reviewer set:** a designated **email matrix**, managed like approvers (generalised
+   `ProjectApprover.kind`). Not roles, not disciplines.
+2. **Completion rule:** **all designated reviewers must sign** (no partial quorum).
+3. **Reviewers cast real signatures** (`Signature.stage="review"`).
+5. **Sign-tightening adopted:** only the designated email set for a stage (+ admin) may
+   sign it; this narrows `assert_can_sign`.
+
+**Still open (recommended default in bold):**
+4. **Default `review_policy`:** **`optional`** (planner chooses per revision) vs
+   `required` (always two-stage) vs `off`.
+6. **Confirm the conceptual framing:** reviewer and approver are now mechanically the
+   same (email matrix, all must sign); the only differences are *order* (review first),
+   *bindingness* (review advances, approval finalises), and *no terminal reject for
+   reviewers*. **Confirm that "sequence + non-binding" is the intended distinction** — if
+   so, the `reviewer`/`approver` membership roles are vestigial labels (the matrices carry
+   the authority), which is fine and matches how the `approver` role already behaves.
 
 ---
 
