@@ -91,7 +91,7 @@ function ReviewSkippedBadge() {
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-      title="The planner submitted this straight to approval, skipping technical review."
+      title="The planner submitted this straight to approval, skipping review."
     >
       Review skipped
     </span>
@@ -192,7 +192,7 @@ function PendingRevisionCard({
           </p>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {rev.status === "pending_review"
-              ? "Awaiting technical review before it can go to approval."
+              ? "Awaiting review before it can go to approval."
               : "Review the changes and schedule snapshot before deciding."}
           </p>
         </div>

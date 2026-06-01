@@ -48,7 +48,7 @@ viewer on another.
 settings — independent of the roles above (signers may even be people outside the
 project):
 
-- **Designated reviewers** sign off the optional *technical review* stage.
+- **Designated reviewers** sign off the optional *review* stage.
 - **Designated approvers** give the binding *approval*.
 
 > **You can't sign off your own plan.** Whoever submits a revision cannot review or
@@ -204,7 +204,7 @@ This is how a plan becomes "official."
  set the Review policy (Approvals tab)               and the plan is LOCKED from edits
         │
         ▼
- Optional TECHNICAL REVIEW stage  (only if the revision was routed through review)
+ Optional REVIEW stage  (only if the revision was routed through review)
         │
         ├─ all designated reviewers sign off          ──►  goes to approval
         └─ a reviewer Requests changes (with reason)  ──►  sent back for edits ✏️
@@ -218,8 +218,8 @@ This is how a plan becomes "official."
 ```
 
 **Review policy** (set per project, on Approvals):
-- **Required** — every revision goes through technical review first.
-- **Optional** (default) — when you submit, you choose "Send for technical review
+- **Required** — every revision goes through review first.
+- **Optional** (default) — when you submit, you choose "Send for review
   first" or "Submit straight to approval." Skipping review tags the revision
   **"Review skipped"** so approvers can see it was bypassed.
 - **Off** — review is unavailable; revisions go straight to approval.

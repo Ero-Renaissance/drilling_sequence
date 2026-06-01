@@ -3,7 +3,7 @@
 **Status:** implemented. Backend + frontend shipped; this doc is the design of record.
 **Audience for the feature:** planners (submit + route), reviewers (technical
 concurrence), approvers (binding sign-off), and project governance owners.
-**One-liner:** add an optional **technical review** stage in front of the existing
+**One-liner:** add an optional **review** stage in front of the existing
 approval stage, let the planner route a revision through review or straight to
 approval (within a project policy), and enforce that **nobody approves their own plan.**
 
@@ -24,7 +24,7 @@ gate: the email-based designated-approver matrix (the 5 GMs) still decides `appr
 - **Separation of duties.** The person who submits a plan can neither review nor
   approve it. (§6 — the rule the user asked for, generalised.)
 - **No silent bypass.** When review is skipped, the revision is *visibly* marked
-  "skipped technical review" so approvers can push back. Transparent, not hidden.
+  "skipped review" so approvers can push back. Transparent, not hidden.
 - **Auditable.** Every stage transition emits an append-only governance event
   (`app/services/audit.py::governance_event`). Reuse the existing locking and
   decision-reason machinery; don't reinvent it.

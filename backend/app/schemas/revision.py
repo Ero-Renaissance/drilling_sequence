@@ -9,7 +9,7 @@ from app.schemas.approver import ApproverSignStatus
 class RevisionCreate(BaseModel):
     label: str | None = None
     # Planner's route choice when the project's review_policy is "optional":
-    # True → technical review first, False → straight to approval. Ignored (forced)
+    # True → review first, False → straight to approval. Ignored (forced)
     # when the policy is "required" or "off".
     request_review: bool | None = None
 

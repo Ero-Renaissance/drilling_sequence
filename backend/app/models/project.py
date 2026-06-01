@@ -22,7 +22,7 @@ class ProjectRole(str, Enum):
 
 
 class ReviewPolicy(str, Enum):
-    """Whether a revision must pass technical review before approval.
+    """Whether a revision must pass review before approval.
 
     - required: every revision goes through the review stage first.
     - optional: the planner chooses per submission (default).
@@ -58,7 +58,7 @@ class Project(Base):
     cloned_from_project_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    # Governs whether a revision must pass technical review before approval.
+    # Governs whether a revision must pass review before approval.
     # Plain string + Pydantic allow-list (ReviewPolicy) — not a DB enum — for
     # MSSQL/Postgres portability. See docs/review-approval-workflow-spec.md.
     review_policy: Mapped[str] = mapped_column(

@@ -19,7 +19,7 @@ function initials(value: string): string {
 }
 
 const POLICY_COPY: Record<ReviewPolicy, string> = {
-  required: "Every revision must pass technical review before approval.",
+  required: "Every revision must pass review before approval.",
   optional: "The planner chooses per revision whether to route through review.",
   off: "Review is unavailable — revisions go straight to approval.",
 };
@@ -157,7 +157,7 @@ function ReviewerList({ projectId }: { projectId: string }) {
           <UserSearch className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">Technical Reviewers</h2>
+          <h2 className="text-sm font-semibold text-foreground">Reviewers</h2>
           <p className="text-xs text-muted-foreground">
             {reviewers.length === 0
               ? "Designate reviewers — all must sign off before a revision goes to approval"

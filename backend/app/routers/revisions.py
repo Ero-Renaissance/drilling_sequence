@@ -335,11 +335,11 @@ async def create_revision(
         a.locked_by_revision_id = revision.id
 
     if review_required:
-        submit_detail = f"Submitted {revision.label} for technical review"
+        submit_detail = f"Submitted {revision.label} for review"
     else:
         submit_detail = f"Submitted {revision.label} for approval"
         if policy == "optional":
-            submit_detail += " (technical review skipped)"
+            submit_detail += " (review skipped)"
     db.add(
         governance_event(
             project_id=project_id,

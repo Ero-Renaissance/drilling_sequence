@@ -131,7 +131,7 @@ function ReviewerPanel({ revision }: { revision: RevisionDetailType }) {
   return (
     <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.04] p-4 shadow-soft-sm print:break-inside-avoid">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground">Technical review</h2>
+        <h2 className="text-sm font-semibold text-foreground">Review</h2>
         <span className="text-xs tabular-nums text-muted-foreground">
           {signedCount} of {revision.reviewer_status.length} reviewed
         </span>
@@ -589,7 +589,7 @@ export function RevisionDetail() {
         {revision.review_skipped && (
           <span
             className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-            title="The planner submitted this straight to approval, skipping technical review."
+            title="The planner submitted this straight to approval, skipping review."
           >
             Review skipped
           </span>
@@ -750,7 +750,7 @@ export function RevisionDetail() {
           </div>
         )}
 
-      {/* Technical review (when the revision was routed through review) */}
+      {/* Review (when the revision was routed through review) */}
       <ReviewerPanel revision={revision} />
 
       {/* Signatures */}

@@ -105,7 +105,7 @@ export function CreateRevisionDialog({ projectId, onCreated }: CreateRevisionDia
                   className="mt-0.5"
                 />
                 <span>
-                  <span className="font-medium text-foreground">Send for technical review first</span>
+                  <span className="font-medium text-foreground">Send for review first</span>
                   <span className="block text-xs text-muted-foreground">
                     Reviewers sign off before it goes to the approvers.
                   </span>
@@ -122,7 +122,7 @@ export function CreateRevisionDialog({ projectId, onCreated }: CreateRevisionDia
                 <span>
                   <span className="font-medium text-foreground">Submit straight to approval</span>
                   <span className="block text-xs text-muted-foreground">
-                    Skips technical review — approvers will see it was bypassed.
+                    Skips review — approvers will see it was bypassed.
                   </span>
                 </span>
               </label>
@@ -130,7 +130,7 @@ export function CreateRevisionDialog({ projectId, onCreated }: CreateRevisionDia
           )}
           {policy === "required" && (
             <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              This project requires technical review — the revision will go to reviewers first.
+              This project requires review — the revision will go to reviewers first.
             </p>
           )}
 

@@ -1,4 +1,4 @@
-"""Designated technical reviewers — the review-stage signer matrix.
+"""Designated reviewers — the review-stage signer matrix.
 
 Mirrors `approvers.py` exactly, but on `ProjectApprover.kind="reviewer"`. Review
 is a separate required-signature list that runs before approval; see

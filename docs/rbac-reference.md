@@ -124,7 +124,7 @@ signatures.
 
 ## 4a. The review stage (mirror of approval, one step earlier)
 
-Optional technical review runs *before* approval, governed by `Project.review_policy`
+Optional review runs *before* approval, governed by `Project.review_policy`
 (`required` / `optional` / `off`). When a revision is routed through review
 (`status="pending_review"`):
 
