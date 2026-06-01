@@ -16,6 +16,7 @@ import type { Project } from "@/types";
 const CHECK_CODES: CheckCode[] = ["BUD", "LLI", "LOC", "FID", "EIA", "FLOOD", "SUBS", "CON"];
 const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Started", "N/A"];
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year windows so bar labels stay legible
+const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
 // Terrain order on the chart: land rigs, then swamp, then offshore.
 const TERRAIN_ORDER: Record<string, number> = { LAND: 0, SWAMP: 1, OFFSHORE: 2 };
@@ -99,20 +100,45 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
   }
   const now = Date.now();
 
+  // Two-axis pagination: each page is one time window × a chunk of ≤ROWS_PER_PAGE
+  // rig rows (window-major). A window with more rigs than fit on a page is split
+  // across pages instead of overflowing and slicing a row at the page edge.
+  type ChartPage = { w: { from: Date; to: Date }; keys: string[]; firstRow: number; rowTotal: number };
+  const pages: ChartPage[] = [];
+  for (const w of windows) {
+    for (let i = 0; i < rowKeys.length; i += ROWS_PER_PAGE) {
+      pages.push({
+        w,
+        keys: rowKeys.slice(i, i + ROWS_PER_PAGE),
+        firstRow: i + 1,
+        rowTotal: rowKeys.length,
+      });
+    }
+  }
+
   return (
     <>
-      {windows.map((w, wi) => {
+      {pages.map((pg, pi) => {
+        const w = pg.w;
         const winStart = w.from.getTime();
         const winSpan = w.to.getTime() - winStart;
         const years: number[] = [];
         for (let y = w.from.getFullYear(); y < w.to.getFullYear(); y++) years.push(y);
         const todayPct =
           now >= winStart && now < w.to.getTime() ? ((now - winStart) / winSpan) * 100 : null;
+        const ya = w.from.getFullYear();
+        const yb = w.to.getFullYear() - 1;
+        const span = ya === yb ? `${ya}` : `${ya}–${yb}`;
+        const rigRange =
+          pg.rowTotal > ROWS_PER_PAGE
+            ? ` · rigs ${pg.firstRow}–${pg.firstRow + pg.keys.length - 1} of ${pg.rowTotal}`
+            : "";
         return (
-          <div key={wi} className={cn("mt-3", wi > 0 && "break-before-page")}>
-            {wi > 0 && (
+          <div key={pi} className={cn("mt-3 print:break-inside-avoid", pi > 0 && "break-before-page")}>
+            {pi > 0 && (
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Sequence (continued)
+                Sequence (continued) · {span}
+                {rigRange}
               </p>
             )}
             <div className="overflow-hidden rounded-md border border-border bg-zinc-50">
@@ -146,8 +172,8 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
                     />
                   )}
                 </div>
-                {rowKeys.map((key) => (
-                  <div key={key} className="flex h-10 items-stretch border-b border-border/40 last:border-b-0">
+                {pg.keys.map((key) => (
+                  <div key={key} className="flex h-9 items-stretch border-b border-border/40 last:border-b-0">
                     <div
                       className="flex shrink-0 items-center truncate border-r border-border/60 px-2 text-[9px] font-medium text-foreground"
                       style={{ width: RIG_COL }}
