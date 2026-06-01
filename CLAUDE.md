@@ -46,22 +46,41 @@ logic against these active business rules:
 <!-- START OF BUSINESS CONSTRAINTS -->
 - **Roles are per-project** (`planner` / `reviewer` / `approver` / `viewer`); the
   only global role is `admin`. A global admin bypasses per-project membership
-  checks — preserve that bypass in `assert_member`/`assert_can_sign`.
+  checks — preserve that bypass in `assert_member`/`assert_can_sign`/`assert_can_review`.
+  Roles gate **editing/visibility only**: `planner` is the sole writer + route
+  picker; the `reviewer`/`approver` roles grant nothing beyond read. Sign-off
+  authority lives in the email matrices, not the roles.
 - **Admin is resolved additively at login** (manual `is_admin` flag, additively
   granted from the Azure AD `roles` claim or the `admin_emails` allowlist). Never
   auto-revoke admin from those sources.
-- **Approval workflow:** a revision can only auto-approve once **≥1 designated
-  approver is configured AND all have signed**. With zero approvers, signing
-  leaves the revision `pending_approval` — never auto-approve.
-- **Two decline outcomes:** `rejected` (terminal) and `changes_requested` (sent
-  back for revision). Both **require a non-empty reason** (1–2000 chars; empty →
-  422) and unlock the revision's activities. Only valid while the revision is
-  `pending`.
-- **Designated approvers are email-based** (`ProjectApprover`), orthogonal to
-  `ProjectMember`, and may be external to the project — so "who can sign" is not
-  members-only. Match approvers by lowercased email.
-- **Governance is auditable:** sign/approve/reject/discard, approver add/remove,
-  and project create/clone must emit governance events via
+- **Two-stage workflow (review → approval):** `Project.review_policy`
+  (`required` / `optional` / `off`, default `optional`) decides routing at submit;
+  for `optional` the planner picks via `request_review`. A review-routed revision
+  starts `pending_review` and advances to `pending_approval` only when **all
+  designated reviewers** sign (`Signature.stage="review"`). Approval still requires
+  **≥1 designated approver AND all signed**; with zero approvers it never
+  auto-approves. A revision that skipped optional review is flagged `review_skipped`.
+- **Separation of duties:** the revision's `created_by` user may **not** sign,
+  sign-off review, reject, or request-changes it — even as a designated
+  reviewer/approver or admin (integrity rule, no admin bypass). They may only
+  discard. The creator is excluded from its required reviewer/approver sets, and
+  submit is blocked (409) when the submitter is the only eligible approver (or the
+  only eligible reviewer when routing through review).
+- **Decline outcomes:** `rejected` (terminal, approval stage only) and
+  `changes_requested` (sent back). Reviewers may only request changes
+  (`review-changes`, valid while `pending_review`) — they **cannot** terminally
+  reject. All require a non-empty reason (1–2000 chars; empty → 422) and unlock the
+  revision's activities. Approval-stage reject/request-changes are valid only while
+  `pending_approval`.
+- **Designated signers are email-based** (`ProjectApprover`, `kind` = `approver`
+  or `reviewer`), orthogonal to `ProjectMember`, may be external to the project,
+  matched by lowercased email. `assert_can_sign` (approval) and `assert_can_review`
+  (review) admit **only a global admin or a designated signer of that kind** — never
+  a plain member. The two matrices are independent required-signature lists.
+- **Governance is auditable:** submit (`submitted_for_review`/`submitted_for_approval`),
+  `review_signed`/`review_completed`/`review_changes_requested`, sign/approve/reject/
+  request-changes/discard, reviewer/approver add/remove, `review_policy_changed`, and
+  project create/clone must emit governance events via
   `app/services/audit.py::governance_event`. Do not add or change a
   governance-relevant action without writing its audit entry. The audit log is
   append-only — never expose update/delete on it.

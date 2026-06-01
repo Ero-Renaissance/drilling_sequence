@@ -61,34 +61,39 @@ action"`) — they never reveal whether the resource exists.
 
 ## 3. Capability matrix (as enforced today)
 
-| Capability | viewer | reviewer | approver | planner | admin | designated approver (email) |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| View plan / revisions / dashboard / readiness / contracts | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| View diffs / Compare | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Sign** a pending revision | ❌ | ❌ | ❌ | ❌ | ✅ | ✅¹ |
-| **Decline** (reject / request changes) | ❌ | ❌ | ❌ | ❌ | ✅ | ✅¹ |
-| Edit activities (create/update/delete/import) | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Edit readiness checks | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Edit rig contracts | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Submit a revision for approval | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Discard a revision | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Clone the project | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Add/remove designated approvers | ❌ | ❌ | ❌ | ✅ | ✅ | — |
-| Edit / archive project | ❌ | ❌ | ❌ | ✅ | ✅ | — |
+Roles gate **editing and visibility**. Sign-off authority (both stages) lives in the
+email matrices, not the roles — read the role columns for write/read access and the two
+right-hand columns for who may sign.
 
-¹ And **never on a revision they themselves submitted** (separation of duties, §5a).
+| Capability | viewer | reviewer | approver | planner | admin | desig. reviewer (email) | desig. approver (email) |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| View plan / revisions / dashboard / readiness / contracts | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| View diffs / Compare | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Sign off review** / request review-changes (review stage) | ❌ | ❌ | ❌ | ❌ | ✅ | ✅¹ | ❌ |
+| **Sign** / reject / request-changes (approval stage) | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅¹ |
+| Edit activities (create/update/delete/import) | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Edit readiness checks | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Edit rig contracts | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Submit a revision (+ pick the route) | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Discard a revision | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Clone the project | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Add/remove designated reviewers/approvers; set review policy | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Edit / archive project | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
 
-> **Signing is not a role capability.** Note the `reviewer`/`approver`/`planner` columns
-> are all ❌ for sign/decline: a *role* never grants signing. Only a global admin or a
-> **designated approver matched by email** (`ProjectApprover`, §4) can sign or decline —
-> independent of whether that person is even a project member.
+¹ And **never on a revision they themselves submitted** (separation of duties, §5a). A
+reviewer can request changes (bounce back) but **cannot** terminally reject — that stays
+with approvers.
 
-In enforced terms the per-project roles collapse to just two that matter: `planner`
-(the only writer) and everyone else (read-only). The `reviewer` and `approver` *roles*
-currently grant nothing beyond a plain member's read access — signing authority lives
-entirely in the email-based approver matrix. (The forthcoming review stage gives
-`reviewer` real meaning via a parallel email matrix — see
-`docs/review-approval-workflow-spec.md`, in progress.)
+> **Signing is not a role capability.** The `reviewer`/`approver`/`planner` columns are
+> all ❌ for both sign rows: a *role* never grants signing. Only a global admin, a
+> **designated reviewer** (review stage), or a **designated approver** (approval stage) —
+> each matched by email (`ProjectApprover.kind`) — may sign, independent of project
+> membership.
+
+So the per-project roles really gate two things: `planner` (the only writer + route
+picker) and everyone else (read-only). The `reviewer`/`approver` *roles* grant nothing
+beyond read access; the **email matrices** carry all sign-off authority. See
+`docs/review-approval-workflow-spec.md` for the full two-stage state machine.
 
 ---
 
@@ -111,8 +116,27 @@ may sign, but it doesn't count toward the required set, so it won't tip the revi
 `approved`.
 
 The approver matrix is `kind="approver"`. The reviewer matrix (`kind="reviewer"`) shares
-the same `ProjectApprover` table but is a separate list for the review stage (in
-progress); the approval count never includes reviewers or review-stage signatures.
+the same `ProjectApprover` table but is a separate list for the review stage; the
+approval count (`stage="approval"` signatures) never includes reviewers or review-stage
+signatures.
+
+---
+
+## 4a. The review stage (mirror of approval, one step earlier)
+
+Optional technical review runs *before* approval, governed by `Project.review_policy`
+(`required` / `optional` / `off`). When a revision is routed through review
+(`status="pending_review"`):
+
+- The **reviewer matrix** (`kind="reviewer"`) is the required set; **all** must sign
+  (`Signature.stage="review"`, gated by `assert_can_review`) for the revision to advance
+  to `pending_approval`. Same all-must-sign + creator-excluded rules as approval.
+- A reviewer may instead **request changes** (`review-changes`) — a non-terminal bounce
+  back, with a reason; reviewers **cannot** reject.
+- A revision submitted straight to approval under an `optional` policy is flagged
+  `review_skipped` so approvers can see review was bypassed.
+
+Full state machine and routing rules: `docs/review-approval-workflow-spec.md`.
 
 ---
 
@@ -133,14 +157,16 @@ approver) — and is likewise subject to separation of duties (§5a).
 
 ## 5a. Separation of duties — nobody decides on their own plan
 
-Enforced at every sign / reject / request-changes endpoint, and in the approval count:
+Enforced at every sign / sign-review / reject / request-changes / review-changes
+endpoint, and in both the review and approval counts:
 
-- The revision's `created_by` user **cannot** sign, reject, or request-changes it — even
-  if they're a designated approver or a global admin. They may only **discard** it.
-- The creator is **excluded from their revision's required-approver set**; if that leaves
-  the set empty, the revision can never auto-approve.
-- **Submit is blocked** (409) when the submitter is the *only* configured approver, so a
-  revision can't be created that no one is eligible to approve.
+- The revision's `created_by` user **cannot** sign, sign-off review, reject, or
+  request-changes it — even if they're a designated reviewer/approver or a global admin.
+  They may only **discard** it.
+- The creator is **excluded from their revision's required reviewer/approver sets**; if
+  that leaves a set empty, that stage can never auto-complete.
+- **Submit is blocked** (409) when the submitter is the *only* eligible approver (always),
+  or the *only* eligible reviewer when routing through review.
 
 This is an **integrity** rule: admin bypasses *access* checks, but not this one.
 
@@ -148,22 +174,25 @@ This is an **integrity** rule: admin bypasses *access* checks, but not this one.
 
 ## 6. Auditability
 
-Every governance action — sign, approve, reject, request-changes, discard, approver
-add/remove, and project create/clone — emits an append-only event via
+Every governance action — submit (`submitted_for_review` / `submitted_for_approval`),
+`review_signed`, `review_completed`, `review_changes_requested`, sign, approve, reject,
+request-changes, discard, reviewer/approver add/remove, `review_policy_changed`, and
+project create/clone — emits an append-only event via
 `app/services/audit.py::governance_event`. The audit log is **read-only**: there is no
 update/delete endpoint for it.
 
 ---
 
-## 7. The `reviewer` / `approver` roles, and what's in flight
+## 7. Roles vs. the email matrices (the key mental model)
 
-After commit 2a, signing is governed entirely by the email-based approver matrix, so the
-`reviewer` and `approver` **roles** currently grant nothing beyond a member's read
-access — they're labels, not access boundaries.
+Signing authority is governed entirely by the two email-based matrices, so the
+`reviewer` and `approver` **ProjectRoles** grant nothing beyond a member's read access —
+they're labels for editing/visibility, not sign-off boundaries. Authority is:
 
-The in-progress **review → approval** workflow
-(`docs/review-approval-workflow-spec.md`) gives `reviewer` real meaning: a separate
-designated-reviewer email matrix (`ProjectApprover.kind="reviewer"`) whose members all
-sign a *review* stage (`Signature.stage="review"`) before approval, with reviewers
-limited to request-changes (no terminal reject). When that lands, this section and the
-matrix above will be updated to match.
+- **Review stage** → the `kind="reviewer"` matrix (`assert_can_review`).
+- **Approval stage** → the `kind="approver"` matrix (`assert_can_sign`).
+
+A person is on a matrix by **email**, may not be a project member at all, and may be on
+both. The roles answer "who can edit / who can submit"; the matrices answer "who must
+sign". Keep the two concepts separate — that separation is what lets approvers be
+external to the project and survive quarterly clones.

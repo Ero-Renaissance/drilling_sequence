@@ -1,6 +1,6 @@
 # Spec: Two-stage Review → Approval workflow
 
-**Status:** design spec — no code yet.
+**Status:** implemented. Backend + frontend shipped; this doc is the design of record.
 **Audience for the feature:** planners (submit + route), reviewers (technical
 concurrence), approvers (binding sign-off), and project governance owners.
 **One-liner:** add an optional **technical review** stage in front of the existing

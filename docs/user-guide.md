@@ -40,11 +40,19 @@ viewer on another.
 
 | Role | Can do |
 |---|---|
-| **Viewer** | Read everything: the schedule, readiness, history. Cannot change anything. |
-| **Reviewer** | Everything a viewer can, plus take part in review. |
-| **Approver** | Sign off on a submitted plan. (Approvers are chosen by **email** and may even be people outside the project.) |
-| **Planner** | The schedule owner: create/edit activities, manage readiness and contracts, submit for approval, clone the project. |
+| **Viewer / Reviewer / Approver (member roles)** | Read everything: the schedule, readiness, history. These roles control editing/visibility only — none of them, on their own, lets you sign. |
+| **Planner** | The schedule owner: create/edit activities, manage readiness and contracts, designate reviewers/approvers, set the review policy, submit for approval, clone the project. |
 | **Admin** (global) | Application-wide administration; can act across all projects. Managed on the **Admin** page. |
+
+**Who actually signs** is set separately, by **email**, on the project's **Approvals**
+settings — independent of the roles above (signers may even be people outside the
+project):
+
+- **Designated reviewers** sign off the optional *technical review* stage.
+- **Designated approvers** give the binding *approval*.
+
+> **You can't sign off your own plan.** Whoever submits a revision cannot review or
+> approve it — only someone else on the matrix (or an admin) can.
 
 ---
 
@@ -192,34 +200,49 @@ This is how a plan becomes "official."
  Planner edits the plan
         │
         ▼
- Designate approvers  ──►  Submit for approval  ──►  a "revision" (snapshot) is created
-   (by email, on the          (Approvals tab)          and the plan is LOCKED from edits
-    Approvals/project)
+ Designate reviewers + approvers,   ──►  Submit  ──►  a "revision" (snapshot) is created
+ set the Review policy (Approvals tab)               and the plan is LOCKED from edits
         │
         ▼
- Each approver signs
+ Optional TECHNICAL REVIEW stage  (only if the revision was routed through review)
+        │
+        ├─ all designated reviewers sign off          ──►  goes to approval
+        └─ a reviewer Requests changes (with reason)  ──►  sent back for edits ✏️
+        │
+        ▼
+ APPROVAL stage — each approver signs
         │
         ├─ all designated approvers signed (and there's ≥1)  ──►  APPROVED ✅
         ├─ an approver Rejects (with a reason)               ──►  REJECTED ⛔ (final)
         └─ an approver Requests changes (with a reason)      ──►  sent back for edits ✏️
 ```
 
-Key rules to know:
-- **Submitting locks the plan.** While a revision is pending approval, the
-  activities/readiness/contracts are frozen so reviewers see a stable snapshot.
-  (Editing a locked item is refused.)
-- **Auto-approval needs at least one approver.** If you submit with **zero**
-  approvers configured, it sits as *pending* — it will **not** auto-approve. Add
-  approvers so there's someone to sign.
-- **Both "decline" outcomes need a reason** (1–2000 characters): **Reject** is final;
-  **Request changes** sends it back so the planner can revise and resubmit. Either
-  way the plan unlocks.
-- **Everything is logged.** Sign, approve, reject, discard, approver add/remove,
-  project create/clone — all captured on the **Activity Log** for the audit trail.
+**Review policy** (set per project, on Approvals):
+- **Required** — every revision goes through technical review first.
+- **Optional** (default) — when you submit, you choose "Send for technical review
+  first" or "Submit straight to approval." Skipping review tags the revision
+  **"Review skipped"** so approvers can see it was bypassed.
+- **Off** — review is unavailable; revisions go straight to approval.
 
-If you're an **approver**, you'll be notified (by email, if configured) when a plan
-needs your signature. Open the project → **Approvals** → review → sign / reject /
-request changes.
+Key rules to know:
+- **Submitting locks the plan.** While a revision is open (in review *or* awaiting
+  approval), the activities/readiness/contracts are frozen so signers see a stable
+  snapshot. (Editing a locked item is refused.)
+- **All designated reviewers must sign** for a revision to leave the review stage;
+  **all designated approvers** must sign (and there must be ≥1) for it to be approved.
+- **Reviewers can bounce, not kill.** A reviewer can **Request changes** but cannot
+  reject — the final **Reject** belongs to approvers.
+- **You can't sign off your own plan** (separation of duties). If you submitted it,
+  someone else must review/approve it; you can only discard it.
+- **Both "decline" outcomes need a reason** (1–2000 characters); either way the plan
+  unlocks so the planner can revise and resubmit.
+- **Everything is logged.** Submit, review sign-off, sign, approve, reject, discard,
+  reviewer/approver add/remove, review-policy changes, project create/clone — all
+  captured on the **Activity Log**.
+
+You'll be notified (by email, if configured) when a plan needs your **review** or your
+**signature**. Open the project → **Approvals** → review the changes → sign off / request
+changes / (approvers) reject.
 
 ---
 
