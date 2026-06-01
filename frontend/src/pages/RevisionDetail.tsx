@@ -48,6 +48,137 @@ interface SnapshotRow {
   risk: string | null;
   comment: string | null;
   readiness?: Record<string, CheckStatus>;
+  rig_contract_status?: string | null;
+  rig_contract_end?: string | null;
+}
+
+// ── Document helpers (the print-out is shared with JV partners) ────────────────
+
+function longDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** "completed / applicable" readiness gates for one activity (N/A excluded). */
+function readinessSummary(row: SnapshotRow): string {
+  const vals = Object.values(row.readiness ?? {}).filter((s) => s !== "N/A");
+  if (vals.length === 0) return "—";
+  return `${vals.filter((s) => s === "Completed").length}/${vals.length}`;
+}
+
+interface DocSummary {
+  start: string | null;
+  end: string | null;
+  wells: number;
+  rigs: number;
+  readinessPct: number | null;
+  contractsAtRisk: number;
+}
+
+function summariseSnapshot(rows: SnapshotRow[]): DocSummary {
+  const starts = rows.map((r) => r.start_date).filter(Boolean).sort();
+  const ends = rows.map((r) => r.end_date).filter(Boolean).sort();
+  let applicable = 0;
+  let completed = 0;
+  for (const r of rows) {
+    for (const s of Object.values(r.readiness ?? {})) {
+      if (s === "N/A") continue;
+      applicable += 1;
+      if (s === "Completed") completed += 1;
+    }
+  }
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + 90);
+  const atRisk = new Set<string>();
+  for (const r of rows) {
+    if (r.rig_name && r.rig_contract_status === "Completed" && r.rig_contract_end) {
+      if (new Date(r.rig_contract_end) <= horizon) atRisk.add(r.rig_name);
+    }
+  }
+  return {
+    start: starts[0] ?? null,
+    end: ends[ends.length - 1] ?? null,
+    wells: new Set(rows.map((r) => r.well_name).filter(Boolean)).size,
+    rigs: new Set(rows.map((r) => r.rig_name).filter(Boolean)).size,
+    readinessPct: applicable ? Math.round((100 * completed) / applicable) : null,
+    contractsAtRisk: atRisk.size,
+  };
+}
+
+interface SignOffRow {
+  key: string;
+  stage: string;
+  name: string;
+  role: string;
+  when: string | null;
+}
+
+/** Print-only formal sign-off table — the governance record for JV partners.
+ *  Prefers the designated reviewer/approver matrices; falls back to the actual
+ *  signatures when a revision was approved without a configured matrix. */
+function PrintSignOff({ revision }: { revision: RevisionDetailType }) {
+  const rows: SignOffRow[] = revision.reviewer_status.map((r) => ({
+    key: `rev-${r.email}`,
+    stage: "Review",
+    name: r.signer_name ?? r.name ?? r.email,
+    role: r.role_label,
+    when: r.signed ? r.signed_at : null,
+  }));
+
+  if (revision.approver_status.length > 0) {
+    for (const a of revision.approver_status) {
+      rows.push({
+        key: `app-${a.email}`,
+        stage: "Approval",
+        name: a.signer_name ?? a.name ?? a.email,
+        role: a.role_label,
+        when: a.signed ? a.signed_at : null,
+      });
+    }
+  } else {
+    for (const s of revision.signatures) {
+      rows.push({
+        key: `sig-${s.id}`,
+        stage: "Approval",
+        name: s.user_name ?? "—",
+        role: s.role_label,
+        when: s.signed_at,
+      });
+    }
+  }
+
+  if (rows.length === 0) return null;
+  return (
+    <div className="hidden print:block print:break-inside-avoid">
+      <h2 className="mb-1.5 text-sm font-semibold text-foreground">Approval signatures</h2>
+      <table className="w-full border-collapse text-[11px]">
+        <thead>
+          <tr className="bg-muted/40 text-left text-[9px] uppercase tracking-wider text-muted-foreground">
+            <th className="px-2 py-1.5">Stage</th>
+            <th className="px-2 py-1.5">Name</th>
+            <th className="px-2 py-1.5">Role</th>
+            <th className="px-2 py-1.5">Signed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td className="px-2 py-1.5 text-muted-foreground">{r.stage}</td>
+              <td className="px-2 py-1.5 font-medium text-foreground">{r.name}</td>
+              <td className="px-2 py-1.5 text-muted-foreground">{r.role}</td>
+              <td className="px-2 py-1.5 tabular-nums text-foreground">
+                {r.when ? longDate(r.when) : "— not signed"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function relativeTime(iso: string): string {
@@ -244,6 +375,7 @@ function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
                   "Rig",
                   "Location",
                   "Plan Type",
+                  "Readiness",
                   "Risk",
                   "Comment",
                 ].map((h) => (
@@ -272,6 +404,7 @@ function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
                   <td className="px-3 py-2 text-muted-foreground">{row.rig_name ?? "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.location ?? "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.plan_type ?? "—"}</td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">{readinessSummary(row)}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.risk ?? "—"}</td>
                   <td className="max-w-xs px-3 py-2 text-muted-foreground/80">
                     {row.comment ?? ""}
@@ -443,6 +576,7 @@ export function RevisionDetail() {
     () => snapshotToReadinessMap(snapshot),
     [snapshot],
   );
+  const docSummary = useMemo(() => summariseSnapshot(snapshot), [snapshot]);
 
   async function handleSign() {
     if (!projectId || !revisionId) return;
@@ -544,6 +678,12 @@ export function RevisionDetail() {
     month: "long",
     day: "numeric",
   });
+  // Document reference for the JV-shared record, e.g. RAEC/DS/Q2-RIG-SEQUENCE/REV05.
+  const docRef = `RAEC/DS/${(project?.name ?? "SEQUENCE")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}/REV${String(revision.rev_number).padStart(2, "0")}`;
+  const isApproved = revision.status === "approved";
 
   return (
     <div className="space-y-5">
@@ -574,6 +714,12 @@ export function RevisionDetail() {
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           /* Room for the fixed confidentiality footer. */
           main > div { padding-bottom: 12mm; }
+          /* The schedule table: repeat the header on every page, keep rows whole,
+             and give clean horizontal rules so it reads as a formal schedule. */
+          thead { display: table-header-group; }
+          tbody tr { break-inside: avoid; }
+          th, td { border-bottom: 1px solid hsl(220 13% 88%) !important; }
+          h2 { break-after: avoid; }
         }
       `}</style>
 
@@ -661,42 +807,87 @@ export function RevisionDetail() {
         </div>
       </div>
 
-      {/* Branded document header — only visible when printing */}
+      {/* ── Print-only document title block ─────────────────────────────────── */}
       <div className="hidden print:block">
         <div className="flex items-end justify-between gap-6">
-          <img
-            src="/raec-logo.png"
-            alt="Renaissance Africa Energy"
-            className="h-11 w-auto"
-          />
+          <img src="/raec-logo.png" alt="Renaissance Africa Energy" className="h-11 w-auto" />
           <div className="text-right">
-            <h1 className="text-lg font-bold tracking-tight text-foreground">
-              {project?.name ?? "Drilling Sequence"}
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              {[project?.field, project?.region].filter(Boolean).join(" · ")}
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Renaissance Africa Energy Company Limited
             </p>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              Rig Sequence — Formal Approval Record
+            </h1>
           </div>
         </div>
         <img src="/raec-linebar.png" alt="" className="mt-1.5 h-[5px] w-full object-cover" />
-        <div className="mt-1.5 flex items-center justify-between text-[11px]">
-          <span className="font-semibold uppercase tracking-wider text-muted-foreground">
-            Drilling Sequence — Formal Approval Record
-          </span>
-          <span className="tabular-nums text-foreground">
-            {revLabel(revision)} · {statusLabel} · {docDate} · {snapshot.length} activities
-          </span>
+
+        <div className="mt-3 flex items-start justify-between gap-6">
+          <div>
+            <p className="text-base font-semibold text-foreground">
+              {project?.name ?? "Drilling Sequence"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
+            </p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Ref {docRef}
+            </p>
+          </div>
+          <div className="text-right text-xs">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide",
+                isApproved
+                  ? "border-emerald-600/40 bg-emerald-500/10 text-emerald-700"
+                  : "border-border bg-muted text-muted-foreground",
+              )}
+            >
+              {isApproved && <CheckCircle2 className="h-3 w-3" />}
+              {statusLabel}
+            </span>
+            <p className="mt-1 tabular-nums text-foreground">
+              Rev. {String(revision.rev_number).padStart(2, "0")}
+            </p>
+            <p className="tabular-nums text-muted-foreground">Issued {docDate}</p>
+          </div>
+        </div>
+
+        {/* Executive summary strip */}
+        <div className="mt-3 grid grid-cols-5 gap-px overflow-hidden rounded border border-border bg-border text-center">
+          {[
+            { label: "Campaign", value: `${longDate(docSummary.start)} – ${longDate(docSummary.end)}`, wide: true },
+            { label: "Activities", value: String(snapshot.length) },
+            { label: "Wells", value: String(docSummary.wells) },
+            { label: "Rigs", value: String(docSummary.rigs) },
+            {
+              label: "Readiness",
+              value: docSummary.readinessPct === null ? "—" : `${docSummary.readinessPct}%`,
+            },
+          ].map((s) => (
+            <div key={s.label} className={cn("bg-card px-2 py-1.5", s.wide && "col-span-1")}>
+              <div className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {s.label}
+              </div>
+              <div className="text-[11px] font-medium tabular-nums text-foreground">{s.value}</div>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Print-only confidentiality footer (repeats per page in Chrome) */}
-      <div className="fixed inset-x-0 bottom-0 hidden border-t border-border/60 bg-white px-3 pt-1 text-[9px] text-muted-foreground print:block">
-        Renaissance Africa Energy Company Limited — Confidential ·{" "}
-        {project?.name ?? "Drilling Sequence"} · {revLabel(revision)}
+      <div className="fixed inset-x-0 bottom-0 hidden items-center justify-between border-t border-border/60 bg-white px-3 pt-1 text-[8px] text-muted-foreground print:flex">
+        <span>
+          Renaissance Africa Energy Company Limited — Confidential · For JV partner
+          distribution only
+        </span>
+        <span className="tabular-nums">
+          {docRef} · {statusLabel} · Uncontrolled when printed
+        </span>
       </div>
 
-      {/* Compact metadata bar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground print:text-[11px]">
+      {/* Compact metadata bar (screen only — the print exec summary covers this) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground print:hidden">
         <span className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-card px-2 py-1">
           <span className="font-medium text-foreground">Rev #{revision.rev_number}</span>
         </span>
@@ -750,23 +941,23 @@ export function RevisionDetail() {
           </div>
         )}
 
-      {/* Review (when the revision was routed through review) */}
-      <ReviewerPanel revision={revision} />
+      {/* Review + signatures — interactive panels on screen */}
+      <div className="space-y-5 print:hidden">
+        <ReviewerPanel revision={revision} />
+        <SignaturesPanel revision={revision} />
+      </div>
 
-      {/* Signatures */}
-      <SignaturesPanel revision={revision} />
+      {/* Formal sign-off table — the clean governance record in the print-out */}
+      <PrintSignOff revision={revision} />
 
       {/* What changed — diff against a prior revision (or the live plan) */}
       <div className="print:hidden">
         <RevisionDiff projectId={projectId!} target={revision} revisions={revisions} />
       </div>
 
-      {/* Schedule snapshot — Gantt + legend. Flows naturally in print (no forced
-          page break, no break-inside-avoid) so it paginates without clipping. The
-          export deliberately carries only the approval record + chart + legend;
-          the tabular detail is screen-only. */}
+      {/* Schedule — Gantt overview (flows + paginates without clipping). */}
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">Schedule snapshot</h2>
+        <h2 className="text-sm font-semibold text-foreground">Schedule — Gantt overview</h2>
         {snapshotActivities.length > 0 ? (
           <DrillChart
             activities={snapshotActivities}
@@ -777,12 +968,18 @@ export function RevisionDetail() {
             No activities in this snapshot.
           </div>
         )}
-        {snapshotActivities.length > 0 && (
-          <div className="print:hidden">
-            <TabularDetail rows={snapshot} />
-          </div>
-        )}
       </div>
+
+      {/* Activity schedule table — the data partners need. Screen: a collapsible
+          card; print: always shown, on its own page with a repeating header. */}
+      {snapshotActivities.length > 0 && (
+        <div className="space-y-2 print:break-before-page">
+          <h2 className="hidden text-sm font-semibold text-foreground print:block">
+            Activity schedule
+          </h2>
+          <TabularDetail rows={snapshot} />
+        </div>
+      )}
 
       <DecisionDialog
         open={decision !== null}
