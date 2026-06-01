@@ -15,7 +15,22 @@ import type { Project } from "@/types";
 
 const CHECK_CODES: CheckCode[] = ["BUD", "LLI", "LOC", "FID", "EIA", "FLOOD", "SUBS", "CON"];
 const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Started", "N/A"];
-const WINDOW_YEARS = 4; // sequence paginates into ≤4-year windows
+const WINDOW_YEARS = 2; // sequence paginates into ≤2-year windows so bar labels stay legible
+const RIG_COL = "11rem"; // "Terrain – Rig" label column width
+// Terrain order on the chart: land rigs, then swamp, then offshore.
+const TERRAIN_ORDER: Record<string, number> = { LAND: 0, SWAMP: 1, OFFSHORE: 2 };
+
+function terrainRank(loc: string | null | undefined): number {
+  return TERRAIN_ORDER[(loc ?? "").trim().toUpperCase()] ?? 99;
+}
+
+/** Chart row label = "TERRAIN – Rig" (matches the on-screen Gantt). */
+function rowLabel(loc: string | null, rig: string | null): string {
+  const t = loc?.trim();
+  const r = rig?.trim();
+  if (t && r) return `${t} – ${r}`;
+  return r || t || "—";
+}
 
 export interface PrintRow {
   id: string;
@@ -24,6 +39,7 @@ export interface PrintRow {
   end_date: string;
   well_name: string | null;
   rig_name: string | null;
+  location: string | null; // terrain (LAND / SWAMP / OFFSHORE)
   plan_type: string | null;
   risk: string | null;
   readiness?: Record<string, CheckStatus>;
@@ -42,7 +58,7 @@ function fmt(d: string | null | undefined): string {
     : "—";
 }
 
-// ── Static Gantt — clean bars on a year grid, paginated by 4-year windows ──────
+// ── Static Gantt — clean bars on a year grid, paginated by 2-year windows ──────
 
 function StaticGantt({ rows }: { rows: PrintRow[] }) {
   const acts = rows
@@ -52,12 +68,25 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
 
   const startYear = new Date(Math.min(...acts.map((a) => a.s.getTime()))).getFullYear();
   const endYear = new Date(Math.max(...acts.map((a) => a.e.getTime()))).getFullYear();
-  const rigs = Array.from(new Set(acts.map((a) => a.rig_name ?? "—"))).sort();
+
+  // Rows = terrain + rig, ordered Land → Swamp → Offshore, then rig.
+  const meta = new Map<string, { loc: string | null; rig: string | null }>();
+  for (const a of acts) {
+    const k = rowLabel(a.location, a.rig_name);
+    if (!meta.has(k)) meta.set(k, { loc: a.location, rig: a.rig_name });
+  }
+  const rowKeys = Array.from(meta.keys()).sort((ka, kb) => {
+    const A = meta.get(ka)!;
+    const B = meta.get(kb)!;
+    const d = terrainRank(A.loc) - terrainRank(B.loc);
+    return d !== 0 ? d : (A.rig ?? "").localeCompare(B.rig ?? "");
+  });
 
   const windows: { from: Date; to: Date }[] = [];
   for (let y = startYear; y <= endYear; y += WINDOW_YEARS) {
     windows.push({ from: new Date(y, 0, 1), to: new Date(Math.min(y + WINDOW_YEARS, endYear + 1), 0, 1) });
   }
+  const now = Date.now();
 
   return (
     <>
@@ -66,61 +95,101 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
         const winSpan = w.to.getTime() - winStart;
         const years: number[] = [];
         for (let y = w.from.getFullYear(); y < w.to.getFullYear(); y++) years.push(y);
+        const todayPct =
+          now >= winStart && now < w.to.getTime() ? ((now - winStart) / winSpan) * 100 : null;
         return (
-          <div key={wi} className={cn("mt-2", wi > 0 && "break-before-page")}>
+          <div key={wi} className={cn("mt-3", wi > 0 && "break-before-page")}>
             {wi > 0 && (
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Sequence (continued)
               </p>
             )}
-            {/* Year axis */}
-            <div className="relative ml-32 h-4 border-b border-border">
-              {years.map((y) => {
-                const left = ((new Date(y, 0, 1).getTime() - winStart) / winSpan) * 100;
-                return (
-                  <span
-                    key={y}
-                    className="absolute top-0 -translate-x-1/2 text-[9px] tabular-nums text-muted-foreground"
-                    style={{ left: `${left}%` }}
-                  >
-                    {y}
-                  </span>
-                );
-              })}
-            </div>
-            {/* One row per rig */}
-            {rigs.map((rig) => (
-              <div key={rig} className="flex h-7 items-center border-b border-border/40">
-                <div className="w-32 shrink-0 truncate pr-2 text-[9px] text-muted-foreground">{rig}</div>
+            <div className="overflow-hidden rounded-md border border-border bg-zinc-50">
+              {/* Year axis */}
+              <div className="flex h-5 border-b border-border bg-zinc-100 text-[9px] tabular-nums text-muted-foreground">
+                <div className="shrink-0" style={{ width: RIG_COL }} />
                 <div className="relative h-full flex-1">
-                  {acts
-                    .filter(
-                      (a) =>
-                        (a.rig_name ?? "—") === rig &&
-                        a.e.getTime() > winStart &&
-                        a.s.getTime() < w.to.getTime(),
-                    )
-                    .map((a) => {
-                      const l = Math.max(0, ((a.s.getTime() - winStart) / winSpan) * 100);
-                      const r = Math.min(100, ((a.e.getTime() - winStart) / winSpan) * 100);
-                      return (
-                        <div
-                          key={a.id}
-                          title={a.activity_type}
-                          className="absolute top-1/2 flex h-4 -translate-y-1/2 items-center overflow-hidden rounded-sm px-1 text-[8px] font-medium text-white"
-                          style={{
-                            left: `${l}%`,
-                            width: `${Math.max(0.6, r - l)}%`,
-                            backgroundColor: getActivityColor(a.activity_type),
-                          }}
-                        >
-                          <span className="truncate">{a.well_name ?? a.activity_type}</span>
-                        </div>
-                      );
-                    })}
+                  {years.map((y) => {
+                    const left = ((new Date(y, 0, 1).getTime() - winStart) / winSpan) * 100;
+                    return (
+                      <span key={y} className="absolute top-0.5 -translate-x-1/2 px-1" style={{ left: `${left}%` }}>
+                        {y}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
+              {/* Rows + a gridline / today overlay across the plot area */}
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 right-0" style={{ left: RIG_COL }}>
+                  {years.map((y) => {
+                    const left = ((new Date(y, 0, 1).getTime() - winStart) / winSpan) * 100;
+                    return left > 0.5 && left < 99.5 ? (
+                      <div key={y} className="absolute inset-y-0 w-px bg-border/60" style={{ left: `${left}%` }} />
+                    ) : null;
+                  })}
+                  {todayPct !== null && (
+                    <div
+                      className="absolute inset-y-0 border-l border-dashed border-red-400/70"
+                      style={{ left: `${todayPct}%` }}
+                    />
+                  )}
+                </div>
+                {rowKeys.map((key) => (
+                  <div key={key} className="flex h-10 items-stretch border-b border-border/40 last:border-b-0">
+                    <div
+                      className="flex shrink-0 items-center truncate border-r border-border/60 px-2 text-[9px] font-medium text-foreground"
+                      style={{ width: RIG_COL }}
+                    >
+                      {key}
+                    </div>
+                    <div className="relative flex-1">
+                      {acts
+                        .filter(
+                          (a) =>
+                            rowLabel(a.location, a.rig_name) === key &&
+                            a.e.getTime() > winStart &&
+                            a.s.getTime() < w.to.getTime(),
+                        )
+                        .map((a) => {
+                          const l = Math.max(0, ((a.s.getTime() - winStart) / winSpan) * 100);
+                          const r = Math.min(100, ((a.e.getTime() - winStart) / winSpan) * 100);
+                          const wpct = Math.max(0.8, r - l);
+                          const inside = wpct >= 9; // wide enough to hold the label
+                          const label = a.well_name ?? a.activity_type;
+                          return (
+                            <span key={a.id}>
+                              <span
+                                title={a.activity_type}
+                                className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center overflow-hidden rounded px-1 text-[8px] font-semibold text-white"
+                                style={{ left: `${l}%`, width: `${wpct}%`, backgroundColor: getActivityColor(a.activity_type) }}
+                              >
+                                {inside && <span className="truncate">{label}</span>}
+                              </span>
+                              {!inside &&
+                                (l < 80 ? (
+                                  <span
+                                    className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[8px] font-medium text-foreground"
+                                    style={{ left: `${r}%` }}
+                                  >
+                                    {label}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pr-1 text-right text-[8px] font-medium text-foreground"
+                                    style={{ right: `${100 - l}%` }}
+                                  >
+                                    {label}
+                                  </span>
+                                ))}
+                            </span>
+                          );
+                        })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         );
       })}
@@ -133,7 +202,7 @@ function StaticGantt({ rows }: { rows: PrintRow[] }) {
 function PrintLegend({ rows }: { rows: PrintRow[] }) {
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
   return (
-    <div className="mt-3 space-y-1.5 border-t border-border pt-2 text-[9px] print:break-inside-avoid">
+    <div className="mt-5 space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Activity</span>
         {types.map((t) => (
@@ -186,7 +255,7 @@ function ScheduleTable({ rows }: { rows: PrintRow[] }) {
     <table className="w-full border-collapse text-[9.5px]">
       <thead>
         <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">
-          {["Activity", "Well", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
+          {["Activity", "Well", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
             <th key={h} className="px-1.5 py-1">{h}</th>
           ))}
         </tr>
@@ -196,6 +265,7 @@ function ScheduleTable({ rows }: { rows: PrintRow[] }) {
           <tr key={r.id}>
             <td className="px-1.5 py-1 font-medium text-foreground">{r.activity_type}</td>
             <td className="px-1.5 py-1 text-muted-foreground">{r.well_name ?? "—"}</td>
+            <td className="px-1.5 py-1 text-muted-foreground">{r.location ?? "—"}</td>
             <td className="px-1.5 py-1 text-muted-foreground">{r.rig_name ?? "—"}</td>
             <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.start_date)}</td>
             <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.end_date)}</td>
