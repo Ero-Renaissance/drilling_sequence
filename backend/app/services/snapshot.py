@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.rig_contract import RigContract
+from app.services.readiness import derive_con_status
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -76,8 +77,14 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # Lets the diff tell a finished activity (dropped on clone) apart
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
+            # CON is derived from the rig contract (not a stored row), so the
+            # snapshot's readiness matches the Readiness tab and the dashboard.
             "readiness": {
-                code: checks_by_activity.get(a.id, {}).get(code, "Not Started")
+                code: (
+                    derive_con_status(a, contracts_by_rig.get(a.rig_name))
+                    if code == "CON"
+                    else checks_by_activity.get(a.id, {}).get(code, "Not Started")
+                )
                 for code in CHECK_CODES
             },
             **contract_fields(a.rig_name),

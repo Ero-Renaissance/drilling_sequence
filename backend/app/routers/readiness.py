@@ -1,5 +1,4 @@
 import uuid
-from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,57 +17,11 @@ from app.models.user import User
 from app.schemas.readiness import (
     ActivityReadiness,
     CheckState,
-    CheckStatus,
     CheckUpsert,
     CheckUpsertResponse,
 )
+from app.services.readiness import derive_con_status
 
-
-def _derive_con_status(
-    activity: Activity, contract: RigContract | None, today: date
-) -> CheckStatus:
-    """Derive the CON (Contract) readiness status for an activity.
-
-    The rig contract is a WORKFLOW item: the planner explicitly sets its status
-    (Not Applicable / Not Started / In Progress / Completed). Dates are only
-    binding when status == "Completed" — at which point we check whether the
-    end date actually covers this activity (gate). For every other workflow
-    state the per-activity CON status simply mirrors the contract's workflow
-    status, because there's nothing committed to gate against yet.
-
-    Rules:
-      • activity has no rig_name                 → N/A
-      • no contract row on file for that rig     → Not Started
-      • contract.status == "N/A"                 → N/A
-      • contract.status == "Not Started"         → Not Started
-      • contract.status == "In Progress"         → In Progress
-      • contract.status == "Completed":
-            – contract_end is null               → In Progress (data missing)
-            – end < activity end                 → Behind (won't cover)
-            – end ≥ activity end                 → Completed (covers)
-    """
-    # `today` accepted for API symmetry; the gate doesn't depend on it.
-    del today
-
-    if not activity.rig_name:
-        return "N/A"
-    if contract is None:
-        return "Not Started"
-
-    status = contract.status
-    if status == "N/A":
-        return "N/A"
-    if status == "Not Started":
-        return "Not Started"
-    if status == "In Progress":
-        return "In Progress"
-
-    # status == "Completed" — only now do dates carry weight.
-    if contract.contract_end is None:
-        return "In Progress"
-    if activity.end_date and contract.contract_end < activity.end_date:
-        return "Behind"
-    return "Completed"
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
 
@@ -107,13 +60,12 @@ async def list_readiness(
     contracts_by_rig: dict[str, RigContract] = {
         c.rig_name: c for c in contracts_result.scalars().all()
     }
-    today = date.today()
 
     rows: list[ActivityReadiness] = []
     for act in activities:
         activity_checks = checks_by_activity.get(act.id, {})
         con_contract = contracts_by_rig.get(act.rig_name) if act.rig_name else None
-        con_status = _derive_con_status(act, con_contract, today)
+        con_status = derive_con_status(act, con_contract)
 
         def _state(code: str) -> CheckState:
             if code == "CON":

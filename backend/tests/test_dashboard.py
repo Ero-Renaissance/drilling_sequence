@@ -116,18 +116,46 @@ async def test_completed_ytd_spans_clone_lineage(client: AsyncClient) -> None:
 async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
     pid = await _project(client, "Ready")
     a = await _activity(client, pid, rig="R", start=TODAY + timedelta(days=10), end=TODAY + timedelta(days=20))
-    # one applicable gate, Completed → 100%, and the activity counts as ready
     await client.put(
         f"/api/projects/{pid}/activities/{a['id']}/readiness/BUD", json={"status": "Completed"}
+    )
+    # CON is derived from the rig contract — give R a Completed contract that
+    # covers the activity so the contract gate also reads Completed. With BUD +
+    # CON both Completed (and the rest N/A-or-default), readiness is 100%.
+    await client.put(
+        f"/api/projects/{pid}/contracts/R",
+        json={"status": "Completed", "contract_end": (TODAY + timedelta(days=60)).isoformat()},
     )
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     assert d["readiness"]["overall_pct"] == 100
     assert d["readiness"]["ready"] == 1
     assert d["watchlist"]["near_term_not_ready"] == 0
 
-    # Phase-2 breakdowns: 8 gates, BUD shows the one Completed; activity-type mix present.
+    # Phase-2 breakdowns: 8 gates; BUD and the derived CON both Completed.
     by_gate = {g["code"]: g for g in d["readiness"]["by_gate"]}
     assert len(by_gate) == 8
     assert by_gate["BUD"]["completed"] == 1
+    assert by_gate["CON"]["completed"] == 1  # derived from the covering contract
     assert by_gate["LLI"]["not_started"] == 1  # unset gate reads as Not Started
     assert d["activities"]["by_activity_type"]["Oil Development"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_con_gate_derived_from_contract(client: AsyncClient) -> None:
+    """The CON gate is derived from the rig contract (not a stored row): a
+    Completed contract whose end date doesn't cover the activity reads as Behind,
+    and that flows into the dashboard breakdown + behind_cells."""
+    pid = await _project(client, "Con")
+    await _activity(
+        client, pid, rig="R", start=TODAY + timedelta(days=5), end=TODAY + timedelta(days=40)
+    )
+    # Contract ends before the activity does → doesn't cover → CON = Behind.
+    await client.put(
+        f"/api/projects/{pid}/contracts/R",
+        json={"status": "Completed", "contract_end": (TODAY + timedelta(days=20)).isoformat()},
+    )
+    d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
+    by_gate = {g["code"]: g for g in d["readiness"]["by_gate"]}
+    assert by_gate["CON"]["behind"] == 1
+    assert by_gate["CON"]["not_started"] == 0  # derived, not the stale default
+    assert d["readiness"]["behind_cells"] == 1
