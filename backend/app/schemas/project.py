@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
-from app.models.project import ProjectRole, ProjectStatus
+from app.models.project import ProjectRole, ProjectStatus, ReviewPolicy
 
 
 class ProjectCreate(BaseModel):
@@ -72,6 +72,7 @@ class ProjectResponse(BaseModel):
     field: str | None
     region: str | None
     status: ProjectStatus
+    review_policy: ReviewPolicy = ReviewPolicy.optional
     created_by: uuid.UUID
     created_at: datetime
     cloned_from_project_id: uuid.UUID | None = None
@@ -87,6 +88,7 @@ class ProjectResponse(BaseModel):
             field=project.field,
             region=project.region,
             status=project.status,
+            review_policy=project.review_policy,
             created_by=project.created_by,
             created_at=project.created_at,
             cloned_from_project_id=project.cloned_from_project_id,

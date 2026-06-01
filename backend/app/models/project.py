@@ -21,6 +21,22 @@ class ProjectRole(str, Enum):
     viewer = "viewer"
 
 
+class ReviewPolicy(str, Enum):
+    """Whether a revision must pass technical review before approval.
+
+    - required: every revision goes through the review stage first.
+    - optional: the planner chooses per submission (default).
+    - off: review is unavailable; revisions go straight to approval.
+
+    Stored as a plain string (allow-list enforced in the Pydantic layer) rather
+    than a DB enum, to stay portable across Postgres and MSSQL.
+    """
+
+    required = "required"
+    optional = "optional"
+    off = "off"
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -41,6 +57,12 @@ class Project(Base):
     # cascade away the clone.
     cloned_from_project_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Governs whether a revision must pass technical review before approval.
+    # Plain string + Pydantic allow-list (ReviewPolicy) — not a DB enum — for
+    # MSSQL/Postgres portability. See docs/review-approval-workflow-spec.md.
+    review_policy: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="optional", default="optional"
     )
 
     members: Mapped[list["ProjectMember"]] = relationship(

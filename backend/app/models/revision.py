@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,7 +17,15 @@ class Revision(Base):
     rev_number: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(String(256), nullable=True)
     snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # "pending_review" | "pending_approval" | "approved" | "rejected"
+    # | "changes_requested" | "discarded". Free string (not a DB enum) so adding
+    # the review stage needs no column migration.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_approval")
+    # True when this revision was routed through the technical-review stage. Records
+    # the resolved route so history shows whether review happened or was skipped.
+    review_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -67,6 +75,12 @@ class Signature(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     role_label: Mapped[str] = mapped_column(String(128), nullable=False)
+    # "approval" (binding sign-off) | "review" (technical concurrence). Lets one
+    # table hold both signature kinds; counting logic filters by stage so a review
+    # signature is never miscounted as an approval. Default keeps old rows binding.
+    stage: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="approval", default="approval"
+    )
     signed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     revision: Mapped["Revision"] = relationship(back_populates="signatures")

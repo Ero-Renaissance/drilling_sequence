@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import ProjectMember, ProjectRole
+from app.models.project import Project, ProjectMember, ProjectRole
 from app.models.user import User
 
 
@@ -55,6 +55,13 @@ async def test_create_project_with_metadata(client: AsyncClient) -> None:
 async def test_create_project_empty_name_rejected(client: AsyncClient) -> None:
     response = await client.post("/api/projects", json={"name": "  "})
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_project_defaults_review_policy_optional(client: AsyncClient) -> None:
+    """New projects default to the 'optional' review policy (planner routes per revision)."""
+    data = await _create_project(client, name="Policy Default")
+    assert data["review_policy"] == "optional"
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +244,22 @@ async def test_clone_records_source_project(client: AsyncClient) -> None:
         await client.post(f"/api/projects/{source['id']}/clone", json={"name": "North Sea Q2"})
     ).json()
     assert clone["cloned_from_project_id"] == source["id"]
+
+
+@pytest.mark.asyncio
+async def test_clone_inherits_review_policy(client: AsyncClient, db: AsyncSession) -> None:
+    """A clone carries the source project's governance policy into the new quarter."""
+    source = await _create_project(client, name="Governed Q1")
+    row = (
+        await db.execute(select(Project).where(Project.id == uuid.UUID(source["id"])))
+    ).scalar_one()
+    row.review_policy = "required"
+    await db.commit()
+
+    clone = (
+        await client.post(f"/api/projects/{source['id']}/clone", json={"name": "Governed Q2"})
+    ).json()
+    assert clone["review_policy"] == "required"
 
 
 @pytest.mark.asyncio

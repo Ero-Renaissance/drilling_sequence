@@ -139,6 +139,8 @@ async def clone_project(
         region=payload.region if payload.region is not None else source.region,
         created_by=current_user.id,
         cloned_from_project_id=source.id,
+        # Carry the governance policy forward to the new quarter.
+        review_policy=source.review_policy,
     )
     db.add(clone)
     await db.flush()  # get clone.id
@@ -228,7 +230,7 @@ async def clone_project(
             )
         )
 
-    # Copy the required-approver list.
+    # Copy the required-signer list (both reviewer and approver kinds).
     source_approvers = (
         await db.execute(
             select(ProjectApprover).where(ProjectApprover.project_id == project_id)
@@ -241,6 +243,7 @@ async def clone_project(
                 email=approver.email,
                 name=approver.name,
                 role_label=approver.role_label,
+                kind=approver.kind,
             )
         )
 
