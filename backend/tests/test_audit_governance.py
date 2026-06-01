@@ -78,18 +78,20 @@ async def test_approver_add_and_remove_are_audited(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sign_and_approve_are_audited(client: AsyncClient) -> None:
+async def test_sign_and_approve_are_audited(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id = await _project_with_activity(client)
-    # Configure the signer as a required approver so the signature also approves.
+    # other@ is the required approver (the creator can't sign their own plan).
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "role_label": "Approver"},
+        json={"email": "other@company.com", "role_label": "Approver"},
     )
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = r.json()["id"]
 
     # Sole required approver signs → revision both signs and approves
-    await client.put(
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Project Manager"},
     )

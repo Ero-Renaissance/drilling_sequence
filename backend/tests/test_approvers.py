@@ -1,16 +1,18 @@
 """Tests for configurable approvers and approver-aware sign flow."""
-import uuid
-
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import ProjectMember, ProjectRole
-from tests.conftest import OTHER_USER_ID
+from app.models.user import User
+from tests.conftest import OTHER_USER_ID, THIRD_USER_ID
 
 
-async def _setup(client: AsyncClient, other_client: AsyncClient) -> tuple[str, str]:
-    """Return (project_id, revision_id) with 2 configured approvers and a pending revision."""
+async def _setup(client: AsyncClient) -> tuple[str, str]:
+    """Return (project_id, revision_id) with 2 configured approvers and a pending
+    revision. The creator (test@company.com) is deliberately NOT an approver —
+    they can't sign their own plan — so the two approvers are other@ and third@.
+    """
     # project
     r = await client.post("/api/projects", json={"name": "Approver Test Project"})
     assert r.status_code == 201
@@ -22,14 +24,14 @@ async def _setup(client: AsyncClient, other_client: AsyncClient) -> tuple[str, s
         json={"activity_type": "Drilling", "start_date": "2026-01-01", "end_date": "2026-03-31"},
     )
 
-    # Configure required approvers (test@company.com + other@company.com)
+    # Configure required approvers (both distinct from the creator)
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "name": "Test User", "role_label": "Project Manager"},
+        json={"email": "other@company.com", "name": "Other User", "role_label": "Project Manager"},
     )
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "other@company.com", "name": "Other User", "role_label": "HSE Manager"},
+        json={"email": "third@company.com", "name": "Third User", "role_label": "HSE Manager"},
     )
 
     # revision
@@ -143,8 +145,8 @@ async def test_non_member_cannot_access_approvers(
 
 
 @pytest.mark.asyncio
-async def test_approver_status_shows_unsigned(client: AsyncClient, other_client: AsyncClient) -> None:
-    project_id, revision_id = await _setup(client, other_client)
+async def test_approver_status_shows_unsigned(client: AsyncClient) -> None:
+    project_id, revision_id = await _setup(client)
 
     r = await client.get(f"/api/projects/{project_id}/revisions")
     data = r.json()[0]
@@ -155,38 +157,40 @@ async def test_approver_status_shows_unsigned(client: AsyncClient, other_client:
 
 
 @pytest.mark.asyncio
-async def test_partial_sign_does_not_approve(client: AsyncClient, other_client: AsyncClient) -> None:
-    project_id, revision_id = await _setup(client, other_client)
+async def test_partial_sign_does_not_approve(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    project_id, revision_id = await _setup(client)
 
-    # test@company.com signs — but other@company.com hasn't yet
-    r = await client.put(
+    # other@company.com signs — but third@company.com hasn't yet
+    r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Project Manager"},
     )
     assert r.status_code == 200
     data = r.json()
-    # Still pending because other@company.com hasn't signed
+    # Still pending because third@company.com hasn't signed
     assert data["status"] == "pending_approval"
     # Approver status updated
     statuses = {s["email"]: s for s in data["approver_status"]}
-    assert statuses["test@company.com"]["signed"] is True
-    assert statuses["other@company.com"]["signed"] is False
+    assert statuses["other@company.com"]["signed"] is True
+    assert statuses["third@company.com"]["signed"] is False
 
 
 @pytest.mark.asyncio
 async def test_all_approvers_signed_triggers_approval(
-    client: AsyncClient, other_client: AsyncClient
+    client: AsyncClient, other_client: AsyncClient, third_client: AsyncClient
 ) -> None:
-    project_id, revision_id = await _setup(client, other_client)
+    project_id, revision_id = await _setup(client)
 
-    # First approver (test@company.com) signs
-    await client.put(
+    # First approver (other@company.com) signs
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Project Manager"},
     )
 
-    # Second approver (other@company.com) signs
-    r = await other_client.put(
+    # Second approver (third@company.com) signs
+    r = await third_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "HSE Manager"},
     )
@@ -202,9 +206,11 @@ async def test_all_approvers_signed_triggers_approval(
 
 
 @pytest.mark.asyncio
-async def test_no_approvers_configured_cannot_approve(client: AsyncClient) -> None:
-    """Hardened behaviour: with no approvers configured a signature is recorded
-    but the revision cannot auto-approve — it stays pending until approvers exist."""
+async def test_no_approvers_configured_cannot_approve(
+    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+) -> None:
+    """With no approvers configured, only an admin can even sign — and the
+    signature is recorded but the revision still can't auto-approve."""
     r = await client.post("/api/projects", json={"name": "No-approver project"})
     project_id = r.json()["id"]
     await client.post(
@@ -214,7 +220,15 @@ async def test_no_approvers_configured_cannot_approve(client: AsyncClient) -> No
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = r.json()["id"]
 
-    r = await client.put(
+    # Promote other@ to global admin so they're permitted to sign at all.
+    await other_client.get("/api/projects")  # materialize the user row
+    other = (
+        await db.execute(select(User).where(User.id == OTHER_USER_ID))
+    ).scalar_one()
+    other.is_admin = True
+    await db.commit()
+
+    r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Manager"},
     )
@@ -224,47 +238,46 @@ async def test_no_approvers_configured_cannot_approve(client: AsyncClient) -> No
 
 
 @pytest.mark.asyncio
-async def test_non_required_signer_does_not_trigger_approval(
-    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+async def test_admin_signature_does_not_trigger_approval(
+    client: AsyncClient,
+    other_client: AsyncClient,
+    third_client: AsyncClient,
+    db: AsyncSession,
 ) -> None:
-    """A permitted signer who isn't a required approver can sign, but it
-    doesn't count toward auto-approval."""
+    """An admin may sign even when not a required approver, but it doesn't count
+    toward auto-approval — only the designated approver's signature does."""
     r = await client.post("/api/projects", json={"name": "P"})
     project_id = r.json()["id"]
     await client.post(
         f"/api/projects/{project_id}/activities",
         json={"activity_type": "X", "start_date": "2026-01-01", "end_date": "2026-01-31"},
     )
-    # Only test@company.com required
+    # other@company.com is the sole required approver.
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "role_label": "PM"},
+        json={"email": "other@company.com", "role_label": "PM"},
     )
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = r.json()["id"]
 
-    # Other User is a project member (reviewer) but not a required approver,
-    # so they may sign even though it won't count toward auto-approval.
-    await other_client.get("/api/projects")  # ensure the user row exists
-    db.add(
-        ProjectMember(
-            project_id=uuid.UUID(project_id),
-            user_id=OTHER_USER_ID,
-            role=ProjectRole.reviewer,
-        )
-    )
+    # third@ is a global admin (permitted to sign) but not a required approver.
+    await third_client.get("/api/projects")  # ensure the user row exists
+    third = (
+        await db.execute(select(User).where(User.id == THIRD_USER_ID))
+    ).scalar_one()
+    third.is_admin = True
     await db.commit()
 
-    r = await other_client.put(
+    r = await third_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Observer"},
     )
     assert r.status_code == 200
-    # Not approved yet — required test@company.com hasn't signed
+    # Not approved yet — required other@company.com hasn't signed
     assert r.json()["status"] == "pending_approval"
 
-    # Now test@company.com signs
-    r = await client.put(
+    # Now the required approver signs → approved
+    r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "PM"},
     )
@@ -274,7 +287,7 @@ async def test_non_required_signer_does_not_trigger_approval(
 
 @pytest.mark.asyncio
 async def test_outsider_cannot_sign(client: AsyncClient, other_client: AsyncClient) -> None:
-    """A user who is neither a project member nor a designated approver is denied."""
+    """A user who is neither an admin nor a designated approver is denied."""
     r = await client.post("/api/projects", json={"name": "P"})
     project_id = r.json()["id"]
     await client.post(

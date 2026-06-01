@@ -225,13 +225,15 @@ async def _project_with_activity(client: AsyncClient, name: str = "Diff Project"
 
 
 @pytest.mark.asyncio
-async def test_compare_two_revisions(client: AsyncClient) -> None:
+async def test_compare_two_revisions(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, activity_id = await _project_with_activity(client)
-    await client.post(f"/api/projects/{project_id}/approvers", json={"email": "test@company.com"})
+    await client.post(f"/api/projects/{project_id}/approvers", json={"email": "other@company.com"})
 
     rev1 = (await client.post(f"/api/projects/{project_id}/revisions", json={})).json()
-    # Sign to approve + unlock so the plan can be edited.
-    await client.put(
+    # other@ signs to approve + unlock so the plan can be edited.
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{rev1['id']}/sign",
         json={"role_label": "Approver"},
     )
@@ -255,11 +257,13 @@ async def test_compare_two_revisions(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_compare_revision_vs_live(client: AsyncClient) -> None:
+async def test_compare_revision_vs_live(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, activity_id = await _project_with_activity(client)
-    await client.post(f"/api/projects/{project_id}/approvers", json={"email": "test@company.com"})
+    await client.post(f"/api/projects/{project_id}/approvers", json={"email": "other@company.com"})
     rev1 = (await client.post(f"/api/projects/{project_id}/revisions", json={})).json()
-    await client.put(
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{rev1['id']}/sign",
         json={"role_label": "Approver"},
     )

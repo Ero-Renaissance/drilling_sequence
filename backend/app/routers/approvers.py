@@ -28,7 +28,10 @@ async def list_approvers(
     await assert_member(project_id, current_user, db)
     result = await db.execute(
         select(ProjectApprover)
-        .where(ProjectApprover.project_id == project_id)
+        .where(
+            ProjectApprover.project_id == project_id,
+            ProjectApprover.kind == "approver",
+        )
         .order_by(ProjectApprover.email)
     )
     return list(result.scalars().all())
@@ -42,11 +45,13 @@ async def add_approver(
     current_user: User = Depends(get_current_user),
 ) -> ProjectApprover:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
-    # Check for duplicate email in this project
+    # Check for a duplicate approver email in this project (the same email may
+    # separately be a reviewer — they're independent kinds).
     existing = await db.execute(
         select(ProjectApprover).where(
             ProjectApprover.project_id == project_id,
             ProjectApprover.email == payload.email.lower(),
+            ProjectApprover.kind == "approver",
         )
     )
     if existing.scalar_one_or_none():
@@ -57,6 +62,7 @@ async def add_approver(
         email=payload.email.lower(),
         name=payload.name,
         role_label=payload.role_label,
+        kind="approver",
     )
     db.add(approver)
     await db.flush()
@@ -84,7 +90,7 @@ async def remove_approver(
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
     approver = await db.get(ProjectApprover, approver_id)
-    if not approver or approver.project_id != project_id:
+    if not approver or approver.project_id != project_id or approver.kind != "approver":
         raise HTTPException(status_code=404, detail="Approver not found")
     db.add(
         governance_event(

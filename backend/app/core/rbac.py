@@ -72,8 +72,14 @@ async def assert_can_view(
 async def assert_can_sign(
     project_id: uuid.UUID, user: User, db: AsyncSession
 ) -> None:
-    """A revision may be signed by a global admin, a designated approver for the
-    project (matched by email), or a non-viewer project member."""
+    """A revision's binding approval may be signed only by a global admin or a
+    designated approver for the project (matched by lowercased email).
+
+    Project membership alone no longer grants signing rights: approval authority
+    is the designated-approver matrix, not a side effect of being a non-viewer
+    member. This keeps recorded signatures to people with real sign-off authority.
+    Separation of duties (the submitter can't approve their own revision) is
+    enforced at the endpoint, which has the revision in hand."""
     if user.is_admin:
         return
     if user.email:
@@ -81,16 +87,9 @@ async def assert_can_sign(
             select(ProjectApprover).where(
                 ProjectApprover.project_id == project_id,
                 ProjectApprover.email == user.email.lower(),
+                ProjectApprover.kind == "approver",
             )
         )
         if approver.scalar_one_or_none() is not None:
             return
-    result = await db.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user.id,
-        )
-    )
-    member = result.scalar_one_or_none()
-    if member is None or member.role == ProjectRole.viewer:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")

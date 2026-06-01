@@ -1,8 +1,14 @@
 """Tests for Phase 6: revision snapshots and signatures."""
 import json
+import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.project import ProjectMember, ProjectRole
+from app.models.user import User
 
 
 async def _create_project(client: AsyncClient, name: str = "Rev Test Project") -> str:
@@ -33,12 +39,15 @@ async def _create_project_with_activities(client: AsyncClient) -> tuple[str, lis
     return project_id, ids
 
 
-async def _add_self_approver(client: AsyncClient, project_id: str) -> None:
-    """Configure the test user (test@company.com) as a required approver so that
-    a single signature is enough to auto-approve the revision."""
+async def _add_approver(
+    client: AsyncClient, project_id: str, email: str = "other@company.com"
+) -> None:
+    """Configure a designated approver. Defaults to other@company.com — a user
+    distinct from the test@company.com creator, since the submitter can't approve
+    their own revision (separation of duties)."""
     r = await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "role_label": "Approver"},
+        json={"email": email, "role_label": "Approver"},
     )
     assert r.status_code == 201, r.text
 
@@ -123,13 +132,15 @@ async def test_get_revision_detail_has_snapshot(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sign_revision_approves_and_unlocks(client: AsyncClient) -> None:
+async def test_sign_revision_approves_and_unlocks(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
-    await _add_self_approver(client, project_id)
+    await _add_approver(client, project_id)  # other@company.com signs
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    r = await client.put(
+    r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Project Manager"},
     )
@@ -138,7 +149,7 @@ async def test_sign_revision_approves_and_unlocks(client: AsyncClient) -> None:
     assert data["status"] == "approved"
     assert len(data["signatures"]) == 1
     assert data["signatures"][0]["role_label"] == "Project Manager"
-    assert data["signatures"][0]["user_name"] == "Test User"
+    assert data["signatures"][0]["user_name"] == "Other User"
 
     # Activities unlocked
     activities = (await client.get(f"/api/projects/{project_id}/activities")).json()
@@ -146,16 +157,23 @@ async def test_sign_revision_approves_and_unlocks(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sign_revision_twice_returns_409(client: AsyncClient) -> None:
+async def test_sign_revision_twice_returns_409(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
+    # Two approvers so the first signature leaves the revision pending (not yet
+    # fully approved), letting the second signature hit the duplicate guard.
+    await _add_approver(client, project_id, email="other@company.com")
+    await _add_approver(client, project_id, email="third@company.com")
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    await client.put(
+    first = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Manager"},
     )
-    r = await client.put(
+    assert first.json()["status"] == "pending_approval"
+    r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Manager"},
     )
@@ -176,13 +194,15 @@ async def test_discard_revision_unlocks_activities(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_discard_approved_revision_fails(client: AsyncClient) -> None:
+async def test_discard_approved_revision_fails(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
-    await _add_self_approver(client, project_id)
+    await _add_approver(client, project_id)
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    await client.put(
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Manager"},
     )
@@ -191,13 +211,15 @@ async def test_discard_approved_revision_fails(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rev_number_increments(client: AsyncClient) -> None:
+async def test_rev_number_increments(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
-    await _add_self_approver(client, project_id)
+    await _add_approver(client, project_id)
 
     r1 = await client.post(f"/api/projects/{project_id}/revisions", json={})
     rev1_id = r1.json()["id"]
-    await client.put(
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{rev1_id}/sign",
         json={"role_label": "Manager"},
     )
@@ -248,12 +270,15 @@ async def test_non_member_cannot_access_revisions(
 
 
 @pytest.mark.asyncio
-async def test_reject_revision_unlocks_and_records_reason(client: AsyncClient) -> None:
+async def test_reject_revision_unlocks_and_records_reason(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)  # other@ can decide; test@ is the creator
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    r = await client.post(
+    r = await other_client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/reject",
         json={"reason": "Dates conflict with rig availability"},
     )
@@ -261,7 +286,7 @@ async def test_reject_revision_unlocks_and_records_reason(client: AsyncClient) -
     data = r.json()
     assert data["status"] == "rejected"
     assert data["decision_reason"] == "Dates conflict with rig availability"
-    assert data["decision_by_name"] == "Test User"
+    assert data["decision_by_name"] == "Other User"
     assert data["decision_at"] is not None
 
     # Activities unlocked
@@ -270,12 +295,15 @@ async def test_reject_revision_unlocks_and_records_reason(client: AsyncClient) -
 
 
 @pytest.mark.asyncio
-async def test_request_changes_reopens_for_new_revision(client: AsyncClient) -> None:
+async def test_request_changes_reopens_for_new_revision(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    r = await client.post(
+    r = await other_client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/request-changes",
         json={"reason": "Please add the casing run activity"},
     )
@@ -290,12 +318,15 @@ async def test_request_changes_reopens_for_new_revision(client: AsyncClient) -> 
 
 
 @pytest.mark.asyncio
-async def test_reject_requires_reason(client: AsyncClient) -> None:
+async def test_reject_requires_reason(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    r = await client.post(
+    r = await other_client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/reject",
         json={"reason": ""},
     )
@@ -303,17 +334,88 @@ async def test_reject_requires_reason(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cannot_reject_already_decided_revision(client: AsyncClient) -> None:
+async def test_cannot_reject_already_decided_revision(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    await client.post(
+    await other_client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/reject",
         json={"reason": "first"},
     )
-    r = await client.post(
+    r = await other_client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/reject",
         json={"reason": "again"},
     )
     assert r.status_code == 400
+
+
+# ── Separation of duties + signing authority (the tightened rules) ──────────
+
+
+@pytest.mark.asyncio
+async def test_creator_cannot_sign_own_revision(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """Even when the creator is also a designated approver, they can't sign their
+    own revision (separation of duties). A second approver keeps submit valid."""
+    project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id, email="test@company.com")  # the creator
+    await _add_approver(client, project_id, email="other@company.com")
+    create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    revision_id = create_r.json()["id"]
+
+    r = await client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Approver"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_creator_cannot_be_sole_approver_at_submit(client: AsyncClient) -> None:
+    """If the only configured approver is the submitter, submit is blocked —
+    otherwise the revision could never be approved."""
+    project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id, email="test@company.com")  # creator only
+    r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_non_approver_member_cannot_sign(
+    client: AsyncClient,
+    other_client: AsyncClient,
+    third_client: AsyncClient,
+    db: AsyncSession,
+) -> None:
+    """Membership no longer grants signing rights — only designated approvers
+    (or admins) may sign. third@ is a planner member but not an approver."""
+    project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)  # other@ is the approver
+
+    # Make third@ a project member (planner) but NOT a designated approver.
+    await third_client.get("/api/projects")  # materialize the user row
+    third = (
+        await db.execute(select(User).where(User.email == "third@company.com"))
+    ).scalar_one()
+    db.add(
+        ProjectMember(
+            project_id=uuid.UUID(project_id),
+            user_id=third.id,
+            role=ProjectRole.planner,
+        )
+    )
+    await db.commit()
+
+    create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    revision_id = create_r.json()["id"]
+
+    r = await third_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Planner"},
+    )
+    assert r.status_code == 403

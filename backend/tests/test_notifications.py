@@ -23,18 +23,18 @@ def test_send_email_noop_when_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_pending_approvals_lists_revisions_awaiting_my_signature(
-    client: AsyncClient,
+    client: AsyncClient, other_client: AsyncClient
 ) -> None:
     project_id = await _project_with_activity(client)
-    # Test user (test@company.com) is a designated approver.
+    # other@ is the designated approver; test@ is the planner/creator.
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "role_label": "Approver"},
+        json={"email": "other@company.com", "role_label": "Approver"},
     )
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    r = await client.get("/api/me/pending-approvals")
+    r = await other_client.get("/api/me/pending-approvals")
     assert r.status_code == 200, r.text
     items = r.json()
     assert len(items) == 1
@@ -44,20 +44,45 @@ async def test_pending_approvals_lists_revisions_awaiting_my_signature(
 
 
 @pytest.mark.asyncio
-async def test_pending_approvals_excludes_signed_revisions(client: AsyncClient) -> None:
+async def test_pending_approvals_excludes_signed_revisions(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     project_id = await _project_with_activity(client)
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "role_label": "Approver"},
+        json={"email": "other@company.com", "role_label": "Approver"},
     )
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    # Once I sign, it should drop off my pending list.
-    await client.put(
+    # Once other@ signs, it should drop off other@'s pending list.
+    await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Approver"},
     )
+
+    r = await other_client.get("/api/me/pending-approvals")
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_pending_approvals_excludes_own_submitted_revision(
+    client: AsyncClient,
+) -> None:
+    """Separation of duties: a revision you submitted never appears on your own
+    'awaiting my signature' list, even if you're also a designated approver."""
+    project_id = await _project_with_activity(client)
+    # test@ is both a designated approver AND the creator; other@ keeps submit valid.
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "test@company.com", "role_label": "Approver"},
+    )
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    await client.post(f"/api/projects/{project_id}/revisions", json={})
 
     r = await client.get("/api/me/pending-approvals")
     assert r.status_code == 200, r.text
@@ -114,23 +139,24 @@ async def test_reject_notifies_planner(
 
 
 @pytest.mark.asyncio
-async def test_decision_does_not_email_self(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_creator_cannot_decide_own_revision(client: AsyncClient) -> None:
+    """Separation of duties: the submitter can't reject / request-changes their
+    own revision (they discard it instead). Even being a designated approver
+    doesn't let them — a second approver keeps submit valid."""
     project_id = await _project_with_activity(client)
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "test@company.com", "role_label": "Approver"},
+    )
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    calls: list[dict] = []
-    monkeypatch.setattr(
-        "app.routers.revisions.notify_revision_decision",
-        lambda **kwargs: calls.append(kwargs),
-    )
-
-    # Planner rejects their own revision → no self-notification.
     r = await client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/request-changes",
         json={"reason": "changed my mind"},
     )
-    assert r.status_code == 200, r.text
-    assert calls == []
+    assert r.status_code == 403

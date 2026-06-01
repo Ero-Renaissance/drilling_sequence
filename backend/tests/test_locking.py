@@ -102,20 +102,23 @@ async def test_contract_edit_locked_then_unlocked(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_edit_allowed_after_full_approval(client: AsyncClient) -> None:
+async def test_edit_allowed_after_full_approval(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
     """Directly answers 'is it editable once fully approved?': yes — approval
     unlocks the activities (immutable snapshot is retained on the revision)."""
     project_id, activity_id = await _project_with_activity(client)
+    # other@ is the approver — the creator can't approve their own plan.
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "test@company.com", "role_label": "Approver"},
+        json={"email": "other@company.com", "role_label": "Approver"},
     )
     revision_id = await _create_revision(client, project_id)
 
     base = f"/api/projects/{project_id}/activities/{activity_id}"
     assert (await client.patch(base, json={"well_name": "Nope"})).status_code == 423
 
-    signed = await client.put(
+    signed = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
         json={"role_label": "Manager"},
     )

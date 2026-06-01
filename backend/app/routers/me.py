@@ -42,7 +42,8 @@ async def pending_approvals(
     project_ids = (
         await db.execute(
             select(ProjectApprover.project_id).where(
-                func.lower(ProjectApprover.email) == email
+                func.lower(ProjectApprover.email) == email,
+                ProjectApprover.kind == "approver",
             )
         )
     ).scalars().all()
@@ -55,13 +56,19 @@ async def pending_approvals(
         .where(
             Revision.project_id.in_(project_ids),
             Revision.status == "pending_approval",
+            # Separation of duties: you can't approve a revision you submitted, so
+            # it never belongs on your "awaiting my signature" list.
+            Revision.created_by != current_user.id,
         )
         .order_by(Revision.created_at.desc())
     )
 
     out: list[PendingApproval] = []
     for revision, project_name in result.all():
-        already_signed = any(s.user_id == current_user.id for s in revision.signatures)
+        already_signed = any(
+            s.user_id == current_user.id and s.stage == "approval"
+            for s in revision.signatures
+        )
         if already_signed:
             continue
         out.append(

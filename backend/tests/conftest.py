@@ -29,10 +29,12 @@ _TestSessionLocal = async_sessionmaker(_engine, class_=AsyncSession, expire_on_c
 
 TEST_USER_ID = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
 OTHER_USER_ID = uuid.UUID("bbbbbbbb-0000-0000-0000-000000000002")
+THIRD_USER_ID = uuid.UUID("cccccccc-0000-0000-0000-000000000003")
 
 _USERS: dict[uuid.UUID, dict] = {
     TEST_USER_ID: {"ad_object_id": "test-oid-001", "name": "Test User", "email": "test@company.com"},
     OTHER_USER_ID: {"ad_object_id": "test-oid-002", "name": "Other User", "email": "other@company.com"},
+    THIRD_USER_ID: {"ad_object_id": "test-oid-003", "name": "Third User", "email": "third@company.com"},
 }
 
 # Per-request ContextVars — safe when multiple clients are active in one test
@@ -113,6 +115,17 @@ async def other_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """Second client authenticated as a different user — for access-control tests."""
     async with AsyncClient(
         transport=_TestTransport(user_id=OTHER_USER_ID, db=db),
+        base_url="http://test",
+    ) as c:
+        yield c
+
+
+@pytest_asyncio.fixture
+async def third_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Third client — lets a test have a creator plus two distinct approvers, now
+    that the submitter can't sign their own revision (separation of duties)."""
+    async with AsyncClient(
+        transport=_TestTransport(user_id=THIRD_USER_ID, db=db),
         base_url="http://test",
     ) as c:
         yield c

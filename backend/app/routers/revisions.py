@@ -39,8 +39,12 @@ router = APIRouter(
 async def _get_required_approvers(
     project_id: uuid.UUID, db: AsyncSession
 ) -> list[ProjectApprover]:
+    """The binding approval matrix (kind="approver"); reviewers are a separate list."""
     result = await db.execute(
-        select(ProjectApprover).where(ProjectApprover.project_id == project_id)
+        select(ProjectApprover).where(
+            ProjectApprover.project_id == project_id,
+            ProjectApprover.kind == "approver",
+        )
     )
     return list(result.scalars().all())
 
@@ -112,22 +116,38 @@ def _all_required_have_signed(
     required_approvers: list[ProjectApprover],
     signing_user_email: str | None,
 ) -> bool:
-    """Return True when every required approver email appears in the signatures
-    (including the email being added right now, before commit). Approval now
-    requires at least one configured approver — an unconfigured revision can be
-    signed but never auto-approves."""
+    """Return True when every required approver email appears in the approval
+    signatures (including the email being added right now, before commit).
+
+    Two rules baked in:
+    - At least one configured approver is required — an unconfigured revision can
+      never auto-approve.
+    - Separation of duties: the revision's creator is excluded from its own
+      required set, so they can't be the one who tips it to approved. If that
+      leaves the required set empty, it never auto-approves.
+    """
     if not required_approvers:
         return False  # require designated approvers before a revision can approve
 
     signed_emails = {
         sig.user.email.lower()
         for sig in revision.signatures
-        if sig.user and sig.user.email
+        if sig.user and sig.user.email and sig.stage == "approval"
     }
     if signing_user_email:
         signed_emails.add(signing_user_email.lower())
 
     required_emails = {a.email.lower() for a in required_approvers}
+    creator_email = (
+        revision.creator.email.lower()
+        if revision.creator and revision.creator.email
+        else None
+    )
+    if creator_email:
+        required_emails.discard(creator_email)
+    if not required_emails:
+        return False  # the only approver was the submitter — can't self-approve
+
     return required_emails.issubset(signed_emails)
 
 
@@ -205,6 +225,22 @@ async def create_revision(
                 f"Rig scheduling conflict: {c['rig']} is double-booked — "
                 f"\"{c['a']}\" overlaps \"{c['b']}\" by {c['overlap_days']} day(s){more}. "
                 f"Resolve the overlap before submitting for approval."
+            ),
+        )
+
+    # Separation of duties: if approvers are configured, at least one must be
+    # someone other than the submitter — otherwise the revision could never be
+    # approved (you can't approve your own plan). Zero configured approvers stays
+    # allowed (the revision simply waits, pending, until approvers are added).
+    approvers = await _get_required_approvers(project_id, db)
+    if approvers and all(
+        a.email.lower() == (current_user.email or "").lower() for a in approvers
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "You can't be the only approver of a revision you submit — "
+                "add another approver before submitting."
             ),
         )
 
@@ -451,9 +487,14 @@ async def sign_revision(
         raise HTTPException(
             status_code=400, detail="Only a pending revision can be signed"
         )
+    # Separation of duties: the submitter can't approve their own plan.
+    if revision.created_by == current_user.id:
+        raise HTTPException(
+            status_code=403, detail="You can't approve a revision you submitted"
+        )
 
     for existing in revision.signatures:
-        if existing.user_id == current_user.id:
+        if existing.user_id == current_user.id and existing.stage == "approval":
             raise HTTPException(
                 status_code=409, detail="You have already signed this revision"
             )
@@ -462,6 +503,7 @@ async def sign_revision(
         revision_id=revision.id,
         user_id=current_user.id,
         role_label=payload.role_label,
+        stage="approval",
         signed_at=datetime.now(timezone.utc),
     )
     db.add(sig)
@@ -551,6 +593,12 @@ async def _record_decision(
     if revision.status != "pending_approval":
         raise HTTPException(
             status_code=400, detail="Only a pending revision can be actioned"
+        )
+    # Separation of duties: the submitter can't decide on their own plan (they
+    # can discard it instead).
+    if revision.created_by == current_user.id:
+        raise HTTPException(
+            status_code=403, detail="You can't decide on a revision you submitted"
         )
 
     revision.status = new_status
