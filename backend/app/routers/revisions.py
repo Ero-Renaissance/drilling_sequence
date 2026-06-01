@@ -8,7 +8,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.rbac import assert_can_sign, assert_can_view, assert_member
+from app.core.rbac import (
+    assert_can_review,
+    assert_can_sign,
+    assert_can_view,
+    assert_member,
+)
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
@@ -49,13 +54,27 @@ async def _get_required_approvers(
     return list(result.scalars().all())
 
 
+async def _get_required_reviewers(
+    project_id: uuid.UUID, db: AsyncSession
+) -> list[ProjectApprover]:
+    """The technical-review matrix (kind="reviewer"); runs before approval."""
+    result = await db.execute(
+        select(ProjectApprover).where(
+            ProjectApprover.project_id == project_id,
+            ProjectApprover.kind == "reviewer",
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def _fetch_signed_email_map(
-    revision_id: uuid.UUID, db: AsyncSession
+    revision_id: uuid.UUID, db: AsyncSession, stage: str
 ) -> dict[str, Signature]:
-    """Return a dict mapping lowercased email → Signature, with users eagerly loaded."""
+    """Return lowercased email → Signature for one stage ("approval"/"review"),
+    with users eagerly loaded."""
     result = await db.execute(
         select(Signature)
-        .where(Signature.revision_id == revision_id)
+        .where(Signature.revision_id == revision_id, Signature.stage == stage)
         .options(selectinload(Signature.user))
     )
     out: dict[str, Signature] = {}
@@ -94,50 +113,63 @@ async def _to_response(
     required_approvers: list[ProjectApprover],
     db: AsyncSession,
 ) -> dict:
-    sig_by_email = await _fetch_signed_email_map(revision.id, db)
+    approval_sigs = await _fetch_signed_email_map(revision.id, db, "approval")
+    review_sigs = await _fetch_signed_email_map(revision.id, db, "review")
+    required_reviewers = await _get_required_reviewers(revision.project_id, db)
+    project = await db.get(Project, revision.project_id)
+    policy = project.review_policy if project else "optional"
     return {
         "id": revision.id,
         "project_id": revision.project_id,
         "rev_number": revision.rev_number,
         "label": revision.label,
         "status": revision.status,
+        "stage": "review" if revision.status == "pending_review" else "approval",
+        "review_required": revision.review_required,
+        # Review was available (optional policy) but the planner went straight to
+        # approval — surfaced so approvers can see it was bypassed.
+        "review_skipped": policy == "optional" and not revision.review_required,
         "created_by_name": revision.created_by_name,
         "created_at": revision.created_at,
-        "signatures": revision.signatures,
-        "approver_status": _build_approver_status(required_approvers, sig_by_email),
+        # The flat list stays the *binding* (approval-stage) signatures; review
+        # concurrences are surfaced via reviewer_status.
+        "signatures": [s for s in revision.signatures if s.stage == "approval"],
+        "approver_status": _build_approver_status(required_approvers, approval_sigs),
+        "reviewer_status": _build_approver_status(required_reviewers, review_sigs),
         "decision_reason": revision.decision_reason,
         "decision_by_name": revision.decision_by_name,
         "decision_at": revision.decision_at,
     }
 
 
-def _all_required_have_signed(
+def _all_required_signed(
     revision: Revision,
-    required_approvers: list[ProjectApprover],
+    required: list[ProjectApprover],
+    stage: str,
     signing_user_email: str | None,
 ) -> bool:
-    """Return True when every required approver email appears in the approval
-    signatures (including the email being added right now, before commit).
+    """Return True when every required signer for `stage` ("approval"/"review")
+    has signed (including the email being added right now, before commit).
 
     Two rules baked in:
-    - At least one configured approver is required — an unconfigured revision can
-      never auto-approve.
+    - At least one configured signer is required — an unconfigured stage never
+      completes.
     - Separation of duties: the revision's creator is excluded from its own
-      required set, so they can't be the one who tips it to approved. If that
-      leaves the required set empty, it never auto-approves.
+      required set, so they can't be the one who tips it over. If that leaves the
+      required set empty, the stage never auto-completes.
     """
-    if not required_approvers:
-        return False  # require designated approvers before a revision can approve
+    if not required:
+        return False
 
     signed_emails = {
         sig.user.email.lower()
         for sig in revision.signatures
-        if sig.user and sig.user.email and sig.stage == "approval"
+        if sig.user and sig.user.email and sig.stage == stage
     }
     if signing_user_email:
         signed_emails.add(signing_user_email.lower())
 
-    required_emails = {a.email.lower() for a in required_approvers}
+    required_emails = {a.email.lower() for a in required}
     creator_email = (
         revision.creator.email.lower()
         if revision.creator and revision.creator.email
@@ -146,7 +178,7 @@ def _all_required_have_signed(
     if creator_email:
         required_emails.discard(creator_email)
     if not required_emails:
-        return False  # the only approver was the submitter — can't self-approve
+        return False  # the only signer was the submitter — can't self-sign
 
     return required_emails.issubset(signed_emails)
 
@@ -191,17 +223,17 @@ async def create_revision(
     current_user: User = Depends(get_current_user),
 ) -> RevisionResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
-    # Refuse if there's already an open (pending) revision
+    # Refuse if there's already an open revision (in review or awaiting approval).
     pending = await db.execute(
         select(Revision).where(
             Revision.project_id == project_id,
-            Revision.status == "pending_approval",
+            Revision.status.in_(["pending_review", "pending_approval"]),
         )
     )
     if pending.scalar_one_or_none():
         raise HTTPException(
             status_code=409,
-            detail="A revision is already pending approval. Approve or discard it first.",
+            detail="A revision is already open. Resolve or discard it first.",
         )
 
     act_result = await db.execute(
@@ -244,6 +276,36 @@ async def create_revision(
             ),
         )
 
+    # Resolve the route against the project's review policy. "required" forces
+    # review, "off" forbids it, "optional" honours the planner's request_review.
+    project = await db.get(Project, project_id)
+    policy = project.review_policy if project else "optional"
+    project_name = project.name if project else "a project"
+    if policy == "required":
+        review_required = True
+    elif policy == "off":
+        review_required = False
+    else:  # optional
+        review_required = bool(payload.request_review)
+
+    # A review route needs at least one eligible reviewer (excluding the submitter,
+    # who can't review their own plan) — otherwise review could never complete.
+    reviewers: list[ProjectApprover] = []
+    if review_required:
+        reviewers = await _get_required_reviewers(project_id, db)
+        eligible = [
+            r for r in reviewers
+            if r.email.lower() != (current_user.email or "").lower()
+        ]
+        if not eligible:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Review is required but there's no eligible reviewer — add a "
+                    "reviewer (other than yourself) before submitting."
+                ),
+            )
+
     # Capture activities + readiness state at the moment the revision is created
     snapshot = await build_project_snapshot(project_id, db)
 
@@ -261,7 +323,8 @@ async def create_revision(
         rev_number=rev_number,
         label=payload.label or f"Rev. {rev_number:02d}",
         snapshot_json=json.dumps(snapshot),
-        status="pending_approval",
+        status="pending_review" if review_required else "pending_approval",
+        review_required=review_required,
         created_by=current_user.id,
         created_at=datetime.now(timezone.utc),
     )
@@ -271,19 +334,39 @@ async def create_revision(
     for a in activities:
         a.locked_by_revision_id = revision.id
 
+    if review_required:
+        submit_detail = f"Submitted {revision.label} for technical review"
+    else:
+        submit_detail = f"Submitted {revision.label} for approval"
+        if policy == "optional":
+            submit_detail += " (technical review skipped)"
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_REVISION,
+            entity_id=revision.id,
+            action="submitted_for_review" if review_required else "submitted_for_approval",
+            detail=submit_detail,
+        )
+    )
+
     await db.commit()
     await db.refresh(revision)
 
     required_approvers = await _get_required_approvers(project_id, db)
 
-    # Notify designated approvers their signature is needed (fire-and-forget).
-    recipients = [a.email for a in required_approvers]
+    # Notify the people whose action is needed next (fire-and-forget): reviewers
+    # when routed through review, otherwise approvers.
+    recipients = (
+        [r.email for r in reviewers] if review_required
+        else [a.email for a in required_approvers]
+    )
     if recipients:
-        project = await db.get(Project, project_id)
         background_tasks.add_task(
             notify_revision_pending,
             recipients=recipients,
-            project_name=project.name if project else "a project",
+            project_name=project_name,
             rev_label=revision.label or f"Rev. {rev_number:02d}",
             project_id=project_id,
         )
@@ -519,8 +602,8 @@ async def sign_revision(
     )
 
     required_approvers = await _get_required_approvers(project_id, db)
-    if revision.status == "pending_approval" and _all_required_have_signed(
-        revision, required_approvers, current_user.email
+    if revision.status == "pending_approval" and _all_required_signed(
+        revision, required_approvers, "approval", current_user.email
     ):
         revision.status = "approved"
         await _unlock_activities(revision, db)
@@ -538,6 +621,97 @@ async def sign_revision(
     await db.commit()
     await db.refresh(revision)
 
+    return RevisionResponse.model_validate(
+        await _to_response(revision, required_approvers, db)
+    )
+
+
+@router.put("/{revision_id}/sign-review", response_model=RevisionResponse)
+async def sign_review(
+    project_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    payload: SignRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RevisionResponse:
+    """A designated reviewer signs the technical-review stage. When every required
+    reviewer has signed, the revision advances to pending_approval."""
+    await assert_can_review(project_id, current_user, db)
+    revision = await db.get(Revision, revision_id)
+    if not revision or revision.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    if revision.status != "pending_review":
+        raise HTTPException(
+            status_code=400, detail="Only a revision in review can be signed off"
+        )
+    # Separation of duties: the submitter can't review their own plan.
+    if revision.created_by == current_user.id:
+        raise HTTPException(
+            status_code=403, detail="You can't review a revision you submitted"
+        )
+
+    for existing in revision.signatures:
+        if existing.user_id == current_user.id and existing.stage == "review":
+            raise HTTPException(
+                status_code=409, detail="You have already reviewed this revision"
+            )
+
+    db.add(
+        Signature(
+            revision_id=revision.id,
+            user_id=current_user.id,
+            role_label=payload.role_label,
+            stage="review",
+            signed_at=datetime.now(timezone.utc),
+        )
+    )
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_REVISION,
+            entity_id=revision.id,
+            action="review_signed",
+            detail=f"Reviewed Rev. {revision.rev_number:02d} as {payload.role_label}",
+        )
+    )
+
+    required_reviewers = await _get_required_reviewers(project_id, db)
+    advanced = _all_required_signed(
+        revision, required_reviewers, "review", current_user.email
+    )
+    if advanced:
+        revision.status = "pending_approval"
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_REVISION,
+                entity_id=revision.id,
+                action="review_completed",
+                detail=f"Rev. {revision.rev_number:02d} passed review — sent for approval",
+            )
+        )
+
+    await db.commit()
+    await db.refresh(revision)
+
+    # Once review completes, nudge the approvers (fire-and-forget).
+    if advanced:
+        approvers = await _get_required_approvers(project_id, db)
+        recipients = [a.email for a in approvers]
+        if recipients:
+            project = await db.get(Project, project_id)
+            background_tasks.add_task(
+                notify_revision_pending,
+                recipients=recipients,
+                project_name=project.name if project else "a project",
+                rev_label=revision.label or f"Rev. {revision.rev_number:02d}",
+                project_id=project_id,
+            )
+
+    required_approvers = await _get_required_approvers(project_id, db)
     return RevisionResponse.model_validate(
         await _to_response(revision, required_approvers, db)
     )
@@ -682,4 +856,68 @@ async def request_changes(
         current_user=current_user,
         db=db,
         background_tasks=background_tasks,
+    )
+
+
+@router.post("/{revision_id}/review-changes", response_model=RevisionResponse)
+async def review_request_changes(
+    project_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    payload: DecisionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RevisionResponse:
+    """A reviewer bounces a revision back during the technical-review stage. Like
+    request-changes, but gated to reviewers and only valid while `pending_review`.
+    Reviewers can't terminally reject — that stays with approvers."""
+    await assert_can_review(project_id, current_user, db)
+    revision = await db.get(Revision, revision_id)
+    if not revision or revision.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    if revision.status != "pending_review":
+        raise HTTPException(
+            status_code=400, detail="Only a revision in review can be sent back"
+        )
+    # Separation of duties: the submitter can't review their own plan.
+    if revision.created_by == current_user.id:
+        raise HTTPException(
+            status_code=403, detail="You can't review a revision you submitted"
+        )
+
+    revision.status = "changes_requested"
+    revision.decision_reason = payload.reason
+    revision.decision_by = current_user.id
+    revision.decision_at = datetime.now(timezone.utc)
+    await _unlock_activities(revision, db)
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_REVISION,
+            entity_id=revision.id,
+            action="review_changes_requested",
+            detail=f"Rev. {revision.rev_number:02d} sent back in review: {payload.reason}",
+        )
+    )
+    await db.commit()
+    await db.refresh(revision)
+
+    planner_email = revision.creator.email if revision.creator else None
+    if planner_email and planner_email.lower() != (current_user.email or "").lower():
+        project = await db.get(Project, project_id)
+        background_tasks.add_task(
+            notify_revision_decision,
+            recipient=planner_email,
+            project_name=project.name if project else "a project",
+            rev_label=revision.label or f"Rev. {revision.rev_number:02d}",
+            outcome="sent back for changes in review",
+            reason=payload.reason,
+            decided_by=current_user.name,
+            project_id=project_id,
+        )
+
+    required_approvers = await _get_required_approvers(project_id, db)
+    return RevisionResponse.model_validate(
+        await _to_response(revision, required_approvers, db)
     )

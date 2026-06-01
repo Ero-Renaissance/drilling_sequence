@@ -24,6 +24,7 @@ from app.routers import (
     me,
     projects,
     readiness,
+    reviewers,
     revisions,
     viewers,
 )
@@ -83,6 +84,7 @@ app.include_router(readiness.router)
 app.include_router(viewers.router)
 app.include_router(revisions.router)
 app.include_router(approvers.router)
+app.include_router(reviewers.router)
 app.include_router(contracts.router)
 app.include_router(dashboard.router)
 

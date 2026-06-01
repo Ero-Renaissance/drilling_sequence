@@ -93,3 +93,26 @@ async def assert_can_sign(
         if approver.scalar_one_or_none() is not None:
             return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+
+async def assert_can_review(
+    project_id: uuid.UUID, user: User, db: AsyncSession
+) -> None:
+    """The technical-review stage may be actioned only by a global admin or a
+    designated reviewer for the project (matched by lowercased email,
+    `kind="reviewer"`). Mirrors `assert_can_sign` one stage earlier. Separation
+    of duties (the submitter can't review their own revision) is enforced at the
+    endpoint, which has the revision in hand."""
+    if user.is_admin:
+        return
+    if user.email:
+        reviewer = await db.execute(
+            select(ProjectApprover).where(
+                ProjectApprover.project_id == project_id,
+                ProjectApprover.email == user.email.lower(),
+                ProjectApprover.kind == "reviewer",
+            )
+        )
+        if reviewer.scalar_one_or_none() is not None:
+            return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")

@@ -5,6 +5,7 @@ from app.models.audit import AuditLog
 # Event-style entity types (distinct from field-level "activity" edits)
 ENTITY_REVISION = "revision"
 ENTITY_APPROVER = "approver"
+ENTITY_REVIEWER = "reviewer"
 ENTITY_PROJECT = "project"
 
 

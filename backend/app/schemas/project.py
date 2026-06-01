@@ -39,6 +39,8 @@ class ProjectUpdate(BaseModel):
     field: str | None = None
     region: str | None = None
     status: ProjectStatus | None = None
+    # Allow-listed to the ReviewPolicy enum; anything else → 422.
+    review_policy: ReviewPolicy | None = None
 
     @field_validator("name")
     @classmethod

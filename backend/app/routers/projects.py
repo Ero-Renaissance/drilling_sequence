@@ -318,6 +318,21 @@ async def update_project(
         project.region = payload.region
     if payload.status is not None:
         project.status = payload.status
+    if payload.review_policy is not None and payload.review_policy.value != project.review_policy:
+        # Governance setting — record the change in the audit trail.
+        old_policy = project.review_policy
+        project.review_policy = payload.review_policy.value
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_PROJECT,
+                entity_id=project_id,
+                action="review_policy_changed",
+                detail=f"Review policy set to {project.review_policy}",
+                old_value=old_policy,
+            )
+        )
 
     await db.commit()
     await db.refresh(project)
