@@ -125,6 +125,8 @@ DEV_MODE=false
 # MSSQL connection (URL-encode special characters in the password).
 # Encrypt=yes is the driver default; use a real server cert in prod. Only set
 # TrustServerCertificate=yes if your DBA confirms there's no trusted cert.
+# On Windows you can instead use Integrated (Windows) auth and store NO DB
+# password — see Appendix B.2 for that connection string.
 DATABASE_URL=mssql+aioodbc://<DB_USER>:<DB_PASS>@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
 
 # Azure AD — from Step 2a (the API registration).
@@ -328,14 +330,140 @@ Backend logs: `docker logs drilling-backend`.
 - Keep `.env` `chmod 600`; rotate the DB password per company policy.
 - The app stores no passwords — identity is entirely Microsoft Entra ID.
 
-## Appendix B — If your internal server is Windows
-The architecture is identical; only the tooling changes:
-- **Reverse proxy / static host:** IIS with the URL Rewrite + Application Request
-  Routing modules (serve `dist/`, reverse-proxy `/api` to `http://127.0.0.1:8000`).
-- **Backend:** run the same Docker image under Docker Desktop / Windows containers,
-  or run uvicorn directly as a Windows service (install Python 3.11 + the Microsoft
-  ODBC Driver 18 on the host first).
-- Everything else (env vars, Azure setup, MSSQL, smoke test) is the same.
+## Appendix B — Deploying on Windows Server
+
+The architecture and all the OS-agnostic steps are unchanged: **Azure setup (§2),
+database provisioning (§3), the `.env` keys (§4a), the frontend build (§5), and the
+smoke test (§7) apply as written.** Only the host tooling differs. Pick one hosting
+model with IT:
+
+- **Native (recommended on Windows Server):** install Python + the ODBC driver on the
+  host and run uvicorn as a Windows Service behind IIS. No Docker licensing, and it's
+  the supported way to run a long-lived service on Server SKUs.
+- **Docker Desktop:** reuse the existing Linux backend image (see B.7). Simple if IT
+  already standardises on containers, but note Docker Desktop licensing and that it's a
+  workstation tool, not really a Server service host.
+
+> uvicorn runs natively on Windows — it just uses the asyncio proactor event loop
+> instead of `uvloop` (which is Unix-only and simply isn't installed). No code change.
+
+### B.1 Prerequisites (native path)
+- [ ] **Windows Server 2019/2022** on the internal network.
+- [ ] **Python 3.11 (64-bit)** from python.org — tick *"Add python.exe to PATH"*.
+- [ ] **Microsoft ODBC Driver 18 for SQL Server** (x64 MSI) installed on the host.
+- [ ] **IIS** with the **URL Rewrite 2.1** and **Application Request Routing (ARR) 3.0**
+      modules (both free from Microsoft).
+- [ ] **NSSM** (nssm.cc) to run uvicorn as a service — or HttpPlatformHandler (B.4).
+- [ ] A **domain service account** to run the app (required for Integrated SQL auth).
+- [ ] Node.js 20 LTS **only on the machine that builds the frontend** — `dist/` can be
+      built elsewhere and copied over.
+
+### B.2 Install and configure the backend
+From `backend\`:
+```bat
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\python -m pip install -r requirements.txt
+```
+Create `backend\.env` with the keys from §4a. For `DATABASE_URL`, use the auth style
+IT chose:
+```ini
+:: (a) SQL login + password — URL-encode special characters in the password:
+DATABASE_URL=mssql+aioodbc://<DB_USER>:<DB_PASS>@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
+
+:: (b) Windows / Integrated auth — NO password stored; the service account running
+::     the app must be the SQL principal with access. Note the empty credentials (@):
+DATABASE_URL=mssql+aioodbc://@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&Trusted_Connection=yes&Encrypt=yes&TrustServerCertificate=no
+```
+Lock down the secret file (the Windows equivalent of `chmod 600`):
+```bat
+icacls .env /inheritance:r /grant:r "<DOMAIN\svc-drilling>:R" "Administrators:F"
+```
+
+### B.3 Create the database tables (run once, and after each upgrade)
+```bat
+cd backend
+.venv\Scripts\alembic upgrade head
+```
+Reads the same `.env`. **With Integrated auth**, run this *as the service account*
+(e.g. an elevated shell opened via `runas /user:<DOMAIN\svc-drilling> cmd`) so SQL
+Server sees the right identity.
+
+### B.4 Run uvicorn as a Windows Service
+Bind to **localhost only** — IIS is the public face.
+
+**Option 1 — NSSM (simplest):**
+```bat
+nssm install DrillingBackend "C:\apps\drilling\backend\.venv\Scripts\python.exe" "-m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+nssm set DrillingBackend AppDirectory "C:\apps\drilling\backend"
+nssm set DrillingBackend Start SERVICE_AUTO_START
+:: For Integrated auth, run the service AS the domain account:
+nssm set DrillingBackend ObjectName "<DOMAIN\svc-drilling>" "<password>"
+nssm start DrillingBackend
+```
+**Option 2 — IIS HttpPlatformHandler:** install the module and let IIS launch the
+venv's uvicorn via an `<httpPlatform>` element in the site `web.config`. Fewer
+services to manage, but fiddlier than NSSM.
+
+Verify:
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health    # -> {"status":"ok"}
+```
+(or `curl http://127.0.0.1:8000/api/health` — `curl.exe` ships with Server 2019+.)
+
+### B.5 Build and place the frontend
+Build exactly as §5 (`npm ci && npm run build`), then copy `frontend\dist\` to the IIS
+content root, e.g. `C:\inetpub\drilling`.
+
+### B.6 IIS as the reverse proxy (the "same origin" glue)
+1. Install **URL Rewrite** + **ARR**, then IIS Manager → server node → **Application
+   Request Routing Cache → Server Proxy Settings → tick "Enable proxy."**
+2. Create a site rooted at `C:\inetpub\drilling`; add an **HTTPS binding (443)** with
+   your TLS certificate (Server Certificates → import first).
+3. Put this `web.config` in the site root:
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <system.webServer>
+    <rewrite>
+      <rules>
+        <!-- 1) Forward /api/* to the backend on localhost. -->
+        <rule name="api-proxy" stopProcessing="true">
+          <match url="^api/(.*)" />
+          <action type="Rewrite" url="http://127.0.0.1:8000/api/{R:1}" />
+          <serverVariables>
+            <set name="HTTP_X_FORWARDED_PROTO" value="https" />
+          </serverVariables>
+        </rule>
+        <!-- 2) SPA fallback: anything that isn't a real file/dir -> index.html. -->
+        <rule name="spa" stopProcessing="true">
+          <match url=".*" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+            <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+          </conditions>
+          <action type="Rewrite" url="/index.html" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
+```
+(To set `X-Forwarded-Proto` you must first allow the variable: URL Rewrite → **View
+Server Variables** → add `HTTP_X_FORWARDED_PROTO`. ARR forwards `X-Forwarded-For`
+automatically.) Add a separate HTTP→HTTPS redirect binding/rule as policy requires.
+
+### B.7 Docker Desktop alternative
+If IT standardises on containers: the existing **Linux** backend image runs under
+Docker Desktop with the **WSL2 (Linux container) backend** — the §4b/§4c `docker build`
+/ `docker run` / `docker exec … alembic upgrade head` commands work verbatim. Caveats:
+Docker Desktop **licensing** applies to larger orgs, and Docker Desktop is a workstation
+tool — for a long-running Server install, prefer the native path (B.2–B.4).
+
+### B.8 Day-2 on Windows (deltas from §9)
+- **Restart after upgrade:** `nssm restart DrillingBackend` (or `Restart-Service DrillingBackend`).
+- **Logs:** point NSSM at a log file — `nssm set DrillingBackend AppStdout C:\apps\drilling\logs\out.log` (and `AppStderr`); raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to `INFO`.
+- **Upgrades:** pull code → `.venv\Scripts\python -m pip install -r requirements.txt` (if deps changed) → `.venv\Scripts\alembic upgrade head` → restart the service → rebuild & recopy `dist\`.
 
 ---
 

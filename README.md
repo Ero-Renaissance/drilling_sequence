@@ -39,6 +39,11 @@ cp .env.example .env.local      # VITE_DEV_MODE=true
 npm run dev
 ```
 
+> **On Windows:** activate the venv with `.venv\Scripts\Activate.ps1` (PowerShell)
+> or `.venv\Scripts\activate.bat` (cmd), and use `copy` instead of `cp`. Everything
+> else is identical. For **production on Windows Server**, see
+> [deployment guide Appendix B](docs/deployment-guide.md#appendix-b--deploying-on-windows-server).
+
 In dev mode, sign in with **"Continue as Dev User"** — no Azure AD required.
 For everything else, start with the [Maintainer Guide](docs/maintainer-guide.md).
 
