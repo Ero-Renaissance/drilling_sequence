@@ -19,6 +19,7 @@ const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Star
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year windows so bar labels stay legible
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // Terrain order on the chart: land rigs, then swamp, then offshore.
 const TERRAIN_ORDER: Record<string, number> = { LAND: 0, SWAMP: 1, OFFSHORE: 2 };
 
@@ -125,6 +126,22 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
         const winSpan = w.to.getTime() - winStart;
         const years: number[] = [];
         for (let y = w.from.getFullYear(); y < w.to.getFullYear(); y++) years.push(y);
+        // Month columns — drive the alternating bands + month labels. Windows begin
+        // on Jan 1, so idx 0 is January and every odd month gets a faint band.
+        const months: { left: number; width: number; idx: number; m: number }[] = [];
+        for (
+          let cur = new Date(w.from.getFullYear(), w.from.getMonth(), 1), idx = 0;
+          cur.getTime() < w.to.getTime();
+          cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1), idx++
+        ) {
+          const next = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+          months.push({
+            left: ((cur.getTime() - winStart) / winSpan) * 100,
+            width: ((Math.min(next.getTime(), w.to.getTime()) - cur.getTime()) / winSpan) * 100,
+            idx,
+            m: cur.getMonth(),
+          });
+        }
         const todayPct =
           now >= winStart && now < w.to.getTime() ? ((now - winStart) / winSpan) * 100 : null;
         const ya = w.from.getFullYear();
@@ -157,9 +174,35 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
                   })}
                 </div>
               </div>
+              {/* Month axis — abbreviations let a reader read off the month directly */}
+              <div className="flex h-4 border-b border-border/60 bg-zinc-50 text-[6.5px] uppercase tracking-tight text-muted-foreground">
+                <div className="shrink-0" style={{ width: RIG_COL }} />
+                <div className="relative h-full flex-1">
+                  {months.map((mo) => (
+                    <span
+                      key={mo.left}
+                      className="absolute inset-y-0 flex items-center justify-center overflow-hidden"
+                      style={{ left: `${mo.left}%`, width: `${mo.width}%` }}
+                    >
+                      {MONTH_ABBR[mo.m]}
+                    </span>
+                  ))}
+                </div>
+              </div>
               {/* Rows + a gridline / today overlay across the plot area */}
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 right-0" style={{ left: RIG_COL }}>
+                  {/* Subtle alternating month bands — drawn first so year gridlines
+                      and the today line sit on top, and the activity bars cover them. */}
+                  {months.map((mo) =>
+                    mo.idx % 2 === 1 ? (
+                      <div
+                        key={`band-${mo.left}`}
+                        className="absolute inset-y-0 bg-black/[0.035]"
+                        style={{ left: `${mo.left}%`, width: `${mo.width}%` }}
+                      />
+                    ) : null,
+                  )}
                   {years.map((y) => {
                     const left = ((new Date(y, 0, 1).getTime() - winStart) / winSpan) * 100;
                     return left > 0.5 && left < 99.5 ? (
@@ -174,7 +217,7 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
                   )}
                 </div>
                 {pg.keys.map((key) => (
-                  <div key={key} className="flex h-9 items-stretch border-b border-border/40 last:border-b-0">
+                  <div key={key} className="flex h-8 items-stretch border-b border-border/40 last:border-b-0">
                     <div
                       className="flex shrink-0 items-center truncate border-r border-border/60 px-2 text-[9px] font-medium text-foreground"
                       style={{ width: RIG_COL }}

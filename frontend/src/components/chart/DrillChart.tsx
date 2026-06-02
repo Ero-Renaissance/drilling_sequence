@@ -91,6 +91,7 @@ interface ChartTheme {
   splitLine: string;
   yLabel: string;
   yStripe: [string, string];
+  xBand: string;
   tooltipBg: string;
   tooltipBorder: string;
   tooltipText: string;
@@ -109,6 +110,7 @@ const LIGHT_THEME: ChartTheme = {
   splitLine: "#f1f5f9",
   yLabel: "#334155",
   yStripe: ["rgba(248,250,252,0.6)", "rgba(255,255,255,0)"],
+  xBand: "rgba(15,23,42,0.04)",
   tooltipBg: "rgba(255,255,255,0.97)",
   tooltipBorder: "#e2e8f0",
   tooltipText: "#1e293b",
@@ -127,6 +129,7 @@ const DARK_THEME: ChartTheme = {
   splitLine: "rgba(255,255,255,0.04)",
   yLabel: "#cbd5e1",
   yStripe: ["rgba(255,255,255,0.03)", "rgba(255,255,255,0)"],
+  xBand: "rgba(255,255,255,0.045)",
   tooltipBg: "rgba(30,30,36,0.97)",
   tooltipBorder: "rgba(255,255,255,0.1)",
   tooltipText: "#e2e8f0",
@@ -137,6 +140,37 @@ const DARK_THEME: ChartTheme = {
   barLabel: "#ffffff",
   completedFill: "#64748b",
 };
+
+/**
+ * Alternating shaded bands for the time axis, as ECharts `markArea` pairs. Only
+ * every other interval is emitted (the shaded ones); the gaps stay the chart
+ * background. Granularity adapts to zoom: "month" when focused on a single year,
+ * "year" across the full span (where month bands would be hair-thin noise).
+ */
+function buildTimeBands(
+  from: number,
+  to: number,
+  unit: "month" | "year",
+  color: string,
+): Array<[{ xAxis: number; itemStyle: { color: string } }, { xAxis: number }]> {
+  const areas: Array<[{ xAxis: number; itemStyle: { color: string } }, { xAxis: number }]> = [];
+  const start = new Date(from);
+  let cur =
+    unit === "month"
+      ? new Date(start.getFullYear(), start.getMonth(), 1)
+      : new Date(start.getFullYear(), 0, 1);
+  for (let i = 0; cur.getTime() < to; i++) {
+    const next =
+      unit === "month"
+        ? new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
+        : new Date(cur.getFullYear() + 1, 0, 1);
+    if (i % 2 === 1) {
+      areas.push([{ xAxis: cur.getTime(), itemStyle: { color } }, { xAxis: next.getTime() }]);
+    }
+    cur = next;
+  }
+  return areas;
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -219,6 +253,27 @@ export function DrillChart({
             startValue: new Date(activeYear, 0, 1).getTime(),
             endValue: new Date(activeYear + 1, 0, 1).getTime(),
           };
+
+    // Alternating time bands behind the bars, so a reader can place an activity in
+    // its month. Month granularity when focused on one year; year granularity across
+    // the full span (12 narrow month bands per year would just be noise zoomed out).
+    const allTimes = displayData.flatMap((d) =>
+      Array.isArray(d.value) ? [Number(d.value[1]), Number(d.value[2])] : [],
+    );
+    const bandAreas =
+      activeYear === null
+        ? buildTimeBands(
+            allTimes.length ? Math.min(...allTimes) : today,
+            allTimes.length ? Math.max(...allTimes) : today,
+            "year",
+            theme.xBand,
+          )
+        : buildTimeBands(
+            new Date(activeYear, 0, 1).getTime(),
+            new Date(activeYear + 1, 0, 1).getTime(),
+            "month",
+            theme.xBand,
+          );
 
     function renderItem(
       params: CustomSeriesRenderItemParams,
@@ -603,6 +658,12 @@ export function DrillChart({
           // series-level label is disabled to avoid double labels that escape
           // the plot area when zoomed.
           label: { show: false },
+          // Alternating month/year bands behind the bars (silent → no hover/tooltip).
+          markArea: {
+            silent: true,
+            itemStyle: { color: theme.xBand },
+            data: bandAreas,
+          },
           markLine: {
             silent: true,
             symbol: ["none", "none"],
