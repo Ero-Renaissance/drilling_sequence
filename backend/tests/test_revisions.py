@@ -419,3 +419,61 @@ async def test_non_approver_member_cannot_sign(
         json={"role_label": "Planner"},
     )
     assert r.status_code == 403
+
+
+# ── Document integrity fingerprint (printed "Document ID") ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_integrity_digest_is_stable_hex(client: AsyncClient) -> None:
+    """The printed Document ID is a 64-char SHA-256 hex, reproducible across reads
+    because it derives only from the immutable snapshot + signature set."""
+    project_id, _ = await _create_project_with_activities(client)
+    create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    revision_id = create_r.json()["id"]
+    digest = create_r.json()["integrity_digest"]
+
+    assert len(digest) == 64
+    assert all(c in "0123456789abcdef" for c in digest)
+
+    again = (
+        await client.get(f"/api/projects/{project_id}/revisions/{revision_id}")
+    ).json()
+    assert again["integrity_digest"] == digest
+
+
+@pytest.mark.asyncio
+async def test_integrity_digest_differs_by_content(client: AsyncClient) -> None:
+    """Different content fingerprints differently — tampering with the sequence on
+    a printed document would not match the system's Document ID."""
+    p1, _ = await _create_project_with_activities(client)
+    p2 = await _create_project(client, "Other Rev Project")
+    await _create_activity(client, p2, 5)
+
+    d1 = (await client.post(f"/api/projects/{p1}/revisions", json={})).json()[
+        "integrity_digest"
+    ]
+    d2 = (await client.post(f"/api/projects/{p2}/revisions", json={})).json()[
+        "integrity_digest"
+    ]
+    assert d1 != d2
+
+
+@pytest.mark.asyncio
+async def test_integrity_digest_changes_when_signed(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """A cast approval is bound into the fingerprint, so the approval set on the
+    printed document can't be altered without changing the Document ID."""
+    project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)
+    create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    revision_id = create_r.json()["id"]
+    before = create_r.json()["integrity_digest"]
+
+    signed = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Approver"},
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["integrity_digest"] != before

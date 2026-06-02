@@ -31,6 +31,7 @@ from app.schemas.revision import (
 )
 from app.services.audit import ENTITY_REVISION, governance_event
 from app.services.conflicts import detect_rig_conflicts
+from app.services.integrity import revision_integrity_digest
 from app.services.email import notify_revision_decision, notify_revision_pending
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
@@ -139,6 +140,15 @@ async def _to_response(
         "decision_reason": revision.decision_reason,
         "decision_by_name": revision.decision_by_name,
         "decision_at": revision.decision_at,
+        # Tamper-evident fingerprint of the immutable content (snapshot + signature
+        # set), printed on the export so a recipient can verify it against the
+        # system of record. See app/services/integrity.py.
+        "integrity_digest": revision_integrity_digest(
+            revision.rev_number,
+            revision.project_id,
+            revision.snapshot_json,
+            revision.signatures,
+        ),
     }
 
 

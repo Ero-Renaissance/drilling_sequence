@@ -45,6 +45,8 @@ export interface Revision {
   decision_reason: string | null;
   decision_by_name: string | null;
   decision_at: string | null;
+  /** SHA-256 fingerprint of the immutable content — printed as the "Document ID". */
+  integrity_digest: string;
 }
 
 export interface RevisionDetail extends Revision {

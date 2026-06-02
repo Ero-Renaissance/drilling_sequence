@@ -59,6 +59,17 @@ function fmt(d: string | null | undefined): string {
     : "—";
 }
 
+// The printed "Document ID" — the first 24 hex of the content digest, upper-cased
+// and grouped in fours so it's quotable over the phone. The full 64-char hash lives
+// in the system of record; matching this prefix is enough to confirm authenticity.
+function formatDocId(digest: string): string {
+  return digest
+    .slice(0, 24)
+    .toUpperCase()
+    .replace(/(.{4})/g, "$1 ")
+    .trim();
+}
+
 // Stable 1..N ordering by start date (then well), so a bar's number on the Gantt
 // matches its row in the schedule table's "#" column.
 function orderRows(rows: PrintRow[]): PrintRow[] {
@@ -386,6 +397,36 @@ function SignOff({ revision }: { revision: RevisionDetail }) {
   );
 }
 
+// ── Authenticity — how a recipient verifies the document is genuine ────────────
+
+function VerifyBox({ docId }: { docId: string }) {
+  if (!docId) return null;
+  return (
+    <div className="mt-4 max-w-2xl rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] leading-relaxed text-muted-foreground print:break-inside-avoid">
+      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground">
+        Verifying this document
+      </p>
+      <p>
+        This is a rendering of an approved revision held in Renaissance Africa Energy&apos;s
+        system of record. To confirm it is genuine and unaltered:
+      </p>
+      <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+        <li>
+          If the file carries a digital signature, open it in Adobe Reader and validate the
+          signature panel.
+        </li>
+        <li>
+          Otherwise, quote the Document ID below to your RAEC representative — any change to
+          the sequence, dates, or approvals changes this ID.
+        </li>
+      </ol>
+      <p className="mt-1 font-mono text-[10px] tracking-wide text-foreground">
+        Document ID&nbsp;&nbsp;{formatDocId(docId)}
+      </p>
+    </div>
+  );
+}
+
 // ── The document ───────────────────────────────────────────────────────────────
 
 export function RevisionPrintDoc({
@@ -454,6 +495,11 @@ export function RevisionPrintDoc({
             {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
           </p>
           <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Ref {docRef}</p>
+          {revision.integrity_digest && (
+            <p className="mt-0.5 font-mono text-[9px] tracking-wide text-muted-foreground">
+              Document ID {formatDocId(revision.integrity_digest)}
+            </p>
+          )}
         </div>
         <div className="text-right">
           <p className="font-semibold tabular-nums">Rev. {String(revision.rev_number).padStart(2, "0")}</p>
@@ -474,6 +520,9 @@ export function RevisionPrintDoc({
 
       {/* Formal sign-off */}
       <SignOff revision={revision} />
+
+      {/* Authenticity — leaves the lower page free for an appended Adobe certificate signature */}
+      <VerifyBox docId={revision.integrity_digest} />
     </div>
   );
 }

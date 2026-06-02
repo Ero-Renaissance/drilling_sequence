@@ -56,6 +56,10 @@ class RevisionResponse(BaseModel):
     decision_reason: str | None = None
     decision_by_name: str | None = None
     decision_at: datetime | None = None
+    # SHA-256 fingerprint of the immutable content (snapshot + signatures), used as
+    # the printed "Document ID" so a recipient can verify the PDF against the system
+    # of record. See app/services/integrity.py.
+    integrity_digest: str = ""
 
     model_config = {"from_attributes": True}
 
