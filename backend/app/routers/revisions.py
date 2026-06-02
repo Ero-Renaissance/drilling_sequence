@@ -210,7 +210,9 @@ async def list_revisions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await assert_member(project_id, current_user, db)
+    # Read access — a designated reviewer/approver (not necessarily a member) must
+    # be able to list the revisions of a project they're asked to act on.
+    await assert_can_view(project_id, current_user, db)
     result = await db.execute(
         select(Revision)
         .where(Revision.project_id == project_id)
@@ -554,7 +556,9 @@ async def get_revision(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RevisionDetailResponse:
-    await assert_member(project_id, current_user, db)
+    # Read access — a designated reviewer/approver (not necessarily a member) must
+    # be able to open the revision they're asked to review/approve.
+    await assert_can_view(project_id, current_user, db)
     revision = await db.get(Revision, revision_id)
     if not revision or revision.project_id != project_id:
         raise HTTPException(status_code=404, detail="Revision not found")

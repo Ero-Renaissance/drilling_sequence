@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
-from app.core.rbac import assert_member
+from app.core.rbac import assert_can_view, assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
@@ -31,19 +31,8 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
 
 
-async def _get_project_for_user(
-    project_id: uuid.UUID,
-    user: User,
-    db: AsyncSession,
-    allowed_roles: set[ProjectRole] | None = None,
-) -> Project:
-    """Load a project the user is authorized to act on.
-
-    Existence is checked first (404 if missing), then authorization is delegated
-    to the shared `assert_member` helper (403 for a non-member or insufficient
-    role). This keeps a single source of truth for the membership/role check while
-    still returning the eager-loaded project for the response.
-    """
+async def _load_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Project:
+    """Eager-load a project by id, or 404. Authorization is the caller's job."""
     result = await db.execute(
         select(Project)
         .where(Project.id == project_id)
@@ -52,8 +41,37 @@ async def _get_project_for_user(
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return project
 
+
+async def _get_project_for_user(
+    project_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+    allowed_roles: set[ProjectRole] | None = None,
+) -> Project:
+    """Load a project the user is authorized to **act on** (write/membership).
+
+    Existence is checked first (404 if missing), then authorization is delegated
+    to the shared `assert_member` helper (403 for a non-member or insufficient
+    role). This keeps a single source of truth for the membership/role check while
+    still returning the eager-loaded project for the response.
+    """
+    project = await _load_project_or_404(project_id, db)
     await assert_member(project_id, user, db, allowed_roles=allowed_roles)
+    return project
+
+
+async def _get_project_for_viewer(
+    project_id: uuid.UUID, user: User, db: AsyncSession
+) -> Project:
+    """Load a project for **read** access. Broader than membership on purpose: a
+    designated reviewer/approver is matched by email and may not be a ProjectMember,
+    yet must be able to open the project they're asked to review/approve. Allowed:
+    a global admin, a designated signer (by email), or any project member. See
+    `assert_can_view`."""
+    project = await _load_project_or_404(project_id, db)
+    await assert_can_view(project_id, user, db)
     return project
 
 
@@ -274,7 +292,9 @@ async def clone_project(
 async def get_project(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> ProjectResponse:
-    project = await _get_project_for_user(project_id, current_user, db)
+    # Read access — admits designated reviewers/approvers who aren't members, so
+    # they can open the project they're asked to review/approve.
+    project = await _get_project_for_viewer(project_id, current_user, db)
     return ProjectResponse.from_project(project)
 
 

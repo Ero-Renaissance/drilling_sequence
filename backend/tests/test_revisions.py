@@ -266,6 +266,40 @@ async def test_non_member_cannot_access_revisions(
     ).status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_designated_signer_can_read_without_membership(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """A designated approver/reviewer is matched by email and is NOT a project
+    member, yet must be able to open the project + its revisions to review/approve
+    them — read goes through assert_can_view, not assert_member."""
+    project_id, _ = await _create_project_with_activities(client)
+    await _add_approver(client, project_id)  # other@company.com — an email-only signer
+    create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    revision_id = create_r.json()["id"]
+
+    proj = await other_client.get(f"/api/projects/{project_id}")
+    assert proj.status_code == 200, proj.text
+
+    revs = await other_client.get(f"/api/projects/{project_id}/revisions")
+    assert revs.status_code == 200, revs.text
+
+    one = await other_client.get(f"/api/projects/{project_id}/revisions/{revision_id}")
+    assert one.status_code == 200, one.text
+    assert one.json()["id"] == revision_id
+
+
+@pytest.mark.asyncio
+async def test_outsider_cannot_read_project_or_revisions(
+    client: AsyncClient, third_client: AsyncClient
+) -> None:
+    """A user who is neither a member nor a designated signer is still denied read
+    (the broadened access admits signers only, not the whole world)."""
+    project_id, _ = await _create_project_with_activities(client)
+    assert (await third_client.get(f"/api/projects/{project_id}")).status_code == 403
+    assert (await third_client.get(f"/api/projects/{project_id}/revisions")).status_code == 403
+
+
 # ── Reject / request-changes workflow ───────────────────────────────────────
 
 
