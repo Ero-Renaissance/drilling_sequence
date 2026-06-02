@@ -34,8 +34,6 @@ import { ChartLegend } from "./ChartLegend";
  */
 const BAR_STRIP_CODES = CHECK_CODES;
 
-const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /**
  * Reduce the 7 per-activity checks into the single most-concerning check so we
  * can render an informative summary on bars too small for the full icon strip.
@@ -143,18 +141,15 @@ const DARK_THEME: ChartTheme = {
   completedFill: "#64748b",
 };
 
-type BandArea = [
-  { xAxis: number; name: string; itemStyle: { color: string } },
-  { xAxis: number },
-];
+type BandArea = [{ xAxis: number; itemStyle: { color: string } }, { xAxis: number }];
 
 /**
- * Alternating, labelled bands for the time axis, as ECharts `markArea` pairs —
- * one per interval (every month/year), so each carries a centred label like the
- * print export. Alternate intervals are shaded; the rest are transparent but
- * still labelled. Shading keys off calendar parity (not loop index) so the stripe
- * pattern stays put while panning. Granularity ("month"/"year") is chosen by the
- * caller from the visible span.
+ * Alternating shaded bands for the time axis, as ECharts `markArea` pairs — only
+ * the shaded (alternate) intervals are emitted. No labels: unlike the static
+ * print, the interactive chart's bottom time axis already names the dates, so an
+ * extra centred label row just competes with it. Shading keys off calendar parity
+ * (not loop index) so the stripe pattern stays put while panning. Granularity
+ * ("month"/"year") is chosen by the caller from the visible span.
  */
 function buildTimeBands(from: number, to: number, unit: "month" | "year", color: string): BandArea[] {
   const areas: BandArea[] = [];
@@ -167,33 +162,17 @@ function buildTimeBands(from: number, to: number, unit: "month" | "year", color:
         ? new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
         : new Date(cur.getFullYear() + 1, 0, 1);
     const parity = unit === "month" ? cur.getMonth() : cur.getFullYear();
-    areas.push([
-      {
-        xAxis: cur.getTime(),
-        name: unit === "month" ? MONTH_ABBR[cur.getMonth()] : String(cur.getFullYear()),
-        itemStyle: { color: parity % 2 === 1 ? color : "transparent" },
-      },
-      { xAxis: next.getTime() },
-    ]);
+    if (parity % 2 === 1) {
+      areas.push([{ xAxis: cur.getTime(), itemStyle: { color } }, { xAxis: next.getTime() }]);
+    }
     cur = next;
   }
   return areas;
 }
 
-/** markArea config: alternating bands, each with its month/year centred at the top. */
-function bandMarkArea(areas: BandArea[], labelColor: string) {
-  return {
-    silent: true,
-    label: {
-      show: true,
-      position: "insideTop",
-      distance: 3,
-      color: labelColor,
-      fontSize: 9,
-      formatter: (p: { name?: string }) => p.name ?? "",
-    },
-    data: areas,
-  };
+/** Silent markArea — bands only; the axis labels the dates. */
+function bandMarkArea(areas: BandArea[]) {
+  return { silent: true, data: areas };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -568,8 +547,7 @@ export function DrillChart({
         },
       },
 
-      // top lane left clear for the centred month/year band labels at the plot top.
-      grid: { top: 30, left: 12, right: 16, bottom: 20, containLabel: true },
+      grid: { top: 16, left: 12, right: 16, bottom: 20, containLabel: true },
 
       xAxis: {
         type: "time",
@@ -683,9 +661,9 @@ export function DrillChart({
           // series-level label is disabled to avoid double labels that escape
           // the plot area when zoomed.
           label: { show: false },
-          // Alternating month/year bands behind the bars, each with its label
-          // centred at the top (silent → no hover/tooltip).
-          markArea: bandMarkArea(bandAreas, theme.axisLabel),
+          // Alternating month/year bands behind the bars (silent → no hover/tooltip).
+          // The bottom time axis names the dates, so the bands carry no labels.
+          markArea: bandMarkArea(bandAreas),
           markLine: {
             silent: true,
             symbol: ["none", "none"],
@@ -747,7 +725,7 @@ export function DrillChart({
       theme.xBand,
     );
     inst.setOption(
-      { series: [{ markArea: bandMarkArea(areas, theme.axisLabel) }] } as unknown as EChartsOption,
+      { series: [{ markArea: bandMarkArea(areas) }] } as unknown as EChartsOption,
       { notMerge: false, lazyUpdate: true },
     );
   }, [dataMin, dataMax, theme]);
