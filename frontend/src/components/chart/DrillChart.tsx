@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import type {
   EChartsOption,
@@ -33,6 +33,8 @@ import { ChartLegend } from "./ChartLegend";
  * Both signals are useful, so we render CON in both places.
  */
 const BAR_STRIP_CODES = CHECK_CODES;
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
  * Reduce the 7 per-activity checks into the single most-concerning check so we
@@ -141,35 +143,57 @@ const DARK_THEME: ChartTheme = {
   completedFill: "#64748b",
 };
 
+type BandArea = [
+  { xAxis: number; name: string; itemStyle: { color: string } },
+  { xAxis: number },
+];
+
 /**
- * Alternating shaded bands for the time axis, as ECharts `markArea` pairs. Only
- * every other interval is emitted (the shaded ones); the gaps stay the chart
- * background. Granularity adapts to zoom: "month" when focused on a single year,
- * "year" across the full span (where month bands would be hair-thin noise).
+ * Alternating, labelled bands for the time axis, as ECharts `markArea` pairs —
+ * one per interval (every month/year), so each carries a centred label like the
+ * print export. Alternate intervals are shaded; the rest are transparent but
+ * still labelled. Shading keys off calendar parity (not loop index) so the stripe
+ * pattern stays put while panning. Granularity ("month"/"year") is chosen by the
+ * caller from the visible span.
  */
-function buildTimeBands(
-  from: number,
-  to: number,
-  unit: "month" | "year",
-  color: string,
-): Array<[{ xAxis: number; itemStyle: { color: string } }, { xAxis: number }]> {
-  const areas: Array<[{ xAxis: number; itemStyle: { color: string } }, { xAxis: number }]> = [];
-  const start = new Date(from);
+function buildTimeBands(from: number, to: number, unit: "month" | "year", color: string): BandArea[] {
+  const areas: BandArea[] = [];
+  const d0 = new Date(from);
   let cur =
-    unit === "month"
-      ? new Date(start.getFullYear(), start.getMonth(), 1)
-      : new Date(start.getFullYear(), 0, 1);
-  for (let i = 0; cur.getTime() < to; i++) {
+    unit === "month" ? new Date(d0.getFullYear(), d0.getMonth(), 1) : new Date(d0.getFullYear(), 0, 1);
+  while (cur.getTime() < to) {
     const next =
       unit === "month"
         ? new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
         : new Date(cur.getFullYear() + 1, 0, 1);
-    if (i % 2 === 1) {
-      areas.push([{ xAxis: cur.getTime(), itemStyle: { color } }, { xAxis: next.getTime() }]);
-    }
+    const parity = unit === "month" ? cur.getMonth() : cur.getFullYear();
+    areas.push([
+      {
+        xAxis: cur.getTime(),
+        name: unit === "month" ? MONTH_ABBR[cur.getMonth()] : String(cur.getFullYear()),
+        itemStyle: { color: parity % 2 === 1 ? color : "transparent" },
+      },
+      { xAxis: next.getTime() },
+    ]);
     cur = next;
   }
   return areas;
+}
+
+/** markArea config: alternating bands, each with its month/year centred at the top. */
+function bandMarkArea(areas: BandArea[], labelColor: string) {
+  return {
+    silent: true,
+    label: {
+      show: true,
+      position: "insideTop",
+      distance: 3,
+      color: labelColor,
+      fontSize: 9,
+      formatter: (p: { name?: string }) => p.name ?? "",
+    },
+    data: areas,
+  };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -236,6 +260,14 @@ export function DrillChart({
     });
   }, [data, conflictIds, completedIds]);
 
+  // Full data time-extent — drives the default bands and the zoom-adaptive refine.
+  const [dataMin, dataMax] = useMemo<[number, number]>(() => {
+    const t = displayData.flatMap((d) =>
+      Array.isArray(d.value) ? [Number(d.value[1]), Number(d.value[2])] : [],
+    );
+    return t.length ? [Math.min(...t), Math.max(...t)] : [Date.now(), Date.now()];
+  }, [displayData]);
+
   const option: EChartsOption = useMemo(() => {
     const ROW_HEIGHT = 56;
     const ICON_SIZE = 14;
@@ -254,20 +286,12 @@ export function DrillChart({
             endValue: new Date(activeYear + 1, 0, 1).getTime(),
           };
 
-    // Alternating time bands behind the bars, so a reader can place an activity in
-    // its month. Month granularity when focused on one year; year granularity across
-    // the full span (12 narrow month bands per year would just be noise zoomed out).
-    const allTimes = displayData.flatMap((d) =>
-      Array.isArray(d.value) ? [Number(d.value[1]), Number(d.value[2])] : [],
-    );
+    // Default bands for the current React render: year granularity across the full
+    // span, month granularity when a year is focused. Free scroll/pinch zoom is
+    // refined imperatively in updateBands() (notMerge would otherwise reset zoom).
     const bandAreas =
       activeYear === null
-        ? buildTimeBands(
-            allTimes.length ? Math.min(...allTimes) : today,
-            allTimes.length ? Math.max(...allTimes) : today,
-            "year",
-            theme.xBand,
-          )
+        ? buildTimeBands(dataMin, dataMax, "year", theme.xBand)
         : buildTimeBands(
             new Date(activeYear, 0, 1).getTime(),
             new Date(activeYear + 1, 0, 1).getTime(),
@@ -544,7 +568,8 @@ export function DrillChart({
         },
       },
 
-      grid: { top: 16, left: 12, right: 16, bottom: 20, containLabel: true },
+      // top lane left clear for the centred month/year band labels at the plot top.
+      grid: { top: 30, left: 12, right: 16, bottom: 20, containLabel: true },
 
       xAxis: {
         type: "time",
@@ -658,12 +683,9 @@ export function DrillChart({
           // series-level label is disabled to avoid double labels that escape
           // the plot area when zoomed.
           label: { show: false },
-          // Alternating month/year bands behind the bars (silent → no hover/tooltip).
-          markArea: {
-            silent: true,
-            itemStyle: { color: theme.xBand },
-            data: bandAreas,
-          },
+          // Alternating month/year bands behind the bars, each with its label
+          // centred at the top (silent → no hover/tooltip).
+          markArea: bandMarkArea(bandAreas, theme.axisLabel),
           markLine: {
             silent: true,
             symbol: ["none", "none"],
@@ -687,9 +709,48 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear]);
+  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
+
+  // Zoom-adaptive bands: on free scroll/pinch zoom (no React re-render under
+  // notMerge) recompute the bands from the live visible window and merge just the
+  // markArea, so granularity follows the zoom without resetting it. Month bands
+  // once the visible window is ≲2 years, coarser year bands when wider.
+  const chartRef = useRef<ReactECharts>(null);
+  const bandRaf = useRef(false);
+  const updateBands = useCallback(() => {
+    const inst = chartRef.current?.getEchartsInstance();
+    if (!inst) return;
+    const dz = (
+      inst.getOption() as {
+        dataZoom?: Array<{ start?: number; end?: number; startValue?: number; endValue?: number }>;
+      }
+    ).dataZoom?.[0];
+    const span = Math.max(1, dataMax - dataMin);
+    let vs: number;
+    let ve: number;
+    if (dz?.startValue != null && dz?.endValue != null) {
+      vs = Number(dz.startValue);
+      ve = Number(dz.endValue);
+    } else {
+      vs = dataMin + (span * (dz?.start ?? 0)) / 100;
+      ve = dataMin + (span * (dz?.end ?? 100)) / 100;
+    }
+    const days = (ve - vs) / 86_400_000;
+    const unit: "month" | "year" = days <= 800 ? "month" : "year";
+    const pad = (ve - vs) * 0.05;
+    const areas = buildTimeBands(
+      Math.max(dataMin, vs - pad),
+      Math.min(dataMax + 86_400_000, ve + pad),
+      unit,
+      theme.xBand,
+    );
+    inst.setOption(
+      { series: [{ markArea: bandMarkArea(areas, theme.axisLabel) }] } as unknown as EChartsOption,
+      { notMerge: false, lazyUpdate: true },
+    );
+  }, [dataMin, dataMax, theme]);
 
   const onEvents = useMemo(
     () => ({
@@ -710,8 +771,17 @@ export function DrillChart({
         const id = params.data?.activityId;
         if (id) onActivityClick?.(id);
       },
+      // Refresh the bands as the user scroll/pinch zooms (coalesced to one per frame).
+      dataZoom: () => {
+        if (bandRaf.current) return;
+        bandRaf.current = true;
+        requestAnimationFrame(() => {
+          bandRaf.current = false;
+          updateBands();
+        });
+      },
     }),
-    [focusYear, onActivityClick],
+    [focusYear, onActivityClick, updateBands],
   );
 
   return (
@@ -747,6 +817,7 @@ export function DrillChart({
       )}
       <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
         <ReactECharts
+          ref={chartRef}
           option={option}
           style={{ height: chartHeight, minWidth: 700 }}
           notMerge
