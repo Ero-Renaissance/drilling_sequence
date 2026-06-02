@@ -3,17 +3,21 @@ import { useParams, NavLink } from "react-router-dom";
 import {
   ArrowLeft,
   Ban,
+  Check,
   CheckCircle2,
   ChevronDown,
   Circle,
   Clock,
+  Copy,
   PenLine,
   Printer,
   RotateCcw,
+  ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { buildDocRef, docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
 import { cn } from "@/lib/utils";
 import {
   getRevision,
@@ -398,6 +402,90 @@ function SignaturesPanel({ revision }: { revision: RevisionDetailType }) {
   );
 }
 
+// Document authenticity — lets any Renaissance member with access read back the
+// revision's Document ID and check a partner's quoted copy against it, so
+// verification needs no IT involvement (Phase 0 / option B).
+function DocumentAuthenticity({ revision }: { revision: RevisionDetailType }) {
+  const digest = revision.integrity_digest;
+  const [pasted, setPasted] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  if (!digest) return null;
+
+  const typed = normalizeDocId(pasted).length >= 8;
+  const matches = docIdMatches(digest, pasted);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(formatDocId(digest));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — the ID is on screen to copy by hand */
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold text-foreground">Document authenticity</h2>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        When a JV partner asks you to confirm a shared PDF, compare its Document ID with this
+        revision&apos;s — they must match exactly.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          Document ID
+        </span>
+        <code className="rounded bg-muted px-2 py-1 font-mono text-xs tracking-wide text-foreground">
+          {formatDocId(digest)}
+        </code>
+        <Button variant="outline" size="sm" onClick={copy}>
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+
+      <div className="mt-3">
+        <label
+          htmlFor="verify-doc-id"
+          className="text-[11px] uppercase tracking-wider text-muted-foreground"
+        >
+          Verify a partner&apos;s copy
+        </label>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <input
+            id="verify-doc-id"
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+            placeholder="Paste the Document ID the partner read out…"
+            className="min-w-[16rem] flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-xs outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          {typed && matches && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Matches this revision
+            </span>
+          )}
+          {typed && !matches && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+              <XCircle className="h-3.5 w-3.5" /> Does not match
+            </span>
+          )}
+        </div>
+        {typed && !matches && (
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            The partner&apos;s copy doesn&apos;t match this revision — it may have been altered
+            after approval, or belong to a different revision. Do not rely on it.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function RevisionDetail() {
@@ -439,7 +527,7 @@ export function RevisionDetail() {
   // Brand the tab/print title so a saved PDF defaults to a meaningful filename.
   useEffect(() => {
     if (project?.name && revision) {
-      document.title = `RAEC — ${project.name} — ${revLabel(revision)}`;
+      document.title = `Renaissance — ${project.name} — ${revLabel(revision)}`;
     }
     return () => {
       document.title = "Drilling Sequence Planner";
@@ -551,11 +639,8 @@ export function RevisionDetail() {
             : revision.status === "pending_review"
               ? "In review"
               : "Pending approval";
-  // Document reference for the print footer, e.g. RAEC/DS/Q2-RIG-SEQUENCE/REV05.
-  const docRef = `RAEC/DS/${(project?.name ?? "SEQUENCE")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")}/REV${String(revision.rev_number).padStart(2, "0")}`;
+  // Document reference for the print footer, e.g. Renaissance/DS/Q2-RIG-SEQUENCE/REV05.
+  const docRef = buildDocRef(project?.name, revision.rev_number);
 
   return (
     <div className="space-y-5">
@@ -752,6 +837,7 @@ export function RevisionDetail() {
       <div className="space-y-5 print:hidden">
         <ReviewerPanel revision={revision} />
         <SignaturesPanel revision={revision} />
+        <DocumentAuthenticity revision={revision} />
       </div>
 
       {/* What changed — diff against a prior revision (or the live plan) */}

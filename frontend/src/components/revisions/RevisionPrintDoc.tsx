@@ -8,6 +8,7 @@
  */
 import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
+import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { cn } from "@/lib/utils";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
@@ -57,17 +58,6 @@ function fmt(d: string | null | undefined): string {
   return t
     ? t.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
     : "—";
-}
-
-// The printed "Document ID" — the first 24 hex of the content digest, upper-cased
-// and grouped in fours so it's quotable over the phone. The full 64-char hash lives
-// in the system of record; matching this prefix is enough to confirm authenticity.
-function formatDocId(digest: string): string {
-  return digest
-    .slice(0, 24)
-    .toUpperCase()
-    .replace(/(.{4})/g, "$1 ")
-    .trim();
 }
 
 // Stable 1..N ordering by start date (then well), so a bar's number on the Gantt
@@ -416,8 +406,8 @@ function VerifyBox({ docId }: { docId: string }) {
           signature panel.
         </li>
         <li>
-          Otherwise, quote the Document ID below to your RAEC representative — any change to
-          the sequence, dates, or approvals changes this ID.
+          Otherwise, quote the Document ID below to your Renaissance Africa Energy Company
+          representative — any change to the sequence, dates, or approvals changes this ID.
         </li>
       </ol>
       <p className="mt-1 font-mono text-[10px] tracking-wide text-foreground">
@@ -439,10 +429,7 @@ export function RevisionPrintDoc({
   rows: PrintRow[];
 }) {
   const isApproved = revision.status === "approved";
-  const docRef = `RAEC/DS/${(project?.name ?? "SEQUENCE")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")}/REV${String(revision.rev_number).padStart(2, "0")}`;
+  const docRef = buildDocRef(project?.name, revision.rev_number);
 
   // One stable number per activity, shared by the Gantt bars and the table "#" column.
   const ordered = orderRows(rows);
@@ -494,7 +481,7 @@ export function RevisionPrintDoc({
           <p className="text-muted-foreground">
             {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
           </p>
-          <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Ref {docRef}</p>
+          <p className="mt-0.5 text-[10px] tracking-wider text-muted-foreground">Ref {docRef}</p>
           {revision.integrity_digest && (
             <p className="mt-0.5 font-mono text-[9px] tracking-wide text-muted-foreground">
               Document ID {formatDocId(revision.integrity_digest)}
