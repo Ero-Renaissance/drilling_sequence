@@ -10,6 +10,7 @@ import {
   Clock,
   Copy,
   FileSignature,
+  Gauge,
   PenLine,
   Printer,
   RotateCcw,
@@ -505,12 +506,14 @@ export function RevisionDetail() {
   const [reviewDeciding, setReviewDeciding] = useState(false);
   const user = useAuthStore((s) => s.user);
 
-  // Two print outputs: the approved JV-partner "record", and a standalone
-  // "signoff" sheet with blank wet-ink signature lines. A nonce (not the mode)
-  // drives the print so re-printing the same mode still fires.
-  const [printMode, setPrintMode] = useState<"record" | "signoff">("record");
+  // Three print outputs: the approved JV-partner "record", a standalone "signoff"
+  // sheet with blank wet-ink lines, and a chart-only "readiness" view (one year
+  // per page, readiness icons on the bars). A nonce (not the mode) drives the
+  // print so re-printing the same mode still fires.
+  type PrintMode = "record" | "signoff" | "readiness";
+  const [printMode, setPrintMode] = useState<PrintMode>("record");
   const [printNonce, setPrintNonce] = useState(0);
-  const printAs = useCallback((mode: "record" | "signoff") => {
+  const printAs = useCallback((mode: PrintMode) => {
     setPrintMode(mode);
     setPrintNonce((n) => n + 1);
   }, []);
@@ -769,6 +772,15 @@ export function RevisionDetail() {
               </Button>
             </>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => printAs("readiness")}
+            title="Print the sequence one year per page with readiness icons on the chart"
+          >
+            <Gauge className="h-4 w-4" />
+            Readiness chart
+          </Button>
           <Button
             variant="outline"
             size="sm"

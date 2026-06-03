@@ -6,6 +6,7 @@
  * Sections: title/approval block · static Gantt (sequence) · decoding legend ·
  * activity schedule table (with readiness gate icons) · formal sign-off table.
  */
+import { Fragment } from "react";
 import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
@@ -74,7 +75,24 @@ function orderRows(rows: PrintRow[]): PrintRow[] {
 
 // ── Static Gantt — clean bars on a year grid, paginated by 2-year windows ──────
 
-function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, number> }) {
+function StaticGantt({
+  rows,
+  index,
+  windowYears = WINDOW_YEARS,
+  rowsPerPage = ROWS_PER_PAGE,
+  showReadiness = false,
+  dropEmptyRows = false,
+}: {
+  rows: PrintRow[];
+  index: Map<string, number>;
+  windowYears?: number;
+  rowsPerPage?: number;
+  /** Render the 8 readiness icons in a strip beneath each bar (taller rows). */
+  showReadiness?: boolean;
+  /** Per window, list only rigs that have an activity in it, and skip empty
+   *  windows — keeps a one-year-per-page view from emitting pages of empty rows. */
+  dropEmptyRows?: boolean;
+}) {
   const acts = rows
     .map((r) => ({ ...r, s: parse(r.start_date), e: parse(r.end_date) }))
     .filter((a): a is PrintRow & { s: Date; e: Date } => a.s !== null && a.e !== null);
@@ -97,23 +115,34 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
   });
 
   const windows: { from: Date; to: Date }[] = [];
-  for (let y = startYear; y <= endYear; y += WINDOW_YEARS) {
-    windows.push({ from: new Date(y, 0, 1), to: new Date(Math.min(y + WINDOW_YEARS, endYear + 1), 0, 1) });
+  for (let y = startYear; y <= endYear; y += windowYears) {
+    windows.push({ from: new Date(y, 0, 1), to: new Date(Math.min(y + windowYears, endYear + 1), 0, 1) });
   }
   const now = Date.now();
 
-  // Two-axis pagination: each page is one time window × a chunk of ≤ROWS_PER_PAGE
-  // rig rows (window-major). A window with more rigs than fit on a page is split
-  // across pages instead of overflowing and slicing a row at the page edge.
+  const activeInWindow = (key: string, w: { from: Date; to: Date }) =>
+    acts.some(
+      (a) =>
+        rowLabel(a.location, a.rig_name) === key &&
+        a.e.getTime() > w.from.getTime() &&
+        a.s.getTime() < w.to.getTime(),
+    );
+
+  // Two-axis pagination: each page is one time window × a chunk of ≤rowsPerPage rig
+  // rows (window-major). A window with more rigs than fit on a page is split across
+  // pages instead of overflowing and slicing a row at the page edge. With
+  // dropEmptyRows, a window only lists its active rigs (and empty windows are skipped).
   type ChartPage = { w: { from: Date; to: Date }; keys: string[]; firstRow: number; rowTotal: number };
   const pages: ChartPage[] = [];
   for (const w of windows) {
-    for (let i = 0; i < rowKeys.length; i += ROWS_PER_PAGE) {
+    const wKeys = dropEmptyRows ? rowKeys.filter((k) => activeInWindow(k, w)) : rowKeys;
+    if (wKeys.length === 0) continue;
+    for (let i = 0; i < wKeys.length; i += rowsPerPage) {
       pages.push({
         w,
-        keys: rowKeys.slice(i, i + ROWS_PER_PAGE),
+        keys: wKeys.slice(i, i + rowsPerPage),
         firstRow: i + 1,
-        rowTotal: rowKeys.length,
+        rowTotal: wKeys.length,
       });
     }
   }
@@ -148,7 +177,7 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
         const yb = w.to.getFullYear() - 1;
         const span = ya === yb ? `${ya}` : `${ya}–${yb}`;
         const rigRange =
-          pg.rowTotal > ROWS_PER_PAGE
+          pg.rowTotal > rowsPerPage
             ? ` · rigs ${pg.firstRow}–${pg.firstRow + pg.keys.length - 1} of ${pg.rowTotal}`
             : "";
         return (
@@ -217,7 +246,13 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
                   )}
                 </div>
                 {pg.keys.map((key) => (
-                  <div key={key} className="flex h-8 items-stretch border-b border-border/40 last:border-b-0">
+                  <div
+                    key={key}
+                    className={cn(
+                      "flex items-stretch border-b border-border/40 last:border-b-0",
+                      showReadiness ? "h-11" : "h-8",
+                    )}
+                  >
                     <div
                       className="flex shrink-0 items-center truncate border-r border-border/60 px-2 text-[9px] font-medium text-foreground"
                       style={{ width: RIG_COL }}
@@ -239,19 +274,36 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
                           const n = index.get(a.id);
                           // Every bar carries its schedule number — legible even a few days
                           // wide (a min-width keeps the digit from being clipped). The well
-                          // name rides along only when the bar is wide enough; full names
-                          // live in the numbered schedule table, keyed by the same number.
+                          // name rides along only when the bar is wide enough.
                           const showName = wpct >= 10 && !!a.well_name;
+                          // Keep the readiness strip (~16% of the plot wide) on the
+                          // page: clamp its centre so an activity in early Jan / late
+                          // Dec doesn't push the icons off the edge and clip them.
+                          const iconCenter = Math.min(90, Math.max(10, (l + r) / 2));
                           return (
-                            <span
-                              key={a.id}
-                              title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}`}
-                              className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center justify-center gap-1 overflow-hidden rounded px-1 text-[8px] font-semibold text-white"
-                              style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
-                            >
-                              <span className="shrink-0 tabular-nums">{n}</span>
-                              {showName && <span className="truncate font-medium opacity-90">{a.well_name}</span>}
-                            </span>
+                            <Fragment key={a.id}>
+                              <span
+                                title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}`}
+                                className={cn(
+                                  "absolute flex items-center justify-center gap-1 overflow-hidden rounded px-1 text-[8px] font-semibold text-white",
+                                  showReadiness ? "top-1 h-5" : "top-1/2 h-6 -translate-y-1/2",
+                                )}
+                                style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
+                              >
+                                <span className="shrink-0 tabular-nums">{n}</span>
+                                {showName && <span className="truncate font-medium opacity-90">{a.well_name}</span>}
+                              </span>
+                              {/* Readiness strip beneath the bar — fixed size, all 8 gates,
+                                  centred on the bar so it never truncates regardless of bar width. */}
+                              {showReadiness && (
+                                <span
+                                  className="pointer-events-none absolute top-[1.55rem] -translate-x-1/2"
+                                  style={{ left: `${iconCenter}%` }}
+                                >
+                                  <ReadinessIcons readiness={a.readiness} />
+                                </span>
+                              )}
+                            </Fragment>
                           );
                         })}
                     </div>
@@ -259,8 +311,14 @@ function StaticGantt({ rows, index }: { rows: PrintRow[]; index: Map<string, num
                 ))}
               </div>
             </div>
-            {/* The colour key rides with the chart so every chart page is self-decoding. */}
+            {/* Legends ride with the chart so every page is self-decoding: the
+                activity colours always, and the readiness key when icons are shown. */}
             <ActivityLegend rows={rows} />
+            {showReadiness && (
+              <div className="mt-2">
+                <ReadinessKey />
+              </div>
+            )}
           </div>
         );
       })}
@@ -538,11 +596,14 @@ export function RevisionPrintDoc({
   revision: RevisionDetail;
   project: Project | null;
   rows: PrintRow[];
-  /** "record" → the approved JV-partner document (Document ID, system signatures).
-   *  "signoff" → a standalone paper form with blank wet-ink signature lines. */
-  variant?: "record" | "signoff";
+  /** "record"   → the approved JV-partner document (Document ID, system signatures).
+   *  "signoff"  → a standalone paper form with blank wet-ink signature lines.
+   *  "readiness"→ a chart-only view: one year per page, readiness icons under each
+   *               bar, no schedule table. */
+  variant?: "record" | "signoff" | "readiness";
 }) {
   const isSignoff = variant === "signoff";
+  const isReadiness = variant === "readiness";
   const isApproved = revision.status === "approved";
   const docRef = buildDocRef(project?.name, revision.rev_number);
 
@@ -570,7 +631,7 @@ export function RevisionPrintDoc({
       {/* Watermark — anything not approved must be unmistakable as non-final. The
           sign-off sheet is explicitly meant to be distributed for signing, so it
           carries no "not for distribution" mark. */}
-      {!isSignoff && !isApproved && (
+      {!isSignoff && !isReadiness && !isApproved && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
           <span className="rotate-[-28deg] text-center text-[64px] font-black uppercase leading-none tracking-widest text-red-500/15">
             Draft
@@ -591,9 +652,11 @@ export function RevisionPrintDoc({
             Rig Sequence —{" "}
             {isSignoff
               ? "For Review & Approval"
-              : isApproved
-                ? "Approved Sequence"
-                : "Draft (Not for distribution)"}
+              : isReadiness
+                ? "Readiness"
+                : isApproved
+                  ? "Approved Sequence"
+                  : "Draft (Not for distribution)"}
           </h1>
         </div>
       </div>
@@ -604,11 +667,12 @@ export function RevisionPrintDoc({
           <p className="text-muted-foreground">
             {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
           </p>
-          {/* Standalone sign-off form carries no system references (doc ref / Document ID). */}
+          {/* Standalone sign-off form carries no system references. The readiness
+              view keeps the doc ref but not the JV-record Document ID. */}
           {!isSignoff && (
             <>
               <p className="mt-0.5 text-[10px] tracking-wider text-muted-foreground">Ref {docRef}</p>
-              {revision.integrity_digest && (
+              {!isReadiness && revision.integrity_digest && (
                 <p className="mt-0.5 font-mono text-[9px] tracking-wide text-muted-foreground">
                   Document ID {formatDocId(revision.integrity_digest)}
                 </p>
@@ -634,19 +698,29 @@ export function RevisionPrintDoc({
         </div>
       </div>
 
-      {/* Sequence — each chart page carries its own activity colour key (in StaticGantt) */}
-      <h2 className="mt-3 text-sm font-semibold">Sequence</h2>
-      <StaticGantt rows={rows} index={index} />
+      {/* Sequence — each chart page carries its own legends (in StaticGantt). The
+          readiness view zooms to one year per page and shows the icons on the chart. */}
+      <h2 className="mt-3 text-sm font-semibold">{isReadiness ? "Sequence readiness" : "Sequence"}</h2>
+      {isReadiness ? (
+        <StaticGantt rows={rows} index={index} windowYears={1} rowsPerPage={6} showReadiness dropEmptyRows />
+      ) : (
+        <StaticGantt rows={rows} index={index} />
+      )}
 
-      {/* Activity schedule — on its own page; the readiness key reprints in the table header */}
-      <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
-      <ScheduleTable rows={ordered} index={index} />
+      {/* Activity schedule — record/sign-off only; the readiness view puts the
+          readiness on the chart, so the table would be redundant. */}
+      {!isReadiness && (
+        <>
+          <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
+          <ScheduleTable rows={ordered} index={index} />
+        </>
+      )}
 
       {/* Sign-off — the system record's signatures, or blank wet-ink lines for the
-          print-and-route sheet. */}
+          print-and-route sheet. The readiness view has none. */}
       {isSignoff ? (
         <ManualSignOff revision={revision} />
-      ) : (
+      ) : isReadiness ? null : (
         <>
           <SignOff revision={revision} />
           {/* Authenticity — leaves the lower page free for an appended Adobe signature */}
