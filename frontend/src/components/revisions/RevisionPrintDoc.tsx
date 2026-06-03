@@ -275,9 +275,11 @@ function StaticGantt({
                           // Every bar carries its schedule number — legible even a few days
                           // wide (a min-width keeps the digit from being clipped). The well
                           // name rides along only when the bar is wide enough.
-                          // Non-readiness bars cross-reference the schedule table by
-                          // number, so they only show the well name when wide enough.
-                          const showName = wpct >= 10 && !!a.well_name;
+                          // Standard bars lead with the well name and keep the number
+                          // as a fallback cross-reference to the schedule table; a small
+                          // font lets the name fit on most bars. (Readiness bars show the
+                          // name only — handled below.) Truncates on the narrowest bars.
+                          const showName = wpct >= 5 && !!a.well_name;
                           // Keep the readiness strip (~16% of the plot wide) on the
                           // page: clamp its centre so an activity in early Jan / late
                           // Dec doesn't push the icons off the edge and clip them.
@@ -288,7 +290,7 @@ function StaticGantt({
                                 title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}`}
                                 className={cn(
                                   "absolute flex items-center justify-center gap-1 overflow-hidden rounded px-1 font-semibold text-white",
-                                  showReadiness ? "top-1 h-5 text-[7px]" : "top-1/2 h-6 -translate-y-1/2 text-[8px]",
+                                  showReadiness ? "top-1 h-5 text-[7px]" : "top-1/2 h-6 -translate-y-1/2 text-[6.5px]",
                                 )}
                                 style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
                               >

@@ -804,10 +804,10 @@ export function RevisionDetail() {
                 }}
               >
                 <DropdownMenuRadioItem value="standard" onSelect={(e) => e.preventDefault()}>
-                  Standard sequence
+                  Standard Sequence
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="readiness" onSelect={(e) => e.preventDefault()}>
-                  Readiness chart
+                  Sequence with Readiness Icons
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
@@ -816,7 +816,7 @@ export function RevisionDetail() {
                 onCheckedChange={setPrintSchedule}
                 onSelect={(e) => e.preventDefault()}
               >
-                Include activity schedule
+                Include Activity Schedule
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => printWith("system")}>
