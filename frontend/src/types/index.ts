@@ -35,6 +35,8 @@ export interface Project {
   created_by: string;
   created_at: string;
   members: ProjectMember[];
+  /** Set when this project was cloned from another (the previous quarter). */
+  cloned_from_project_id: string | null;
 }
 
 export interface ProjectCreate {

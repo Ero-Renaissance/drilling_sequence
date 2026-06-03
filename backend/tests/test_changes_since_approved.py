@@ -121,6 +121,64 @@ async def test_falls_back_to_clone_parent(
 
 
 @pytest.mark.asyncio
+async def test_baseline_parent_forces_previous_quarter(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """baseline=parent compares against the clone-parent's (previous quarter's) last
+    approved plan even once this project has approvals of its own — which `auto`
+    would otherwise prefer."""
+    q1, _rev1, _aid = await _approved_project(client, other_client)
+    q2 = (await client.post(f"/api/projects/{q1}/clone", json={"name": "Q2"})).json()
+    q2id = q2["id"]
+
+    # The clone copies the approver list, so other@ is already a Q2 approver and can
+    # sign Q2's own first revision (test@ is the creator and can't approve it).
+    rev = (await client.post(f"/api/projects/{q2id}/revisions", json={})).json()
+    signed = await other_client.put(
+        f"/api/projects/{q2id}/revisions/{rev['id']}/sign", json={"role_label": "Manager"}
+    )
+    assert signed.json()["status"] == "approved", signed.text
+
+    base_url = f"/api/projects/{q2id}/revisions/changes-since-approved?target=live"
+
+    # auto → this project's own last approved (an in-project baseline, no project_id).
+    auto = (await client.get(base_url)).json()
+    assert auto["base"]["kind"] == "revision"
+    assert auto["base"].get("project_id") in (None, q2id)
+
+    # parent → forced to Q1's last approved.
+    parent = (await client.get(f"{base_url}&baseline=parent")).json()
+    assert parent["base"]["kind"] == "revision"
+    assert parent["base"]["project_id"] == q1
+
+
+@pytest.mark.asyncio
+async def test_baseline_parent_none_when_not_cloned(client: AsyncClient) -> None:
+    """baseline=parent on a project that wasn't cloned yields an empty baseline."""
+    pid = (await client.post("/api/projects", json={"name": "Standalone"})).json()["id"]
+    await client.post(
+        f"/api/projects/{pid}/activities",
+        json={"activity_type": "Oil Well Drilling", "start_date": "2026-01-01", "end_date": "2026-02-01"},
+    )
+    data = (
+        await client.get(
+            f"/api/projects/{pid}/revisions/changes-since-approved?target=live&baseline=parent"
+        )
+    ).json()
+    assert data["base"]["kind"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_baseline_rejects_unknown_value(client: AsyncClient) -> None:
+    """The baseline allow-list rejects anything but auto/parent (422)."""
+    pid = (await client.post("/api/projects", json={"name": "AL"})).json()["id"]
+    resp = await client.get(
+        f"/api/projects/{pid}/revisions/changes-since-approved?target=live&baseline=bogus"
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_access_allows_designated_approver(
     client: AsyncClient, other_client: AsyncClient, third_client: AsyncClient
 ) -> None:

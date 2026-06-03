@@ -122,9 +122,10 @@ export async function crossCompareProjects(
 export async function changesSinceApproved(
   projectId: string,
   target: string = "live",
+  baseline: "auto" | "parent" = "auto",
 ): Promise<RevisionDiff> {
   const token = await getAccessToken();
-  const params = new URLSearchParams({ target });
+  const params = new URLSearchParams({ target, baseline });
   const resp = await fetch(
     `/api/projects/${projectId}/revisions/changes-since-approved?${params}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },

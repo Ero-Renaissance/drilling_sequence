@@ -19,6 +19,9 @@ import {
 // Sentinel base ref: let the server resolve the most recent approved baseline
 // (this project's last approved revision, else the clone parent's).
 const APPROVED_REF = "approved";
+// Sentinel base ref: force the clone-parent's (previous quarter's) last approved
+// plan, even when this project already has approvals of its own.
+const PARENT_APPROVED_REF = "approved-parent";
 
 // ── Main component ──────────────────────────────────────────────────────────────
 
@@ -28,9 +31,12 @@ interface RevisionDiffProps {
   target: Revision;
   /** All revisions in the project, for the comparison picker. */
   revisions: Revision[];
+  /** Set when this project was cloned from another — enables the
+   *  "previous quarter (last approved)" baseline. */
+  cloneParentId?: string | null;
 }
 
-export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps) {
+export function RevisionDiff({ projectId, target, revisions, cloneParentId }: RevisionDiffProps) {
   // Candidate base revisions: every other revision (incl. discarded/rejected —
   // they're still valid "before" snapshots), most recent first.
   const candidates = useMemo(
@@ -63,7 +69,9 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
     const request =
       baseRef === APPROVED_REF
         ? changesSinceApproved(projectId, target.id)
-        : compareRevisions(projectId, baseRef, target.id);
+        : baseRef === PARENT_APPROVED_REF
+          ? changesSinceApproved(projectId, target.id, "parent")
+          : compareRevisions(projectId, baseRef, target.id);
     request
       .then((d) => !cancelled && setDiff(d))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to compare"))
@@ -73,13 +81,9 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
     };
   }, [projectId, baseRef, target.id]);
 
-  if (candidates.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
-        This is the first revision — nothing to compare against yet.
-      </div>
-    );
-  }
+  // Even a project's first revision can be compared against the last approved
+  // plan (this project's or the previous quarter's) and the live working plan,
+  // so there's always a meaningful baseline — no "nothing to compare" bail-out.
 
   return (
     <div className="space-y-4 rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
@@ -92,6 +96,9 @@ export function RevisionDiff({ projectId, target, revisions }: RevisionDiffProps
           className="rounded-md border border-border bg-background px-2 py-1 text-sm"
         >
           <option value={APPROVED_REF}>Last approved revision</option>
+          {cloneParentId && (
+            <option value={PARENT_APPROVED_REF}>Previous quarter (last approved)</option>
+          )}
           {candidates.map((r) => (
             <option key={r.id} value={r.id}>
               {optionLabel(r)}

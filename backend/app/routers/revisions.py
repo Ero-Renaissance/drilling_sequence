@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
@@ -410,6 +411,46 @@ async def _resolve_diff_side(
     }
 
 
+async def _resolve_parent_last_approved(
+    project_id: uuid.UUID, db: AsyncSession
+) -> tuple[list[dict], dict, str] | None:
+    """The clone-parent project's latest approved revision (the previous quarter's
+    plan of record), matched by lineage. Returns None when this project wasn't
+    cloned from another, or that parent has no approved revision.
+
+    Resolved entirely server-side under the *caller's* project authorization, so a
+    designated signer who can view this project can compare against the parent's
+    approved plan without needing membership of the parent project.
+    """
+    project = await db.get(Project, project_id)
+    parent_id = project.cloned_from_project_id if project else None
+    if parent_id is None:
+        return None
+    parent_rev = (
+        await db.execute(
+            select(Revision)
+            .where(Revision.project_id == parent_id, Revision.status == "approved")
+            .order_by(Revision.rev_number.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if parent_rev is None:
+        return None
+    parent = await db.get(Project, parent_id)
+    label = f"{parent.name} · {parent_rev.label}" if parent else parent_rev.label
+    return (
+        json.loads(parent_rev.snapshot_json),
+        {
+            "kind": "revision",
+            "revision_id": str(parent_rev.id),
+            "rev_number": parent_rev.rev_number,
+            "label": label,
+            "project_id": str(parent_id),
+        },
+        "lineage",
+    )
+
+
 async def _resolve_last_approved_baseline(
     project_id: uuid.UUID, cutoff: int | None, db: AsyncSession
 ) -> tuple[list[dict], dict, str]:
@@ -444,34 +485,9 @@ async def _resolve_last_approved_baseline(
             "id",
         )
 
-    project = await db.get(Project, project_id)
-    parent_id = project.cloned_from_project_id if project else None
-    if parent_id is not None:
-        parent_rev = (
-            await db.execute(
-                select(Revision)
-                .where(
-                    Revision.project_id == parent_id,
-                    Revision.status == "approved",
-                )
-                .order_by(Revision.rev_number.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if parent_rev is not None:
-            parent = await db.get(Project, parent_id)
-            label = f"{parent.name} · {parent_rev.label}" if parent else parent_rev.label
-            return (
-                json.loads(parent_rev.snapshot_json),
-                {
-                    "kind": "revision",
-                    "revision_id": str(parent_rev.id),
-                    "rev_number": parent_rev.rev_number,
-                    "label": label,
-                    "project_id": str(parent_id),
-                },
-                "lineage",
-            )
+    parent_baseline = await _resolve_parent_last_approved(project_id, db)
+    if parent_baseline is not None:
+        return parent_baseline
 
     return [], {"kind": "none"}, "id"
 
@@ -524,6 +540,7 @@ async def cross_compare(
 async def changes_since_approved(
     project_id: uuid.UUID,
     target: str = "live",
+    baseline: Literal["auto", "parent"] = "auto",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RevisionDiffResponse:
@@ -532,17 +549,30 @@ async def changes_since_approved(
     it themselves. Powers the approver's "what changed since the last approval"
     view and the planner's "live vs last approved" pre-submit check.
 
-    Baseline: the latest approved revision in this project older than `target`;
-    failing that, the latest approved revision of the project this one was cloned
-    from (matched by lineage); failing that, an empty baseline (everything added).
+    `baseline` selects which approved plan of record to diff against:
+      • "auto" (default): the latest approved revision in this project older than
+        `target`; failing that, the clone-parent's latest approved (by lineage);
+        failing that, an empty baseline (everything reads as added).
+      • "parent": force the clone-parent's (previous quarter's) latest approved,
+        so a reviewer/approver can compare against last quarter even once this
+        project has approvals of its own. Empty baseline if there's no clone parent.
+
+    Either way the baseline is resolved under *this* project's authorization, so an
+    email-only signer can use it without membership of the parent project.
     """
     await assert_can_view(project_id, current_user, db)
 
     target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
-    cutoff = target_side.get("rev_number")  # None when target == "live"
-    base_snapshot, base_side, match_by = await _resolve_last_approved_baseline(
-        project_id, cutoff, db
-    )
+
+    if baseline == "parent":
+        resolved = await _resolve_parent_last_approved(project_id, db)
+        base_snapshot, base_side, match_by = resolved or ([], {"kind": "none"}, "id")
+    else:
+        cutoff = target_side.get("rev_number")  # None when target == "live"
+        base_snapshot, base_side, match_by = await _resolve_last_approved_baseline(
+            project_id, cutoff, db
+        )
+
     diff = diff_snapshots(base_snapshot, target_snapshot, match_by=match_by)
     return RevisionDiffResponse.model_validate(
         {"base": base_side, "target": target_side, **diff}

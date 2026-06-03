@@ -842,7 +842,12 @@ export function RevisionDetail() {
 
       {/* What changed — diff against a prior revision (or the live plan) */}
       <div className="print:hidden">
-        <RevisionDiff projectId={projectId!} target={revision} revisions={revisions} />
+        <RevisionDiff
+          projectId={projectId!}
+          target={revision}
+          revisions={revisions}
+          cloneParentId={project?.cloned_from_project_id ?? null}
+        />
       </div>
 
       {/* Schedule — interactive Gantt on screen (the print doc renders its own
