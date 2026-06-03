@@ -472,6 +472,41 @@ export function DrillChart({
       } as unknown as CustomSeriesRenderItemReturn;
     }
 
+    // Contract-expiry markers: one per rig with an in-force contract that has an end
+    // date, placed at that date along the rig's row (replaces the old Y-axis alarm).
+    const contractMarkers: { value: [number, number]; hex: string }[] = [];
+    if (contractsByRig) {
+      categories.forEach((cat, i) => {
+        const rig = categoryToRig.get(cat);
+        const contract = rig ? contractsByRig.get(rig) : undefined;
+        const urgency = classifyContract(contract);
+        if (contract?.contract_end && urgency && isCompletedUrgency(urgency)) {
+          contractMarkers.push({
+            value: [new Date(contract.contract_end).getTime(), i],
+            hex: URGENCY_VISUAL[urgency].hex,
+          });
+        }
+      });
+    }
+
+    function renderContractMarker(
+      params: CustomSeriesRenderItemParams,
+      api: CustomSeriesRenderItemAPI,
+    ): CustomSeriesRenderItemReturn {
+      const [cx, cy] = api.coord([api.value(0), api.value(1)]);
+      const hex = contractMarkers[params.dataIndex]?.hex ?? URGENCY_VISUAL.healthy.hex;
+      return {
+        type: "image",
+        style: {
+          image: buildAlarmClockSvgDataUri(hex),
+          x: cx - 8,
+          y: cy - 8,
+          width: 16,
+          height: 16,
+        },
+      } as unknown as CustomSeriesRenderItemReturn;
+    }
+
     return {
       backgroundColor: theme.bg,
       animation: true,
@@ -570,61 +605,14 @@ export function DrillChart({
         type: "category",
         data: categories,
         inverse: true,
+        // The contract-expiry alarm used to live here on the rig label; it now sits
+        // on the timeline at the actual expiry date (see the contract-marker series).
         axisLabel: {
           width: 220,
           overflow: "truncate",
           color: theme.yLabel,
           fontSize: 12,
           fontWeight: "500",
-          formatter: (value: string) => {
-            if (!contractsByRig) return value;
-            const rigName = categoryToRig.get(value);
-            if (!rigName) return value;
-            const urgency = classifyContract(contractsByRig.get(rigName));
-            // Alarm clock is only meaningful for COMPLETED (in-force) contracts.
-            // For workflow states (not_started / in_progress / na) we don't
-            // pretend there's an expiry to watch — just render the plain label.
-            if (!urgency || !isCompletedUrgency(urgency)) return value;
-            return `{alarm_${urgency}|}  {label|${value}}`;
-          },
-          rich: {
-            alarm_healthy: {
-              backgroundColor: {
-                image: buildAlarmClockSvgDataUri(URGENCY_VISUAL.healthy.hex),
-              },
-              width: 16,
-              height: 16,
-            },
-            alarm_soon: {
-              backgroundColor: {
-                image: buildAlarmClockSvgDataUri(URGENCY_VISUAL.soon.hex),
-              },
-              width: 16,
-              height: 16,
-            },
-            alarm_critical: {
-              backgroundColor: {
-                image: buildAlarmClockSvgDataUri(URGENCY_VISUAL.critical.hex),
-              },
-              width: 16,
-              height: 16,
-            },
-            alarm_expired: {
-              backgroundColor: {
-                image: buildAlarmClockSvgDataUri(URGENCY_VISUAL.expired.hex),
-              },
-              width: 16,
-              height: 16,
-            },
-            alarm_incomplete: {
-              backgroundColor: {
-                image: buildAlarmClockSvgDataUri(URGENCY_VISUAL.incomplete.hex),
-              },
-              width: 16,
-              height: 16,
-            },
-            label: { color: theme.yLabel, fontSize: 12, fontWeight: "500" },
-          },
         },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -682,6 +670,16 @@ export function DrillChart({
               fontWeight: "600",
             },
           },
+        },
+        {
+          // Contract-expiry alarm markers, on top of the bars; clipped to the
+          // zoom window so off-screen expiries simply don't show.
+          type: "custom",
+          z: 6,
+          silent: true,
+          clip: true,
+          renderItem: renderContractMarker,
+          data: contractMarkers,
         },
       ],
 

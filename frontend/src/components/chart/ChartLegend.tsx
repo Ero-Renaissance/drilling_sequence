@@ -137,7 +137,7 @@ export function ChartLegend({
               Contract expiry
             </span>
             <p className="text-[10px] text-muted-foreground">
-              Shown on rig labels — color indicates urgency.
+              Shown on the timeline at the expiry date — color indicates urgency.
             </p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               {EXPIRY_LEGEND_ORDER.map((key) => (

@@ -7,13 +7,35 @@
  * activity schedule table (with readiness gate icons) · formal sign-off table.
  */
 import { Fragment } from "react";
+import { AlarmClock } from "lucide-react";
 import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
+import {
+  classifyContract,
+  URGENCY_VISUAL,
+  type ContractUrgency,
+} from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { cn } from "@/lib/utils";
+import type { ContractStatus } from "@/api/contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
 import type { Project } from "@/types";
+
+// The four in-force urgencies that have an end date to place on the timeline.
+type DatedUrgency = "expired" | "critical" | "soon" | "healthy";
+const DATED_URGENCIES: DatedUrgency[] = ["expired", "critical", "soon", "healthy"];
+
+/** Urgency of a rig's contract from the snapshot's denormalised fields, or null
+ *  unless it's an in-force ("Completed") contract with an end date to mark. */
+function expiryUrgency(
+  status: string | null | undefined,
+  end: string | null | undefined,
+): DatedUrgency | null {
+  if (!end) return null;
+  const u = classifyContract({ status: (status ?? undefined) as ContractStatus | undefined, contract_end: end });
+  return u !== null && (DATED_URGENCIES as ContractUrgency[]).includes(u) ? (u as DatedUrgency) : null;
+}
 
 const CHECK_CODES: CheckCode[] = ["BUD", "LLI", "LOC", "FID", "EIA", "FLOOD", "SUBS", "CON"];
 const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Started", "N/A"];
@@ -47,6 +69,8 @@ export interface PrintRow {
   plan_type: string | null;
   risk: string | null;
   readiness?: Record<string, CheckStatus>;
+  rig_contract_status?: string | null;
+  rig_contract_end?: string | null;
 }
 
 function parse(d: string | null | undefined): Date | null {
@@ -101,11 +125,22 @@ function StaticGantt({
   const startYear = new Date(Math.min(...acts.map((a) => a.s.getTime()))).getFullYear();
   const endYear = new Date(Math.max(...acts.map((a) => a.e.getTime()))).getFullYear();
 
-  // Rows = terrain + rig, ordered Land → Swamp → Offshore, then rig.
-  const meta = new Map<string, { loc: string | null; rig: string | null }>();
+  // Rows = terrain + rig, ordered Land → Swamp → Offshore, then rig. The contract
+  // is per-rig (denormalised onto every activity), so capture it once per row.
+  const meta = new Map<
+    string,
+    { loc: string | null; rig: string | null; contractEnd: string | null; urgency: DatedUrgency | null }
+  >();
   for (const a of acts) {
     const k = rowLabel(a.location, a.rig_name);
-    if (!meta.has(k)) meta.set(k, { loc: a.location, rig: a.rig_name });
+    if (!meta.has(k)) {
+      meta.set(k, {
+        loc: a.location,
+        rig: a.rig_name,
+        contractEnd: a.rig_contract_end ?? null,
+        urgency: expiryUrgency(a.rig_contract_status, a.rig_contract_end),
+      });
+    }
   }
   const rowKeys = Array.from(meta.keys()).sort((ka, kb) => {
     const A = meta.get(ka)!;
@@ -245,14 +280,24 @@ function StaticGantt({
                     />
                   )}
                 </div>
-                {pg.keys.map((key) => (
-                  <div
-                    key={key}
-                    className={cn(
-                      "flex items-stretch border-b border-border/40 last:border-b-0",
-                      showReadiness ? "h-11" : "h-8",
-                    )}
-                  >
+                {pg.keys.map((key) => {
+                  const m = meta.get(key);
+                  // Contract-expiry marker — only when the rig's in-force contract
+                  // ends inside this window; placed at that date along the row.
+                  const cEnd = m?.urgency ? parse(m.contractEnd) : null;
+                  const expiryPct =
+                    cEnd && cEnd.getTime() >= winStart && cEnd.getTime() < w.to.getTime()
+                      ? ((cEnd.getTime() - winStart) / winSpan) * 100
+                      : null;
+                  const expiryHex = m?.urgency ? URGENCY_VISUAL[m.urgency].hex : undefined;
+                  return (
+                    <div
+                      key={key}
+                      className={cn(
+                        "flex items-stretch border-b border-border/40 last:border-b-0",
+                        showReadiness ? "h-11" : "h-8",
+                      )}
+                    >
                     <div
                       className="flex shrink-0 items-center truncate border-r border-border/60 px-2 text-[9px] font-medium text-foreground"
                       style={{ width: RIG_COL }}
@@ -320,9 +365,24 @@ function StaticGantt({
                             </Fragment>
                           );
                         })}
+                      {/* Contract-expiry marker: alarm at the expiry date + a faint
+                          tick down the row, coloured by urgency. */}
+                      {expiryPct !== null && expiryHex && (
+                        <span
+                          className="pointer-events-none absolute inset-y-0 z-10 flex flex-col items-center"
+                          style={{ left: `${expiryPct}%`, transform: "translateX(-50%)" }}
+                          title={`Contract expires ${fmt(m!.contractEnd)}`}
+                        >
+                          <span className="rounded-full bg-white/85 leading-none">
+                            <AlarmClock className="h-2.5 w-2.5" style={{ color: expiryHex }} strokeWidth={2.5} />
+                          </span>
+                          <span className="w-px flex-1" style={{ backgroundColor: expiryHex, opacity: 0.5 }} />
+                        </span>
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             {/* Legends ride with the chart so every page is self-decoding: the
@@ -344,6 +404,8 @@ function StaticGantt({
 
 function ActivityLegend({ rows }: { rows: PrintRow[] }) {
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
+  // Show the contract-expiry key only when some rig has an in-force contract.
+  const hasExpiry = rows.some((r) => expiryUrgency(r.rig_contract_status, r.rig_contract_end) !== null);
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <span className="font-semibold uppercase tracking-wider text-muted-foreground">Activity</span>
@@ -353,6 +415,20 @@ function ActivityLegend({ rows }: { rows: PrintRow[] }) {
           {t}
         </span>
       ))}
+      {hasExpiry && (
+        <>
+          <span className="mx-0.5 h-3 w-px bg-border" />
+          <span className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-muted-foreground">
+            <AlarmClock className="h-3 w-3" strokeWidth={2.25} /> Contract
+          </span>
+          {DATED_URGENCIES.map((u) => (
+            <span key={u} className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: URGENCY_VISUAL[u].hex }} />
+              {URGENCY_VISUAL[u].label}
+            </span>
+          ))}
+        </>
+      )}
     </div>
   );
 }
