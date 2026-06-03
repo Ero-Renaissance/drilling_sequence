@@ -398,42 +398,58 @@ function ReadinessIcons({ readiness }: { readiness?: Record<string, CheckStatus>
   );
 }
 
+const SCHEDULE_ROWS_PER_PAGE = 20; // explicit pagination — browser auto-breaks slice a row
+
 function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, number> }) {
+  // Chunk to a fixed count per page rather than letting the browser paginate the
+  // tbody: under print it occasionally slices a row at the page edge despite
+  // break-inside:avoid. Each chunk is its own table that reprints the header.
+  const pages: PrintRow[][] = [];
+  for (let i = 0; i < rows.length; i += SCHEDULE_ROWS_PER_PAGE) {
+    pages.push(rows.slice(i, i + SCHEDULE_ROWS_PER_PAGE));
+  }
   return (
-    <table className="w-full border-collapse text-[9.5px]">
-      {/* Both rows sit in <thead> (table-header-group) so the readiness key AND the
-          column labels reprint at the top of every table page. */}
-      <thead>
-        <tr>
-          <td colSpan={10} className="pb-2 pt-1">
-            <ReadinessKey />
-          </td>
-        </tr>
-        <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">
-          {["#", "Activity", "Well", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
-            <th key={h} className="px-1.5 py-1">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id}>
-            <td className="px-1.5 py-1 tabular-nums font-semibold text-foreground">{index.get(r.id)}</td>
-            <td className="px-1.5 py-1 font-medium text-foreground">{r.activity_type}</td>
-            <td className="px-1.5 py-1 text-muted-foreground">{r.well_name ?? "—"}</td>
-            <td className="px-1.5 py-1 text-muted-foreground">{r.location ?? "—"}</td>
-            <td className="px-1.5 py-1 text-muted-foreground">{r.rig_name ?? "—"}</td>
-            <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.start_date)}</td>
-            <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.end_date)}</td>
-            <td className="px-1.5 py-1 text-muted-foreground">{r.plan_type ?? "—"}</td>
-            <td className="px-1.5 py-1 text-muted-foreground">{r.risk ?? "—"}</td>
-            <td className="px-1.5 py-1">
-              <ReadinessIcons readiness={r.readiness} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      {pages.map((chunk, pi) => (
+        <table
+          key={pi}
+          className={cn("w-full border-collapse text-[9.5px]", pi > 0 && "break-before-page")}
+        >
+          {/* Both rows sit in <thead> so the readiness key AND the column labels
+              head every page of the table. */}
+          <thead>
+            <tr>
+              <td colSpan={10} className="pb-2 pt-1">
+                <ReadinessKey />
+              </td>
+            </tr>
+            <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">
+              {["#", "Activity", "Well", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
+                <th key={h} className="px-1.5 py-1">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {chunk.map((r) => (
+              <tr key={r.id}>
+                <td className="px-1.5 py-1 tabular-nums font-semibold text-foreground">{index.get(r.id)}</td>
+                <td className="px-1.5 py-1 font-medium text-foreground">{r.activity_type}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{r.well_name ?? "—"}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{r.location ?? "—"}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{r.rig_name ?? "—"}</td>
+                <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.start_date)}</td>
+                <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.end_date)}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{r.plan_type ?? "—"}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{r.risk ?? "—"}</td>
+                <td className="px-1.5 py-1">
+                  <ReadinessIcons readiness={r.readiness} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ))}
+    </>
   );
 }
 
