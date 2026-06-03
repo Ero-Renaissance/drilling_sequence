@@ -332,6 +332,11 @@ Backend logs: `docker logs drilling-backend`.
 
 ## Appendix B — Deploying on Windows Server
 
+*Verified target: **Windows Server 2022 Standard** (also applies to 2019/2022, Standard
+or Datacenter). The **Standard** edition is sufficient — none of the Datacenter-only
+features matter here. Use the **native path** below: Docker Desktop is a workstation
+tool and is not supported on Windows Server, so skip B.7 on a Server SKU.*
+
 The architecture and all the OS-agnostic steps are unchanged: **Azure setup (§2),
 database provisioning (§3), the `.env` keys (§4a), the frontend build (§5), and the
 smoke test (§7) apply as written.** Only the host tooling differs. Pick one hosting
@@ -351,8 +356,9 @@ model with IT:
 - [ ] **Windows Server 2019/2022** on the internal network.
 - [ ] **Python 3.11 (64-bit)** from python.org — tick *"Add python.exe to PATH"*.
 - [ ] **Microsoft ODBC Driver 18 for SQL Server** (x64 MSI) installed on the host.
-- [ ] **IIS** with the **URL Rewrite 2.1** and **Application Request Routing (ARR) 3.0**
-      modules (both free from Microsoft).
+- [ ] **IIS (Web Server role)** — not installed by default on Server; add it first
+      (B.6 step 1) — plus the **URL Rewrite 2.1** and **Application Request Routing
+      (ARR) 3.0** modules (both free from Microsoft).
 - [ ] **NSSM** (nssm.cc) to run uvicorn as a service — or HttpPlatformHandler (B.4).
 - [ ] A **domain service account** to run the app (required for Integrated SQL auth).
 - [ ] Node.js 20 LTS **only on the machine that builds the frontend** — `dist/` can be
@@ -365,6 +371,10 @@ py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
+> The commands above call `.venv\Scripts\python` directly, so they work regardless of
+> PowerShell's execution policy (a hardened Server often blocks `Activate.ps1`). The
+> service in B.4 runs `python.exe` directly too, so it's unaffected. Only *interactive*
+> `Activate.ps1` needs `Set-ExecutionPolicy -Scope Process RemoteSigned` (or use `activate.bat`).
 Create `backend\.env` with the keys from §4a. For `DATABASE_URL`, use the auth style
 IT chose:
 ```ini
@@ -416,8 +426,12 @@ Build exactly as §5 (`npm ci && npm run build`), then copy `frontend\dist\` to 
 content root, e.g. `C:\inetpub\drilling`.
 
 ### B.6 IIS as the reverse proxy (the "same origin" glue)
-1. Install **URL Rewrite** + **ARR**, then IIS Manager → server node → **Application
+1. **Enable the IIS role** (Server Manager → Add Roles, or PowerShell as admin), then
+   install **URL Rewrite** + **ARR**, then IIS Manager → server node → **Application
    Request Routing Cache → Server Proxy Settings → tick "Enable proxy."**
+   ```powershell
+   Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+   ```
 2. Create a site rooted at `C:\inetpub\drilling`; add an **HTTPS binding (443)** with
    your TLS certificate (Server Certificates → import first).
 3. Put this `web.config` in the site root:
