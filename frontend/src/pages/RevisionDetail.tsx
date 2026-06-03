@@ -10,7 +10,6 @@ import {
   Clock,
   Copy,
   FileSignature,
-  Gauge,
   PenLine,
   Printer,
   RotateCcw,
@@ -19,6 +18,17 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@/components/ui/dropdown-menu";
 import { buildDocRef, docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
 import { cn } from "@/lib/utils";
 import {
@@ -506,15 +516,17 @@ export function RevisionDetail() {
   const [reviewDeciding, setReviewDeciding] = useState(false);
   const user = useAuthStore((s) => s.user);
 
-  // Three print outputs: the approved JV-partner "record", a standalone "signoff"
-  // sheet with blank wet-ink lines, and a chart-only "readiness" view (one year
-  // per page, readiness icons on the bars). A nonce (not the mode) drives the
-  // print so re-printing the same mode still fires.
-  type PrintMode = "record" | "signoff" | "readiness";
-  const [printMode, setPrintMode] = useState<PrintMode>("record");
+  // The print is three independent choices — chart (standard vs readiness),
+  // whether to append the activity schedule, and whose signatures (system-recorded
+  // vs blank wet-ink). The two actions (Export PDF / Print for signature) set the
+  // signature mode and bump a nonce; the nonce (not the value) drives the print so
+  // re-printing the same choice still fires.
+  const [printChart, setPrintChart] = useState<"standard" | "readiness">("standard");
+  const [printSchedule, setPrintSchedule] = useState(true);
+  const [printSignatures, setPrintSignatures] = useState<"system" | "wetink">("system");
   const [printNonce, setPrintNonce] = useState(0);
-  const printAs = useCallback((mode: PrintMode) => {
-    setPrintMode(mode);
+  const printWith = useCallback((sig: "system" | "wetink") => {
+    setPrintSignatures(sig);
     setPrintNonce((n) => n + 1);
   }, []);
   useEffect(() => {
@@ -772,53 +784,75 @@ export function RevisionDetail() {
               </Button>
             </>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => printAs("readiness")}
-            title="Print the sequence one year per page with readiness icons on the chart"
-          >
-            <Gauge className="h-4 w-4" />
-            Readiness chart
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => printAs("signoff")}
-            title="Print a standalone sheet with blank lines to route for wet-ink signatures"
-          >
-            <FileSignature className="h-4 w-4" />
-            Print for signature
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => printAs("record")}
-            title="Print or save the approved record as a PDF"
-          >
-            <Printer className="h-4 w-4" />
-            Export PDF
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Printer className="h-4 w-4" />
+                Print
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>Chart</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={printChart}
+                onValueChange={(v) => {
+                  const c = v as "standard" | "readiness";
+                  setPrintChart(c);
+                  // Readiness leads with the chart only; standard keeps the schedule.
+                  setPrintSchedule(c === "standard");
+                }}
+              >
+                <DropdownMenuRadioItem value="standard" onSelect={(e) => e.preventDefault()}>
+                  Standard sequence
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="readiness" onSelect={(e) => e.preventDefault()}>
+                  Readiness chart
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={printSchedule}
+                onCheckedChange={setPrintSchedule}
+                onSelect={(e) => e.preventDefault()}
+              >
+                Include activity schedule
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => printWith("system")}>
+                <Printer className="h-4 w-4" />
+                Export PDF (with signatures)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => printWith("wetink")}>
+                <FileSignature className="h-4 w-4" />
+                Print for signature
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* The print/PDF document — print only. Variant picks the record vs the
-          standalone wet-ink sign-off sheet. */}
+      {/* The print/PDF document — print only. The three choices below select the
+          chart style, whether to append the schedule, and whose signatures. */}
       <RevisionPrintDoc
         revision={revision}
         project={project}
         rows={snapshot}
-        variant={printMode}
+        chart={printChart}
+        includeSchedule={printSchedule}
+        signatures={printSignatures}
       />
 
-      {/* Print-only confidentiality footer (repeats per page in Chrome). The
-          standalone sign-off sheet carries no system references. */}
+      {/* Print-only confidentiality footer (repeats per page in Chrome). Only the
+          JV record (standard chart + recorded signatures) carries the system refs. */}
       <div className="fixed inset-x-0 bottom-0 hidden items-center justify-between border-t border-border/60 bg-white px-3 pt-1 text-[8px] text-muted-foreground print:flex">
         <span>
           Renaissance Africa Energy Company Limited — Confidential
-          {printMode === "record" ? " · For JV partner distribution only" : ""}
+          {printChart === "standard" && printSignatures === "system"
+            ? " · For JV partner distribution only"
+            : ""}
         </span>
-        {printMode === "record" && (
+        {printChart === "standard" && printSignatures === "system" && (
           <span className="tabular-nums">
             {docRef} · {statusLabel} · Uncontrolled when printed
           </span>

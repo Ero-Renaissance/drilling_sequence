@@ -603,28 +603,36 @@ export function RevisionPrintDoc({
   revision,
   project,
   rows,
-  variant = "record",
+  chart = "standard",
+  includeSchedule = true,
+  signatures = "system",
 }: {
   revision: RevisionDetail;
   project: Project | null;
   rows: PrintRow[];
-  /** "record"   → the approved JV-partner document (Document ID, system signatures).
-   *  "signoff"  → a standalone paper form with blank wet-ink signature lines.
-   *  "readiness"→ a chart-only view: one year per page, readiness icons under each
-   *               bar, no schedule table. */
-  variant?: "record" | "signoff" | "readiness";
+  /** "standard" → the 2-year sequence Gantt (numbered bars).
+   *  "readiness"→ one year per page with the readiness icons under each bar. */
+  chart?: "standard" | "readiness";
+  /** Append the activity-schedule table after the chart. */
+  includeSchedule?: boolean;
+  /** "system" → the system-recorded sign-off (their actual signatures + Document ID
+   *  on the standard JV record). "wetink" → blank lines to sign by hand. */
+  signatures?: "system" | "wetink";
 }) {
-  const isSignoff = variant === "signoff";
-  const isReadiness = variant === "readiness";
+  const isReadiness = chart === "readiness";
+  const isWetInk = signatures === "wetink";
   const isApproved = revision.status === "approved";
   const docRef = buildDocRef(project?.name, revision.rev_number);
+  // The JV-partner record (standard chart, recorded signatures) is the only output
+  // that carries the integrity Document ID + verify block and the draft watermark.
+  const isJvRecord = !isReadiness && !isWetInk;
 
   // One stable number per activity, shared by the Gantt bars and the table "#" column.
   const ordered = orderRows(rows);
   const index = new Map(ordered.map((r, i) => [r.id, i + 1]));
 
-  // Controlled-document date: when approved, the latest approval signature; otherwise
-  // the print date, clearly labelled as generated (not a formal approval date).
+  // Controlled-document date: a recorded-signature output dates to the latest
+  // approval; a wet-ink form is a fresh routing sheet, always "generated".
   const approvedAt = isApproved
     ? revision.signatures.reduce<string | null>(
         (latest, s) => (latest === null || s.signed_at > latest ? s.signed_at : latest),
@@ -632,18 +640,16 @@ export function RevisionPrintDoc({
       )
     : null;
   const generated = `Generated ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`;
-  // The sign-off sheet is a fresh routing form, so it's always dated "generated"
-  // (never "approved"), regardless of the revision's system status.
-  const docDate = !isSignoff && approvedAt ? `Approved ${fmt(approvedAt)}` : generated;
+  const docDate = !isWetInk && approvedAt ? `Approved ${fmt(approvedAt)}` : generated;
 
   return (
     // Internal padding guarantees visible whitespace even when the browser print
     // dialog overrides the @page margin (the "Margins: None/Default" trap).
     <div className="relative hidden px-[6mm] py-[4mm] text-foreground print:block">
-      {/* Watermark — anything not approved must be unmistakable as non-final. The
-          sign-off sheet is explicitly meant to be distributed for signing, so it
-          carries no "not for distribution" mark. */}
-      {!isSignoff && !isReadiness && !isApproved && (
+      {/* Watermark — only the JV record warns "not for distribution" when not yet
+          approved. Wet-ink forms are meant to be distributed; the readiness view is
+          a working document. */}
+      {isJvRecord && !isApproved && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
           <span className="rotate-[-28deg] text-center text-[64px] font-black uppercase leading-none tracking-widest text-red-500/15">
             Draft
@@ -662,10 +668,10 @@ export function RevisionPrintDoc({
           </p>
           <h1 className="text-xl font-bold tracking-tight">
             Rig Sequence —{" "}
-            {isSignoff
-              ? "For Review & Approval"
-              : isReadiness
-                ? "Readiness"
+            {isReadiness
+              ? "Readiness"
+              : isWetInk
+                ? "For Review & Approval"
                 : isApproved
                   ? "Approved Sequence"
                   : "Draft (Not for distribution)"}
@@ -679,12 +685,12 @@ export function RevisionPrintDoc({
           <p className="text-muted-foreground">
             {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
           </p>
-          {/* Standalone sign-off form carries no system references. The readiness
-              view keeps the doc ref but not the JV-record Document ID. */}
-          {!isSignoff && (
+          {/* Wet-ink forms are standalone (no system references). Recorded-signature
+              outputs show the doc ref; only the JV record adds the Document ID. */}
+          {!isWetInk && (
             <>
               <p className="mt-0.5 text-[10px] tracking-wider text-muted-foreground">Ref {docRef}</p>
-              {!isReadiness && revision.integrity_digest && (
+              {isJvRecord && revision.integrity_digest && (
                 <p className="mt-0.5 font-mono text-[9px] tracking-wide text-muted-foreground">
                   Document ID {formatDocId(revision.integrity_digest)}
                 </p>
@@ -697,10 +703,10 @@ export function RevisionPrintDoc({
           <p
             className={cn(
               "font-medium",
-              !isSignoff && isApproved ? "text-emerald-700" : "text-muted-foreground",
+              !isWetInk && isApproved ? "text-emerald-700" : "text-muted-foreground",
             )}
           >
-            {isSignoff
+            {isWetInk
               ? "For review & approval"
               : isApproved
                 ? "Approved"
@@ -719,24 +725,23 @@ export function RevisionPrintDoc({
         <StaticGantt rows={rows} index={index} />
       )}
 
-      {/* Activity schedule — record/sign-off only; the readiness view puts the
-          readiness on the chart, so the table would be redundant. */}
-      {!isReadiness && (
+      {/* Activity schedule — optional; on its own page when present. */}
+      {includeSchedule && (
         <>
           <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
           <ScheduleTable rows={ordered} index={index} />
         </>
       )}
 
-      {/* Sign-off — the system record's signatures, or blank wet-ink lines for the
-          print-and-route sheet. The readiness view has none. */}
-      {isSignoff ? (
+      {/* Sign-off — blank wet-ink lines, or the system-recorded signatures (plus the
+          Document ID verify block on the JV record). */}
+      {isWetInk ? (
         <ManualSignOff revision={revision} />
-      ) : isReadiness ? null : (
+      ) : (
         <>
           <SignOff revision={revision} />
           {/* Authenticity — leaves the lower page free for an appended Adobe signature */}
-          <VerifyBox docId={revision.integrity_digest} />
+          {isJvRecord && <VerifyBox docId={revision.integrity_digest} />}
         </>
       )}
     </div>
