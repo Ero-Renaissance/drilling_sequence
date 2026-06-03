@@ -275,6 +275,8 @@ function StaticGantt({
                           // Every bar carries its schedule number — legible even a few days
                           // wide (a min-width keeps the digit from being clipped). The well
                           // name rides along only when the bar is wide enough.
+                          // Non-readiness bars cross-reference the schedule table by
+                          // number, so they only show the well name when wide enough.
                           const showName = wpct >= 10 && !!a.well_name;
                           // Keep the readiness strip (~16% of the plot wide) on the
                           // page: clamp its centre so an activity in early Jan / late
@@ -285,13 +287,23 @@ function StaticGantt({
                               <span
                                 title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}`}
                                 className={cn(
-                                  "absolute flex items-center justify-center gap-1 overflow-hidden rounded px-1 text-[8px] font-semibold text-white",
-                                  showReadiness ? "top-1 h-5" : "top-1/2 h-6 -translate-y-1/2",
+                                  "absolute flex items-center justify-center gap-1 overflow-hidden rounded px-1 font-semibold text-white",
+                                  showReadiness ? "top-1 h-5 text-[7px]" : "top-1/2 h-6 -translate-y-1/2 text-[8px]",
                                 )}
                                 style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
                               >
-                                <span className="shrink-0 tabular-nums">{n}</span>
-                                {showName && <span className="truncate font-medium opacity-90">{a.well_name}</span>}
+                                {showReadiness ? (
+                                  // No schedule table on this print, so the number is
+                                  // pointless — show the well name instead, sized to fit.
+                                  a.well_name ? <span className="truncate">{a.well_name}</span> : null
+                                ) : (
+                                  <>
+                                    <span className="shrink-0 tabular-nums">{n}</span>
+                                    {showName && (
+                                      <span className="truncate font-medium opacity-90">{a.well_name}</span>
+                                    )}
+                                  </>
+                                )}
                               </span>
                               {/* Readiness strip beneath the bar — fixed size, all 8 gates,
                                   centred on the bar so it never truncates regardless of bar width. */}
