@@ -430,6 +430,73 @@ function SignOff({ revision }: { revision: RevisionDetail }) {
   );
 }
 
+// ── Manual sign-off — wet-ink lines for the print-and-route workflow ───────────
+
+function ManualSignOff({ revision }: { revision: RevisionDetail }) {
+  const reviewers = revision.reviewer_status.map((r) => ({
+    name: r.signer_name ?? r.name ?? r.email,
+    role: r.role_label,
+  }));
+  const approvers = revision.approver_status.map((a) => ({
+    name: a.signer_name ?? a.name ?? a.email,
+    role: a.role_label,
+  }));
+
+  // Tall cells so there's room to sign by hand; the print stylesheet rules every
+  // cell with a bottom border, which doubles as the signature/date line.
+  const cell = "h-10 px-2 align-bottom pb-1";
+
+  const group = (title: string, items: { name: string; role: string }[], spares: number) => (
+    <>
+      <tr>
+        <td colSpan={4} className="bg-muted/30 px-2 py-1 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {title}
+        </td>
+      </tr>
+      {items.map((s, i) => (
+        <tr key={`${title}-${i}`}>
+          <td className={cn(cell, "font-medium text-foreground")}>{s.name}</td>
+          <td className={cn(cell, "text-muted-foreground")}>{s.role}</td>
+          <td className={cell} />
+          <td className={cell} />
+        </tr>
+      ))}
+      {Array.from({ length: spares }).map((_, i) => (
+        <tr key={`${title}-spare-${i}`}>
+          <td className={cell} />
+          <td className={cell} />
+          <td className={cell} />
+          <td className={cell} />
+        </tr>
+      ))}
+    </>
+  );
+
+  return (
+    <div className="mt-5 print:break-inside-avoid">
+      <h2 className="mb-1 text-[11px] font-semibold text-foreground">Review &amp; approval signatures</h2>
+      <p className="mb-2 text-[9px] text-muted-foreground">
+        Each reviewer and approver signs and dates below to record their review/approval of
+        this rig sequence.
+      </p>
+      <table className="w-full max-w-3xl border-collapse text-[10px]">
+        <thead>
+          <tr className="text-left text-[8px] uppercase tracking-wider text-muted-foreground">
+            <th className="px-2 py-1">Name</th>
+            <th className="px-2 py-1">Role</th>
+            <th className="px-2 py-1">Signature</th>
+            <th className="w-28 px-2 py-1">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {group("Reviewers", reviewers, 2)}
+          {group("Approvers", approvers, 2)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Authenticity — how a recipient verifies the document is genuine ────────────
 
 function VerifyBox({ docId }: { docId: string }) {
@@ -466,11 +533,16 @@ export function RevisionPrintDoc({
   revision,
   project,
   rows,
+  variant = "record",
 }: {
   revision: RevisionDetail;
   project: Project | null;
   rows: PrintRow[];
+  /** "record" → the approved JV-partner document (Document ID, system signatures).
+   *  "signoff" → a standalone paper form with blank wet-ink signature lines. */
+  variant?: "record" | "signoff";
 }) {
+  const isSignoff = variant === "signoff";
   const isApproved = revision.status === "approved";
   const docRef = buildDocRef(project?.name, revision.rev_number);
 
@@ -486,16 +558,19 @@ export function RevisionPrintDoc({
         null,
       )
     : null;
-  const docDate = approvedAt
-    ? `Approved ${fmt(approvedAt)}`
-    : `Generated ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`;
+  const generated = `Generated ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`;
+  // The sign-off sheet is a fresh routing form, so it's always dated "generated"
+  // (never "approved"), regardless of the revision's system status.
+  const docDate = !isSignoff && approvedAt ? `Approved ${fmt(approvedAt)}` : generated;
 
   return (
     // Internal padding guarantees visible whitespace even when the browser print
     // dialog overrides the @page margin (the "Margins: None/Default" trap).
     <div className="relative hidden px-[6mm] py-[4mm] text-foreground print:block">
-      {/* Watermark — anything not approved must be unmistakable as non-final. */}
-      {!isApproved && (
+      {/* Watermark — anything not approved must be unmistakable as non-final. The
+          sign-off sheet is explicitly meant to be distributed for signing, so it
+          carries no "not for distribution" mark. */}
+      {!isSignoff && !isApproved && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
           <span className="rotate-[-28deg] text-center text-[64px] font-black uppercase leading-none tracking-widest text-red-500/15">
             Draft
@@ -505,7 +580,7 @@ export function RevisionPrintDoc({
         </div>
       )}
 
-      {/* Title / approval block */}
+      {/* Title block */}
       <div className="flex items-end justify-between gap-6">
         <img src="/raec-logo.png" alt="Renaissance Africa Energy" className="h-11 w-auto" />
         <div className="text-right">
@@ -513,7 +588,12 @@ export function RevisionPrintDoc({
             Renaissance Africa Energy Company Limited
           </p>
           <h1 className="text-xl font-bold tracking-tight">
-            Rig Sequence — {isApproved ? "Approved Sequence" : "Draft (Not for distribution)"}
+            Rig Sequence —{" "}
+            {isSignoff
+              ? "For Review & Approval"
+              : isApproved
+                ? "Approved Sequence"
+                : "Draft (Not for distribution)"}
           </h1>
         </div>
       </div>
@@ -524,17 +604,31 @@ export function RevisionPrintDoc({
           <p className="text-muted-foreground">
             {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
           </p>
-          <p className="mt-0.5 text-[10px] tracking-wider text-muted-foreground">Ref {docRef}</p>
-          {revision.integrity_digest && (
-            <p className="mt-0.5 font-mono text-[9px] tracking-wide text-muted-foreground">
-              Document ID {formatDocId(revision.integrity_digest)}
-            </p>
+          {/* Standalone sign-off form carries no system references (doc ref / Document ID). */}
+          {!isSignoff && (
+            <>
+              <p className="mt-0.5 text-[10px] tracking-wider text-muted-foreground">Ref {docRef}</p>
+              {revision.integrity_digest && (
+                <p className="mt-0.5 font-mono text-[9px] tracking-wide text-muted-foreground">
+                  Document ID {formatDocId(revision.integrity_digest)}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div className="text-right">
           <p className="font-semibold tabular-nums">Rev. {String(revision.rev_number).padStart(2, "0")}</p>
-          <p className={cn("font-medium", isApproved ? "text-emerald-700" : "text-muted-foreground")}>
-            {isApproved ? "Approved" : revision.status.replace(/_/g, " ")}
+          <p
+            className={cn(
+              "font-medium",
+              !isSignoff && isApproved ? "text-emerald-700" : "text-muted-foreground",
+            )}
+          >
+            {isSignoff
+              ? "For review & approval"
+              : isApproved
+                ? "Approved"
+                : revision.status.replace(/_/g, " ")}
           </p>
           <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">{docDate}</p>
         </div>
@@ -548,11 +642,17 @@ export function RevisionPrintDoc({
       <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
       <ScheduleTable rows={ordered} index={index} />
 
-      {/* Formal sign-off */}
-      <SignOff revision={revision} />
-
-      {/* Authenticity — leaves the lower page free for an appended Adobe certificate signature */}
-      <VerifyBox docId={revision.integrity_digest} />
+      {/* Sign-off — the system record's signatures, or blank wet-ink lines for the
+          print-and-route sheet. */}
+      {isSignoff ? (
+        <ManualSignOff revision={revision} />
+      ) : (
+        <>
+          <SignOff revision={revision} />
+          {/* Authenticity — leaves the lower page free for an appended Adobe signature */}
+          <VerifyBox docId={revision.integrity_digest} />
+        </>
+      )}
     </div>
   );
 }

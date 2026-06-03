@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   Circle,
   Clock,
   Copy,
+  FileSignature,
   PenLine,
   Printer,
   RotateCcw,
@@ -504,6 +505,22 @@ export function RevisionDetail() {
   const [reviewDeciding, setReviewDeciding] = useState(false);
   const user = useAuthStore((s) => s.user);
 
+  // Two print outputs: the approved JV-partner "record", and a standalone
+  // "signoff" sheet with blank wet-ink signature lines. A nonce (not the mode)
+  // drives the print so re-printing the same mode still fires.
+  const [printMode, setPrintMode] = useState<"record" | "signoff">("record");
+  const [printNonce, setPrintNonce] = useState(0);
+  const printAs = useCallback((mode: "record" | "signoff") => {
+    setPrintMode(mode);
+    setPrintNonce((n) => n + 1);
+  }, []);
+  useEffect(() => {
+    if (printNonce === 0) return; // skip the initial render
+    // Let the chosen variant paint before opening the print dialog.
+    const id = requestAnimationFrame(() => window.print());
+    return () => cancelAnimationFrame(id);
+  }, [printNonce]);
+
   useEffect(() => {
     if (!projectId || !revisionId) return;
     setLoading(true);
@@ -755,8 +772,17 @@ export function RevisionDetail() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.print()}
-            title="Print or save as PDF"
+            onClick={() => printAs("signoff")}
+            title="Print a standalone sheet with blank lines to route for wet-ink signatures"
+          >
+            <FileSignature className="h-4 w-4" />
+            Print for signature
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => printAs("record")}
+            title="Print or save the approved record as a PDF"
           >
             <Printer className="h-4 w-4" />
             Export PDF
@@ -764,18 +790,27 @@ export function RevisionDetail() {
         </div>
       </div>
 
-      {/* The print/PDF document (JV-partner record) — print only. */}
-      <RevisionPrintDoc revision={revision} project={project} rows={snapshot} />
+      {/* The print/PDF document — print only. Variant picks the record vs the
+          standalone wet-ink sign-off sheet. */}
+      <RevisionPrintDoc
+        revision={revision}
+        project={project}
+        rows={snapshot}
+        variant={printMode}
+      />
 
-      {/* Print-only confidentiality footer (repeats per page in Chrome) */}
+      {/* Print-only confidentiality footer (repeats per page in Chrome). The
+          standalone sign-off sheet carries no system references. */}
       <div className="fixed inset-x-0 bottom-0 hidden items-center justify-between border-t border-border/60 bg-white px-3 pt-1 text-[8px] text-muted-foreground print:flex">
         <span>
-          Renaissance Africa Energy Company Limited — Confidential · For JV partner
-          distribution only
+          Renaissance Africa Energy Company Limited — Confidential
+          {printMode === "record" ? " · For JV partner distribution only" : ""}
         </span>
-        <span className="tabular-nums">
-          {docRef} · {statusLabel} · Uncontrolled when printed
-        </span>
+        {printMode === "record" && (
+          <span className="tabular-nums">
+            {docRef} · {statusLabel} · Uncontrolled when printed
+          </span>
+        )}
       </div>
 
       {/* Compact metadata bar (screen only — the print exec summary covers this) */}
