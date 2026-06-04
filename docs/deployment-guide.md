@@ -354,8 +354,14 @@ model with IT:
 
 ### B.1 Prerequisites (native path)
 - [ ] **Windows Server 2019/2022** on the internal network.
-- [ ] **Python 3.11 (64-bit)** from python.org — tick *"Add python.exe to PATH"*.
-- [ ] **Microsoft ODBC Driver 18 for SQL Server** (x64 MSI) installed on the host.
+- [ ] **Python 3.11 (64-bit), specifically** from python.org — tick *"Add python.exe to
+      PATH"*. Use 3.11, **not** the newest release: the pinned dependencies (pydantic-core,
+      pyodbc, httptools/watchfiles) ship prebuilt wheels for 3.11; a brand-new Python (e.g.
+      3.14) often has no wheels yet, so `pip install` would try to compile from source.
+      `py -3.11` selects it even if other Pythons are installed.
+- [ ] **Microsoft ODBC Driver 18 for SQL Server** (x64 MSI) — or **Driver 17** if that's
+      what's already on the host; just match the `DATABASE_URL` driver name, and note
+      Driver 17 defaults to `Encrypt=no` (add `Encrypt=yes` if you want TLS to SQL Server).
 - [ ] **IIS (Web Server role)** — not installed by default on Server; add it first
       (B.6 step 1) — plus the **URL Rewrite 2.1** and **Application Request Routing
       (ARR) 3.0** modules (both free from Microsoft).
@@ -478,6 +484,93 @@ tool — for a long-running Server install, prefer the native path (B.2–B.4).
 - **Restart after upgrade:** `nssm restart DrillingBackend` (or `Restart-Service DrillingBackend`).
 - **Logs:** point NSSM at a log file — `nssm set DrillingBackend AppStdout C:\apps\drilling\logs\out.log` (and `AppStderr`); raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to `INFO`.
 - **Upgrades:** pull code → `.venv\Scripts\python -m pip install -r requirements.txt` (if deps changed) → `.venv\Scripts\alembic upgrade head` → restart the service → rebuild & recopy `dist\`.
+
+---
+
+## Appendix C — Single-process deploy on a locked-down host (no IIS / ARR / NSSM)
+
+Use this when the host **can't install** the usual web-hosting pieces — IIS's
+**ARR**/**HttpPlatformHandler** (the reverse-proxy modules) or a service installer
+like **NSSM** (often blocked by EDR/AV policy). Instead, **uvicorn serves
+everything itself**: the `/api` backend, the built frontend, the SPA fallback, *and*
+TLS — one process, inherently single-origin. It's run as a Windows service via
+**pywin32** (a pip package, no separate installer). Fine for an internal app at this
+scale; for high traffic, prefer Appendix B's IIS path.
+
+### C.1 Install the backend (Python 3.11 + pywin32)
+From `backend\` (see B.1's Python-3.11 note — **don't** use 3.14):
+```bat
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install pywin32
+```
+
+### C.2 Build the frontend and point the backend at it
+Build per §5 (`npm ci && npm run build`), copy `frontend\dist\` to e.g.
+`C:\apps\drilling\web`, then in `backend\.env` add the §4a keys **plus**:
+```ini
+:: uvicorn serves this folder as the SPA (assets + index.html fallback).
+STATIC_DIR=C:\apps\drilling\web
+:: Driver 17 is fine — match what's installed and force encryption explicitly:
+DATABASE_URL=mssql+aioodbc://<DB_USER>:<DB_PASS>@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
+```
+Because it's single-origin, `ALLOWED_ORIGINS`/`APP_BASE_URL` are just your one HTTPS
+URL, e.g. `https://drilling.renaissanceafrica.com`.
+
+### C.3 TLS certificate in PEM form
+uvicorn needs the cert + key as **PEM** files (Windows certs are usually a `.pfx`).
+Convert once (OpenSSL, or PowerShell), then keep them readable only by the service
+account:
+```bat
+:: with OpenSSL:
+openssl pkcs12 -in drilling.pfx -clcerts -nokeys -out C:\apps\drilling\certs\server.crt
+openssl pkcs12 -in drilling.pfx -nocerts -nodes  -out C:\apps\drilling\certs\server.key
+icacls C:\apps\drilling\certs\server.key /inheritance:r /grant:r "<DOMAIN\svc-drilling>:R" "Administrators:F"
+```
+
+### C.4 Create the database tables (once, and after each upgrade)
+```bat
+cd backend
+.venv\Scripts\alembic upgrade head
+```
+With Integrated auth, run this *as the service account* (`runas /user:<DOMAIN\svc-drilling> cmd`).
+
+### C.5 Install and start the service
+Set the run-time env vars the service reads (machine-wide via `setx /m`, or in the
+service account profile), then install. **Run elevated, with the venv's python:**
+```bat
+setx /m DS_PORT 443
+setx /m DS_SSL_CERTFILE C:\apps\drilling\certs\server.crt
+setx /m DS_SSL_KEYFILE  C:\apps\drilling\certs\server.key
+
+cd backend
+.venv\Scripts\python windows_service.py install
+sc.exe config DrillingSequence start= auto
+sc.exe failure DrillingSequence reset= 86400 actions= restart/5000/restart/5000/restart/5000
+:: Run the service as the domain account (needed for Integrated SQL auth):
+sc.exe config DrillingSequence obj= "<DOMAIN\svc-drilling>" password= "<password>"
+.venv\Scripts\python windows_service.py start
+```
+(`windows_service.py` documents all of this at the top of the file.)
+
+### C.6 Open the firewall and smoke-test
+```powershell
+New-NetFirewallRule -DisplayName "Drilling Sequence HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
+Invoke-RestMethod https://<your-app-dns>/api/health      # -> {"status":"ok"}
+```
+Then browse to `https://<your-app-dns>` and run the §7 smoke test. There's no IIS, so
+there's no HTTP→HTTPS redirect — share the `https://` URL (or add a tiny redirect later).
+
+### C.7 Day-2
+- **Restart:** `Restart-Service DrillingSequence` (or `windows_service.py stop` / `start`).
+- **Logs:** uvicorn writes to stdout; the service's own events land in the Windows
+  **Application** event log. Raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to INFO.
+- **Upgrades:** pull code → `pip install -r requirements.txt` (if deps changed) →
+  `alembic upgrade head` → `Restart-Service DrillingSequence` → rebuild & recopy `dist\`.
+
+> If IT *can* approve **ARR** (a Microsoft-signed module) later, you can switch to
+> Appendix B's IIS path without app changes — just unset `STATIC_DIR`.
 
 ---
 

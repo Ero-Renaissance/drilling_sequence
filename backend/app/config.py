@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     azure_tenant_id: str = ""
     azure_client_id: str = ""
 
+    # Single-origin deploy without a reverse proxy: point STATIC_DIR at the
+    # frontend's built `dist/` and uvicorn serves the SPA itself (assets + an
+    # index.html fallback). Leave empty when a reverse proxy / the Vite dev
+    # server serves the frontend (the default).
+    static_dir: str = ""
+
     # When true: skip Azure AD, inject a dev user. Never enable in production —
     # the validator below refuses to start if this is set in a production environment.
     dev_mode: bool = False

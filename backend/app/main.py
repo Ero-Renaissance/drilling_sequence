@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import Base, engine, _is_sqlite
+from app.static_spa import mount_spa
 from app.models import approver as _approver_models  # noqa: F401
 from app.models import audit as _audit_models  # noqa: F401
 from app.models import readiness as _readiness_models  # noqa: F401
@@ -92,3 +93,12 @@ app.include_router(dashboard.router)
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok", "version": "2.0.0"}
+
+
+# Single-origin deploy: serve the built frontend from this process when STATIC_DIR
+# is set. Registered LAST so the catch-all never shadows the /api routes above.
+if settings.static_dir:
+    if mount_spa(app, settings.static_dir):
+        logger.info("Serving the built frontend from %s", settings.static_dir)
+    else:
+        logger.warning("STATIC_DIR is set but is not a directory: %s", settings.static_dir)
