@@ -36,6 +36,10 @@ const MOCK_ACTIVITIES: Activity[] = [
     risk: null,
     comment: null,
     plan_type: "Firm",
+    completed_at: null,
+    updated_at: "2026-05-25T08:00:00Z",
+    updated_by_name: null,
+    locked_by_revision_id: null,
   },
   {
     id: "act-002",
@@ -50,6 +54,10 @@ const MOCK_ACTIVITIES: Activity[] = [
     risk: null,
     comment: null,
     plan_type: "Option",
+    completed_at: null,
+    updated_at: "2026-05-25T09:00:00Z",
+    updated_by_name: null,
+    locked_by_revision_id: null,
   },
 ];
 

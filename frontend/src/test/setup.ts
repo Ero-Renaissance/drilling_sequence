@@ -20,7 +20,6 @@ if (!window.matchMedia) {
 
 // jsdom gaps that Radix UI (dropdowns/popovers) relies on.
 if (typeof ResizeObserver === "undefined") {
-  // @ts-expect-error assigning a minimal polyfill onto the global
   globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}

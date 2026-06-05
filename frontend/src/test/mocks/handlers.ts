@@ -11,6 +11,7 @@ export const mockUser: User = {
   id: "aaaaaaaa-0000-0000-0000-000000000001",
   name: "Test User",
   email: "test@company.com",
+  is_admin: false,
 };
 
 export const mockProject: Project = {
@@ -22,6 +23,7 @@ export const mockProject: Project = {
   review_policy: "optional",
   created_by: mockUser.id,
   created_at: "2026-05-24T10:00:00Z",
+  cloned_from_project_id: null,
   members: [
     {
       user_id: mockUser.id,
@@ -73,6 +75,7 @@ export const handlers = [
         risk: null,
         comment: null,
         plan_type: "Firm",
+        completed_at: null,
         updated_at: "2026-05-25T08:00:00Z",
         updated_by_name: "Test User",
         locked_by_revision_id: null,
@@ -90,6 +93,7 @@ export const handlers = [
         risk: null,
         comment: null,
         plan_type: "Option",
+        completed_at: null,
         updated_at: "2026-05-25T09:00:00Z",
         updated_by_name: null,
         locked_by_revision_id: null,
@@ -113,6 +117,7 @@ export const handlers = [
       risk: body.risk ?? null,
       comment: body.comment ?? null,
       plan_type: body.plan_type ?? null,
+      completed_at: null,
       updated_at: new Date().toISOString(),
       updated_by_name: mockUser.name,
       locked_by_revision_id: null,
@@ -139,6 +144,7 @@ export const handlers = [
       updated_by_name: mockUser.name,
       locked_by_revision_id: null,
       ...body,
+      completed_at: body.completed_at ?? null,
     };
     return HttpResponse.json(updated);
   }),
@@ -152,7 +158,7 @@ export const handlers = [
     return HttpResponse.json(result);
   }),
 
-  http.get("/api/projects/:projectId/readiness", ({ params }) => {
+  http.get("/api/projects/:projectId/readiness", () => {
     const makeChecks = (): Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }> =>
       Object.fromEntries(
         CHECK_CODES.map((c) => [c, { status: "Not Started" as CheckStatus, notes: null, updated_at: null }]),
@@ -257,6 +263,10 @@ export const handlers = [
         stage: "approval",
         review_required: false,
         review_skipped: false,
+        decision_reason: null,
+        decision_by_name: null,
+        decision_at: null,
+        integrity_digest: "",
         reviewer_status: [],
         created_by_name: mockUser.name,
         created_at: "2026-05-25T10:00:00Z",
@@ -286,6 +296,10 @@ export const handlers = [
       stage: "approval",
       review_required: false,
       review_skipped: false,
+      decision_reason: null,
+      decision_by_name: null,
+      decision_at: null,
+      integrity_digest: "",
       reviewer_status: [],
       created_by_name: mockUser.name,
       created_at: "2026-05-25T10:00:00Z",
@@ -330,6 +344,10 @@ export const handlers = [
       stage: "approval",
       review_required: false,
       review_skipped: false,
+      decision_reason: null,
+      decision_by_name: null,
+      decision_at: null,
+      integrity_digest: "",
       reviewer_status: [],
       created_by_name: mockUser.name,
       created_at: new Date().toISOString(),
@@ -350,6 +368,10 @@ export const handlers = [
       stage: "approval",
       review_required: false,
       review_skipped: false,
+      decision_reason: null,
+      decision_by_name: null,
+      decision_at: null,
+      integrity_digest: "",
       reviewer_status: [],
       created_by_name: mockUser.name,
       created_at: "2026-05-25T10:00:00Z",

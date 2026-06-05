@@ -24,6 +24,7 @@ export function sideLabel(rev: { label: string | null; rev_number: number }): st
 }
 
 const STATUS_TAG: Record<Revision["status"], string> = {
+  pending_review: "in review",
   pending_approval: "pending",
   approved: "approved",
   discarded: "discarded",

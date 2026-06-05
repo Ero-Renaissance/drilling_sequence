@@ -212,6 +212,7 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     risk: r.risk,
     comment: r.comment,
     plan_type: r.plan_type,
+    completed_at: null,
     updated_at: "",
     updated_by_name: null,
     locked_by_revision_id: null,

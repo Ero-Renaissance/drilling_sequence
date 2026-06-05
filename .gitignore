@@ -13,6 +13,7 @@ dist/
 build/
 *.egg
 *.log
+*.tsbuildinfo
 *.pot
 *.mo
 *.sqlite3

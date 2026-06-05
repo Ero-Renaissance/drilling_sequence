@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { GitCompare } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   changesSinceApproved,
   compareRevisions,

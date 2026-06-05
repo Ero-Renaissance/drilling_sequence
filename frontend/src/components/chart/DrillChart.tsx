@@ -288,7 +288,7 @@ export function DrillChart({
       const rowH = (api.size!([0, 1]) as number[])[1];
       const barH = Math.min(26, Math.max(18, rowH * 0.42));
 
-      const coordSys = params.coordSys as {
+      const coordSys = params.coordSys as unknown as {
         x: number;
         y: number;
         width: number;
@@ -684,7 +684,7 @@ export function DrillChart({
       ],
 
       _chartHeight: chartHeight,
-    } as EChartsOption;
+    } as unknown as EChartsOption;
   }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
