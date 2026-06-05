@@ -354,11 +354,13 @@ model with IT:
 
 ### B.1 Prerequisites (native path)
 - [ ] **Windows Server 2019/2022** on the internal network.
-- [ ] **Python 3.11 (64-bit), specifically** from python.org — tick *"Add python.exe to
-      PATH"*. Use 3.11, **not** the newest release: the pinned dependencies (pydantic-core,
-      pyodbc, httptools/watchfiles) ship prebuilt wheels for 3.11; a brand-new Python (e.g.
-      3.14) often has no wheels yet, so `pip install` would try to compile from source.
-      `py -3.11` selects it even if other Pythons are installed.
+- [ ] **Python 3.11–3.14 (64-bit)** from python.org — tick *"Add python.exe to PATH"*.
+      Any of 3.11, 3.12, 3.13, or 3.14 works: every pinned dependency that carries a
+      compiled extension (pydantic-core 2.46.4, pyodbc **5.3.0**, asyncpg, httptools,
+      watchfiles) ships prebuilt `cp311`–`cp314` `win_amd64` wheels, so `pip install`
+      never needs a build toolchain. (pyodbc had to be bumped from 5.2.0 → 5.3.0 for
+      this: 5.2.0 stopped at `cp313` and would have forced a source build on 3.14.)
+      If several Pythons are installed, `py -3.14` (or `-3.11`, etc.) picks a specific one.
 - [ ] **Microsoft ODBC Driver 18 for SQL Server** (x64 MSI) — or **Driver 17** if that's
       what's already on the host; just match the `DATABASE_URL` driver name, and note
       Driver 17 defaults to `Encrypt=no` (add `Encrypt=yes` if you want TLS to SQL Server).
@@ -497,10 +499,10 @@ TLS — one process, inherently single-origin. It's run as a Windows service via
 **pywin32** (a pip package, no separate installer). Fine for an internal app at this
 scale; for high traffic, prefer Appendix B's IIS path.
 
-### C.1 Install the backend (Python 3.11 + pywin32)
-From `backend\` (see B.1's Python-3.11 note — **don't** use 3.14):
+### C.1 Install the backend (Python 3.11–3.14 + pywin32)
+From `backend\` (any Python 3.11–3.14 works — see B.1; `py -3.14` is fine on the host):
 ```bat
-py -3.11 -m venv .venv
+py -3.14 -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m pip install pywin32

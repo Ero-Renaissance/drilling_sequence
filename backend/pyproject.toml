@@ -18,11 +18,13 @@ dependencies = [
     # transition and should be dropped only after the MSSQL smoke test passes
     # (see docs/mssql-migration.md). aioodbc/pyodbc drive MSSQL via the system
     # Microsoft ODBC Driver 18 — NEW dependencies, flagged for IT review:
-    #   pyodbc  5.2.0  (MIT-0)      — C-extension; needs the OS ODBC driver at runtime
+    #   pyodbc  5.3.0  (MIT-0)      — C-extension; needs the OS ODBC driver at runtime
     #   aioodbc 0.5.0  (Apache-2.0) — async wrapper, pulls in pyodbc only
+    # pyodbc 5.3.0 ships cp310–cp314 win_amd64 wheels (5.2.0 stopped at cp313),
+    # so it installs cleanly on the host's Python 3.14 with no build toolchain.
     "asyncpg==0.31.0",
     "aioodbc==0.5.0",
-    "pyodbc==5.2.0",
+    "pyodbc==5.3.0",
     "alembic==1.18.4",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.1",
