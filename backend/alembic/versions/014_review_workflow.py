@@ -80,6 +80,34 @@ def upgrade() -> None:
     )
 
 
+def _drop_column(table: str, column: str) -> None:
+    """Portable DROP COLUMN.
+
+    SQL Server blocks DROP COLUMN while a DEFAULT or FOREIGN KEY constraint still
+    references the column (auto-named ``DF__``/``FK__``; errors 5074/4922), so drop
+    those first. On PostgreSQL/SQLite they travel with the column and a direct drop
+    works, so the preamble is MSSQL-only. Identifiers are fixed migration constants,
+    never user input.
+    """
+    if op.get_bind().dialect.name == "mssql":
+        op.execute(
+            f"DECLARE @c sysname; "
+            f"SELECT @c = dc.name FROM sys.default_constraints dc "
+            f"JOIN sys.columns col ON col.object_id = dc.parent_object_id "
+            f"AND col.column_id = dc.parent_column_id "
+            f"WHERE dc.parent_object_id = OBJECT_ID(N'{table}') AND col.name = N'{column}'; "
+            f"IF @c IS NOT NULL EXEC('ALTER TABLE [{table}] DROP CONSTRAINT [' + @c + ']'); "
+            f"SET @c = NULL; "
+            f"SELECT @c = fk.name FROM sys.foreign_keys fk "
+            f"JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id "
+            f"JOIN sys.columns col ON col.object_id = fkc.parent_object_id "
+            f"AND col.column_id = fkc.parent_column_id "
+            f"WHERE fk.parent_object_id = OBJECT_ID(N'{table}') AND col.name = N'{column}'; "
+            f"IF @c IS NOT NULL EXEC('ALTER TABLE [{table}] DROP CONSTRAINT [' + @c + ']');"
+        )
+    op.drop_column(table, column)
+
+
 def downgrade() -> None:
     op.drop_constraint(
         "uq_project_approver_email_kind", "project_approvers", type_="unique"
@@ -89,7 +117,7 @@ def downgrade() -> None:
         "project_approvers",
         ["project_id", "email"],
     )
-    op.drop_column("project_approvers", "kind")
-    op.drop_column("signatures", "stage")
-    op.drop_column("revisions", "review_required")
-    op.drop_column("projects", "review_policy")
+    _drop_column("project_approvers", "kind")
+    _drop_column("signatures", "stage")
+    _drop_column("revisions", "review_required")
+    _drop_column("projects", "review_policy")
