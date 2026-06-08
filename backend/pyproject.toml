@@ -26,7 +26,7 @@ dependencies = [
     "aioodbc==0.5.0",
     "pyodbc==5.3.0",
     "alembic==1.18.4",
-    "pydantic==2.13.4",
+    "pydantic[email]==2.13.4",
     "pydantic-settings==2.14.1",
     "fastapi-azure-auth==5.2.0",
     "python-multipart==0.0.29",
@@ -52,6 +52,9 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
