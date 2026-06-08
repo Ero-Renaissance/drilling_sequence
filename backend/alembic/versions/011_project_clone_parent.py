@@ -25,13 +25,15 @@ def upgrade() -> None:
         "projects",
         ["cloned_from_project_id"],
     )
+    # No ON DELETE action (NOT "SET NULL"): this is a self-referential FK, and SQL
+    # Server forbids SET NULL/CASCADE on a self-reference (cycle risk, error 1785).
+    # Projects are archived, not hard-deleted, so the action is never exercised.
     op.create_foreign_key(
         "fk_projects_cloned_from_project_id",
         "projects",
         "projects",
         ["cloned_from_project_id"],
         ["id"],
-        ondelete="SET NULL",
     )
 
 

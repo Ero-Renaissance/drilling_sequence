@@ -61,7 +61,11 @@ class Activity(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     locked_by_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("revisions.id", ondelete="SET NULL"), nullable=True
+        # No ondelete (NOT "SET NULL"): MSSQL forbids a SET NULL FK here due to multiple
+        # cascade paths (projects -> activities and projects -> revisions). Activities are
+        # unlocked in application code, never via a DB cascade. See migration 004.
+        ForeignKey("revisions.id"),
+        nullable=True,
     )
 
     project: Mapped["Project"] = relationship()  # type: ignore[name-defined]

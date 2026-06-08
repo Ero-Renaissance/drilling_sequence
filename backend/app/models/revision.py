@@ -35,8 +35,11 @@ class Revision(Base):
     )
     # Recorded when a revision is rejected or sent back for changes.
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # No ondelete (NOT "SET NULL"): created_by -> users is already SET NULL, and MSSQL
+    # rejects a second cascade path from revisions to users. Users are never hard-
+    # deleted (Azure AD sourced). See migration 009.
     decision_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id"), nullable=True
     )
     decision_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

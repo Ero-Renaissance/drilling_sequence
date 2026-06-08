@@ -49,7 +49,14 @@ def upgrade() -> None:
         sa.Column(
             "locked_by_revision_id",
             sa.Uuid(),
-            sa.ForeignKey("revisions.id", ondelete="SET NULL"),
+            # No ON DELETE action (NOT "SET NULL"): SQL Server (error 1785) rejects a
+            # SET NULL/CASCADE FK here because projects -> activities and
+            # projects -> revisions -> activities form multiple cascade paths. This is
+            # safe: revisions are never hard-deleted (discard is a status change) and
+            # activities are unlocked in app code (revisions._unlock_activities), so the
+            # DB-level SET NULL was only ever a never-exercised backstop. Keeping it
+            # actionless makes the schema portable across PostgreSQL/SQLite/MSSQL.
+            sa.ForeignKey("revisions.id"),
             nullable=True,
         ),
     )

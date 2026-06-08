@@ -53,10 +53,11 @@ class Project(Base):
     )
     # Set when this project was created by cloning another (e.g. Q2 cloned from
     # Q1). Lets quarter-to-quarter comparison resolve the prior sequence without
-    # the caller having to hunt for it. SET NULL so deleting the source doesn't
-    # cascade away the clone.
+    # the caller having to hunt for it. No ondelete (NOT "SET NULL"): this is a
+    # self-referential FK and SQL Server forbids SET NULL/CASCADE on a self-reference
+    # (error 1785). Projects are archived, not hard-deleted. See migration 011.
     cloned_from_project_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey("projects.id"), nullable=True, index=True
     )
     # Governs whether a revision must pass review before approval.
     # Plain string + Pydantic allow-list (ReviewPolicy) — not a DB enum — for

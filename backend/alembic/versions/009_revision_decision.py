@@ -25,13 +25,16 @@ def upgrade() -> None:
         "revisions",
         sa.Column("decision_at", sa.DateTime(timezone=True), nullable=True),
     )
+    # No ON DELETE action (NOT "SET NULL"): revisions.created_by -> users is already
+    # SET NULL (migration 004), and SQL Server (error 1785) rejects a second cascade
+    # path from the same table to the same parent. Users are sourced from Azure AD and
+    # never hard-deleted, so a DB-level SET NULL here is never exercised anyway.
     op.create_foreign_key(
         "fk_revisions_decision_by_users",
         "revisions",
         "users",
         ["decision_by"],
         ["id"],
-        ondelete="SET NULL",
     )
 
 
