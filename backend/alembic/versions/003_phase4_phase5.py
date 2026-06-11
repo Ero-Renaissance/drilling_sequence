@@ -23,7 +23,14 @@ def upgrade() -> None:
         sa.Column("check_code", sa.String(32), nullable=False),
         sa.Column("status", sa.String(32), nullable=False, server_default="Not Started"),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        # server_default mirrors the model (create_all): on MSSQL the table is built
+        # from this migration, so without it inserts that omit the column get NULL.
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.ForeignKeyConstraint(["activity_id"], ["activities.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("activity_id", "check_code", name="uq_readiness_activity_check"),
@@ -41,7 +48,14 @@ def upgrade() -> None:
         sa.Column("field", sa.String(128), nullable=False),
         sa.Column("old_value", sa.Text(), nullable=True),
         sa.Column("new_value", sa.Text(), nullable=True),
-        sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
+        # server_default mirrors the model (create_all): without it, NOT NULL +
+        # no default means every audit insert fails on MSSQL (NULL into timestamp).
+        sa.Column(
+            "timestamp",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
@@ -53,7 +67,14 @@ def upgrade() -> None:
         "project_viewers",
         sa.Column("project_id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
+        # server_default mirrors the model (create_all): NOT NULL + no default makes
+        # presence inserts fail on MSSQL otherwise.
+        sa.Column(
+            "last_seen_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("project_id", "user_id"),
