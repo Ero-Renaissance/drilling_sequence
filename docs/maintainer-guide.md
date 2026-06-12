@@ -218,6 +218,23 @@ Run all four quality gates (§5) before committing.
 - **Tests don't run migrations** — they build the schema from the models via
   `Base.metadata.create_all` on SQLite. So a migration bug won't fail the test suite;
   review migrations by hand and verify against a real server DB.
+- **Migration↔model drift is partly guarded:** `tests/test_migration_model_parity.py`
+  replays the migrations offline (no DB — they can't run on SQLite) and fails if a model
+  column declares a `server_default` the migration omits. That's the class of bug that
+  crashed every write on MSSQL: a `NOT NULL` column with no DB default, which the ORM
+  omits from `INSERT` expecting the database to fill it. The test does **not** compare
+  column *types/lengths* or *nullability* (those yield false positives on primary keys
+  and on dialect-specific type rendering), so review those by hand.
+- **Known benign model↔migration inconsistencies** — the deployed DB is wider/looser
+  than the model in a few spots. All harmless (every model value fits; no write is
+  rejected) and intentionally left as-is — the model lengths were never enforced caps:
+  - `audit_logs.old_value` / `new_value`, `activities.comment`, `readiness_checks.notes`
+    — model `String(512)`, DB `TEXT`.
+  - `audit_logs.field` — model `String(64)`, DB `VARCHAR(128)`.
+  - `readiness_checks.check_code` — model `String(16)`, DB `VARCHAR(32)`
+    (the column is in a unique constraint but stays bounded, so still indexable).
+  - `readiness_checks.updated_at` — model `NOT NULL`, DB nullable (in practice always
+    populated by its `server_default`).
 - **Portability rules (the app must run on MSSQL and SQLite/Postgres):**
   - Timestamp defaults: `sa.func.now()` (dialect-translated), **not**
     `sa.text("now()")`.
