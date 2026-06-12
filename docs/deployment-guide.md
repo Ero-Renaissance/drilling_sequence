@@ -361,9 +361,10 @@ model with IT:
       never needs a build toolchain. (pyodbc had to be bumped from 5.2.0 → 5.3.0 for
       this: 5.2.0 stopped at `cp313` and would have forced a source build on 3.14.)
       If several Pythons are installed, `py -3.14` (or `-3.11`, etc.) picks a specific one.
-- [ ] **Microsoft ODBC Driver 18 for SQL Server** (x64 MSI) — or **Driver 17** if that's
-      what's already on the host; just match the `DATABASE_URL` driver name, and note
-      Driver 17 defaults to `Encrypt=no` (add `Encrypt=yes` if you want TLS to SQL Server).
+- [ ] **Microsoft ODBC Driver 17 for SQL Server** (x64 MSI) — or **Driver 18** if that's
+      what's already on the host; just match the `DATABASE_URL` driver name. Note Driver 17
+      defaults to `Encrypt=no` (Driver 18 defaults to `Encrypt=yes`), so the `DATABASE_URL`
+      below sets `Encrypt=yes` explicitly to force TLS regardless of which driver is installed.
 - [ ] **IIS (Web Server role)** — not installed by default on Server; add it first
       (B.6 step 1) — plus the **URL Rewrite 2.1** and **Application Request Routing
       (ARR) 3.0** modules (both free from Microsoft).
@@ -387,11 +388,11 @@ Create `backend\.env` with the keys from §4a. For `DATABASE_URL`, use the auth 
 IT chose:
 ```ini
 :: (a) SQL login + password — URL-encode special characters in the password:
-DATABASE_URL=mssql+aioodbc://<DB_USER>:<DB_PASS>@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
+DATABASE_URL=mssql+aioodbc://<DB_USER>:<DB_PASS>@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
 
 :: (b) Windows / Integrated auth — NO password stored; the service account running
 ::     the app must be the SQL principal with access. Note the empty credentials (@):
-DATABASE_URL=mssql+aioodbc://@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&Trusted_Connection=yes&Encrypt=yes&TrustServerCertificate=no
+DATABASE_URL=mssql+aioodbc://@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=yes&Encrypt=yes&TrustServerCertificate=no
 ```
 Lock down the secret file (the Windows equivalent of `chmod 600`):
 ```bat

@@ -66,10 +66,10 @@ Portable types map cleanly:
 ```python
 # from:
 database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/drilling_sequence"
-# to (async MSSQL via aioodbc → pyodbc → ODBC Driver 18):
+# to (async MSSQL via aioodbc → pyodbc → ODBC Driver 17):
 database_url: str = (
     "mssql+aioodbc://USER:PASS@HOST:1433/drilling_sequence"
-    "?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no"
+    "?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no"
 )
 ```
 Keep this as an env var (`DATABASE_URL`) so Postgres/SQLite still work for local

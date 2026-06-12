@@ -69,7 +69,7 @@ drilling_sequence/
   `fastapi-azure-auth`. ASGI server: uvicorn.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind, Radix UI, zustand, ECharts
   (`echarts-for-react`), React Router.
-- **DB:** MSSQL in prod (via `aioodbc`/`pyodbc` + ODBC Driver 18); SQLite
+- **DB:** MSSQL in prod (via `aioodbc`/`pyodbc` + ODBC Driver 17 or 18); SQLite
   (`aiosqlite`) for dev/tests. Postgres (`asyncpg`) retained through the MSSQL
   transition only — see `mssql-migration.md`.
 - **Auth:** Microsoft Entra ID (Azure AD) SSO; MSAL on the frontend.
