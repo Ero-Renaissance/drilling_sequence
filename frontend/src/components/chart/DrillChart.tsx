@@ -16,6 +16,7 @@ import {
 } from "@/lib/check-icon-svg";
 import {
   classifyContract,
+  daysUntilExpiry,
   isCompletedUrgency,
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
@@ -474,7 +475,24 @@ export function DrillChart({
 
     // Contract-expiry markers: one per rig with an in-force contract that has an end
     // date, placed at that date along the rig's row (replaces the old Y-axis alarm).
-    const contractMarkers: { value: [number, number]; hex: string }[] = [];
+    // Each marker carries a tooltip payload — rig, formatted expiry date,
+    // days-remaining and contract-status label — surfaced on hover.
+    const fmtExpiry = (iso: string) => {
+      const [yy, mm, dd] = iso.slice(0, 10).split("-").map(Number);
+      const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${dd} ${MONTHS[mm - 1]} ${yy}`;
+    };
+    const relExpiry = (days: number) => {
+      if (days === 0) return "today";
+      if (days > 0) return `in ${days} day${days === 1 ? "" : "s"}`;
+      const n = -days;
+      return `${n} day${n === 1 ? "" : "s"} ago`;
+    };
+    const contractMarkers: {
+      value: [number, number];
+      hex: string;
+      contract: { rig: string; date: string; rel: string; status: string };
+    }[] = [];
     if (contractsByRig) {
       categories.forEach((cat, i) => {
         const rig = categoryToRig.get(cat);
@@ -484,6 +502,12 @@ export function DrillChart({
           contractMarkers.push({
             value: [new Date(contract.contract_end).getTime(), i],
             hex: URGENCY_VISUAL[urgency].hex,
+            contract: {
+              rig: rig ?? "—",
+              date: fmtExpiry(contract.contract_end),
+              rel: relExpiry(daysUntilExpiry(contract) ?? 0),
+              status: URGENCY_VISUAL[urgency].label,
+            },
           });
         }
       });
@@ -530,7 +554,9 @@ export function DrillChart({
         formatter: (p: unknown) => {
           const params = p as {
             data: {
-              tooltip: {
+              hex?: string;
+              contract?: { rig: string; date: string; rel: string; status: string };
+              tooltip?: {
                 activity: string;
                 well: string | null;
                 rig: string | null;
@@ -542,11 +568,34 @@ export function DrillChart({
               };
             };
           };
-          const t = params.data.tooltip;
+          // Contextually HTML-encode any data-supplied text (rig / well / activity
+          // names) before it lands in the tooltip's innerHTML — a stored value is
+          // not trusted just because it round-tripped the database.
+          const esc = (s: string) =>
+            s.replace(
+              /[&<>"']/g,
+              (ch) =>
+                ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] as string,
+            );
           const row = (label: string, val: string | null) =>
             val
-              ? `<div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">${label}</span><span style="font-weight:500">${val}</span></div>`
+              ? `<div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">${label}</span><span style="font-weight:500">${esc(val)}</span></div>`
               : "";
+
+          // Contract-expiry clock marker → a rig / date / urgency card.
+          const c = params.data.contract;
+          if (c) {
+            return `
+              <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">Contract expiry</div>
+              ${row("Rig", c.rig)}
+              ${row("Expires", c.date)}
+              <div style="display:flex;gap:8px;margin-top:2px"><span style="min-width:60px"></span><span style="color:${theme.tooltipMuted}">${esc(c.rel)}</span></div>
+              <div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">Status</span><span style="font-weight:600;color:${params.data.hex ?? theme.tooltipText}">${esc(c.status)}</span></div>
+            `;
+          }
+
+          const t = params.data.tooltip;
+          if (!t) return "";
 
           let checksHtml = "";
           if (t.checks) {
@@ -570,7 +619,7 @@ export function DrillChart({
           }
 
           return `
-            <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">${t.activity}</div>
+            <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">${esc(t.activity)}</div>
             ${row("Well", t.well)}
             ${row("Rig", t.rig)}
             ${row("Start", t.start)}
@@ -676,7 +725,9 @@ export function DrillChart({
           // zoom window so off-screen expiries simply don't show.
           type: "custom",
           z: 6,
-          silent: true,
+          // Not silent: the markers feed the item tooltip, so hovering a clock
+          // surfaces the rig, expiry date, days-remaining and contract status.
+          silent: false,
           clip: true,
           renderItem: renderContractMarker,
           data: contractMarkers,
