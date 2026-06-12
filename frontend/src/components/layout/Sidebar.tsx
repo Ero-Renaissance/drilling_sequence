@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, Settings, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, FolderKanban, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -9,10 +9,6 @@ const primaryNav = [
 ];
 
 const adminNav = { to: "/admin", label: "Admin", icon: ShieldCheck };
-
-const secondaryNav = [
-  { to: "/settings", label: "Settings", icon: Settings },
-];
 
 function BrandMark() {
   return (
@@ -89,14 +85,6 @@ export function Sidebar() {
           {isAdmin && <NavItem {...adminNav} />}
         </div>
       </nav>
-
-      <div className="px-2.5 pb-3">
-        <div className="space-y-0.5">
-          {secondaryNav.map((item) => (
-            <NavItem key={item.to} {...item} />
-          ))}
-        </div>
-      </div>
     </aside>
   );
 }

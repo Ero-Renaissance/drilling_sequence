@@ -6,7 +6,6 @@ import { useProjectsStore } from "@/store/projects";
 const STATIC_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   projects: "Projects",
-  settings: "Settings",
   chart: "Sequence",
   data: "Activities",
   readiness: "Readiness",
