@@ -394,6 +394,27 @@ export function DrillChart({
         });
       }
 
+      // The well's project, as a small muted label just above the bar — gated on
+      // bar width (like the well-name label) so it never overlaps on narrow bars.
+      const project = api.value(8) as string | null;
+      if (project && clippedBar.width >= 36) {
+        children.push({
+          type: "text",
+          silent: true,
+          style: {
+            text: project,
+            x: clippedBar.x + 2,
+            y: clippedBar.y - 1,
+            align: "left",
+            verticalAlign: "bottom",
+            fill: theme.axisLabel,
+            fontSize: 9,
+            width: clippedBar.width - 2,
+            overflow: "truncate",
+          },
+        });
+      }
+
       // Readiness icon strip below the bar — 4 adaptive tiers by bar width.
       // Thresholds tuned for the 8-icon set (7 readiness gates + CON).
       //   ≥ 135px → 8 full-size icons (14px) in a single row

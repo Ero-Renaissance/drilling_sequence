@@ -9,7 +9,7 @@ export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }
 export interface ChartDataItem {
   activityId: string;
   name: string;
-  value: [number, number, number, string, string | null, string | null, string | null, string | null];
+  value: [number, number, number, string, string | null, string | null, string | null, string | null, string | null];
   itemStyle: { color: string; borderRadius: number };
   label: { show: boolean; formatter: string; color: string; fontSize: number };
   tooltip: {
@@ -90,7 +90,7 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
     return {
       activityId: a.id,
       name: a.activity_type,
-      value: [yIndex, startMs, endMs, a.activity_type, a.well_name, a.rig_name, a.plan_type, a.risk],
+      value: [yIndex, startMs, endMs, a.activity_type, a.well_name, a.rig_name, a.plan_type, a.risk, a.well_project],
       itemStyle: { color, borderRadius: 3 },
       label: {
         show: durationDays >= 10,

@@ -64,6 +64,7 @@ export interface PrintRow {
   start_date: string;
   end_date: string;
   well_name: string | null;
+  well_project: string | null;
   rig_name: string | null;
   location: string | null; // terrain (LAND / SWAMP / OFFSHORE)
   plan_type: string | null;
@@ -332,7 +333,7 @@ function StaticGantt({
                           return (
                             <Fragment key={a.id}>
                               <span
-                                title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}`}
+                                title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
                                 className={cn(
                                   "absolute flex items-center justify-center gap-1 overflow-hidden rounded px-1 font-semibold text-white",
                                   showReadiness ? "top-1 h-5 text-[7px]" : "top-1/2 h-6 -translate-y-1/2 text-[6.5px]",
@@ -495,12 +496,12 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
               head every page of the table. */}
           <thead>
             <tr>
-              <td colSpan={10} className="pb-2 pt-1">
+              <td colSpan={11} className="pb-2 pt-1">
                 <ReadinessKey />
               </td>
             </tr>
             <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">
-              {["#", "Activity", "Well", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
+              {["#", "Activity", "Well", "Project", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
                 <th key={h} className="px-1.5 py-1">{h}</th>
               ))}
             </tr>
@@ -511,6 +512,7 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
                 <td className="px-1.5 py-1 tabular-nums font-semibold text-foreground">{index.get(r.id)}</td>
                 <td className="px-1.5 py-1 font-medium text-foreground">{r.activity_type}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.well_name ?? "—"}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{r.well_project ?? "—"}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.location ?? "—"}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.rig_name ?? "—"}</td>
                 <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.start_date)}</td>

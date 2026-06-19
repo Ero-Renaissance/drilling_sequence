@@ -69,6 +69,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             "start_date": a.start_date.isoformat(),
             "end_date": a.end_date.isoformat(),
             "well_name": a.well_name,
+            "well_project": a.well_project,
             "rig_name": a.rig_name,
             "location": a.location,
             "plan_type": a.plan_type,

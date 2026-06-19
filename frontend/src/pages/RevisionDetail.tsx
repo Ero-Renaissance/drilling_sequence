@@ -59,6 +59,7 @@ interface SnapshotRow {
   start_date: string;
   end_date: string;
   well_name: string | null;
+  well_project: string | null;
   rig_name: string | null;
   location: string | null;
   plan_type: string | null;
@@ -207,7 +208,7 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     end_date: r.end_date,
     well_name: r.well_name,
     rig_name: r.rig_name,
-    well_project: null,
+    well_project: r.well_project ?? null,
     project_group: null,
     location: r.location,
     risk: r.risk,
@@ -269,6 +270,7 @@ function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
                   "Start",
                   "End",
                   "Well",
+                  "Project",
                   "Rig",
                   "Location",
                   "Plan Type",
@@ -298,6 +300,7 @@ function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
                   <td className="px-3 py-2 text-muted-foreground">{row.start_date}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.end_date}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.well_name ?? "—"}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{row.well_project ?? "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.rig_name ?? "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.location ?? "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{row.plan_type ?? "—"}</td>
