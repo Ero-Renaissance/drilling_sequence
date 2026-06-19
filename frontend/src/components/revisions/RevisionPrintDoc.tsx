@@ -8,7 +8,7 @@
  */
 import { Fragment } from "react";
 import { AlarmClock } from "lucide-react";
-import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR } from "@/components/readiness/check-meta";
+import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
 import {
   classifyContract,
@@ -332,35 +332,46 @@ function StaticGantt({
                           const iconCenter = Math.min(90, Math.max(10, (l + r) / 2));
                           return (
                             <Fragment key={a.id}>
-                              <span
-                                title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
-                                className={cn(
-                                  "absolute flex items-center justify-center gap-1 overflow-hidden rounded px-1 font-semibold text-white",
-                                  showReadiness ? "top-1 h-5 text-[7px]" : "top-1/2 h-6 -translate-y-1/2 text-[6.5px]",
-                                )}
-                                style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
-                              >
-                                {showReadiness ? (
-                                  // No schedule table on this print, so the number is
-                                  // pointless — show the well name instead, sized to fit.
-                                  a.well_name ? <span className="truncate">{a.well_name}</span> : null
-                                ) : (
-                                  <>
-                                    <span className="shrink-0 tabular-nums">{n}</span>
-                                    {showName && (
-                                      <span className="truncate font-medium opacity-90">{a.well_name}</span>
-                                    )}
-                                  </>
-                                )}
-                              </span>
-                              {/* Readiness strip beneath the bar — fixed size, all 8 gates,
-                                  centred on the bar so it never truncates regardless of bar width. */}
-                              {showReadiness && (
+                              {showReadiness ? (
+                                <>
+                                  {/* Project label above the bar (muted), like the live Sequence
+                                      chart. Dark-on-white so the full project reads; only shown
+                                      when the well belongs to a project. */}
+                                  {a.well_project && (
+                                    <span
+                                      className="pointer-events-none absolute top-0 whitespace-nowrap text-[6px] leading-none text-muted-foreground"
+                                      style={{ left: `${l}%` }}
+                                    >
+                                      {a.well_project}
+                                    </span>
+                                  )}
+                                  {/* Colored bar with the well name inside, at a small font so it
+                                      fits a narrow bar (truncates only when genuinely too long). */}
+                                  <span
+                                    title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
+                                    className="absolute top-[0.55rem] flex h-[0.95rem] items-center justify-center overflow-hidden rounded px-0.5 text-[6px] font-medium text-white"
+                                    style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
+                                  >
+                                    {a.well_name ? <span className="truncate">{a.well_name}</span> : null}
+                                  </span>
+                                  {/* Readiness strip beneath the bar — fixed size, all 8 gates. */}
+                                  <span
+                                    className="pointer-events-none absolute top-[1.75rem] -translate-x-1/2"
+                                    style={{ left: `${iconCenter}%` }}
+                                  >
+                                    <ReadinessIcons readiness={a.readiness} />
+                                  </span>
+                                </>
+                              ) : (
                                 <span
-                                  className="pointer-events-none absolute top-[1.55rem] -translate-x-1/2"
-                                  style={{ left: `${iconCenter}%` }}
+                                  title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
+                                  className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center justify-center gap-1 overflow-hidden rounded px-1 text-[6.5px] font-semibold text-white"
+                                  style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
                                 >
-                                  <ReadinessIcons readiness={a.readiness} />
+                                  <span className="shrink-0 tabular-nums">{n}</span>
+                                  {showName && (
+                                    <span className="truncate font-medium opacity-90">{a.well_name}</span>
+                                  )}
                                 </span>
                               )}
                             </Fragment>
@@ -455,7 +466,7 @@ function ReadinessKey() {
         {STATUSES.map((s) => (
           <span key={s} className="inline-flex items-center gap-1">
             <span className={cn("inline-block h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
-            {s}
+            {STATUS_LABEL[s]}
           </span>
         ))}
       </div>
