@@ -16,6 +16,7 @@ export interface ChartDataItem {
     activity: string;
     well: string | null;
     rig: string | null;
+    project: string | null;
     start: string;
     end: string;
     plan: string | null;
@@ -101,6 +102,7 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
         activity: a.activity_type,
         well: a.well_name,
         rig: a.rig_name,
+        project: a.well_project,
         start: a.start_date,
         end: a.end_date,
         plan: a.plan_type,

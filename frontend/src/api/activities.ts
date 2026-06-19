@@ -8,6 +8,7 @@ export interface Activity {
   end_date: string;
   well_name: string | null;
   rig_name: string | null;
+  well_project: string | null;
   project_group: string | null;
   location: string | null;
   risk: string | null;
@@ -19,9 +20,17 @@ export interface Activity {
   locked_by_revision_id: string | null;
 }
 
+export interface SkippedRow {
+  well: string;
+  reason: string;
+}
+
 export interface ImportResult {
   imported: number;
   replaced: boolean;
+  skipped: number;
+  skipped_rows: SkippedRow[];
+  warnings: string[];
 }
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -35,6 +44,7 @@ export interface ActivityCreate {
   end_date: string;
   well_name?: string | null;
   rig_name?: string | null;
+  well_project?: string | null;
   project_group?: string | null;
   location?: string | null;
   risk?: string | null;
@@ -138,7 +148,15 @@ export async function importActivities(
   );
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(body.detail ?? "Import failed");
+    const detail = body.detail;
+    // The importer returns a structured detail ({ message, errors: [...] }) on a
+    // validation rejection — surface the per-row errors instead of "[object Object]".
+    if (detail && typeof detail === "object") {
+      const rows: string[] = Array.isArray(detail.errors) ? detail.errors : [];
+      const msg = detail.message ?? "Import failed";
+      throw new Error(rows.length ? `${msg}\n${rows.map((e) => `• ${e}`).join("\n")}` : msg);
+    }
+    throw new Error(typeof detail === "string" ? detail : "Import failed");
   }
   return resp.json();
 }

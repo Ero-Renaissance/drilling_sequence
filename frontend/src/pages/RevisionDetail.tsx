@@ -207,6 +207,7 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     end_date: r.end_date,
     well_name: r.well_name,
     rig_name: r.rig_name,
+    well_project: null,
     project_group: null,
     location: r.location,
     risk: r.risk,

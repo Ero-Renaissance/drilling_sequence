@@ -560,6 +560,7 @@ export function DrillChart({
                 activity: string;
                 well: string | null;
                 rig: string | null;
+                project: string | null;
                 start: string;
                 end: string;
                 plan: string | null;
@@ -622,6 +623,7 @@ export function DrillChart({
             <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">${esc(t.activity)}</div>
             ${row("Well", t.well)}
             ${row("Rig", t.rig)}
+            ${row("Project", t.project)}
             ${row("Start", t.start)}
             ${row("End", t.end)}
             ${row("Plan", t.plan)}

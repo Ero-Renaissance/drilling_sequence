@@ -71,6 +71,7 @@ export const handlers = [
         well_name: "Well-A1",
         rig_name: "Rig Alpha",
         location: "OFFSHORE",
+        well_project: null,
         project_group: null,
         risk: null,
         comment: null,
@@ -89,6 +90,7 @@ export const handlers = [
         well_name: "Well-B2",
         rig_name: "Rig Beta",
         location: "LAND",
+        well_project: null,
         project_group: null,
         risk: null,
         comment: null,
@@ -113,6 +115,7 @@ export const handlers = [
       well_name: body.well_name ?? null,
       rig_name: body.rig_name ?? null,
       location: body.location ?? null,
+      well_project: null,
       project_group: null,
       risk: body.risk ?? null,
       comment: body.comment ?? null,
@@ -136,6 +139,7 @@ export const handlers = [
       well_name: "Well-A1",
       rig_name: "Rig Alpha",
       location: "OFFSHORE",
+      well_project: null,
       project_group: null,
       risk: null,
       comment: null,
@@ -154,7 +158,7 @@ export const handlers = [
   ),
 
   http.post("/api/projects/:projectId/activities/import", () => {
-    const result: ImportResult = { imported: 2, replaced: true };
+    const result: ImportResult = { imported: 2, replaced: true, skipped: 0, skipped_rows: [], warnings: [] };
     return HttpResponse.json(result);
   }),
 

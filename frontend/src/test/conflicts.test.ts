@@ -11,6 +11,7 @@ function act(overrides: Partial<Activity>): Activity {
     end_date: "2026-01-31",
     well_name: null,
     rig_name: "Rig Alpha",
+    well_project: null,
     project_group: null,
     location: null,
     risk: null,

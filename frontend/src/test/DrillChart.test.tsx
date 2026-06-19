@@ -17,8 +17,10 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import type { Activity } from "@/api/activities";
+import { http, HttpResponse } from "msw";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { ImportDialog } from "@/components/chart/ImportDialog";
+import { server } from "./mocks/server";
 
 const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 
@@ -31,6 +33,7 @@ const MOCK_ACTIVITIES: Activity[] = [
     end_date: "2026-03-31",
     well_name: "Well-A1",
     rig_name: "Rig Alpha",
+    well_project: null,
     location: "OFFSHORE",
     project_group: null,
     risk: null,
@@ -49,6 +52,7 @@ const MOCK_ACTIVITIES: Activity[] = [
     end_date: "2026-06-30",
     well_name: "Well-B2",
     rig_name: "Rig Beta",
+    well_project: null,
     location: "LAND",
     project_group: null,
     risk: null,
@@ -215,5 +219,32 @@ describe("ImportDialog", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalled();
     clickSpy.mockRestore();
+  });
+
+  it("shows a results summary listing skipped wells on a partial import", async () => {
+    server.use(
+      http.post("/api/projects/:projectId/activities/import", () =>
+        HttpResponse.json({
+          imported: 1,
+          replaced: true,
+          skipped: 1,
+          skipped_rows: [{ well: "WELL_BAD", reason: "end date is before start date" }],
+          warnings: [],
+        }),
+      ),
+    );
+    const onImported = vi.fn();
+    renderDialog(onImported);
+    await userEvent.click(screen.getByRole("button", { name: /import csv/i }));
+    await userEvent.upload(
+      screen.getByTestId("file-input"),
+      new File(["x"], "schedule.csv", { type: "text/csv" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^import$/i }));
+
+    await waitFor(() => expect(screen.getByText("WELL_BAD")).toBeInTheDocument());
+    expect(screen.getByText("end date is before start date")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /download skipped/i })).toBeInTheDocument();
+    expect(onImported).toHaveBeenCalledWith(1);
   });
 });

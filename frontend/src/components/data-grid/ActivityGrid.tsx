@@ -94,9 +94,8 @@ function relativeTime(iso: string | undefined): string {
 function RiskChip({ value }: { value: string | null }) {
   if (!value) return <span className="text-xs italic text-muted-foreground/60">—</span>;
   const map: Record<string, string> = {
-    Low: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25",
-    Medium: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30",
-    High: "bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30",
+    "Flood Risk": "bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30",
+    "No Flood Risk": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25",
   };
   return (
     <span
@@ -430,6 +429,17 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
             value={getValue() ?? null}
             readOnly={!!row.original.locked_by_revision_id}
             onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_name", v)}
+          />
+        ),
+      }),
+      helper.accessor("well_project", {
+        header: "Project",
+        size: 130,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() ?? null}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_project", v)}
           />
         ),
       }),
