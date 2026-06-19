@@ -93,18 +93,28 @@ function relativeTime(iso: string | undefined): string {
 
 function RiskChip({ value }: { value: string | null }) {
   if (!value) return <span className="text-xs italic text-muted-foreground/60">—</span>;
-  const map: Record<string, string> = {
-    "Flood Risk": "bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30",
-    "No Flood Risk": "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25",
+  // Short labels — the "Risk" column header already gives the context, so "Flood" /
+  // "No flood" keeps the pill on one line without widening an already-wide table.
+  // The full values still show in the edit dropdown and the chart tooltip.
+  const meta: Record<string, { label: string; cls: string }> = {
+    "Flood Risk": {
+      label: "Flood",
+      cls: "bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30",
+    },
+    "No Flood Risk": {
+      label: "No flood",
+      cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25",
+    },
   };
+  const m = meta[value];
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-        map[value] ?? "bg-muted text-muted-foreground",
+        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium",
+        m?.cls ?? "bg-muted text-muted-foreground",
       )}
     >
-      {value}
+      {m?.label ?? value}
     </span>
   );
 }
