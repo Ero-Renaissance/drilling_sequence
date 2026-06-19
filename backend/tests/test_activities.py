@@ -55,13 +55,13 @@ async def test_create_activity_full(client: AsyncClient) -> None:
         client, project["id"],
         comment="Phase 1 drilling",
         plan_type="Firm",
-        risk="Medium",
+        risk="Flood Risk",
     )
     assert activity["well_name"] == "Well-A1"
     assert activity["rig_name"] == "Rig Alpha"
     assert activity["location"] == "OFFSHORE"
     assert activity["plan_type"] == "Firm"
-    assert activity["risk"] == "Medium"
+    assert activity["risk"] == "Flood Risk"
 
 
 @pytest.mark.asyncio

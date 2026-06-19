@@ -63,13 +63,13 @@ async def test_dashboard_empty_project(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_dashboard_counts(client: AsyncClient) -> None:
     pid = await _project(client, "Counts")
-    # overdue (past, not completed), High risk
+    # overdue (past, not completed), Flood risk
     await _activity(
-        client, pid, rig="R1", start=TODAY - timedelta(days=60), end=TODAY - timedelta(days=10), risk="High"
+        client, pid, rig="R1", start=TODAY - timedelta(days=60), end=TODAY - timedelta(days=10), risk="Flood Risk"
     )
-    # near-term, no readiness → starting_soon + near_term_not_ready; High risk
+    # near-term, no readiness → starting_soon + near_term_not_ready; Flood risk
     await _activity(
-        client, pid, rig="R2", start=TODAY + timedelta(days=20), end=TODAY + timedelta(days=50), risk="High"
+        client, pid, rig="R2", start=TODAY + timedelta(days=20), end=TODAY + timedelta(days=50), risk="Flood Risk"
     )
     # far-future → ignored by near-term metrics
     await _activity(client, pid, rig="R3", start=TODAY + timedelta(days=400), end=TODAY + timedelta(days=450))
@@ -88,8 +88,8 @@ async def test_dashboard_counts(client: AsyncClient) -> None:
     assert d["activities"]["overdue"] == 1
     assert d["activities"]["starting_soon"] == 1  # only R2 (R4 completed)
     assert d["rigs"]["conflicts"] == 1
-    assert d["risk"]["high"] == 2
-    assert d["risk"]["high_near_term"] == 1  # R2 (R1 is past, not near-term)
+    assert d["risk"]["flood"] == 2
+    assert d["risk"]["flood_near_term"] == 1  # R2 (R1 is past, not near-term)
     assert d["watchlist"]["near_term_not_ready"] == 1
     assert d["watchlist"]["overdue"] == 1
     assert d["approval"]["current_status"] == "draft"

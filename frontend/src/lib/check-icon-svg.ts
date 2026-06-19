@@ -11,10 +11,11 @@
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 
 const LUCIDE_PATHS: Record<CheckCode, string> = {
-  BUD: `
-    <rect width="20" height="12" x="2" y="6" rx="2"/>
-    <circle cx="12" cy="12" r="2"/>
-    <path d="M6 12h.01M18 12h.01"/>
+  FDP: `
+    <path d="m12 8 6-3-6-3v10"/>
+    <path d="m8 11.99-5.5 3.14a1 1 0 0 0 0 1.74l8.5 4.86a2 2 0 0 0 2 0l8.5-4.86a1 1 0 0 0 0-1.74L16 12"/>
+    <path d="m6.49 12.85 11.02 6.3"/>
+    <path d="M17.51 12.85 6.5 19.15"/>
   `,
   LLI: `
     <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
@@ -27,6 +28,13 @@ const LUCIDE_PATHS: Record<CheckCode, string> = {
     <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
     <circle cx="12" cy="10" r="3"/>
   `,
+  FE: `
+    <circle cx="12" cy="5" r="2"/>
+    <path d="m3 21 8.02-14.26"/>
+    <path d="m12.99 6.74 1.93 3.44"/>
+    <path d="M19 12c-3.87 4-10.13 4-14 0"/>
+    <path d="m21 21-2.16-3.84"/>
+  `,
   FID: `
     <path d="m14.5 12.5-8 8a2.119 2.119 0 1 1-3-3l8-8"/>
     <path d="m16 16 6-6"/>
@@ -38,13 +46,10 @@ const LUCIDE_PATHS: Record<CheckCode, string> = {
     <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
     <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
   `,
-  FLOOD: `
-    <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-    <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-    <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
-  `,
-  SUBS: `
-    <path d="m8 3 4 8 5-5 5 15H2L8 3z"/>
+  BUD: `
+    <rect width="20" height="12" x="2" y="6" rx="2"/>
+    <circle cx="12" cy="12" r="2"/>
+    <path d="M6 12h.01M18 12h.01"/>
   `,
   CON: `
     <path d="m18 5-2.414-2.414A2 2 0 0 0 14.172 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2"/>

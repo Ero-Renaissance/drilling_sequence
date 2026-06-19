@@ -326,7 +326,7 @@ export const handlers = [
           plan_type: "Firm",
           risk: null,
           comment: null,
-          readiness: { BUD: "Completed", LLI: "In Progress", LOC: "Not Started", FID: "Not Started", EIA: "Not Started", FLOOD: "N/A", SUBS: "Not Started" },
+          readiness: { FDP: "Not Started", LLI: "In Progress", LOC: "Not Started", FE: "N/A", FID: "Not Started", EIA: "Not Started", BUD: "Completed" },
         },
       ]),
     };

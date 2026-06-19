@@ -88,9 +88,10 @@ logic against these active business rules:
   to start if `dev_mode=True` or if `azure_tenant_id` / `azure_client_id` are
   missing. Never weaken this guard or introduce a dev-mode auth bypass that can
   reach prod.
-- **Domain integrity:** readiness codes (BUD/LLI/LOC/FID/EIA/FLOOD/SUBS), plan
-  types, and contract-expiry semantics are oil & gas specific — validate against
-  the canonical enums, don't accept free-form equivalents.
+- **Domain integrity:** readiness codes (FDP/LLI/LOC/FE/FID/EIA/BUD + the derived
+  CON contract gate), the flood-risk classification (Flood Risk / No Flood Risk),
+  plan types, and contract-expiry semantics are oil & gas specific — validate
+  against the canonical enums, don't accept free-form equivalents.
 <!-- END OF BUSINESS CONSTRAINTS -->
 
 # DEPENDENCY & SUPPLY-CHAIN GOVERNANCE

@@ -290,7 +290,7 @@ This app must pass IT security review, so dependencies are treated as liabilitie
   422)** and both unlocking the revision's activities:
   `rejected` (terminal) and `changes_requested` (back for revision). Only valid while
   the revision is `pending`.
-- Readiness codes (BUD/LLI/LOC/FID/EIA/FLOOD/SUBS/CON), plan types, and contract
+- Readiness codes (FDP/LLI/LOC/FE/FID/EIA/BUD/CON), plan types, and contract
   semantics are domain enums — validate against the canonical lists, don't accept
   free-form equivalents.
 

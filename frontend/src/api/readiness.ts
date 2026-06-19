@@ -1,6 +1,6 @@
 import { getAccessToken } from "@/lib/auth";
 
-export const CHECK_CODES = ["BUD", "LLI", "LOC", "FID", "EIA", "FLOOD", "SUBS", "CON"] as const;
+export const CHECK_CODES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"] as const;
 export type CheckCode = (typeof CHECK_CODES)[number];
 export type CheckStatus = "Not Started" | "In Progress" | "Completed" | "Behind" | "N/A";
 

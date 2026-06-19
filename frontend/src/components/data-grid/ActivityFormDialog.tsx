@@ -20,7 +20,7 @@ import { suggestedActivityTypes } from "@/lib/chart-colors";
 
 const LOCATIONS = ["LAND", "SWAMP", "OFFSHORE"] as const;
 const PLAN_TYPES = ["Firm", "Option", "Out of Plan"] as const;
-const RISKS = ["Low", "Medium", "High"] as const;
+const RISKS = ["Flood Risk", "No Flood Risk"] as const;
 
 const schema = z
   .object({

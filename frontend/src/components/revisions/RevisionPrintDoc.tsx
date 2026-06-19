@@ -37,7 +37,7 @@ function expiryUrgency(
   return u !== null && (DATED_URGENCIES as ContractUrgency[]).includes(u) ? (u as DatedUrgency) : null;
 }
 
-const CHECK_CODES: CheckCode[] = ["BUD", "LLI", "LOC", "FID", "EIA", "FLOOD", "SUBS", "CON"];
+const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"];
 const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Started", "N/A"];
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year windows so bar labels stay legible
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page

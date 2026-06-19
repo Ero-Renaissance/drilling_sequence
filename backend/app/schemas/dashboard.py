@@ -66,8 +66,8 @@ class ApprovalStats(BaseModel):
 
 
 class RiskStats(BaseModel):
-    high: int
-    high_near_term: int
+    flood: int
+    flood_near_term: int
 
 
 class Watchlist(BaseModel):
@@ -75,7 +75,7 @@ class Watchlist(BaseModel):
     overdue: int
     past_contract: int
     contracts_expiring: int
-    high_risk_near_term: int
+    flood_risk_near_term: int
     stale_approval: int
     conflicts: int
     drift_since_approved: int

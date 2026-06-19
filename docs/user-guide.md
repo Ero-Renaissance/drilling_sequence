@@ -135,7 +135,7 @@ example rows — fill it in and upload it.
 
 Tips:
 - **Readiness isn't set here.** Set each activity's readiness checks
-  (BUD/LLI/LOC/FID/EIA/FLOOD/SUBS/CON) on the **Readiness** tab — that's what shows
+  (FDP/LLI/LOC/FE/FID/EIA/BUD/CON) on the **Readiness** tab — that's what shows
   on the chart. The importer only creates activities.
 - **Rig contracts aren't set here either.** A rig has one contract per project — set
   its **start and end dates** (and status) on the **Contracts** tab, which drives the
@@ -163,13 +163,13 @@ The checks (oil & gas specific):
 
 | Code | Meaning |
 |---|---|
-| **BUD** | Budget |
+| **FDP** | Field Development Plan |
 | **LLI** | Long Lead Items |
 | **LOC** | Location |
+| **FE** | Wells Front End |
 | **FID** | Final Investment Decision |
 | **EIA** | Environmental Assessment |
-| **FLOOD** | Flood Assessment |
-| **SUBS** | Subsurface |
+| **BUD** | Budget |
 | **CON** | Contract |
 
 These statuses also show as the little icons under each bar on the chart, so anyone

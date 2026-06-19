@@ -9,14 +9,14 @@ export const NEAR_TERM_DAYS = 90;
 
 export type FocusFilter =
   | "overdue"
-  | "high-risk"
+  | "flood-risk"
   | "conflicts"
   | "past-contract"
   | "not-ready";
 
 export const FOCUS_LABEL: Record<FocusFilter, string> = {
   overdue: "Overdue — past their end date and not marked complete",
-  "high-risk": "High-risk and starting within the next 90 days",
+  "flood-risk": "Flood-risk and starting within the next 90 days",
   conflicts: "Double-booked — sharing a rig with an overlapping activity",
   "past-contract": "Scheduled to run past the rig's contract end",
   "not-ready": "Starting within the next 90 days and not yet ready",

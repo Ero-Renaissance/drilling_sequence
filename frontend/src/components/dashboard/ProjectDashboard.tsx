@@ -185,7 +185,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
     watchlist.conflicts +
     watchlist.past_contract +
     watchlist.contracts_expiring +
-    watchlist.high_risk_near_term +
+    watchlist.flood_risk_near_term +
     watchlist.stale_approval +
     watchlist.drift_since_approved;
 
@@ -282,9 +282,9 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
               to={`${base}/chart`}
             />
             <WatchRow
-              count={watchlist.high_risk_near_term}
-              label={`${plural(watchlist.high_risk_near_term, "high-risk activity", "high-risk activities")} starting soon`}
-              to={`${base}/data?focus=high-risk`}
+              count={watchlist.flood_risk_near_term}
+              label={`${plural(watchlist.flood_risk_near_term, "flood-risk activity", "flood-risk activities")} starting soon`}
+              to={`${base}/data?focus=flood-risk`}
             />
             <WatchRow
               count={watchlist.stale_approval}

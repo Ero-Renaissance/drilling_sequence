@@ -41,36 +41,6 @@
     "Workover": "/",
     "Sidetrack": "\\"
   },
-  "readiness_check_icons": {
-    "BUD": {
-      "position": 0,
-      "symbol": "diamond"
-    },
-    "LLI": {
-      "position": 1,
-      "symbol": "square"
-    },
-    "LOC": {
-      "position": 2,
-      "symbol": "triangle-up"
-    },
-    "FID": {
-      "position": 3,
-      "symbol": "star"
-    },
-    "EIA": {
-      "position": 4,
-      "symbol": "hexagon"
-    },
-    "FLOOD": {
-      "position": 5,
-      "symbol": "circle"
-    },
-    "SUBS": {
-      "position": 6,
-      "symbol": "cross"
-    }
-  },
   "plan_type_icons": {
     "In Plan(Firm)": {
       "symbol": "square",

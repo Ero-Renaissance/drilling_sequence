@@ -265,13 +265,13 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         drift_since_approved=drift,
     )
 
-    # ── risk ───────────────────────────────────────────────────────────────────
-    high_near_term = sum(
-        1 for a in activities if a.risk == "High" and not done(a) and near_term(a)
+    # ── risk (flood) ─────────────────────────────────────────────────────────────
+    flood_near_term = sum(
+        1 for a in activities if a.risk == "Flood Risk" and not done(a) and near_term(a)
     )
     risk_stats = RiskStats(
-        high=sum(1 for a in activities if a.risk == "High"),
-        high_near_term=high_near_term,
+        flood=sum(1 for a in activities if a.risk == "Flood Risk"),
+        flood_near_term=flood_near_term,
     )
 
     # ── watchlist ──────────────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         overdue=overdue,
         past_contract=activities_past_contract,
         contracts_expiring=contracts_expiring,
-        high_risk_near_term=high_near_term,
+        flood_risk_near_term=flood_near_term,
         stale_approval=stale,
         conflicts=len(conflicts),
         drift_since_approved=drift or 0,

@@ -49,7 +49,7 @@ async def test_readiness_all_not_started_by_default(client: AsyncClient) -> None
 
     # All 8 check codes should be present, all "Not Started"
     checks = row["checks"]
-    assert set(checks.keys()) == {"BUD", "LLI", "LOC", "FID", "EIA", "FLOOD", "SUBS", "CON"}
+    assert set(checks.keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"}
     for code, state in checks.items():
         assert state["status"] == "Not Started", f"{code} should default to Not Started"
 

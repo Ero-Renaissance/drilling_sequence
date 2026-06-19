@@ -1,12 +1,12 @@
 import {
   Banknote,
+  DraftingCompass,
   FileSignature,
   Gavel,
+  LandPlot,
   Leaf,
   MapPin,
-  Mountain,
   Truck,
-  Waves,
   type LucideIcon,
 } from "lucide-react";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
@@ -16,13 +16,13 @@ import type { CheckCode, CheckStatus } from "@/api/readiness";
  * Shape (icon) encodes WHICH check; color (per CheckStatus) encodes status.
  */
 export const CHECK_META: Record<CheckCode, { label: string; icon: LucideIcon }> = {
-  BUD: { label: "Budget", icon: Banknote },
+  FDP: { label: "Field Development Plan", icon: LandPlot },
   LLI: { label: "Long Lead Items", icon: Truck },
   LOC: { label: "Location", icon: MapPin },
+  FE: { label: "Wells Front End", icon: DraftingCompass },
   FID: { label: "Final Inv. Decision", icon: Gavel },
   EIA: { label: "Env. Assessment", icon: Leaf },
-  FLOOD: { label: "Flood Assessment", icon: Waves },
-  SUBS: { label: "Subsurface", icon: Mountain },
+  BUD: { label: "Budget", icon: Banknote },
   CON: { label: "Contract", icon: FileSignature },
 };
 

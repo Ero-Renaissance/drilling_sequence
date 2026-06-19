@@ -245,8 +245,8 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       switch (focus) {
         case "overdue":
           return isOverdue(a.end_date);
-        case "high-risk":
-          return a.risk === "High" && isNearTerm(a.start_date);
+        case "flood-risk":
+          return a.risk === "Flood Risk" && isNearTerm(a.start_date);
         case "conflicts":
           return conflictIds.has(a.id);
         case "past-contract": {

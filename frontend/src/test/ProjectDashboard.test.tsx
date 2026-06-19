@@ -28,10 +28,10 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
     rigs: { in_use: 5, conflicts: 0, total_idle_days: 120, per_rig: [] },
     contracts: { expired: 0, critical: 0, soon: 1, healthy: 3, activities_past_contract: 0 },
     approval: { current_status: "pending_approval", signed: 1, approvers: 3, pending_days: 9, drift_since_approved: 4 },
-    risk: { high: 2, high_near_term: 1 },
+    risk: { flood: 2, flood_near_term: 1 },
     watchlist: {
       near_term_not_ready: 2, overdue: 3, past_contract: 0, contracts_expiring: 1,
-      high_risk_near_term: 1, stale_approval: 1, conflicts: 0, drift_since_approved: 4,
+      flood_risk_near_term: 1, stale_approval: 1, conflicts: 0, drift_since_approved: 4,
     },
     ...overrides,
   };
@@ -79,7 +79,7 @@ describe("ProjectDashboard", () => {
       makeData({
         watchlist: {
           near_term_not_ready: 0, overdue: 0, past_contract: 0, contracts_expiring: 0,
-          high_risk_near_term: 0, stale_approval: 0, conflicts: 0, drift_since_approved: 0,
+          flood_risk_near_term: 0, stale_approval: 0, conflicts: 0, drift_since_approved: 0,
         },
       }),
     );

@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator
 # Responses stay free-form `str` so legacy rows predating these allow-lists still read.
 Location = Literal["LAND", "SWAMP", "OFFSHORE"]
 PlanType = Literal["Firm", "Option", "Out of Plan"]
-Risk = Literal["Low", "Medium", "High"]
+Risk = Literal["Flood Risk", "No Flood Risk"]
 
 
 class ActivityCreate(BaseModel):

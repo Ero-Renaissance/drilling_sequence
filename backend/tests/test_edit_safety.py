@@ -100,7 +100,7 @@ async def test_patch_creates_audit_entries(client: AsyncClient) -> None:
     act = await _mk_activity(client, proj["id"])
     await client.patch(
         f"/api/projects/{proj['id']}/activities/{act['id']}",
-        json={"well_name": "Well-X", "risk": "High"},
+        json={"well_name": "Well-X", "risk": "Flood Risk"},
     )
     r = await client.get(
         f"/api/projects/{proj['id']}/activities/{act['id']}/history"
@@ -130,7 +130,7 @@ async def test_audit_entry_records_old_and_new_values(client: AsyncClient) -> No
 @pytest.mark.asyncio
 async def test_audit_unchanged_fields_not_logged(client: AsyncClient) -> None:
     proj = await _mk_project(client)
-    act = await _mk_activity(client, proj["id"], well_name="Well-A", risk="Low")
+    act = await _mk_activity(client, proj["id"], well_name="Well-A", risk="No Flood Risk")
     await client.patch(
         f"/api/projects/{proj['id']}/activities/{act['id']}",
         json={"well_name": "Well-A"},  # same value — no change

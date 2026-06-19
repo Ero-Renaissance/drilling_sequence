@@ -29,8 +29,8 @@ describe("ReadinessGrid", () => {
       expect(screen.getByText("BUD")).toBeInTheDocument();
       expect(screen.getByText("LLI")).toBeInTheDocument();
       expect(screen.getByText("FID")).toBeInTheDocument();
-      expect(screen.getByText("FLOOD")).toBeInTheDocument();
-      expect(screen.getByText("SUBS")).toBeInTheDocument();
+      expect(screen.getByText("FDP")).toBeInTheDocument();
+      expect(screen.getByText("FE")).toBeInTheDocument();
     });
   });
 

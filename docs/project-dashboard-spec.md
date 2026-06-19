@@ -36,7 +36,7 @@ Activity Log.
 - **Near-term window** = `[today, today + NEAR_TERM_DAYS]`, default **90 days**
   (config constant). The watchlist also exposes 30/60/90 toggles in Phase 2.
 - **Focus window** = the horizon the *attention* metrics (readiness, near-term,
-  high-risk) are scoped to — default **next 12 months**, with a selector
+  flood-risk) are scoped to — default **next 12 months**, with a selector
   (90d / this year / 2y / all). This is a **10-year plan**, and far-future
   activities (a 2032 well) are *expected* to be unready, so scoping these metrics
   plan-wide would be meaningless noise. **Plan-wide** status metrics (approval,
@@ -87,13 +87,13 @@ Hidden when count = 0 (so an empty watchlist visibly means "all clear").
 | **Conflicts blocking submission** *(optional)* | same-rig overlapping non-completed activities (`detect_rig_conflicts`). Shown **only while drafting** as a landing-page heads-up; already hard-blocked at submission and flagged on the chart, so this row is optional and can be dropped. |
 | ⭐ **Past contract coverage** | non-completed activities whose `end_date > rig's binding contract_end`. |
 | **Contracts expiring** | binding contracts with urgency `soon`/`critical`/`expired` (grouped). |
-| **High-risk & near-term** | `risk = High` AND `start_date ∈ near-term window`. |
+| **Flood-risk & near-term** | `risk = "Flood Risk"` AND `start_date ∈ near-term window`. |
 | **Stale approval** | a revision `pending_approval` for > `STALE_APPROVAL_DAYS` (default 7). |
 | **Drift since approved** | # activities changed vs the last approved revision (reuse changes-since-approved diff). Shown only if a prior approved revision exists. |
 
 ### 4c. Breakdown charts (Phase 2 — also the "presentation" view)
 
-- **Readiness by gate** — for each of BUD/LLI/LOC/FID/EIA/FLOOD/SUBS/CON, a stacked
+- **Readiness by gate** — for each of FDP/LLI/LOC/FE/FID/EIA/BUD/CON, a stacked
   bar of statuses; surfaces the **top blocking gate** (most `Behind`).
 - **Plan firmness** — Firm / Option / Out of Plan split (count or rig-days).
 - **Activity-type mix** — counts by activity type (reuse `chart-colors`).
@@ -180,9 +180,9 @@ urgency) plus the readiness/activity aggregations above. Response shape (Pydanti
                   "activities_past_contract": 3 },
   "approval":   { "current_status": "pending_approval", "signed": 1, "approvers": 3,
                   "pending_days": 5, "drift_since_approved": 12 },
-  "risk":       { "high": 8, "high_near_term": 2 },
+  "risk":       { "flood": 8, "flood_near_term": 2 },
   "watchlist":  { "near_term_not_ready": 3, "overdue": 4, "past_contract": 3,
-                  "contracts_expiring": 3, "high_risk_near_term": 2, "stale_approval": 0,
+                  "contracts_expiring": 3, "flood_risk_near_term": 2, "stale_approval": 0,
                   "drift_since_approved": 12 }
 }
 ```

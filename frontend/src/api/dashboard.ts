@@ -54,13 +54,13 @@ export interface DashboardResponse {
     pending_days: number | null;
     drift_since_approved: number | null;
   };
-  risk: { high: number; high_near_term: number };
+  risk: { flood: number; flood_near_term: number };
   watchlist: {
     near_term_not_ready: number;
     overdue: number;
     past_contract: number;
     contracts_expiring: number;
-    high_risk_near_term: number;
+    flood_risk_near_term: number;
     stale_approval: number;
     conflicts: number;
     drift_since_approved: number;
