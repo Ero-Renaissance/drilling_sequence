@@ -312,7 +312,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
                 ))}
                 <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
                   <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
-                  <span><span style={{ color: GATE_COLORS.in_progress }}>●</span> In progress</span>
+                  <span><span style={{ color: GATE_COLORS.in_progress }}>●</span> On track</span>
                   <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
                   <span><span style={{ color: GATE_COLORS.not_started }}>●</span> Not started</span>
                 </div>

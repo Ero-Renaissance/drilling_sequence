@@ -1,7 +1,7 @@
 import { AlarmClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CHECK_CODES, type CheckStatus } from "@/api/readiness";
-import { CHECK_META, STATUS_DOT } from "@/components/readiness/check-meta";
+import { CHECK_META, STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
 import { URGENCY_VISUAL } from "@/lib/contract-urgency";
 
@@ -97,7 +97,7 @@ export function ChartLegend({
             {STATUSES.map((s) => (
               <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
                 <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
-                {s}
+                {STATUS_LABEL[s]}
               </span>
             ))}
           </Section>

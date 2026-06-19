@@ -107,7 +107,7 @@ function ProgressBar({ rows }: { rows: ActivityReadiness[] }) {
       </div>
       <div className="flex gap-5 text-xs">
         <Stat label="Completed" value={completed} dot={STATUS_DOT["Completed"]} />
-        <Stat label="In Progress" value={inProgress} dot={STATUS_DOT["In Progress"]} />
+        <Stat label="On track" value={inProgress} dot={STATUS_DOT["In Progress"]} />
         <Stat
           label="Not Started"
           value={total - completed - inProgress - na}

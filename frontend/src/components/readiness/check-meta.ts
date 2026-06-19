@@ -53,3 +53,16 @@ export const STATUS_DOT: Record<CheckStatus, string> = {
   Behind: "bg-red-500",
   "N/A": "bg-white ring-1 ring-zinc-300 dark:bg-zinc-100 dark:ring-zinc-400",
 };
+
+/**
+ * User-facing status label. The canonical/stored value stays "In Progress" (shared
+ * with the rig-contract status, and what the upload's "On track" is mapped onto);
+ * the readiness UI just displays it as "On track".
+ */
+export const STATUS_LABEL: Record<CheckStatus, string> = {
+  "Not Started": "Not Started",
+  "In Progress": "On track",
+  Completed: "Completed",
+  Behind: "Behind",
+  "N/A": "N/A",
+};

@@ -70,12 +70,12 @@ describe("ReadinessGrid", () => {
     renderGrid();
     await waitFor(() => screen.getByText("Gas Development"));
 
-    // Open a "Not Started" cell's picker and choose "In Progress".
+    // Open a "Not Started" cell's picker and choose "On track" (stored as In Progress).
     await userEvent.click(screen.getAllByTitle(/: Not Started$/)[0]);
-    await userEvent.click(await screen.findByRole("menuitem", { name: /In Progress/i }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /On track/i }));
 
     await waitFor(() => {
-      expect(screen.getAllByTitle(/: In Progress$/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByTitle(/: On track$/).length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -84,7 +84,7 @@ describe("ReadinessGrid", () => {
     await waitFor(() => screen.getByText("Oil Development"));
     // These labels appear in both the progress stats and the legend — use getAllBy
     expect(screen.getAllByText("Not Started").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("In Progress").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("On track").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Completed").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(1);
   });

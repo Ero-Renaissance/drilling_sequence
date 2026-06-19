@@ -14,6 +14,7 @@ import {
   buildAlarmClockSvgDataUri,
   buildCheckSvgDataUri,
 } from "@/lib/check-icon-svg";
+import { STATUS_LABEL } from "@/components/readiness/check-meta";
 import {
   classifyContract,
   daysUntilExpiry,
@@ -630,7 +631,7 @@ export function DrillChart({
               return `<div style="display:flex;align-items:center;gap:6px;font-size:11px">
                 <img src="${iconSrc}" width="13" height="13" style="display:block;flex-shrink:0" alt="" />
                 <span style="color:${theme.tooltipText};font-weight:600">${code}</span>
-                <span style="color:${theme.tooltipMuted}">${status}</span>
+                <span style="color:${theme.tooltipMuted}">${STATUS_LABEL[status]}</span>
               </div>`;
             }).join("");
             checksHtml = `

@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
-import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR } from "./check-meta";
+import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "./check-meta";
 
 export { STATUS_DOT, CHECK_META, STATUS_ICON_COLOR };
 
@@ -68,7 +68,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   ) {
     const meta = CHECK_META[code];
     const Icon = meta.icon;
-    const title = `${meta.label}: ${status}`;
+    const title = `${meta.label}: ${STATUS_LABEL[status]}`;
     const iconSize = size === "lg" ? "h-[18px] w-[18px]" : "h-4 w-4";
     const buttonSize = size === "lg" ? "h-7 w-7" : "h-6 w-6";
 
@@ -115,7 +115,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
     const buttonSize = size === "lg" ? "h-7 w-7" : "h-6 w-6";
     return (
       <span
-        title={`${meta.label}: ${status}`}
+        title={`${meta.label}: ${STATUS_LABEL[status]}`}
         className={cn(
           "inline-flex items-center justify-center",
           buttonSize,
@@ -172,7 +172,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
               className={cn("gap-2.5 py-2", selected && "bg-accent/50")}
             >
               <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", STATUS_DOT[s])} />
-              <span className="flex-1">{s}</span>
+              <span className="flex-1">{STATUS_LABEL[s]}</span>
               {selected && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
             </DropdownMenuItem>
           );
