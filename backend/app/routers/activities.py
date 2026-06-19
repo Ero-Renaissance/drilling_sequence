@@ -16,10 +16,17 @@ from app.database import get_db
 from app.models.activity import Activity
 from app.models.audit import AuditLog
 from app.models.project import ProjectRole
+from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ReadinessCheck
+from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.activity import ActivityCreate, ActivityResponse, ActivityUpdate, ImportResponse
 from app.schemas.audit import AuditEntryResponse
-from app.services.data_processor import csv_df_to_db_rows, validate_csv_columns
+from app.services.data_processor import (
+    csv_df_to_db_rows,
+    is_long_schedule,
+    parse_long_schedule,
+    validate_csv_columns,
+)
 
 router = APIRouter(prefix="/api/projects/{project_id}/activities", tags=["activities"])
 
@@ -252,6 +259,12 @@ async def import_activities(
             detail="Could not parse the uploaded file. Provide a valid CSV or Excel file.",
         ) from exc
 
+    # The new schedule export is long-format (one row per readiness gate, with
+    # embedded readiness statuses + per-rig contract expiry). It has its own
+    # ingestion path; the legacy wide CSV path continues below.
+    if is_long_schedule(df):
+        return await _import_long_schedule(df, project_id, current_user, db, replace)
+
     try:
         validate_csv_columns(df)
     except ValueError as exc:
@@ -295,3 +308,112 @@ async def import_activities(
 
     await db.commit()
     return ImportResponse(imported=len(validated), replaced=replace)
+
+
+async def _import_long_schedule(
+    df: pd.DataFrame,
+    project_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+    replace: bool,
+) -> ImportResponse:
+    """Ingest the long-format schedule: collapse the per-gate rows into one activity
+    each, import every well's readiness gates, and upsert per-rig contract expiry.
+
+    Validated in full before any write, so a bad row never leaves a partial import
+    or deletes the existing schedule. The sheet is the source of truth for readiness
+    and contract dates (replace mode resets them to match the file).
+    """
+    try:
+        parsed, contracts = parse_long_schedule(df)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    # Validate each collapsed activity (same ActivityCreate gate the JSON API uses)
+    # and its readiness gates/statuses. An invalid well is skipped (not imported) and
+    # reported; an invalid readiness cell drops just that gate. A structural problem
+    # (missing required columns) already raised 422 above.
+    validated: list[tuple[ActivityCreate, dict[str, str]]] = []
+    skipped_rows: list[dict[str, str]] = []
+    warnings: list[str] = []
+    for pa in parsed:
+        label = pa.fields.get("well_name") or pa.fields.get("activity_type") or "row"
+        try:
+            activity_in = ActivityCreate(**pa.fields)
+        except ValidationError as exc:
+            reason = "; ".join(
+                f"{'.'.join(str(p) for p in err['loc']) or 'field'} — {err['msg']}"
+                for err in exc.errors()
+            )
+            skipped_rows.append({"well": label, "reason": reason})
+            continue
+        readiness: dict[str, str] = {}
+        for gate, gate_status in pa.readiness.items():
+            if gate == "CON" or gate not in CHECK_CODES:
+                warnings.append(f"{label}: dropped unknown readiness check '{gate}'")
+            elif gate_status not in CHECK_STATUSES:
+                warnings.append(f"{label}: dropped {gate} (invalid status '{gate_status}')")
+            else:
+                readiness[gate] = gate_status
+        validated.append((activity_in, readiness))
+
+    # Replace only when at least one well is valid — never wipe the schedule to
+    # import nothing (e.g. an entirely-bad file in replace mode).
+    if replace and validated:
+        # Clear readiness then activities explicitly — don't rely on a DB ON DELETE
+        # cascade (SQLite doesn't enforce FKs by default).
+        existing_ids = (
+            await db.execute(select(Activity.id).where(Activity.project_id == project_id))
+        ).scalars().all()
+        if existing_ids:
+            await db.execute(
+                delete(ReadinessCheck).where(ReadinessCheck.activity_id.in_(existing_ids))
+            )
+        await db.execute(delete(Activity).where(Activity.project_id == project_id))
+
+    for activity_in, readiness in validated:
+        activity = Activity(
+            id=uuid.uuid4(),  # set up-front so readiness rows can reference it without a flush
+            project_id=project_id,
+            updated_by=current_user.id,
+            **activity_in.model_dump(),
+        )
+        db.add(activity)
+        for gate, gate_status in readiness.items():
+            db.add(ReadinessCheck(activity_id=activity.id, check_code=gate, status=gate_status))
+
+    # Rig contract expiry — upsert each rig with a binding (Completed) end date.
+    for rig_name, expiry in contracts.items():
+        existing = (
+            await db.execute(
+                select(RigContract).where(
+                    RigContract.project_id == project_id,
+                    RigContract.rig_name == rig_name,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.contract_end = expiry
+            existing.status = "Completed"
+            existing.updated_by = current_user.id
+        else:
+            db.add(
+                RigContract(
+                    project_id=project_id,
+                    rig_name=rig_name,
+                    contract_end=expiry,
+                    status="Completed",
+                    updated_by=current_user.id,
+                )
+            )
+
+    await db.commit()
+    return ImportResponse(
+        imported=len(validated),
+        replaced=replace,
+        skipped=len(skipped_rows),
+        skipped_rows=skipped_rows[:200],
+        warnings=warnings[:200],
+    )

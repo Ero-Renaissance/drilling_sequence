@@ -33,7 +33,11 @@ class Activity(Base):
     # ── Resource (rig / team / equipment) ─────────────────────────────────────
     rig_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    # ── Grouping (project / group / category) ─────────────────────────────────
+    # ── Project the well is tied to (a development project owns many wells).
+    #    Named well_project: `project` is the relationship to the parent Project. ──
+    well_project: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # ── Grouping (project / group / category) — legacy free-text grouping ─────
     project_group: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     # ── Location ──────────────────────────────────────────────────────────────

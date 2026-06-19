@@ -1,6 +1,9 @@
 """
-Data processing — CSV import helpers.
+Data processing — CSV / Excel import helpers.
 """
+
+from dataclasses import dataclass, field
+from datetime import date
 
 import pandas as pd
 
@@ -81,5 +84,132 @@ def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:
                 record.setdefault(db_field, val)
         rows.append(record)
     return rows
+
+
+# ── Long-format schedule ingestion (the new upload) ──────────────────────────
+#
+# The schedule export is "long": one row per (well-activity × readiness gate), so a
+# single well repeats once per gate. We collapse those rows back into one activity
+# plus its readiness checks, and capture the per-rig contract-expiry date alongside.
+
+# Presence of these columns marks a file as the long schedule format.
+LONG_FORMAT_COLUMNS = ("Readiness Check", "Readiness Check Status")
+
+LONG_REQUIRED_COLUMNS = ["Activity Type", "Start Date", "End Date", "Well Name", "Readiness Check"]
+
+# Spreadsheet plan-type wording → canonical PlanType (app/schemas/activity.py).
+PLAN_TYPE_MAP = {
+    "in plan (firm)": "Firm",
+    "in plan (option)": "Option",
+    "out of plan": "Out of Plan",
+    "firm": "Firm",
+    "option": "Option",
+}
+
+# Spreadsheet readiness wording → canonical CheckStatus (app/models/readiness.py).
+# "On track" maps to In Progress (the upload's most common status).
+READINESS_STATUS_MAP = {
+    "on track": "In Progress",
+    "completed": "Completed",
+    "not started": "Not Started",
+    "in progress": "In Progress",
+    "behind": "Behind",
+    "n/a": "N/A",
+}
+
+
+def is_long_schedule(df: pd.DataFrame) -> bool:
+    """True when the upload is the long (one-row-per-readiness-gate) schedule format."""
+    return all(c in df.columns for c in LONG_FORMAT_COLUMNS)
+
+
+def _clean(value: object) -> str | None:
+    """Trim to a non-empty string, or None (treats NaN / blank as None)."""
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _to_date(value: object) -> date | None:
+    """Parse a cell to a date. Handles datetimes and US (month-first) strings like
+    07/15/2026; unparseable → None (the schema then rejects a missing required date)."""
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    ts = pd.to_datetime(value, errors="coerce")
+    return None if pd.isna(ts) else ts.date()
+
+
+def _map_plan_type(value: object) -> str | None:
+    text = _clean(value)
+    if text is None:
+        return None
+    return PLAN_TYPE_MAP.get(text.lower(), text)  # unknown → passthrough (schema validates)
+
+
+def _map_readiness_status(value: object) -> str:
+    text = _clean(value)
+    if text is None:
+        return "Not Started"
+    return READINESS_STATUS_MAP.get(text.lower(), text)  # unknown → passthrough (caller validates)
+
+
+@dataclass
+class ParsedActivity:
+    """One collapsed well-activity plus its readiness gate→status map."""
+
+    fields: dict  # ActivityCreate-shaped (includes `project`)
+    readiness: dict = field(default_factory=dict)
+
+
+def parse_long_schedule(df: pd.DataFrame) -> tuple[list[ParsedActivity], dict[str, date]]:
+    """Collapse the long schedule into (activities, {rig_name: contract_end}).
+
+    Rows are grouped by their well-activity identity; each row contributes one
+    readiness gate to its activity, and the per-rig contract-expiry date is captured.
+    """
+    missing = [c for c in LONG_REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+
+    activities: dict[tuple, ParsedActivity] = {}
+    contracts: dict[str, date] = {}
+
+    for _, row in df.iterrows():
+        well = _clean(row.get("Well Name"))
+        rig = _clean(row.get("Rig Name"))
+        activity_type = _clean(row.get("Activity Type"))
+        start = _to_date(row.get("Start Date"))
+        end = _to_date(row.get("End Date"))
+        project = _clean(row.get("Project"))
+
+        key = (project, well, rig, activity_type, start, end)
+        rec = activities.get(key)
+        if rec is None:
+            rec = ParsedActivity(
+                fields={
+                    "activity_type": activity_type,
+                    "start_date": start,
+                    "end_date": end,
+                    "well_name": well,
+                    "rig_name": rig,
+                    "well_project": project,
+                    "location": _clean(row.get("Location")),
+                    "plan_type": _map_plan_type(row.get("Plan Type")),
+                    "risk": _clean(row.get("Risk")),
+                    "comment": _clean(row.get("Comment")),
+                }
+            )
+            activities[key] = rec
+
+        gate = _clean(row.get("Readiness Check"))
+        if gate:
+            rec.readiness[gate.upper()] = _map_readiness_status(row.get("Readiness Check Status"))
+
+        expiry = _to_date(row.get("Rig Contract Expiry Date"))
+        if rig and expiry:
+            contracts[rig] = expiry
+
+    return list(activities.values()), contracts
 
 

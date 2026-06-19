@@ -18,6 +18,7 @@ class ActivityCreate(BaseModel):
     end_date: date
     well_name: str | None = None
     rig_name: str | None = None
+    well_project: str | None = None
     project_group: str | None = None
     location: Location | None = None
     risk: Risk | None = None
@@ -39,6 +40,7 @@ class ActivityUpdate(BaseModel):
     end_date: date | None = None
     well_name: str | None = None
     rig_name: str | None = None
+    well_project: str | None = None
     project_group: str | None = None
     location: Location | None = None
     risk: Risk | None = None
@@ -56,6 +58,7 @@ class ActivityResponse(BaseModel):
     end_date: date
     well_name: str | None
     rig_name: str | None
+    well_project: str | None
     project_group: str | None
     location: str | None
     risk: str | None
@@ -70,6 +73,14 @@ class ActivityResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SkippedRow(BaseModel):
+    well: str
+    reason: str
+
+
 class ImportResponse(BaseModel):
     imported: int
     replaced: bool
+    skipped: int = 0
+    skipped_rows: list[SkippedRow] = []
+    warnings: list[str] = []
