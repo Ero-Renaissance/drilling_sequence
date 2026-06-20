@@ -52,8 +52,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-# Untracked local dev scaffolding for eyeballing the print/PDF export — not shipped.
-extend-exclude = ["seed_print_demo.py"]
+# Dev seed script (long data literals, not app code) — kept out of lint.
+extend-exclude = ["scripts/seed_print_demo.py"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
