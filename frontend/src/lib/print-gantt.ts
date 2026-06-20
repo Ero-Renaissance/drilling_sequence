@@ -95,3 +95,66 @@ export function computeYearSpans(from: Date, to: Date): YearSpan[] {
   }
   return spans;
 }
+
+/** Where a bar's well-name label sits relative to the bar. */
+export type LabelSide = "inside" | "left" | "right" | "none";
+
+export interface BarLabelPlacement {
+  side: LabelSide;
+  /** The label's max width, as a percentage of the window. For "inside" it is the
+   *  bar's own width; for "left"/"right" it is the clamped gap to the neighbour. */
+  maxWidthPct: number;
+}
+
+/**
+ * Decide where a print-Gantt bar's well-name label goes.
+ *
+ * A bar wide enough keeps the name INSIDE it (white on the bar, as before). When
+ * the bar is too narrow to show a useful chunk of its name, the name spills into
+ * the empty lane BESIDE the bar — the side with the larger gap — clamped to the
+ * distance to the neighbouring bar so it can never overlap it. When neither side
+ * has room for even a few characters the label is dropped; the schedule table is
+ * the complete cross-reference for those.
+ *
+ * Everything is a percentage of the window width (matching how the print Gantt
+ * positions bars), so there are no pixels here and it stays unit-testable.
+ *
+ * @param leftPct      bar's left edge (% of window)
+ * @param rightPct     bar's right edge (% of window)
+ * @param prevRightPct right edge of the previous bar on the row, or 0 if none
+ * @param nextLeftPct  left edge of the next bar on the row, or 100 if none
+ * @param insideMinPct bar widths >= this keep the label inside
+ * @param minSidePct   smallest spill gap worth labelling; below it → "none"
+ * @param gapPadPct    padding kept between the label and the neighbouring bar
+ */
+export function placeBarLabel({
+  leftPct,
+  rightPct,
+  prevRightPct,
+  nextLeftPct,
+  insideMinPct,
+  minSidePct,
+  gapPadPct,
+}: {
+  leftPct: number;
+  rightPct: number;
+  prevRightPct: number;
+  nextLeftPct: number;
+  insideMinPct: number;
+  minSidePct: number;
+  gapPadPct: number;
+}): BarLabelPlacement {
+  const barWidth = rightPct - leftPct;
+  if (barWidth >= insideMinPct) {
+    return { side: "inside", maxWidthPct: barWidth };
+  }
+  const gapRight = Math.max(0, nextLeftPct - rightPct - gapPadPct);
+  const gapLeft = Math.max(0, leftPct - prevRightPct - gapPadPct);
+  if (Math.max(gapRight, gapLeft) < minSidePct) {
+    return { side: "none", maxWidthPct: 0 };
+  }
+  // Prefer the right lane on a tie — text reads left-to-right into open space.
+  return gapRight >= gapLeft
+    ? { side: "right", maxWidthPct: gapRight }
+    : { side: "left", maxWidthPct: gapLeft };
+}

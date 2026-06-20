@@ -4,6 +4,7 @@ import {
   monthCeil,
   computeFittedWindows,
   computeYearSpans,
+  placeBarLabel,
 } from "@/lib/print-gantt";
 
 // Local-constructed timestamps (month is 1-based here for readability) so the
@@ -92,5 +93,46 @@ describe("computeYearSpans", () => {
 
   it("guards a zero/negative-span window", () => {
     expect(computeYearSpans(new Date(2026, 0, 1), new Date(2026, 0, 1))).toEqual([]);
+  });
+});
+
+describe("placeBarLabel", () => {
+  // Shared thresholds mirroring the readiness-chart constants.
+  const opts = { insideMinPct: 10, minSidePct: 4, gapPadPct: 0.5 };
+
+  it("keeps the label inside a wide-enough bar", () => {
+    const p = placeBarLabel({ leftPct: 10, rightPct: 30, prevRightPct: 0, nextLeftPct: 100, ...opts });
+    expect(p).toEqual({ side: "inside", maxWidthPct: 20 });
+  });
+
+  it("spills into the larger (right) gap, clamped to it, when the bar is narrow", () => {
+    const p = placeBarLabel({ leftPct: 10, rightPct: 14, prevRightPct: 0, nextLeftPct: 60, ...opts });
+    // gapRight = 60-14-0.5 = 45.5, gapLeft = 10-0-0.5 = 9.5 → right
+    expect(p.side).toBe("right");
+    expect(p.maxWidthPct).toBeCloseTo(45.5, 5);
+  });
+
+  it("flips to the left when the bar hugs the right edge", () => {
+    const p = placeBarLabel({ leftPct: 90, rightPct: 94, prevRightPct: 50, nextLeftPct: 100, ...opts });
+    // gapRight = 100-94-0.5 = 5.5, gapLeft = 90-50-0.5 = 39.5 → left
+    expect(p.side).toBe("left");
+    expect(p.maxWidthPct).toBeCloseTo(39.5, 5);
+  });
+
+  it("prefers the right lane on a tie", () => {
+    // gapLeft = 40-20.5-0.5 = 19, gapRight = 63.5-44-0.5 = 19 → tie → right
+    const p = placeBarLabel({ leftPct: 40, rightPct: 44, prevRightPct: 20.5, nextLeftPct: 63.5, ...opts });
+    expect(p.side).toBe("right");
+  });
+
+  it("drops the label when packed between neighbours on both sides", () => {
+    const p = placeBarLabel({ leftPct: 50, rightPct: 53, prevRightPct: 49.8, nextLeftPct: 53.2, ...opts });
+    expect(p).toEqual({ side: "none", maxWidthPct: 0 });
+  });
+
+  it("drops the label when the best gap is positive but below the minimum", () => {
+    // gapRight = 16-13-0.5 = 2.5, gapLeft = 10-8-0.5 = 1.5 → best 2.5 < 4 → none
+    const p = placeBarLabel({ leftPct: 10, rightPct: 13, prevRightPct: 8, nextLeftPct: 16, ...opts });
+    expect(p.side).toBe("none");
   });
 });

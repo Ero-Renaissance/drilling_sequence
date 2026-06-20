@@ -16,7 +16,7 @@ import {
   type ContractUrgency,
 } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
-import { computeFittedWindows, computeYearSpans } from "@/lib/print-gantt";
+import { computeFittedWindows, computeYearSpans, placeBarLabel } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
 import { cn } from "@/lib/utils";
 import type { ContractStatus } from "@/api/contracts";
@@ -45,6 +45,16 @@ const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is the
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Well-name placement on the readiness chart (all percentages of the page window).
+// A name rides inside a bar at least NAME_INSIDE_MIN_PCT wide; otherwise it spills
+// into the larger adjacent gap, clamped so it never runs into the neighbouring bar.
+// A spill gap smaller than NAME_MIN_SIDE_PCT shows nothing (the schedule table is
+// the fallback cross-reference). Tuned for the 1-year readiness window — adjust
+// here if names spill too eagerly or truncate too soon.
+const NAME_INSIDE_MIN_PCT = 10;
+const NAME_MIN_SIDE_PCT = 4;
+const LABEL_GAP_PAD_PCT = 0.5;
 
 /** Chart row label = "TERRAIN – Rig" (matches the on-screen Gantt). */
 function rowLabel(loc: string | null, rig: string | null): string {
@@ -301,6 +311,21 @@ function StaticGantt({
                       ? ((cEnd.getTime() - winStart) / winSpan) * 100
                       : null;
                   const expiryHex = m?.urgency ? URGENCY_VISUAL[m.urgency].hex : undefined;
+                  // Bars on this row, left→right, with their %-geometry — so each can
+                  // see its neighbours' edges and place a spilled label in the gap
+                  // without overrunning them.
+                  const rowActs = acts
+                    .filter(
+                      (a) =>
+                        rowLabel(a.location, a.rig_name) === key &&
+                        a.e.getTime() > winStart &&
+                        a.s.getTime() < w.to.getTime(),
+                    )
+                    .sort((x, y) => x.s.getTime() - y.s.getTime());
+                  const geom = rowActs.map((a) => ({
+                    l: Math.max(0, ((a.s.getTime() - winStart) / winSpan) * 100),
+                    r: Math.min(100, ((a.e.getTime() - winStart) / winSpan) * 100),
+                  }));
                   return (
                     <div
                       key={key}
@@ -316,17 +341,30 @@ function StaticGantt({
                       {key}
                     </div>
                     <div className="relative flex-1">
-                      {acts
-                        .filter(
-                          (a) =>
-                            rowLabel(a.location, a.rig_name) === key &&
-                            a.e.getTime() > winStart &&
-                            a.s.getTime() < w.to.getTime(),
-                        )
-                        .map((a) => {
-                          const l = Math.max(0, ((a.s.getTime() - winStart) / winSpan) * 100);
-                          const r = Math.min(100, ((a.e.getTime() - winStart) / winSpan) * 100);
+                      {rowActs.map((a, ai) => {
+                          const { l, r } = geom[ai];
                           const wpct = Math.max(0.8, r - l);
+                          // Neighbour edges on this row (0 / 100 at the ends) — the walls
+                          // a spilled label must stop short of.
+                          const prevR = ai > 0 ? geom[ai - 1].r : 0;
+                          const nextL = ai < geom.length - 1 ? geom[ai + 1].l : 100;
+                          // Readiness chart: name inside a wide-enough bar, else spilled
+                          // into the larger gap (clamped). Standard chart is untouched.
+                          const namePlacement =
+                            showReadiness && a.well_name
+                              ? placeBarLabel({
+                                  leftPct: l,
+                                  rightPct: r,
+                                  prevRightPct: prevR,
+                                  nextLeftPct: nextL,
+                                  insideMinPct: NAME_INSIDE_MIN_PCT,
+                                  minSidePct: NAME_MIN_SIDE_PCT,
+                                  gapPadPct: LABEL_GAP_PAD_PCT,
+                                })
+                              : ({ side: "inside", maxWidthPct: r - l } as const);
+                          // Project chip rides above the bar; clamp it to the gap so a
+                          // long name can't bleed across the next bar (it could before).
+                          const projectMaxPct = Math.max(0, nextL - l - LABEL_GAP_PAD_PCT);
                           const n = index.get(a.id);
                           // Every bar carries its schedule number — legible even a few days
                           // wide (a min-width keeps the digit from being clipped). The well
@@ -353,24 +391,45 @@ function StaticGantt({
                                       when the well belongs to a project. */}
                                   {a.well_project && (
                                     <span
-                                      className="pointer-events-none absolute top-0 whitespace-nowrap rounded-[2px] bg-black/10 px-0.5 py-px text-[6px] font-semibold leading-none text-foreground"
-                                      style={{ left: `${l}%` }}
+                                      className="pointer-events-none absolute top-0 truncate rounded-[2px] bg-black/10 px-0.5 py-px text-[6px] font-semibold leading-none text-foreground"
+                                      style={{ left: `${l}%`, maxWidth: `${projectMaxPct}%` }}
                                     >
                                       {a.well_project}
                                     </span>
                                   )}
-                                  {/* Colored bar with the well name inside, at a small font so it
-                                      fits a narrow bar (truncates only when genuinely too long). */}
+                                  {/* Colored bar; the well name rides INSIDE only when the bar is
+                                      wide enough — otherwise it spills beside the bar (below). */}
                                   <span
                                     title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
                                     className="absolute top-[0.55rem] flex h-[0.95rem] items-center justify-center overflow-hidden rounded px-0.5 text-[6px] font-medium text-white"
                                     style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
                                   >
-                                    {a.well_name ? <span className="truncate">{a.well_name}</span> : null}
+                                    {namePlacement.side === "inside" && a.well_name ? (
+                                      <span className="truncate">{a.well_name}</span>
+                                    ) : null}
                                     {showFlood && (
                                       <FloodDrop onBar className="pointer-events-none absolute right-0.5 top-1/2 h-2 w-2 -translate-y-1/2" />
                                     )}
                                   </span>
+                                  {/* Well name spilled into the whitespace beside a too-narrow bar
+                                      (dark on the page), clamped to the gap so it can't run into the
+                                      neighbouring bar; the schedule table covers the truly cramped. */}
+                                  {a.well_name &&
+                                    (namePlacement.side === "right" || namePlacement.side === "left") && (
+                                      <span
+                                        className={cn(
+                                          "pointer-events-none absolute top-[0.55rem] h-[0.95rem] overflow-hidden whitespace-nowrap text-[6px] font-medium leading-[0.95rem] text-foreground",
+                                          namePlacement.side === "right" ? "text-ellipsis" : "text-right",
+                                        )}
+                                        style={
+                                          namePlacement.side === "right"
+                                            ? { left: `${r}%`, maxWidth: `${namePlacement.maxWidthPct}%`, paddingLeft: "0.15rem" }
+                                            : { right: `${100 - l}%`, maxWidth: `${namePlacement.maxWidthPct}%`, paddingRight: "0.15rem" }
+                                        }
+                                      >
+                                        {a.well_name}
+                                      </span>
+                                    )}
                                   {/* Readiness strip beneath the bar — scaled to the bar
                                       width (capped) and centred, so the 8 gates never spill
                                       past the bar into a neighbour's strip. Narrow bars get
