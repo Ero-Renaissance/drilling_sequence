@@ -71,7 +71,7 @@ export function CloneProjectDialog({ project }: CloneProjectDialogProps) {
           size="icon"
           className="h-7 w-7 text-muted-foreground"
           onClick={(e) => e.stopPropagation()}
-          title="Duplicate as new sequence"
+          title="Duplicate as new campaign"
         >
           <Copy className="h-3.5 w-3.5" />
         </Button>
@@ -79,7 +79,7 @@ export function CloneProjectDialog({ project }: CloneProjectDialogProps) {
 
       <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
-          <DialogTitle>Duplicate Drilling Sequence</DialogTitle>
+          <DialogTitle>Duplicate Drilling Campaign</DialogTitle>
           <DialogDescription>
             Copies activities, readiness checks, and required approvers. Dates are kept
             as-is and the approval history starts fresh.
@@ -88,10 +88,10 @@ export function CloneProjectDialog({ project }: CloneProjectDialogProps) {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="clone-name">New sequence name *</Label>
+            <Label htmlFor="clone-name">New campaign name *</Label>
             <Input
               id="clone-name"
-              placeholder="e.g. Q3 rig Sequence"
+              placeholder="e.g. North Sea Campaign Q4"
               {...register("name")}
             />
             {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}

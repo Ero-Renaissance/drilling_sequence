@@ -36,13 +36,13 @@ describe("ProjectCard", () => {
   it("calls onArchive with the project id when archive button clicked", () => {
     const onArchive = vi.fn();
     renderCard(onArchive);
-    const archiveBtn = screen.getByTitle("Archive project");
+    const archiveBtn = screen.getByTitle("Archive campaign");
     fireEvent.click(archiveBtn);
     expect(onArchive).toHaveBeenCalledWith(mockProject.id);
   });
 
   it("does not render archive button when onArchive is not provided", () => {
     renderCard();
-    expect(screen.queryByTitle("Archive project")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Archive campaign")).not.toBeInTheDocument();
   });
 });

@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { useProjectsStore } from "@/store/projects";
 
 const schema = z.object({
-  name: z.string().min(1, "Project name is required").max(256),
+  name: z.string().min(1, "Campaign name is required").max(256),
   field: z.string().max(256).optional(),
   region: z.string().max(256).optional(),
 });
@@ -52,18 +52,18 @@ export function CreateProjectDialog() {
       <DialogTrigger asChild>
         <Button>
           <Plus className="h-4 w-4" />
-          New Project
+          New Campaign
         </Button>
       </DialogTrigger>
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create Drilling Project</DialogTitle>
+          <DialogTitle>Create Drilling Campaign</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="name">Project name *</Label>
+            <Label htmlFor="name">Campaign name *</Label>
             <Input id="name" placeholder="e.g. North Sea Campaign Q3" {...register("name")} />
             {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
           </div>
@@ -85,7 +85,7 @@ export function CreateProjectDialog() {
             </Button>
             <Button type="submit" disabled={submitting}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create Project
+              Create Campaign
             </Button>
           </DialogFooter>
         </form>

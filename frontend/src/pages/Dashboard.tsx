@@ -218,7 +218,7 @@ export function Dashboard() {
             <p className="font-medium">No approved sequence yet</p>
             <p className="max-w-md text-sm text-muted-foreground">
               Once a revision is approved, its KPIs will appear here. Submit a plan for
-              approval from a project&apos;s Approvals tab.
+              approval from a campaign&apos;s Approvals tab.
             </p>
           </CardContent>
         </Card>
@@ -227,7 +227,7 @@ export function Dashboard() {
       {/* Recent projects */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold tracking-tight">Recent Projects</h2>
+          <h2 className="text-base font-semibold tracking-tight">Recent Campaigns</h2>
         </div>
 
         {loading ? (
@@ -243,7 +243,7 @@ export function Dashboard() {
                 <FolderOpen className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="font-medium">No projects yet</p>
+                <p className="font-medium">No campaigns yet</p>
                 <p className="text-sm text-muted-foreground">
                   Create your first drilling campaign to get started
                 </p>

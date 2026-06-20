@@ -27,7 +27,7 @@ export function ProjectList() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Projects</h1>
+          <h1 className="text-2xl font-semibold">Campaigns</h1>
           <p className="text-sm text-muted-foreground">
             {projects.length} active drilling campaign{projects.length !== 1 ? "s" : ""}
           </p>
@@ -39,7 +39,7 @@ export function ProjectList() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Search projects..."
+          placeholder="Search campaigns..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -59,12 +59,12 @@ export function ProjectList() {
             <FolderOpen className="h-10 w-10 text-muted-foreground" />
             <div>
               <p className="font-medium">
-                {search ? "No projects match your search" : "No projects yet"}
+                {search ? "No campaigns match your search" : "No campaigns yet"}
               </p>
               <p className="text-sm text-muted-foreground">
                 {search
                   ? "Try a different keyword"
-                  : "Create your first project to start planning a drilling campaign"}
+                  : "Create your first campaign to start planning your rig sequence"}
               </p>
             </div>
             {!search && <CreateProjectDialog />}

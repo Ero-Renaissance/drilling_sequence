@@ -5,7 +5,7 @@ import { useAuthStore } from "@/store/auth";
 
 const primaryNav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/projects", label: "Projects", icon: FolderKanban },
+  { to: "/projects", label: "Campaigns", icon: FolderKanban },
 ];
 
 const adminNav = { to: "/admin", label: "Admin", icon: ShieldCheck };

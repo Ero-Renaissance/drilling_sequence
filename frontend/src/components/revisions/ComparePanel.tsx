@@ -107,7 +107,7 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
 
       {others.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
-          No other schedules to compare against. Clone this project to start the next quarter.
+          No other campaigns to compare against. Clone this campaign to start the next quarter.
         </p>
       ) : (
         <>

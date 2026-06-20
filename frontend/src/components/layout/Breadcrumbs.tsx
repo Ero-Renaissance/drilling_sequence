@@ -5,7 +5,7 @@ import { useProjectsStore } from "@/store/projects";
 
 const STATIC_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
-  projects: "Projects",
+  projects: "Campaigns",
   chart: "Sequence",
   data: "Activities",
   readiness: "Readiness",
@@ -36,7 +36,7 @@ export function Breadcrumbs() {
 
       if (!label && prev === "projects") {
         const project = projects.find((p) => p.id === part);
-        label = project?.name ?? "Project";
+        label = project?.name ?? "Campaign";
       } else if (!label && prev === "revisions") {
         label = "Revision";
       } else if (!label) {

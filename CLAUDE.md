@@ -8,6 +8,26 @@ and defensive programming over speed or brevity. This is a system of record for
 formal approvals, so a defensible trail and correct access control outrank
 convenience every time.
 
+# TERMINOLOGY (UI label vs code model — read before renaming anything)
+Three near-synonyms mean three different things here; keep them straight.
+- **Campaign** — the USER-FACING name for the top-level container (a drilling
+  campaign for a field/quarter; holds the wells, revisions, members, approvals).
+  In CODE and the DATABASE this same entity is **`Project`** (`Project`,
+  `ProjectMember`, `ProjectRole`, `ProjectApprover`, `project_id` FKs, every
+  `assert_member(project_id, …)`). The split is deliberate: the UI says
+  "Campaign", the model stays `Project`. **Do NOT rename the model to match the
+  label** — it's a large, risky migration across the schema/RBAC/FKs for zero
+  functional gain. New user-facing copy says "Campaign"; code keeps `Project`.
+- **Project** — as a USER-FACING word it means ONLY the per-well `well_project`:
+  the field-development project a well belongs to (e.g. "Bonga Phase 3"), shown as
+  the **"Project" column** in the data grid, the chart tooltip/label, and the
+  print table, and driving the chart's "Projects" filter. Keep that labelled
+  "Project".
+- **Sequence** / **Rig Sequence** — the Gantt timeline view and the print-out
+  ("Rig Sequence — …"); the product itself is the "Drilling Sequence Planner".
+Net: Campaign (the container, code=`Project`) · Project (the well's field group,
+code=`well_project`) · Sequence (the chart + print + product name).
+
 # CORE SECURITY DIRECTIVES (OWASP Top 10 Defense)
 1. **Input Validation:** Treat all client input as hostile. Validate server-side
    with **Pydantic v2 schemas** (`app/schemas`) using strict typing, allow-lists

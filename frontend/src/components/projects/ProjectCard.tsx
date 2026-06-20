@@ -60,7 +60,7 @@ export function ProjectCard({ project, onArchive }: ProjectCardProps) {
                   e.stopPropagation();
                   onArchive(project.id);
                 }}
-                title="Archive project"
+                title="Archive campaign"
               >
                 <Archive className="h-3.5 w-3.5" />
               </Button>
