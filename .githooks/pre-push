@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# Pre-push gate for the solo, push-straight-to-main workflow: refuse to push a
+# broken tree. Runs the frontend typecheck + tests and the backend tests (which
+# use in-memory SQLite — no external services).
+#
+# Scope is regression-prevention: tests + typecheck. Ruff is deliberately NOT
+# gated yet — the backend has a pre-existing lint backlog; once that's cleared,
+# add a `ruff check .` step here and in CI.
+#
+# Enable once with:   git config core.hooksPath .githooks
+# Bypass in a real emergency with:   git push --no-verify
+#
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+fail=0
+
+echo ""
+echo "▶ Frontend · typecheck + tests"
+( cd "$ROOT/frontend" && npm run --silent lint && npm run --silent test ) || fail=1
+
+echo ""
+echo "▶ Backend · tests (pytest · in-memory sqlite)"
+( cd "$ROOT/backend" && .venv/bin/python -m pytest -q ) || fail=1
+
+echo ""
+if [ "$fail" -ne 0 ]; then
+  echo "✗ pre-push checks failed — push aborted."
+  echo "  Fix the above, or bypass in an emergency with: git push --no-verify"
+  exit 1
+fi
+echo "✓ all pre-push checks passed — pushing."
