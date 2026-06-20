@@ -11,6 +11,9 @@ import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
 import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 import type { ReadinessMap } from "@/lib/chart-utils";
+import type { RevisionDetail } from "@/api/revisions";
+import type { PrintRow } from "@/components/revisions/RevisionPrintDoc";
+import type { Project } from "@/types";
 
 const PROJECT_ID = "dev-fixtures";
 
@@ -83,3 +86,71 @@ export const FIXTURE_CONTRACTS: Map<string, RigContract> = new Map([
   ["Rig-2", contract("Rig-2", "2027-01-01")],
   ["Rig-3", contract("Rig-3", "2026-06-25")],
 ]);
+
+// ── Print fixtures — for rendering RevisionPrintDoc in the harness ─────────────
+
+/** The same activities as PrintRows, with readiness flattened to code→status and
+ *  each rig's contract denormalised onto its rows (as the snapshot does). */
+export const FIXTURE_PRINT_ROWS: PrintRow[] = FIXTURE_ACTIVITIES.map((a) => {
+  const rd = FIXTURE_READINESS.get(a.id);
+  const readiness = rd
+    ? (Object.fromEntries(CHECK_CODES.map((c) => [c, rd[c].status])) as Record<string, CheckStatus>)
+    : undefined;
+  const c = a.rig_name ? FIXTURE_CONTRACTS.get(a.rig_name) : undefined;
+  return {
+    id: a.id,
+    activity_type: a.activity_type,
+    start_date: a.start_date,
+    end_date: a.end_date,
+    well_name: a.well_name,
+    well_project: a.well_project,
+    rig_name: a.rig_name,
+    location: a.location,
+    plan_type: a.plan_type,
+    risk: a.risk,
+    readiness,
+    rig_contract_status: c?.status ?? null,
+    rig_contract_end: c?.contract_end ?? null,
+  };
+});
+
+export const FIXTURE_PROJECT: Project = {
+  id: PROJECT_ID,
+  name: "Dev Fixtures Field",
+  field: "Niger Delta",
+  region: "OML-00",
+  status: "active",
+  review_policy: "optional",
+  created_by: "u0",
+  created_at: "2026-01-01T00:00:00Z",
+  members: [],
+  cloned_from_project_id: null,
+};
+
+export const FIXTURE_REVISION: RevisionDetail = {
+  id: "rev-fixtures",
+  project_id: PROJECT_ID,
+  rev_number: 3,
+  label: null,
+  status: "approved",
+  stage: "approval",
+  review_required: true,
+  review_skipped: false,
+  created_by_name: "Dev Planner",
+  created_at: "2026-06-01T08:00:00Z",
+  signatures: [
+    { id: "sig-1", user_id: "u1", user_name: "Asha Reviewer", role_label: "Technical Reviewer", signed_at: "2026-06-05T10:00:00Z" },
+    { id: "sig-2", user_id: "u2", user_name: "Femi Approver", role_label: "Asset Manager", signed_at: "2026-06-10T14:00:00Z" },
+  ],
+  reviewer_status: [
+    { email: "asha@example.com", name: "Asha Reviewer", role_label: "Technical Reviewer", signed: true, signed_at: "2026-06-05T10:00:00Z", signer_name: "Asha Reviewer" },
+  ],
+  approver_status: [
+    { email: "femi@example.com", name: "Femi Approver", role_label: "Asset Manager", signed: true, signed_at: "2026-06-10T14:00:00Z", signer_name: "Femi Approver" },
+  ],
+  decision_reason: null,
+  decision_by_name: null,
+  decision_at: null,
+  integrity_digest: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  snapshot_json: "{}",
+};
