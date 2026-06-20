@@ -577,6 +577,86 @@ there's no HTTP→HTTPS redirect — share the `https://` URL (or add a tiny red
 
 ---
 
+## Appendix D — Test / staging on DEV_MODE (no Azure, no TLS)
+
+Use this to stand the app up for **colleagues to click around** before SSO and the
+production move are ready — the "share a link so others can test" case. It's the
+single-process shape of Appendix C, but with `DEV_MODE` on, so you skip the Azure
+registrations (§2) and the TLS certificate entirely.
+
+> **What `DEV_MODE` actually does:** it turns authentication **off**. Every request
+> is treated as one fixed, built-in **admin** user — there is no login and no token
+> check, so **anyone who can reach the URL has full admin access.** Only ever run
+> this on the **internal network**, never internet-facing, and share the link only
+> with your intended testers.
+
+### D.1 What this can and can't test
+**Can test** — the UI, the sequence chart, CSV/Excel import, readiness gates, the
+print/PDF export, navigation, dashboards: anything that doesn't depend on *who* the
+user is.
+
+**Cannot test** — the **review → approval workflow.** Every tester is the *same*
+user, and a revision's creator may not sign their own work (an integrity rule with
+no admin bypass), and submit is blocked when there's only one eligible approver — so
+a single shared identity dead-ends sign-off. The multi-person governance core can
+only be exercised with **real SSO and 2–3 distinct accounts** (i.e. after the Entra
+move, §2). Don't spend time trying to approve anything under `DEV_MODE`.
+
+### D.2 Build the frontend with login off
+The Azure values are baked in at build time, so the **frontend** must also be built
+with login off — otherwise the browser still tries to sign in via Microsoft. In
+`frontend\.env.production` (or `.env`):
+```ini
+VITE_DEV_MODE=true
+```
+Then `npm ci && npm run build` (per §5) and copy `frontend\dist\` to e.g.
+`C:\apps\drilling\web`.
+
+### D.3 Backend env — no Azure block, no production guard
+`backend\.env` with the §4a keys **minus** the Azure section, plus:
+```ini
+:: Auth OFF — single shared admin user. Internal network only.
+DEV_MODE=true
+
+:: Leave ENVIRONMENT unset (or "development"). Setting it to "production" makes the
+:: app refuse to start while DEV_MODE is on — that's the fail-closed guard working.
+:: ENVIRONMENT=
+
+:: uvicorn serves the built frontend itself (single origin) — point at D.2's output.
+STATIC_DIR=C:\apps\drilling\web
+
+:: Your test DB. SQLite needs no server; or point at a throwaway MSSQL test DB (§4a).
+DATABASE_URL=sqlite+aiosqlite:///./dev.db
+```
+Tables: on the **SQLite** dev DB the app creates them on startup; on a **MSSQL** test
+DB run `.venv\Scripts\alembic upgrade head` once (per §4c / B.3).
+
+### D.4 Run it on the network and share the link
+No TLS is needed (no Azure to demand https), so plain HTTP is fine on the internal
+network. The one change from the localhost smoke test is `--host 0.0.0.0`, which
+makes it reachable from other machines:
+```bat
+cd backend
+.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+Open the firewall for the port, then share **`http://<server-name-or-IP>:8000/`**:
+```powershell
+New-NetFirewallRule -DisplayName "Drilling Sequence (DEV test)" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+```
+To survive logoff/reboot, run it as a service the same way as Appendix C
+(`windows_service.py`) — just without the TLS/443 env vars. For an ad-hoc test,
+leaving the console window running is fine.
+
+### D.5 When you're ready for SSO / production
+No app changes — only config. Rebuild the frontend with `VITE_DEV_MODE=false` + the
+Azure IDs + redirect URI (§5); set the backend to `DEV_MODE=false`,
+`ENVIRONMENT=production`, the Azure IDs and the real `DATABASE_URL` (§4a); front it
+with TLS (Appendix B's IIS path or Appendix C's single-process https); and register
+the redirect URI in Entra exactly (§2b, §8). Then the multi-person approval flow
+becomes testable with distinct accounts.
+
+---
+
 *Open items still owned by IT before go-live are tracked in
 [`mssql-migration.md`](./mssql-migration.md) §5 (auth method, server cert,
 collation, host/port).*
