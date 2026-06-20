@@ -17,6 +17,7 @@ import {
 } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans } from "@/lib/print-gantt";
+import { terrainRank } from "@/lib/gantt-rows";
 import { cn } from "@/lib/utils";
 import type { ContractStatus } from "@/api/contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
@@ -44,12 +45,6 @@ const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is the
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-// Terrain order on the chart: land rigs, then swamp, then offshore.
-const TERRAIN_ORDER: Record<string, number> = { LAND: 0, SWAMP: 1, OFFSHORE: 2 };
-
-function terrainRank(loc: string | null | undefined): number {
-  return TERRAIN_ORDER[(loc ?? "").trim().toUpperCase()] ?? 99;
-}
 
 /** Chart row label = "TERRAIN – Rig" (matches the on-screen Gantt). */
 function rowLabel(loc: string | null, rig: string | null): string {

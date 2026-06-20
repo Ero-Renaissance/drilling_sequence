@@ -1,8 +1,7 @@
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { getActivityColor } from "./chart-colors";
-
-const LOCATION_ORDER: Record<string, number> = { LAND: 0, SWAMP: 1, OFFSHORE: 2 };
+import { terrainRank } from "./gantt-rows";
 
 export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }>>;
 
@@ -47,7 +46,7 @@ function getLabel(a: Activity): string {
 
 function sortActivities(activities: Activity[]): Activity[] {
   return [...activities].sort((a, b) => {
-    const locDiff = (LOCATION_ORDER[a.location ?? ""] ?? 99) - (LOCATION_ORDER[b.location ?? ""] ?? 99);
+    const locDiff = terrainRank(a.location) - terrainRank(b.location);
     if (locDiff !== 0) return locDiff;
     const rigCmp = (b.rig_name ?? "").localeCompare(a.rig_name ?? "");
     if (rigCmp !== 0) return rigCmp;
