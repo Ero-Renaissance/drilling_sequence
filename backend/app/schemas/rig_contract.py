@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-
 ContractStatus = Literal["N/A", "Not Started", "In Progress", "Completed"]
 
 

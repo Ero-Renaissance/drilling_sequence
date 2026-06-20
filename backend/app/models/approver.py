@@ -1,8 +1,7 @@
 import uuid
 
-from sqlalchemy import String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import ForeignKey
 
 from app.database import Base
 

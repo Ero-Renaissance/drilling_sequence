@@ -14,7 +14,6 @@ CSV_ALIASES: dict[str, str] = {
     # entity aliases
     "Item Name": "well_name",
     "Task Name": "well_name",
-    "Project Name": "well_name",
     "Name": "well_name",
     "Well Name": "well_name",
     # resource aliases

@@ -5,8 +5,8 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
 from app.core.rbac import (
@@ -32,8 +32,8 @@ from app.schemas.revision import (
 )
 from app.services.audit import ENTITY_REVISION, governance_event
 from app.services.conflicts import detect_rig_conflicts
-from app.services.integrity import revision_integrity_digest
 from app.services.email import notify_revision_decision, notify_revision_pending
+from app.services.integrity import revision_integrity_digest
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
 

@@ -22,7 +22,6 @@ from app.schemas.readiness import (
 )
 from app.services.readiness import derive_con_status
 
-
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

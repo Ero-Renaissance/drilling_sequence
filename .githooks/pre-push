@@ -4,9 +4,9 @@
 # broken tree. Runs the frontend typecheck + tests and the backend tests (which
 # use in-memory SQLite — no external services).
 #
-# Scope is regression-prevention: tests + typecheck. Ruff is deliberately NOT
-# gated yet — the backend has a pre-existing lint backlog; once that's cleared,
-# add a `ruff check .` step here and in CI.
+# Scope: tests + typecheck, plus ruff's bug-catching rules (F = pyflakes,
+# I = import order). The style rules (E501/E402) are a known backlog, left out
+# for now — widen this to a full `ruff check .` once that's cleared.
 #
 # Enable once with:   git config core.hooksPath .githooks
 # Bypass in a real emergency with:   git push --no-verify
@@ -23,6 +23,15 @@ echo "▶ Frontend · typecheck + tests"
 echo ""
 echo "▶ Backend · tests (pytest · in-memory sqlite)"
 ( cd "$ROOT/backend" && .venv/bin/python -m pytest -q ) || fail=1
+
+if [ -x "$ROOT/backend/.venv/bin/ruff" ]; then
+  echo ""
+  echo "▶ Backend · lint (ruff · F,I)"
+  ( cd "$ROOT/backend" && .venv/bin/ruff check . --select F,I ) || fail=1
+else
+  echo ""
+  echo "▶ Backend · lint — skipped (ruff not installed; run: pip install -e \".[dev]\")"
+fi
 
 echo ""
 if [ "$fail" -ne 0 ]; then

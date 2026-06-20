@@ -58,3 +58,9 @@ packages = ["app"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# SQLAlchemy relationships use string forward-refs (Mapped["Project"]) that the
+# mapper registry resolves at runtime; the classes aren't imported in-file, so
+# F821 (undefined-name) fires spuriously here. It stays active everywhere else.
+"app/models/*.py" = ["F821"]

@@ -6,7 +6,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-
 # Workflow status the planner sets explicitly. Dates only become binding
 # (i.e. drive the CON gate and the rig-level expiry alarm) when status is
 # "Completed" — for the other states the rig contract is still a workflow
