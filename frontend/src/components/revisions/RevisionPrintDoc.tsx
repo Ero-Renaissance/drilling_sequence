@@ -16,6 +16,7 @@ import {
   type ContractUrgency,
 } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
+import { computeFittedWindows, computeYearSpans } from "@/lib/print-gantt";
 import { cn } from "@/lib/utils";
 import type { ContractStatus } from "@/api/contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
@@ -87,20 +88,6 @@ function fmt(d: string | null | undefined): string {
     : "—";
 }
 
-/** First day of the month containing `t` — snaps a fitted window's start to a
- *  clean month boundary so the month axis bands line up at the left edge. */
-function monthFloor(t: number): Date {
-  const d = new Date(t);
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-
-/** First day of the month *after* the one containing `t` — snaps a fitted
- *  window's end out to a clean month boundary so the last bar isn't flush-right. */
-function monthCeil(t: number): Date {
-  const d = new Date(t);
-  return new Date(d.getFullYear(), d.getMonth() + 1, 1);
-}
-
 // Stable 1..N ordering by start date (then well), so a bar's number on the Gantt
 // matches its row in the schedule table's "#" column.
 function orderRows(rows: PrintRow[]): PrintRow[] {
@@ -137,9 +124,6 @@ function StaticGantt({
     .filter((a): a is PrintRow & { s: Date; e: Date } => a.s !== null && a.e !== null);
   if (acts.length === 0) return null;
 
-  const startYear = new Date(Math.min(...acts.map((a) => a.s.getTime()))).getFullYear();
-  const endYear = new Date(Math.max(...acts.map((a) => a.e.getTime()))).getFullYear();
-
   // Rows = terrain + rig, ordered Land → Swamp → Offshore, then rig. The contract
   // is per-rig (denormalised onto every activity), so capture it once per row.
   const meta = new Map<
@@ -164,25 +148,12 @@ function StaticGantt({
     return d !== 0 ? d : (A.rig ?? "").localeCompare(B.rig ?? "");
   });
 
-  // Paginate the timeline into chunks of at most `windowYears`, but render each
-  // chunk fitted to the activities that actually fall in it (snapped out to whole
-  // months) instead of the full calendar year(s). A short campaign then fills the
-  // page width rather than sitting in an empty Jan–Dec backdrop; empty chunks are
-  // dropped entirely. Fitting is clamped to the chunk so an activity spanning a
-  // boundary is split across pages (and never stretches a window past its chunk).
-  const windows: { from: Date; to: Date }[] = [];
-  for (let y = startYear; y <= endYear; y += windowYears) {
-    const cFrom = new Date(y, 0, 1).getTime();
-    const cTo = new Date(y + windowYears, 0, 1).getTime();
-    const inChunk = acts.filter((a) => a.e.getTime() > cFrom && a.s.getTime() < cTo);
-    if (inChunk.length === 0) continue;
-    const lo = Math.min(...inChunk.map((a) => a.s.getTime()));
-    const hi = Math.max(...inChunk.map((a) => a.e.getTime()));
-    windows.push({
-      from: lo <= cFrom ? new Date(cFrom) : monthFloor(lo),
-      to: hi >= cTo ? new Date(cTo) : monthCeil(hi),
-    });
-  }
+  // Fit each page's window to its activities (snapped to whole months) rather
+  // than a fixed Jan–Dec span; empty chunks are dropped. See computeFittedWindows.
+  const windows = computeFittedWindows(
+    acts.map((a) => ({ s: a.s.getTime(), e: a.e.getTime() })),
+    windowYears,
+  );
   const now = Date.now();
 
   const activeInWindow = (key: string, w: { from: Date; to: Date }) =>
@@ -218,18 +189,10 @@ function StaticGantt({
         const w = pg.w;
         const winStart = w.from.getTime();
         const winSpan = w.to.getTime() - winStart;
-        // Year labels: each calendar year the window touches, centred over its
-        // visible slice — so the year still reads when a fitted window spans only a
-        // few months (no Jan-1 tick would fall inside it). `yb` = the window's last
-        // visible year (w.to is exclusive, so step back 1ms).
+        // Year axis slices (centred labels + internal gridlines); `yb` = the
+        // window's last visible year, used for the "2026–2027" page heading.
         const yb = new Date(w.to.getTime() - 1).getFullYear();
-        const yearSpans: { y: number; left: number; width: number }[] = [];
-        for (let y = w.from.getFullYear(); y <= yb; y++) {
-          const ys = Math.max(winStart, new Date(y, 0, 1).getTime());
-          const ye = Math.min(w.to.getTime(), new Date(y + 1, 0, 1).getTime());
-          if (ye <= ys) continue;
-          yearSpans.push({ y, left: ((ys - winStart) / winSpan) * 100, width: ((ye - ys) / winSpan) * 100 });
-        }
+        const yearSpans = computeYearSpans(w.from, w.to);
         // Month columns — drive the alternating bands + month labels. A window begins
         // on a month boundary, so idx 0 is w.from's month and every odd one gets a band.
         const months: { left: number; width: number; idx: number; m: number }[] = [];

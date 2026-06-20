@@ -15,6 +15,7 @@ import {
 } from "@/pages/ProjectDetail";
 import { RevisionDetail } from "@/pages/RevisionDetail";
 import { Admin } from "@/pages/Admin";
+import ChartFixtures from "@/dev/ChartFixtures";
 import { useAuthStore } from "@/store/auth";
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,10 @@ export default function App() {
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path="/login" element={<Login />} />
+
+        {/* Dev-only chart harness — auth-free, fixture-driven, dropped from prod
+            builds (import.meta.env.DEV is statically false there). */}
+        {import.meta.env.DEV && <Route path="/dev/fixtures" element={<ChartFixtures />} />}
 
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />

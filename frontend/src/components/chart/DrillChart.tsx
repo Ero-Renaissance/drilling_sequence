@@ -11,6 +11,7 @@ import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
 import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
+import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
 import {
   buildAlarmClockSvgDataUri,
   buildCheckSvgDataUri,
@@ -44,35 +45,6 @@ import { ChartLegend } from "./ChartLegend";
  * Both signals are useful, so we render CON in both places.
  */
 const BAR_STRIP_CODES = CHECK_CODES;
-
-/**
- * Reduce the 7 per-activity checks into the single most-concerning check so we
- * can render an informative summary on bars too small for the full icon strip.
- *
- * Severity order (highest → lowest): Behind > In Progress > Not Started > Completed > N/A.
- * Returns the WORST check's code + status so we can render its identifying icon.
- */
-function worstCheck(
-  checks: Record<string, { status: CheckStatus }> | null | undefined,
-): { code: CheckCode; status: CheckStatus } | null {
-  if (!checks) return null;
-  const rank: Record<CheckStatus, number> = {
-    Behind: 4,
-    "In Progress": 3,
-    "Not Started": 2,
-    Completed: 1,
-    "N/A": 0,
-  };
-  let winner: { code: CheckCode; status: CheckStatus } | null = null;
-  for (const code of BAR_STRIP_CODES) {
-    const s = checks[code]?.status as CheckStatus | undefined;
-    if (!s) continue;
-    if (!winner || rank[s] > rank[winner.status]) {
-      winner = { code, status: s };
-    }
-  }
-  return winner;
-}
 
 interface DrillChartProps {
   activities: Activity[];
@@ -525,7 +497,6 @@ export function DrillChart({
       // (like the well-name label). It hugs the text as a soft chip when it fits,
       // and falls back to a bar-width truncating band for a long project name.
       if (project && clippedBar.width >= 36) {
-        const tagFits = String(project).length * 6 + 10 <= clippedBar.width;
         children.push({
           type: "text",
           silent: true,
@@ -541,7 +512,9 @@ export function DrillChart({
             backgroundColor: theme.projectChip,
             padding: [1, 4],
             borderRadius: 3,
-            ...(tagFits ? {} : { width: clippedBar.width - 4, overflow: "truncate" }),
+            ...(tagFits(String(project), clippedBar.width)
+              ? {}
+              : { width: clippedBar.width - 4, overflow: "truncate" }),
           },
         });
       }
@@ -581,13 +554,14 @@ export function DrillChart({
           });
         };
 
-        if (barWidth >= 135) {
+        const tier = iconTier(barWidth);
+        if (tier === "full") {
           for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
             const code = BAR_STRIP_CODES[i];
             const status = (checks[code]?.status ?? "Not Started") as CheckStatus;
             placeIcon(code, status, stripX + i * (ICON_SIZE + ICON_GAP), stripY, ICON_SIZE);
           }
-        } else if (barWidth >= 90) {
+        } else if (tier === "half") {
           const SMALL = 10;
           const SMALL_GAP = 1;
           for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
@@ -595,7 +569,7 @@ export function DrillChart({
             const status = (checks[code]?.status ?? "Not Started") as CheckStatus;
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
-        } else if (barWidth >= 45) {
+        } else if (tier === "grid") {
           // 4×2 mini grid — 8 icons split evenly (4 in each row)
           const GRID_SIZE = 9;
           const GRID_GAP = 1;
