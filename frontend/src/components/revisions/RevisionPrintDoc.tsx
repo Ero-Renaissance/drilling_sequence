@@ -378,7 +378,7 @@ function StaticGantt({
                                       when the well belongs to a project. */}
                                   {a.well_project && (
                                     <span
-                                      className="pointer-events-none absolute top-0 whitespace-nowrap text-[6px] leading-none text-muted-foreground"
+                                      className="pointer-events-none absolute top-0 whitespace-nowrap rounded-[2px] bg-black/10 px-0.5 py-px text-[6px] font-semibold leading-none text-foreground"
                                       style={{ left: `${l}%` }}
                                     >
                                       {a.well_project}
@@ -410,7 +410,7 @@ function StaticGantt({
                                 <>
                                   {showProject && (
                                     <span
-                                      className="pointer-events-none absolute top-0 whitespace-nowrap text-[6px] leading-none text-muted-foreground"
+                                      className="pointer-events-none absolute top-0 whitespace-nowrap rounded-[2px] bg-black/10 px-0.5 py-px text-[6px] font-semibold leading-none text-foreground"
                                       style={{ left: `${l}%` }}
                                     >
                                       {a.well_project}

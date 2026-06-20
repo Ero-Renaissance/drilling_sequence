@@ -271,6 +271,7 @@ export function ChartTab() {
           contractsByRig={contractsByRig}
           conflictIds={conflictIds}
           onActivityClick={setEditActivityId}
+          enableProjectFilter
         />
       )}
 

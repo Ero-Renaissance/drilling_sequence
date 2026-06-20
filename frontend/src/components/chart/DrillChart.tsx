@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
+import { ChevronDown } from "lucide-react";
 import type {
   EChartsOption,
   CustomSeriesRenderItemParams,
@@ -13,6 +14,7 @@ import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
 import {
   buildAlarmClockSvgDataUri,
   buildCheckSvgDataUri,
+  buildDropletSvgDataUri,
 } from "@/lib/check-icon-svg";
 import { STATUS_LABEL } from "@/components/readiness/check-meta";
 import {
@@ -22,6 +24,13 @@ import {
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
 import { useThemeStore } from "@/store/theme";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { ChartLegend } from "./ChartLegend";
 
 /**
@@ -72,6 +81,9 @@ interface DrillChartProps {
   contractsByRig?: Map<string, RigContract>;
   conflictIds?: Set<string>;
   onActivityClick?: (activityId: string) => void;
+  /** Show the multi-select project filter (dims non-selected projects). Off in
+   *  the read-only revision snapshot view; on for the live project chart. */
+  enableProjectFilter?: boolean;
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -103,6 +115,9 @@ interface ChartTheme {
   todayLabel: string;
   barLabel: string;
   completedFill: string;
+  /** Bold, high-contrast colour for the per-bar project tag (and its soft chip). */
+  projectLabel: string;
+  projectChip: string;
 }
 
 const LIGHT_THEME: ChartTheme = {
@@ -122,6 +137,8 @@ const LIGHT_THEME: ChartTheme = {
   todayLabel: "#ef4444",
   barLabel: "#ffffff",
   completedFill: "#94a3b8",
+  projectLabel: "#0f172a",
+  projectChip: "rgba(15,23,42,0.08)",
 };
 
 const DARK_THEME: ChartTheme = {
@@ -141,6 +158,8 @@ const DARK_THEME: ChartTheme = {
   todayLabel: "#f87171",
   barLabel: "#ffffff",
   completedFill: "#64748b",
+  projectLabel: "#f1f5f9",
+  projectChip: "rgba(255,255,255,0.14)",
 };
 
 type BandArea = [{ xAxis: number; itemStyle: { color: string } }, { xAxis: number }];
@@ -177,6 +196,68 @@ function bandMarkArea(areas: BandArea[]) {
   return { silent: true, data: areas };
 }
 
+/**
+ * Multi-select project picker. An empty selection means "no filter" — every bar
+ * shows at full strength; once one or more projects are picked, the chart dims
+ * the rest (handled in renderItem). Toggling keeps the menu open so several can
+ * be (de)selected in one pass.
+ */
+function ProjectFilter({
+  projects,
+  selected,
+  onChange,
+}: {
+  projects: string[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const toggle = (p: string) => {
+    const next = new Set(selected);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
+    onChange(next);
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border/70 px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          {selected.size === 0 ? "All projects" : `${selected.size} selected`}
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
+        <div className="flex items-center justify-between px-2 py-1.5 text-xs">
+          <span className="font-medium text-muted-foreground">Filter by project</span>
+          {selected.size > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange(new Set())}
+              className="font-medium text-primary hover:underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <DropdownMenuSeparator />
+        {projects.map((p) => (
+          <DropdownMenuCheckboxItem
+            key={p}
+            checked={selected.has(p)}
+            onCheckedChange={() => toggle(p)}
+            onSelect={(e) => e.preventDefault()}
+            className="text-xs"
+          >
+            {p}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function DrillChart({
@@ -185,11 +266,14 @@ export function DrillChart({
   contractsByRig,
   conflictIds,
   onActivityClick,
+  enableProjectFilter = false,
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
 
   const [activeYear, setActiveYear] = useState<number | null>(null);
+  // Selected projects to single out — empty Set means "no filter" (all vivid).
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
 
   // Distinct calendar years the campaign spans — drives the focus-year strip.
   const years = useMemo(() => {
@@ -204,6 +288,28 @@ export function DrillChart({
     if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return [];
     return Array.from({ length: max - min + 1 }, (_, i) => min + i);
   }, [activities]);
+
+  // Distinct, sorted project names — drives the project filter's checklist.
+  const projects = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of activities) if (a.well_project) s.add(a.well_project);
+    return Array.from(s).sort((x, y) => x.localeCompare(y));
+  }, [activities]);
+
+  // Whether any activity carries flood risk — gates the legend's Risk section.
+  const hasFlood = useMemo(
+    () => activities.some((a) => a.risk === "Flood Risk"),
+    [activities],
+  );
+
+  // Drop any selected project that no longer exists once the data changes, so a
+  // stale selection can't dim the whole chart (every bar failing to match).
+  useEffect(() => {
+    setSelectedProjects((prev) => {
+      const next = new Set([...prev].filter((p) => projects.includes(p)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [projects]);
 
   // Focus the chart on one calendar year, or the full span (null). We drive this
   // through the option's dataZoom window (see below) rather than an imperative
@@ -351,6 +457,16 @@ export function DrillChart({
       // still reads as its type; the red border is the conflict signal.
       const conflictStroke = "#ef4444";
 
+      // Project filter: when a selection is active, a bar whose project isn't
+      // selected (or that has no project) dims to background context — faded
+      // fill, no outline / label / icons / marker.
+      const project = api.value(8) as string | null;
+      const risk = api.value(7) as string | null;
+      const dimmed =
+        enableProjectFilter &&
+        selectedProjects.size > 0 &&
+        (!project || !selectedProjects.has(project));
+
       const children: Array<Record<string, unknown>> = [
         {
           type: "rect",
@@ -358,14 +474,24 @@ export function DrillChart({
           style: {
             ...baseStyle,
             fill,
-            stroke: isConflict ? conflictStroke : undefined,
-            lineWidth: isConflict ? 2 : 0,
-            shadowBlur: isCompleted ? 0 : 2,
+            opacity: dimmed ? 0.16 : 1,
+            stroke: isConflict && !dimmed ? conflictStroke : undefined,
+            lineWidth: isConflict && !dimmed ? 2 : 0,
+            shadowBlur: isCompleted || dimmed ? 0 : 2,
             shadowColor: "rgba(0,0,0,0.15)",
             shadowOffsetY: 1,
           },
         },
       ];
+
+      // A dimmed bar is pure context — skip every label, icon and marker.
+      if (dimmed) {
+        return { type: "group", children } as unknown as CustomSeriesRenderItemReturn;
+      }
+
+      // Flood-risk wells get a droplet at the bar's right edge (wide bars only);
+      // reserve room so the well-name label doesn't run under it.
+      const floodMark = risk === "Flood Risk" && clippedBar.width >= 24;
 
       // Draw the bar label here (rather than via the series-level label) so it
       // tracks the *clipped* rect: it centers in the visible portion and is
@@ -389,29 +515,33 @@ export function DrillChart({
             fill: theme.barLabel,
             fontSize: 11,
             fontWeight: 500,
-            width: clippedBar.width - 12,
+            width: clippedBar.width - 12 - (floodMark ? 18 : 0),
             overflow: "truncate",
           },
         });
       }
 
-      // The well's project, as a small muted label just above the bar — gated on
-      // bar width (like the well-name label) so it never overlaps on narrow bars.
-      const project = api.value(8) as string | null;
+      // The well's project, as a bold tag just above the bar — gated on bar width
+      // (like the well-name label). It hugs the text as a soft chip when it fits,
+      // and falls back to a bar-width truncating band for a long project name.
       if (project && clippedBar.width >= 36) {
+        const tagFits = String(project).length * 6 + 10 <= clippedBar.width;
         children.push({
           type: "text",
           silent: true,
           style: {
             text: project,
-            x: clippedBar.x + 2,
+            x: clippedBar.x + 3,
             y: clippedBar.y - 1,
             align: "left",
             verticalAlign: "bottom",
-            fill: theme.axisLabel,
-            fontSize: 9,
-            width: clippedBar.width - 2,
-            overflow: "truncate",
+            fill: theme.projectLabel,
+            fontSize: 10,
+            fontWeight: 600,
+            backgroundColor: theme.projectChip,
+            padding: [1, 4],
+            borderRadius: 3,
+            ...(tagFits ? {} : { width: clippedBar.width - 4, overflow: "truncate" }),
           },
         });
       }
@@ -487,6 +617,22 @@ export function DrillChart({
             placeIcon(worst.code, worst.status, x, stripY + 4, ICON);
           }
         }
+      }
+
+      // Flood-risk droplet — solid blue, at the bar's right edge, on top of the fill.
+      if (floodMark) {
+        const FLOOD = 13;
+        children.push({
+          type: "image",
+          silent: true,
+          style: {
+            image: buildDropletSvgDataUri(),
+            x: clippedBar.x + clippedBar.width - FLOOD - 3,
+            y: clippedBar.y + (clippedBar.height - FLOOD) / 2,
+            width: FLOOD,
+            height: FLOOD,
+          },
+        });
       }
 
       return {
@@ -760,7 +906,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax]);
+  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax, selectedProjects, enableProjectFilter]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -840,30 +986,46 @@ export function DrillChart({
       data-testid="drill-chart"
       className="flex w-full flex-col gap-3"
     >
-      {years.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs font-medium text-muted-foreground">
-            Focus year
-          </span>
-          <button
-            type="button"
-            onClick={() => focusYear(null)}
-            aria-pressed={activeYear === null}
-            className={yearChipClass(activeYear === null)}
-          >
-            All
-          </button>
-          {years.map((y) => (
-            <button
-              key={y}
-              type="button"
-              onClick={() => focusYear(y)}
-              aria-pressed={activeYear === y}
-              className={yearChipClass(activeYear === y)}
-            >
-              {y}
-            </button>
-          ))}
+      {(years.length > 1 || (enableProjectFilter && projects.length > 1)) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {years.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                Focus year
+              </span>
+              <button
+                type="button"
+                onClick={() => focusYear(null)}
+                aria-pressed={activeYear === null}
+                className={yearChipClass(activeYear === null)}
+              >
+                All
+              </button>
+              {years.map((y) => (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => focusYear(y)}
+                  aria-pressed={activeYear === y}
+                  className={yearChipClass(activeYear === y)}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+          )}
+          {enableProjectFilter && projects.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                Projects
+              </span>
+              <ProjectFilter
+                projects={projects}
+                selected={selectedProjects}
+                onChange={setSelectedProjects}
+              />
+            </div>
+          )}
         </div>
       )}
       <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
@@ -881,6 +1043,7 @@ export function DrillChart({
         activityTypes={activityTypes}
         showReadiness={!!readinessMap}
         showContractExpiry={!!contractsByRig}
+        showFloodRisk={hasFlood}
       />
     </div>
   );

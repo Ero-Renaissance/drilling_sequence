@@ -1,4 +1,4 @@
-import { AlarmClock } from "lucide-react";
+import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CHECK_CODES, type CheckStatus } from "@/api/readiness";
 import { CHECK_META, STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
@@ -25,6 +25,8 @@ interface ChartLegendProps {
    * indicator colors. Off by default.
    */
   showContractExpiry?: boolean;
+  /** When true, adds a Risk section explaining the flood-risk droplet marker. */
+  showFloodRisk?: boolean;
   className?: string;
 }
 
@@ -51,6 +53,7 @@ export function ChartLegend({
   activityTypes,
   showReadiness = true,
   showContractExpiry = false,
+  showFloodRisk = false,
   className,
 }: ChartLegendProps) {
   // Each tier gets a friendly name AND its numeric range so readers can connect
@@ -159,6 +162,24 @@ export function ChartLegend({
               ))}
             </div>
           </div>
+        </>
+      )}
+
+      {showFloodRisk && (
+        <>
+          <div className="hidden w-px bg-border/70 md:block" />
+
+          <Section label="Risk">
+            <span className="flex items-center gap-1.5 text-xs text-foreground">
+              <Droplet
+                className="h-3.5 w-3.5 shrink-0"
+                style={{ color: "#2563eb" }}
+                fill="#2563eb"
+                strokeWidth={1.5}
+              />
+              Flood risk
+            </span>
+          </Section>
         </>
       )}
     </div>

@@ -106,3 +106,22 @@ export function buildAlarmClockSvg(strokeHex: string): string {
 export function buildAlarmClockSvgDataUri(strokeHex: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(buildAlarmClockSvg(strokeHex))}`;
 }
+
+// ── Droplet — flood-risk marker on a bar ──────────────────────────────────────
+
+const DROPLET_PATH = `<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C8 11.1 7 13 7 15a7 7 0 0 0 7 7z"/>`;
+
+/** A solid-fill water-drop (default flood blue) with a thin contrasting edge so
+ *  it stays legible on any activity-type bar colour — used to flag flood risk. */
+export function buildDropletSvg(fillHex = "#2563eb", edgeHex = "#ffffff"): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ` +
+    `fill="${fillHex}" stroke="${edgeHex}" stroke-width="1.6" stroke-linejoin="round">` +
+    DROPLET_PATH +
+    `</svg>`
+  );
+}
+
+export function buildDropletSvgDataUri(fillHex?: string): string {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(buildDropletSvg(fillHex))}`;
+}

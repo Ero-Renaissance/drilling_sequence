@@ -81,6 +81,12 @@ const MULTI_YEAR_ACTIVITIES: Activity[] = [
   },
 ];
 
+// Two distinct projects (and a flood-risk well) for the project filter.
+const FILTER_ACTIVITIES: Activity[] = [
+  { ...MOCK_ACTIVITIES[0], id: "act-pa", well_project: "Project Alpha", risk: "Flood Risk" },
+  { ...MOCK_ACTIVITIES[1], id: "act-pb", well_project: "Project Beta", risk: "No Flood Risk" },
+];
+
 // ─── DrillChart ─────────────────────────────────────────────────────────────
 
 describe("DrillChart", () => {
@@ -128,6 +134,32 @@ describe("DrillChart", () => {
   it("hides the year strip for a single-year campaign", () => {
     render(<DrillChart activities={MOCK_ACTIVITIES} />);
     expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();
+  });
+
+  it("shows the project filter only when enabled and >1 project exists", () => {
+    // Off by default…
+    const { rerender } = render(<DrillChart activities={FILTER_ACTIVITIES} />);
+    expect(screen.queryByRole("button", { name: /All projects/i })).not.toBeInTheDocument();
+    // …on when enabled.
+    rerender(<DrillChart activities={FILTER_ACTIVITIES} enableProjectFilter />);
+    expect(screen.getByRole("button", { name: /All projects/i })).toBeInTheDocument();
+  });
+
+  it("does not show the project filter when only one project exists", () => {
+    render(<DrillChart activities={[FILTER_ACTIVITIES[0]]} enableProjectFilter />);
+    expect(screen.queryByRole("button", { name: /All projects/i })).not.toBeInTheDocument();
+  });
+
+  it("multi-selects projects and reflects the count in the trigger", async () => {
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableProjectFilter />);
+    await userEvent.click(screen.getByRole("button", { name: /All projects/i }));
+    const alpha = await screen.findByRole("menuitemcheckbox", { name: "Project Alpha" });
+    await userEvent.click(alpha);
+    expect(alpha).toHaveAttribute("aria-checked", "true");
+    // The menu stays open for multi-select; close it to read the trigger, which
+    // the open menu marks aria-hidden.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: /1 selected/i })).toBeInTheDocument();
   });
 });
 
