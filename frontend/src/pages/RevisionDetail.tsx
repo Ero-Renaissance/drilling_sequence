@@ -684,7 +684,7 @@ export function RevisionDetail() {
       {/* Inline print stylesheet — keeps it co-located with the page that uses it */}
       <style>{`
         @media print {
-          @page { size: A4 landscape; margin: 16mm 18mm; }
+          @page { size: A4 landscape; margin: 14mm 12mm; }
           /* Force light document tokens so a dark-mode user still gets a clean,
              readable PDF (dark text on white), not light text on white. */
           :root, .dark {

@@ -39,7 +39,7 @@ function expiryUrgency(
 
 const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"];
 const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Started", "N/A"];
-const WINDOW_YEARS = 2; // sequence paginates into ≤2-year windows so bar labels stay legible
+const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is then fitted to its data
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -87,6 +87,20 @@ function fmt(d: string | null | undefined): string {
     : "—";
 }
 
+/** First day of the month containing `t` — snaps a fitted window's start to a
+ *  clean month boundary so the month axis bands line up at the left edge. */
+function monthFloor(t: number): Date {
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+/** First day of the month *after* the one containing `t` — snaps a fitted
+ *  window's end out to a clean month boundary so the last bar isn't flush-right. */
+function monthCeil(t: number): Date {
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth() + 1, 1);
+}
+
 // Stable 1..N ordering by start date (then well), so a bar's number on the Gantt
 // matches its row in the schedule table's "#" column.
 function orderRows(rows: PrintRow[]): PrintRow[] {
@@ -98,7 +112,7 @@ function orderRows(rows: PrintRow[]): PrintRow[] {
   });
 }
 
-// ── Static Gantt — clean bars on a year grid, paginated by 2-year windows ──────
+// ── Static Gantt — clean bars on a month grid, fitted to the data per window ───
 
 function StaticGantt({
   rows,
@@ -150,9 +164,24 @@ function StaticGantt({
     return d !== 0 ? d : (A.rig ?? "").localeCompare(B.rig ?? "");
   });
 
+  // Paginate the timeline into chunks of at most `windowYears`, but render each
+  // chunk fitted to the activities that actually fall in it (snapped out to whole
+  // months) instead of the full calendar year(s). A short campaign then fills the
+  // page width rather than sitting in an empty Jan–Dec backdrop; empty chunks are
+  // dropped entirely. Fitting is clamped to the chunk so an activity spanning a
+  // boundary is split across pages (and never stretches a window past its chunk).
   const windows: { from: Date; to: Date }[] = [];
   for (let y = startYear; y <= endYear; y += windowYears) {
-    windows.push({ from: new Date(y, 0, 1), to: new Date(Math.min(y + windowYears, endYear + 1), 0, 1) });
+    const cFrom = new Date(y, 0, 1).getTime();
+    const cTo = new Date(y + windowYears, 0, 1).getTime();
+    const inChunk = acts.filter((a) => a.e.getTime() > cFrom && a.s.getTime() < cTo);
+    if (inChunk.length === 0) continue;
+    const lo = Math.min(...inChunk.map((a) => a.s.getTime()));
+    const hi = Math.max(...inChunk.map((a) => a.e.getTime()));
+    windows.push({
+      from: lo <= cFrom ? new Date(cFrom) : monthFloor(lo),
+      to: hi >= cTo ? new Date(cTo) : monthCeil(hi),
+    });
   }
   const now = Date.now();
 
@@ -189,10 +218,20 @@ function StaticGantt({
         const w = pg.w;
         const winStart = w.from.getTime();
         const winSpan = w.to.getTime() - winStart;
-        const years: number[] = [];
-        for (let y = w.from.getFullYear(); y < w.to.getFullYear(); y++) years.push(y);
-        // Month columns — drive the alternating bands + month labels. Windows begin
-        // on Jan 1, so idx 0 is January and every odd month gets a faint band.
+        // Year labels: each calendar year the window touches, centred over its
+        // visible slice — so the year still reads when a fitted window spans only a
+        // few months (no Jan-1 tick would fall inside it). `yb` = the window's last
+        // visible year (w.to is exclusive, so step back 1ms).
+        const yb = new Date(w.to.getTime() - 1).getFullYear();
+        const yearSpans: { y: number; left: number; width: number }[] = [];
+        for (let y = w.from.getFullYear(); y <= yb; y++) {
+          const ys = Math.max(winStart, new Date(y, 0, 1).getTime());
+          const ye = Math.min(w.to.getTime(), new Date(y + 1, 0, 1).getTime());
+          if (ye <= ys) continue;
+          yearSpans.push({ y, left: ((ys - winStart) / winSpan) * 100, width: ((ye - ys) / winSpan) * 100 });
+        }
+        // Month columns — drive the alternating bands + month labels. A window begins
+        // on a month boundary, so idx 0 is w.from's month and every odd one gets a band.
         const months: { left: number; width: number; idx: number; m: number }[] = [];
         for (
           let cur = new Date(w.from.getFullYear(), w.from.getMonth(), 1), idx = 0;
@@ -210,7 +249,6 @@ function StaticGantt({
         const todayPct =
           now >= winStart && now < w.to.getTime() ? ((now - winStart) / winSpan) * 100 : null;
         const ya = w.from.getFullYear();
-        const yb = w.to.getFullYear() - 1;
         const span = ya === yb ? `${ya}` : `${ya}–${yb}`;
         const rigRange =
           pg.rowTotal > rowsPerPage
@@ -229,14 +267,15 @@ function StaticGantt({
               <div className="flex h-5 border-b border-border bg-zinc-100 text-[9px] tabular-nums text-muted-foreground">
                 <div className="shrink-0" style={{ width: RIG_COL }} />
                 <div className="relative h-full flex-1">
-                  {years.map((y) => {
-                    const left = ((new Date(y, 0, 1).getTime() - winStart) / winSpan) * 100;
-                    return (
-                      <span key={y} className="absolute top-0.5 -translate-x-1/2 px-1" style={{ left: `${left}%` }}>
-                        {y}
-                      </span>
-                    );
-                  })}
+                  {yearSpans.map((ys) => (
+                    <span
+                      key={ys.y}
+                      className="absolute inset-y-0 flex items-center justify-center overflow-hidden px-1"
+                      style={{ left: `${ys.left}%`, width: `${ys.width}%` }}
+                    >
+                      {ys.y}
+                    </span>
+                  ))}
                 </div>
               </div>
               {/* Month axis — abbreviations let a reader read off the month directly */}
@@ -268,12 +307,11 @@ function StaticGantt({
                       />
                     ) : null,
                   )}
-                  {years.map((y) => {
-                    const left = ((new Date(y, 0, 1).getTime() - winStart) / winSpan) * 100;
-                    return left > 0.5 && left < 99.5 ? (
-                      <div key={y} className="absolute inset-y-0 w-px bg-border/60" style={{ left: `${left}%` }} />
-                    ) : null;
-                  })}
+                  {yearSpans.map((ys) =>
+                    ys.left > 0.5 && ys.left < 99.5 ? (
+                      <div key={ys.y} className="absolute inset-y-0 w-px bg-border/60" style={{ left: `${ys.left}%` }} />
+                    ) : null,
+                  )}
                   {todayPct !== null && (
                     <div
                       className="absolute inset-y-0 border-l border-dashed border-red-400/70"
@@ -296,7 +334,7 @@ function StaticGantt({
                       key={key}
                       className={cn(
                         "flex items-stretch border-b border-border/40 last:border-b-0",
-                        showReadiness ? "h-11" : "h-8",
+                        showReadiness ? "h-11" : "h-9",
                       )}
                     >
                     <div
@@ -326,10 +364,11 @@ function StaticGantt({
                           // font lets the name fit on most bars. (Readiness bars show the
                           // name only — handled below.) Truncates on the narrowest bars.
                           const showName = wpct >= 5 && !!a.well_name;
-                          // Keep the readiness strip (~16% of the plot wide) on the
-                          // page: clamp its centre so an activity in early Jan / late
-                          // Dec doesn't push the icons off the edge and clip them.
-                          const iconCenter = Math.min(90, Math.max(10, (l + r) / 2));
+                          // The well's project rides above the standard bar (muted, like the
+                          // live Sequence chart) — but only on a wide-enough bar, so dense rows
+                          // of narrow bars don't collide. The schedule table's Project column is
+                          // the complete reference for the narrow ones that omit it.
+                          const showProject = wpct >= 6 && !!a.well_project;
                           return (
                             <Fragment key={a.id}>
                               {showReadiness ? (
@@ -354,25 +393,45 @@ function StaticGantt({
                                   >
                                     {a.well_name ? <span className="truncate">{a.well_name}</span> : null}
                                   </span>
-                                  {/* Readiness strip beneath the bar — fixed size, all 8 gates. */}
+                                  {/* Readiness strip beneath the bar — scaled to the bar
+                                      width (capped) and centred, so the 8 gates never spill
+                                      past the bar into a neighbour's strip. Narrow bars get
+                                      smaller icons; the schedule table keeps them full size. */}
                                   <span
-                                    className="pointer-events-none absolute top-[1.75rem] -translate-x-1/2"
-                                    style={{ left: `${iconCenter}%` }}
+                                    className="pointer-events-none absolute top-[1.75rem] flex justify-center"
+                                    style={{ left: `${l}%`, width: `${wpct}%` }}
                                   >
-                                    <ReadinessIcons readiness={a.readiness} />
+                                    <span className="w-full max-w-[6rem]">
+                                      <ReadinessIcons readiness={a.readiness} fill />
+                                    </span>
                                   </span>
                                 </>
                               ) : (
-                                <span
-                                  title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
-                                  className="absolute top-1/2 flex h-6 -translate-y-1/2 items-center justify-center gap-1 overflow-hidden rounded px-1 text-[6.5px] font-semibold text-white"
-                                  style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
-                                >
-                                  <span className="shrink-0 tabular-nums">{n}</span>
-                                  {showName && (
-                                    <span className="truncate font-medium opacity-90">{a.well_name}</span>
+                                <>
+                                  {showProject && (
+                                    <span
+                                      className="pointer-events-none absolute top-0 whitespace-nowrap text-[6px] leading-none text-muted-foreground"
+                                      style={{ left: `${l}%` }}
+                                    >
+                                      {a.well_project}
+                                    </span>
                                   )}
-                                </span>
+                                  <span
+                                    title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
+                                    className="absolute top-[0.5rem] flex h-6 items-center justify-center gap-1 overflow-hidden rounded px-1 text-[6.5px] font-semibold text-white"
+                                    style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
+                                  >
+                                    {/* Order number as a white "index badge" — its own
+                                        container + mono digits read as a marker into the
+                                        schedule table's # column, not part of the well name. */}
+                                    <span className="shrink-0 rounded-[2px] bg-white px-0.5 py-px font-mono font-semibold leading-none tabular-nums text-zinc-800">
+                                      {n}
+                                    </span>
+                                    {showName && (
+                                      <span className="truncate font-medium opacity-90">{a.well_name}</span>
+                                    )}
+                                  </span>
+                                </>
                               )}
                             </Fragment>
                           );
@@ -399,7 +458,7 @@ function StaticGantt({
             </div>
             {/* Legends ride with the chart so every page is self-decoding: the
                 activity colours always, and the readiness key when icons are shown. */}
-            <ActivityLegend rows={rows} />
+            <ActivityLegend rows={rows} showOrderKey={!showReadiness} />
             {showReadiness && (
               <div className="mt-2">
                 <ReadinessKey />
@@ -414,7 +473,7 @@ function StaticGantt({
 
 // ── Legends — chart colours go with the chart; readiness icons with the table ──
 
-function ActivityLegend({ rows }: { rows: PrintRow[] }) {
+function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; showOrderKey?: boolean }) {
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
   // Show the contract-expiry key only when some rig has an in-force contract.
   const hasExpiry = rows.some((r) => expiryUrgency(r.rig_contract_status, r.rig_contract_end) !== null);
@@ -427,6 +486,15 @@ function ActivityLegend({ rows }: { rows: PrintRow[] }) {
           {t}
         </span>
       ))}
+      {showOrderKey && (
+        <>
+          <span className="mx-0.5 h-3 w-px bg-border" />
+          <span className="inline-flex items-center gap-1">
+            <span className="rounded-[2px] border border-border bg-white px-1 font-mono text-[8px] font-semibold leading-none text-zinc-800">1</span>
+            <span className="text-muted-foreground">order in the schedule</span>
+          </span>
+        </>
+      )}
       {hasExpiry && (
         <>
           <span className="mx-0.5 h-3 w-px bg-border" />
@@ -474,7 +542,27 @@ function ReadinessKey() {
   );
 }
 
-function ReadinessIcons({ readiness }: { readiness?: Record<string, CheckStatus> }) {
+function ReadinessIcons({
+  readiness,
+  fill = false,
+}: {
+  readiness?: Record<string, CheckStatus>;
+  /** Scale the 8 gates to fill the parent's width (the Gantt strip) instead of a
+   *  fixed 12px each (the schedule table). Lets a strip shrink to a narrow bar's
+   *  width so it never overruns into the next well's strip. */
+  fill?: boolean;
+}) {
+  if (fill) {
+    return (
+      <span className="grid w-full grid-cols-8 gap-px">
+        {CHECK_CODES.map((c) => {
+          const Icon = CHECK_META[c].icon;
+          const st = (readiness?.[c] ?? "Not Started") as CheckStatus;
+          return <Icon key={c} className={cn("h-auto w-full", STATUS_ICON_COLOR[st])} />;
+        })}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex gap-0.5">
       {CHECK_CODES.map((c) => {
