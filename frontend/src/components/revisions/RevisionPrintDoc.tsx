@@ -7,7 +7,7 @@
  * activity schedule table (with readiness gate icons) · formal sign-off table.
  */
 import { Fragment } from "react";
-import { AlarmClock } from "lucide-react";
+import { AlarmClock, Droplet } from "lucide-react";
 import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
 import {
@@ -95,6 +95,20 @@ function orderRows(rows: PrintRow[]): PrintRow[] {
 }
 
 // ── Static Gantt — clean bars on a month grid, fitted to the data per window ───
+
+/** Flood-risk water-drop — solid blue. Pass `onBar` (white edge) when it sits on
+ *  a coloured bar so it stays legible; plain blue on white (table / legend). */
+function FloodDrop({ className, onBar = false }: { className?: string; onBar?: boolean }) {
+  return (
+    <Droplet
+      className={className}
+      style={{ color: "#2563eb" }}
+      fill="#2563eb"
+      stroke={onBar ? "#ffffff" : "#2563eb"}
+      strokeWidth={1.5}
+    />
+  );
+}
 
 function StaticGantt({
   rows,
@@ -327,6 +341,9 @@ function StaticGantt({
                           // of narrow bars don't collide. The schedule table's Project column is
                           // the complete reference for the narrow ones that omit it.
                           const showProject = wpct >= 6 && !!a.well_project;
+                          // Flood-risk droplet on the bar (both modes), gated to a
+                          // wide-enough bar; the table + legend cover the narrow ones.
+                          const showFlood = a.risk === "Flood Risk" && wpct >= 4;
                           return (
                             <Fragment key={a.id}>
                               {showReadiness ? (
@@ -350,6 +367,9 @@ function StaticGantt({
                                     style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
                                   >
                                     {a.well_name ? <span className="truncate">{a.well_name}</span> : null}
+                                    {showFlood && (
+                                      <FloodDrop onBar className="pointer-events-none absolute right-0.5 top-1/2 h-2 w-2 -translate-y-1/2" />
+                                    )}
                                   </span>
                                   {/* Readiness strip beneath the bar — scaled to the bar
                                       width (capped) and centred, so the 8 gates never spill
@@ -387,6 +407,9 @@ function StaticGantt({
                                     </span>
                                     {showName && (
                                       <span className="truncate font-medium opacity-90">{a.well_name}</span>
+                                    )}
+                                    {showFlood && (
+                                      <FloodDrop onBar className="pointer-events-none absolute right-0.5 top-1/2 h-2.5 w-2.5 -translate-y-1/2" />
                                     )}
                                   </span>
                                 </>
@@ -435,6 +458,7 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
   // Show the contract-expiry key only when some rig has an in-force contract.
   const hasExpiry = rows.some((r) => expiryUrgency(r.rig_contract_status, r.rig_contract_end) !== null);
+  const hasFlood = rows.some((r) => r.risk === "Flood Risk");
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <span className="font-semibold uppercase tracking-wider text-muted-foreground">Activity</span>
@@ -450,6 +474,14 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
           <span className="inline-flex items-center gap-1">
             <span className="rounded-[2px] border border-border bg-white px-1 font-mono text-[8px] font-semibold leading-none text-zinc-800">1</span>
             <span className="text-muted-foreground">order in the schedule</span>
+          </span>
+        </>
+      )}
+      {hasFlood && (
+        <>
+          <span className="mx-0.5 h-3 w-px bg-border" />
+          <span className="inline-flex items-center gap-1">
+            <FloodDrop className="h-3 w-3" /> Flood risk
           </span>
         </>
       )}
@@ -575,7 +607,15 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
                 <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.start_date)}</td>
                 <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.end_date)}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.plan_type ?? "—"}</td>
-                <td className="px-1.5 py-1 text-muted-foreground">{r.risk ?? "—"}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">
+                  {r.risk === "Flood Risk" ? (
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <FloodDrop className="h-3 w-3 shrink-0" /> Flood Risk
+                    </span>
+                  ) : (
+                    r.risk ?? "—"
+                  )}
+                </td>
                 <td className="px-1.5 py-1">
                   <ReadinessIcons readiness={r.readiness} />
                 </td>
