@@ -31,6 +31,10 @@ from app.schemas.dashboard import (
     RiskStats,
     Watchlist,
 )
+from app.services.conflicts import detect_rig_conflicts
+from app.services.readiness import derive_con_status
+from app.services.revision_diff import diff_snapshots
+from app.services.snapshot import build_project_snapshot
 
 # Readiness status string → GateBreakdown field.
 _STATUS_KEY = {
@@ -40,10 +44,6 @@ _STATUS_KEY = {
     "Behind": "behind",
     "N/A": "na",
 }
-from app.services.conflicts import detect_rig_conflicts
-from app.services.readiness import derive_con_status
-from app.services.revision_diff import diff_snapshots
-from app.services.snapshot import build_project_snapshot
 
 # Config knobs (defaults; see spec §10).
 NEAR_TERM_DAYS = 90

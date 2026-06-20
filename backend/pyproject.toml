@@ -52,6 +52,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Untracked local dev scaffolding for eyeballing the print/PDF export — not shipped.
+extend-exclude = ["seed_print_demo.py"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
@@ -64,3 +66,6 @@ select = ["E", "F", "I"]
 # mapper registry resolves at runtime; the classes aren't imported in-file, so
 # F821 (undefined-name) fires spuriously here. It stays active everywhere else.
 "app/models/*.py" = ["F821"]
+# Tests run long on inline fixtures and arg-heavy helper calls; line length is
+# low-value there, so E501 is relaxed in tests only (still enforced on app code).
+"tests/*" = ["E501"]

@@ -11,7 +11,8 @@ from pydantic import BaseModel
 
 class ActivityStats(BaseModel):
     total: int
-    completed_this_quarter: int  # this project's completed_at count (clone drops these next quarter)
+    # this project's completed_at count (clone drops these next quarter)
+    completed_this_quarter: int
     completed_ytd: int  # completed this calendar year across the clone lineage
     overdue: int  # end_date < today and not completed
     starting_soon: int  # start within the near-term window, not completed
@@ -58,7 +59,8 @@ class ContractStats(BaseModel):
 
 
 class ApprovalStats(BaseModel):
-    current_status: str  # draft | pending_approval | approved | changes_requested | rejected | discarded
+    # draft | pending_approval | approved | changes_requested | rejected | discarded
+    current_status: str
     signed: int
     approvers: int
     pending_days: int | None
