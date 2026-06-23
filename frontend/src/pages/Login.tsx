@@ -47,7 +47,7 @@ export function Login() {
     if (isDev) {
       await fetchMe();
     } else {
-      await msalInstance.loginRedirect(loginRequest);
+      await msalInstance?.loginRedirect(loginRequest);
     }
   };
 

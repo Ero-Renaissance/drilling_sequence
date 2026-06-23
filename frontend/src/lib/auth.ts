@@ -9,7 +9,17 @@ const msalConfig: Configuration = {
   cache: { cacheLocation: "sessionStorage" },
 };
 
-export const msalInstance = new PublicClientApplication(msalConfig);
+// Auth is bypassed in dev mode, so MSAL must NOT be constructed there. Its
+// constructor eagerly initialises the Web Crypto API (window.crypto.subtle),
+// which browsers expose only in a secure context (HTTPS or localhost). On a
+// plain-HTTP, non-localhost host — a common DEV_MODE test setup — constructing
+// it throws BrowserAuthError "crypto_nonexistent" at module load and white-
+// screens the app. Holding it null in dev mode lets such builds load over HTTP.
+const isDevMode = import.meta.env.VITE_DEV_MODE === "true";
+
+export const msalInstance: PublicClientApplication | null = isDevMode
+  ? null
+  : new PublicClientApplication(msalConfig);
 
 export const loginRequest = {
   scopes: [`api://${import.meta.env.VITE_AZURE_CLIENT_ID}/user_impersonation`],
@@ -17,8 +27,9 @@ export const loginRequest = {
 
 /** Acquire an access token silently, falling back to redirect if needed. */
 export async function getAccessToken(): Promise<string | null> {
-  // Dev mode: no real token needed — backend accepts any Bearer value
-  if (import.meta.env.VITE_DEV_MODE === "true") {
+  // Dev mode: no real token needed — backend accepts any Bearer value, and
+  // msalInstance is intentionally null (see above), so we never dereference it.
+  if (isDevMode || !msalInstance) {
     return "dev-token";
   }
 

@@ -40,7 +40,7 @@ export function Header() {
   const handleLogout = () => {
     clear();
     if (import.meta.env.VITE_DEV_MODE !== "true") {
-      msalInstance.logoutRedirect();
+      msalInstance?.logoutRedirect();
     }
   };
 
