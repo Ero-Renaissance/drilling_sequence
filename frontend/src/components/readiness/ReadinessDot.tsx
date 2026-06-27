@@ -139,10 +139,17 @@ export function ReadinessDot(props: ReadinessDotProps) {
     );
   }
 
-  // Standard path — open the status picker.
+  // Standard path — open the status picker. When disabled (e.g. the plan is
+  // locked for approval), render a bare disabled button and DON'T mount the
+  // dropdown: `disabled` on a Radix DropdownMenuTrigger child does not reliably
+  // stop the menu from opening, so the only safe lock is to not mount it at all.
   const meta = CHECK_META[code];
   const Icon = meta.icon;
   const onChange = (props as { onChange: (s: CheckStatus) => void }).onChange;
+
+  if (disabled) {
+    return <IconButton code={code} status={status} disabled size={size} asDropdownTrigger />;
+  }
 
   return (
     <DropdownMenu>
