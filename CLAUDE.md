@@ -80,6 +80,19 @@ logic against these active business rules:
   designated reviewers** sign (`Signature.stage="review"`). Approval still requires
   **≥1 designated approver AND all signed**; with zero approvers it never
   auto-approves. A revision that skipped optional review is flagged `review_skipped`.
+- **Plan-lock lifecycle (freeze after approval):** creating a revision locks the
+  plan's activities (`Activity.locked_by_revision_id`); every plan-mutating write
+  (activity create/edit/complete/delete, CSV import, rig/HWU contract upsert/delete,
+  readiness PUT) is then refused with **423** via `app/core/locks.py`
+  (`ensure_activity_unlocked` / `assert_project_not_locked`). **Approval keeps the
+  plan LOCKED** — the approved `snapshot_json` is the immutable record, so the live
+  plan can't drift from it silently. Reject / request-changes / discard unlock it
+  (the planner must edit to address feedback); approval does **not**. A planner
+  reopens an approved plan explicitly via **Revise Plan** (`POST
+  .../revisions/reopen`, planner-only, audited `plan_reopened`, 409 unless
+  frozen-by-approved). The campaign lock state is exposed on `GET /projects/{id}`
+  as `lock {locked, reason: "pending"|"approved"}` and drives the UI banner +
+  disabled affordances. Do NOT restore unlock-on-approve.
 - **Separation of duties:** the revision's `created_by` user may **not** sign,
   sign-off review, reject, or request-changes it — even as a designated
   reviewer/approver or admin (integrity rule, no admin bypass). They may only
