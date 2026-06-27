@@ -79,6 +79,21 @@ describe("ReadinessGrid", () => {
     });
   });
 
+  it("can mark a single gate Not Applicable (N/A) via the picker", async () => {
+    renderGrid();
+    await waitFor(() => screen.getByText("Gas Development"));
+
+    const naBefore = screen.queryAllByTitle(/: N\/A$/).length;
+    // A planner marking a gate that doesn't apply to this well, even though the
+    // activity still requires readiness. N/A must be offered in the picker.
+    await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /N\/A/ }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTitle(/: N\/A$/).length).toBeGreaterThan(naBefore);
+    });
+  });
+
   it("shows legend entries for all statuses", async () => {
     renderGrid();
     await waitFor(() => screen.getByText("Oil Development"));

@@ -12,10 +12,13 @@ import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "./check
 
 export { STATUS_DOT, CHECK_META, STATUS_ICON_COLOR };
 
-// The planner-pickable statuses. N/A is intentionally omitted — it's an
-// automatic "not-applicable" value (e.g. the CON gate when there's no rig
-// contract), never a manual choice.
-const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed"];
+// The planner-pickable statuses. N/A is selectable so a planner can mark a
+// single gate "not applicable" for a well even when the activity still requires
+// readiness — an N/A gate is excluded from the readiness rollup (see
+// dashboard.ready: only non-N/A gates count). N/A is also the automatic value
+// for the CON gate when there's no contract; CON isn't picked here (its dot
+// opens the contract editor), so that derived value is untouched.
+const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
 interface BaseProps {
   code: CheckCode;
