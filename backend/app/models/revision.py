@@ -17,6 +17,9 @@ class Revision(Base):
     rev_number: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(String(256), nullable=True)
     snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # Per-resource change notes captured with the plan (JSON list of
+    # {kind, resource_name, body}). Nullable: older revisions predate the feature.
+    change_notes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # "pending_review" | "pending_approval" | "approved" | "rejected"
     # | "changes_requested" | "discarded". Free string (not a DB enum) so adding
     # the review stage needs no column migration.

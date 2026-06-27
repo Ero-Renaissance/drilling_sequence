@@ -10,6 +10,7 @@ Keep this list complete whenever a new model module is added.
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
+from app.models.change_note import ChangeNote
 from app.models.hwu_contract import HwuContract
 from app.models.project import (
     Project,
@@ -27,6 +28,7 @@ from app.models.viewer import ProjectViewer
 __all__ = [
     "Activity",
     "AuditLog",
+    "ChangeNote",
     "HwuContract",
     "Project",
     "ProjectApprover",

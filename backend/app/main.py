@@ -20,6 +20,7 @@ from app.routers import (
     admin,
     approvers,
     auth,
+    change_notes,
     client_logs,
     contracts,
     dashboard,
@@ -94,6 +95,7 @@ app.include_router(reviewers.router)
 app.include_router(contracts.router)
 app.include_router(hwu_contracts.router)
 app.include_router(dashboard.router)
+app.include_router(change_notes.router)
 app.include_router(client_logs.router)
 
 

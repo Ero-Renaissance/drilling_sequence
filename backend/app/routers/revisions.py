@@ -18,6 +18,7 @@ from app.core.rbac import (
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
+from app.models.change_note import ChangeNote
 from app.models.project import Project, ProjectRole
 from app.models.revision import Revision, Signature
 from app.models.user import User
@@ -321,6 +322,14 @@ async def create_revision(
 
     # Capture activities + readiness state at the moment the revision is created
     snapshot = await build_project_snapshot(project_id, db)
+    # ...and the per-resource change notes ("what changed and why"), frozen with the
+    # plan so the approved revision records the rationale alongside the schedule.
+    note_rows = (
+        await db.execute(select(ChangeNote).where(ChangeNote.project_id == project_id))
+    ).scalars().all()
+    change_notes = [
+        {"kind": n.kind, "resource_name": n.resource_name, "body": n.body} for n in note_rows
+    ]
 
     rev_result = await db.execute(
         select(Revision.rev_number)
@@ -336,6 +345,7 @@ async def create_revision(
         rev_number=rev_number,
         label=payload.label or f"Rev. {rev_number:02d}",
         snapshot_json=json.dumps(snapshot),
+        change_notes_json=json.dumps(change_notes) if change_notes else None,
         status="pending_review" if review_required else "pending_approval",
         review_required=review_required,
         created_by=current_user.id,
