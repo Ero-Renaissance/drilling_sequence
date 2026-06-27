@@ -343,8 +343,9 @@ smoke test (§7) apply as written.** Only the host tooling differs. Pick one hos
 model with IT:
 
 - **Native (recommended on Windows Server):** install Python + the ODBC driver on the
-  host and run uvicorn as a Windows Service behind IIS. No Docker licensing, and it's
-  the supported way to run a long-lived service on Server SKUs.
+  host and run uvicorn behind IIS — either as its own Windows service (ARR) or launched
+  by IIS itself (HttpPlatformHandler); see the B.4/B.6 fork. No Docker licensing, and
+  it's the supported way to run a long-lived service on Server SKUs.
 - **Docker Desktop:** reuse the existing Linux backend image (see B.7). Simple if IT
   already standardises on containers, but note Docker Desktop licensing and that it's a
   workstation tool, not really a Server service host.
@@ -366,9 +367,17 @@ model with IT:
       defaults to `Encrypt=no` (Driver 18 defaults to `Encrypt=yes`), so the `DATABASE_URL`
       below sets `Encrypt=yes` explicitly to force TLS regardless of which driver is installed.
 - [ ] **IIS (Web Server role)** — not installed by default on Server; add it first
-      (B.6 step 1) — plus the **URL Rewrite 2.1** and **Application Request Routing
-      (ARR) 3.0** modules (both free from Microsoft).
-- [ ] **NSSM** (nssm.cc) to run uvicorn as a service — or HttpPlatformHandler (B.4).
+      (B.6 step 1). Then pick **one** front-end module set (see the B.4/B.6 fork):
+      - **HttpPlatformHandler** — a single Microsoft-signed MSI. IIS *launches* uvicorn
+        and *forwards* to it, so this one module replaces **both** ARR and NSSM.
+        **Recommended**, especially when ARR/NSSM can't be approved (B.4 Option 2 + B.6
+        Variant 2).
+      - **URL Rewrite 2.1 + Application Request Routing (ARR) 3.0** — two free Microsoft
+        modules; IIS proxies to a uvicorn service you run separately (B.4 Option 1 + B.6
+        Variant 1).
+- [ ] **NSSM** (nssm.cc) to run uvicorn as a service — needed **only** for the ARR path
+      (B.4 Option 1); HttpPlatformHandler doesn't use it. If you can install *neither* an
+      IIS proxy module *nor* NSSM, use **Appendix C** (uvicorn serves everything) instead.
 - [ ] A **domain service account** to run the app (required for Integrated SQL auth).
 - [ ] Node.js 20 LTS **only on the machine that builds the frontend** — `dist/` can be
       built elsewhere and copied over.
@@ -408,10 +417,16 @@ Reads the same `.env`. **With Integrated auth**, run this *as the service accoun
 (e.g. an elevated shell opened via `runas /user:<DOMAIN\svc-drilling> cmd`) so SQL
 Server sees the right identity.
 
-### B.4 Run uvicorn as a Windows Service
-Bind to **localhost only** — IIS is the public face.
+### B.4 Run uvicorn under IIS — pick the model that matches your modules
+The process can be hosted two ways; this maps directly onto the B.6 variants:
+- **Option 1 — NSSM service + ARR** (B.6 Variant 1): you run uvicorn as its own Windows
+  service, IIS proxies to it.
+- **Option 2 — HttpPlatformHandler** (B.6 Variant 2): IIS launches and supervises uvicorn
+  itself — **no separate service, no ARR.** Recommended when NSSM/ARR are unavailable.
 
-**Option 1 — NSSM (simplest):**
+Either way uvicorn binds **localhost only** — IIS is the public face.
+
+**Option 1 — NSSM (simplest, needs ARR for B.6):**
 ```bat
 nssm install DrillingBackend "C:\apps\drilling\backend\.venv\Scripts\python.exe" "-m uvicorn app.main:app --host 127.0.0.1 --port 8000"
 nssm set DrillingBackend AppDirectory "C:\apps\drilling\backend"
@@ -420,30 +435,59 @@ nssm set DrillingBackend Start SERVICE_AUTO_START
 nssm set DrillingBackend ObjectName "<DOMAIN\svc-drilling>" "<password>"
 nssm start DrillingBackend
 ```
-**Option 2 — IIS HttpPlatformHandler:** install the module and let IIS launch the
-venv's uvicorn via an `<httpPlatform>` element in the site `web.config`. Fewer
-services to manage, but fiddlier than NSSM.
-
-Verify:
+Verify it's up on loopback:
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/api/health    # -> {"status":"ok"}
 ```
 (or `curl http://127.0.0.1:8000/api/health` — `curl.exe` ships with Server 2019+.)
 
-### B.5 Build and place the frontend
-Build exactly as §5 (`npm ci && npm run build`), then copy `frontend\dist\` to the IIS
-content root, e.g. `C:\inetpub\drilling`.
+**Option 2 — IIS HttpPlatformHandler (no separate service):**
+Install the module, then define an **application pool** to own the uvicorn process (IIS
+Manager → Application Pools → Add; call it `DrillingPool`). There's nothing else to
+"start" — the process itself is declared by the `<httpPlatform>` element in B.6 Variant 2's
+`web.config`, and IIS launches it with the pool. Set on the pool:
+- **.NET CLR version → "No Managed Code"** (there is no .NET app to load).
+- **Identity → your `<DOMAIN\svc-drilling>` account.** This is where the Integrated-auth
+  service account moves to — it replaces NSSM's `ObjectName`; uvicorn (and therefore its
+  SQL connection) runs as this identity.
+- **Start Mode → "AlwaysRunning"** and **Idle Time-out (minutes) → 0.** Without this the
+  pool idles out after 20 min and HttpPlatformHandler tears uvicorn down between requests —
+  NSSM never did that, so it's the easiest difference to get burned by.
 
-### B.6 IIS as the reverse proxy (the "same origin" glue)
-1. **Enable the IIS role** (Server Manager → Add Roles, or PowerShell as admin), then
-   install **URL Rewrite** + **ARR**, then IIS Manager → server node → **Application
-   Request Routing Cache → Server Proxy Settings → tick "Enable proxy."**
+> **Paste into the IT security-review request** — what HttpPlatformHandler is, in three
+> lines: *A Microsoft-signed IIS module that launches a local process and forwards requests
+> to it on the **loopback interface only**. Its scope is strictly process-launch + loopback
+> forwarding — unlike ARR it exposes no general URL-proxy/cache surface and cannot be turned
+> into an open proxy. One signed MSI, no post-install scripts or binary downloads.*
+
+uvicorn binds the private `%HTTP_PLATFORM_PORT%` IIS hands it (not a fixed `:8000`), so
+there's nothing to curl directly here — verify through IIS once B.6 is in place
+(`Invoke-RestMethod https://<your-app-dns>/api/health`).
+
+### B.5 Build and place the frontend
+Build exactly as §5 (`npm ci && npm run build`), then copy `frontend\dist\` to where the
+front end is served from:
+- **ARR variant:** the IIS site content root, e.g. `C:\inetpub\drilling` (IIS serves it).
+- **HttpPlatformHandler variant:** the folder `STATIC_DIR` points at, e.g.
+  `C:\apps\drilling\web` (uvicorn serves it — see B.6 Variant 2).
+
+### B.6 IIS as the front end (the "same origin" glue)
+Two variants, matching the B.4 choice. **Variant 1** (URL Rewrite + ARR) proxies to the
+uvicorn *service*; **Variant 2** (HttpPlatformHandler) has IIS launch uvicorn, which also
+serves the SPA. Steps 1–2 are shared.
+
+1. **Enable the IIS role** (Server Manager → Add Roles, or PowerShell as admin):
    ```powershell
    Install-WindowsFeature -Name Web-Server -IncludeManagementTools
    ```
-2. Create a site rooted at `C:\inetpub\drilling`; add an **HTTPS binding (443)** with
-   your TLS certificate (Server Certificates → import first).
-3. Put this `web.config` in the site root:
+2. Add an **HTTPS binding (443)** to the site with your TLS certificate (Server
+   Certificates → import the `.pfx` first). Add a separate HTTP→HTTPS redirect
+   binding/rule as policy requires.
+
+**Variant 1 — URL Rewrite + ARR.** Install **URL Rewrite** + **ARR**, then IIS Manager →
+server node → **Application Request Routing Cache → Server Proxy Settings → tick "Enable
+proxy."** Root the site at the frontend (`C:\inetpub\drilling`, per B.5) and put this
+`web.config` in the site root:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
@@ -474,7 +518,65 @@ content root, e.g. `C:\inetpub\drilling`.
 ```
 (To set `X-Forwarded-Proto` you must first allow the variable: URL Rewrite → **View
 Server Variables** → add `HTTP_X_FORWARDED_PROTO`. ARR forwards `X-Forwarded-For`
-automatically.) Add a separate HTTP→HTTPS redirect binding/rule as policy requires.
+automatically.)
+
+**Variant 2 — HttpPlatformHandler (one module; no ARR, no separate service).** IIS
+launches uvicorn (B.4 Option 2) *and* forwards to it, and uvicorn serves the SPA, so the
+site needs no rewrite rules. Install **HttpPlatformHandler** instead of URL Rewrite + ARR,
+and do **not** enable the ARR proxy.
+
+Root the IIS site's **physical path at the backend folder** (`C:\apps\drilling\backend`),
+not at `dist\`. HttpPlatformHandler runs uvicorn with the site path as its working
+directory, and the app reads `.env` relative to that directory — anchoring the site at the
+backend folder is what lets `.env` resolve. The built frontend lives wherever `STATIC_DIR`
+points (B.5), so it needn't sit under the site root. `web.config` in that root:
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <system.webServer>
+    <handlers>
+      <add name="httpPlatformHandler" path="*" verb="*"
+           modules="httpPlatformHandler" resourceType="Unspecified" requireAccess="Script" />
+    </handlers>
+    <!-- IIS launches uvicorn on a private loopback port (%HTTP_PLATFORM_PORT%),
+         supervises it with the app pool, and forwards every request to it. -->
+    <httpPlatform processPath="C:\apps\drilling\backend\.venv\Scripts\python.exe"
+                  arguments="-m uvicorn app.main:app --host 127.0.0.1 --port %HTTP_PLATFORM_PORT%"
+                  stdoutLogEnabled="true"
+                  stdoutLogFile="C:\apps\drilling\logs\stdout.log"
+                  startupTimeLimit="60" processesPerApplication="1">
+      <environmentVariables>
+        <!-- Makes uvicorn serve the built SPA (assets + index.html fallback). -->
+        <environmentVariable name="STATIC_DIR" value="C:\apps\drilling\web" />
+      </environmentVariables>
+    </httpPlatform>
+  </system.webServer>
+</configuration>
+```
+Variant-2 specifics:
+- **`STATIC_DIR` is required, not optional.** The handler forwards *everything* to uvicorn,
+  so uvicorn (via `app/static_spa.py`) serves the SPA and does the `index.html` fallback.
+  Variant 1's URL-Rewrite SPA rule has no equivalent here because it isn't needed.
+- **No `X-Forwarded-*` plumbing.** The app builds absolute links from `APP_BASE_URL` and
+  never reads the request scheme, so there's no `HTTP_X_FORWARDED_PROTO` server variable to
+  configure (it was belt-and-suspenders in Variant 1).
+- **Create the log folder first.** HttpPlatformHandler writes the *file* but does **not**
+  create its parent directory (auto-creation is an ASP.NET Core Module behaviour — a
+  different module). `mkdir C:\apps\drilling\logs`, then grant the pool identity write:
+  `icacls C:\apps\drilling\logs /grant "<DOMAIN\svc-drilling>:(OI)(CI)M"` (or
+  `IIS AppPool\DrillingPool` if you kept the default pool identity). A missing folder logs a
+  path-not-found warning (`ErrorCode -2147024893`) to the Windows **Application** event log and
+  you get *no* stdout; a permissions miss shows `0x80070005`. The value is a **literal**
+  filename — no PID/timestamp is appended (unlike ANCM) — hence the `.log` extension.
+- **`stdoutLogFile` is for bring-up only** — it grows unbounded. Once healthy, set
+  `stdoutLogEnabled="false"` and rely on the app's own `LOG_LEVEL` logging.
+- **Keep secrets in the ACL'd `.env`** (B.2), *not* in `<environmentVariables>` — anyone
+  who can read the site root can read `web.config`.
+- **`.env` and app code now sit under the site root**, which would normally be a red flag.
+  It's safe here only because the `path="*"` handler routes *every* request to uvicorn, so
+  IIS never static-serves a file from that folder — nothing under it is reachable over HTTP.
+  Keep the B.2 `icacls` lockdown on `.env` as defence-in-depth, and don't add a static-file
+  handler that could bypass the catch-all.
 
 ### B.7 Docker Desktop alternative
 If IT standardises on containers: the existing **Linux** backend image runs under
@@ -484,9 +586,16 @@ Docker Desktop **licensing** applies to larger orgs, and Docker Desktop is a wor
 tool — for a long-running Server install, prefer the native path (B.2–B.4).
 
 ### B.8 Day-2 on Windows (deltas from §9)
-- **Restart after upgrade:** `nssm restart DrillingBackend` (or `Restart-Service DrillingBackend`).
-- **Logs:** point NSSM at a log file — `nssm set DrillingBackend AppStdout C:\apps\drilling\logs\out.log` (and `AppStderr`); raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to `INFO`.
-- **Upgrades:** pull code → `.venv\Scripts\python -m pip install -r requirements.txt` (if deps changed) → `.venv\Scripts\alembic upgrade head` → restart the service → rebuild & recopy `dist\`.
+- **Restart after upgrade:**
+  - *ARR variant:* `nssm restart DrillingBackend` (or `Restart-Service DrillingBackend`).
+  - *HttpPlatformHandler variant:* recycle the pool — `Restart-WebAppPool DrillingPool`
+    (editing/touching `web.config` also restarts the process).
+- **Logs:**
+  - *ARR variant:* point NSSM at a log file — `nssm set DrillingBackend AppStdout C:\apps\drilling\logs\out.log` (and `AppStderr`).
+  - *HttpPlatformHandler variant:* `stdoutLogFile` captures startup; for steady state rely
+    on the app's own logging (set `stdoutLogEnabled="false"`).
+  - Either way, raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to `INFO`.
+- **Upgrades:** pull code → `.venv\Scripts\python -m pip install -r requirements.txt` (if deps changed) → `.venv\Scripts\alembic upgrade head` → restart (per above) → rebuild & recopy the frontend (to the site root for ARR, or to `STATIC_DIR` for HttpPlatformHandler).
 
 ---
 
