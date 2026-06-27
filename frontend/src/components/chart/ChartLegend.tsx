@@ -88,15 +88,6 @@ export function ChartLegend({
 
       {showReadiness && (
         <>
-          <Section label="Status" className="md:max-w-[10rem]">
-            {STATUSES.map((s) => (
-              <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
-                <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
-                {STATUS_LABEL[s]}
-              </span>
-            ))}
-          </Section>
-
           <Section label="Checks" className="md:max-w-sm">
             {CHECK_CODES.map((code) => {
               const meta = CHECK_META[code];
@@ -116,6 +107,15 @@ export function ChartLegend({
                 </span>
               );
             })}
+          </Section>
+
+          <Section label="Status" className="md:max-w-[10rem]">
+            {STATUSES.map((s) => (
+              <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
+                <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
+                {STATUS_LABEL[s]}
+              </span>
+            ))}
           </Section>
         </>
       )}
