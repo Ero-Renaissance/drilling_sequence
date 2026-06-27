@@ -1,0 +1,68 @@
+import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("@/lib/auth", () => ({
+  getAccessToken: async () => "test-token",
+  msalInstance: { getAllAccounts: () => [], logoutRedirect: vi.fn() },
+  loginRequest: {},
+}));
+
+import { ChangeNotesEditor } from "@/components/revisions/ChangeNotesEditor";
+import type { ActivityDiff } from "@/api/compare";
+import type { ChangeNote } from "@/api/change-notes";
+
+function diffActivity(over: Partial<ActivityDiff>): ActivityDiff {
+  return {
+    change: "modified",
+    activity_id: "a1",
+    activity_type: "Oil Development",
+    well_name: "Well-23",
+    rig_name: "RIG_2",
+    hwu_name: null,
+    comment: "spud slipped",
+    start_date: "2026-01-01",
+    end_date: "2026-03-01",
+    fields: [],
+    removal_reason: null,
+    completed: false,
+    ...over,
+  };
+}
+
+describe("ChangeNotesEditor", () => {
+  it("groups changed activities by resource, with context and a pre-filled note", () => {
+    const notes: ChangeNote[] = [
+      { kind: "rig", resource_name: "RIG_2", body: "Spud moved to Jul.", updated_at: "2026-06-27" },
+    ];
+    render(<ChangeNotesEditor projectId="p1" activities={[diffActivity({})]} notes={notes} canEdit />);
+
+    expect(screen.getByText("RIG_2")).toBeInTheDocument();
+    expect(screen.getByText(/Well-23/)).toBeInTheDocument();
+    expect(screen.getByText(/spud slipped/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Spud moved to Jul.")).toBeInTheDocument();
+  });
+
+  it("labels HWU activities as a resource group", () => {
+    render(
+      <ChangeNotesEditor
+        projectId="p1"
+        activities={[diffActivity({ rig_name: null, hwu_name: "HWU_1", activity_id: "a2" })]}
+        notes={[]}
+        canEdit
+      />,
+    );
+    expect(screen.getByText("HWU · HWU_1")).toBeInTheDocument();
+  });
+
+  it("renders the note read-only when the user cannot edit", () => {
+    render(
+      <ChangeNotesEditor
+        projectId="p1"
+        activities={[diffActivity({})]}
+        notes={[{ kind: "rig", resource_name: "RIG_2", body: "x", updated_at: "2026-06-27" }]}
+        canEdit={false}
+      />,
+    );
+    expect(screen.getByDisplayValue("x")).toHaveAttribute("readonly");
+  });
+});

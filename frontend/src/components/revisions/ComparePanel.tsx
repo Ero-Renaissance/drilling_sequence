@@ -5,6 +5,10 @@ import { listRevisions, type Revision } from "@/api/revisions";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 import { ActivityDiffList, ContractDiffList, LIVE_REF, optionLabel, SummaryBar } from "./diff-shared";
+import { useOutletContext } from "react-router-dom";
+import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
+import { ChangeNotesEditor } from "./ChangeNotesEditor";
+import type { CampaignOutletContext } from "@/pages/ProjectDetail";
 
 interface ComparePanelProps {
   /** This project = the "To" side (typically the new quarter, e.g. Q2). */
@@ -28,6 +32,9 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
   const [diff, setDiff] = useState<RevisionDiffData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<ChangeNote[]>([]);
+  const ctx = useOutletContext<CampaignOutletContext | null>();
+  const canEditNotes = !!ctx?.canEditPlan && !ctx?.locked;
 
   const ordered = (revs: Revision[]) =>
     [...revs].sort((a, b) => b.rev_number - a.rev_number);
@@ -45,6 +52,9 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
     listRevisions(projectId)
       .then(setTargetRevisions)
       .catch(() => setTargetRevisions([]));
+    listChangeNotes(projectId)
+      .then(setNotes)
+      .catch(() => setNotes([]));
   }, [projectId]);
 
   // When the base project changes, load its revisions and default to its latest
@@ -157,6 +167,12 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
               ) : (
                 <ActivityDiffList activities={diff.activities} />
               )}
+              <ChangeNotesEditor
+                projectId={projectId}
+                activities={diff.activities}
+                notes={notes}
+                canEdit={canEditNotes}
+              />
             </>
           )}
         </>

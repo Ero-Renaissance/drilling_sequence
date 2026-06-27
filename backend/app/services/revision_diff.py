@@ -35,6 +35,8 @@ def _label(activity: dict) -> dict:
         "activity_type": activity.get("activity_type") or "",
         "well_name": activity.get("well_name"),
         "rig_name": activity.get("rig_name"),
+        "hwu_name": activity.get("hwu_name"),
+        "comment": activity.get("comment"),
         "start_date": activity.get("start_date"),
         "end_date": activity.get("end_date"),
     }

@@ -41,10 +41,14 @@ const tabs = [
   { to: "activity", label: "Activity Log", icon: History },
 ];
 
-/** Passed to campaign tabs via <Outlet context>: lets a tab refresh the lock
- *  banner after a revision action (submit / discard) without a reload. */
+/** Passed to campaign tabs via <Outlet context>: shared campaign state + a way to
+ *  refresh the lock banner after a revision action (submit / discard). */
 export interface CampaignOutletContext {
   refreshLock: () => void;
+  /** Planner or admin — may edit the plan (author change notes, etc.). */
+  canEditPlan: boolean;
+  /** Plan frozen (a revision pending or approved). */
+  locked: boolean;
 }
 
 export function PlanLockBanner({
@@ -200,7 +204,15 @@ export function ProjectDetail() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
-        <Outlet context={{ refreshLock } satisfies CampaignOutletContext} />
+        <Outlet
+          context={
+            {
+              refreshLock,
+              canEditPlan: canRevise,
+              locked: !!fetchedProject?.lock?.locked,
+            } satisfies CampaignOutletContext
+          }
+        />
       </div>
     </div>
   );

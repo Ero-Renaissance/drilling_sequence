@@ -14,6 +14,8 @@ class ActivityDiff(BaseModel):
     activity_type: str
     well_name: str | None = None
     rig_name: str | None = None
+    hwu_name: str | None = None
+    comment: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     # Populated for "modified" rows; empty for added/removed.

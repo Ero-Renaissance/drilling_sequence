@@ -17,6 +17,8 @@ export interface ActivityDiff {
   activity_type: string;
   well_name: string | null;
   rig_name: string | null;
+  hwu_name: string | null;
+  comment: string | null;
   start_date: string | null;
   end_date: string | null;
   fields: FieldChange[];
