@@ -254,7 +254,8 @@ export function DrillChart({
   const [activeYear, setActiveYear] = useState<number | null>(null);
   // Selected projects to single out — empty Set means "no filter" (all vivid).
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
-  // Selected locations (terrains) to single out — empty Set means "no filter".
+  // Selected locations (terrains) — empty Set means "no filter"; otherwise only
+  // rows in these terrains are shown (the rest are removed, not dimmed).
   const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
 
   // Distinct calendar years the campaign spans — drives the focus-year strip.
@@ -271,12 +272,26 @@ export function DrillChart({
     return Array.from({ length: max - min + 1 }, (_, i) => min + i);
   }, [activities]);
 
-  // Distinct, sorted project names — drives the project filter's checklist.
+  // The location filter HARD-FILTERS (unlike the project filter, which only
+  // dims): when one or more terrains are picked, every row in the others is
+  // removed from the chart entirely — the Y-axis, height and legends reflect
+  // just the selected locations. An empty selection shows everything.
+  const visibleActivities = useMemo(
+    () =>
+      selectedLocations.size === 0
+        ? activities
+        : activities.filter((a) => a.location && selectedLocations.has(a.location)),
+    [activities, selectedLocations],
+  );
+
+  // Distinct, sorted project names among the VISIBLE rows — drives the project
+  // filter's checklist (so it never offers a project the location filter has
+  // already removed, which would otherwise dim the whole chart).
   const projects = useMemo(() => {
     const s = new Set<string>();
-    for (const a of activities) if (a.well_project) s.add(a.well_project);
+    for (const a of visibleActivities) if (a.well_project) s.add(a.well_project);
     return Array.from(s).sort((x, y) => x.localeCompare(y));
-  }, [activities]);
+  }, [visibleActivities]);
 
   // Distinct locations (terrains) in domain order (LAND → SWAMP → OFFSHORE),
   // any unknown value sorted last then alphabetically — drives the location
@@ -289,10 +304,11 @@ export function DrillChart({
     );
   }, [activities]);
 
-  // Whether any activity carries flood risk — gates the legend's Risk section.
+  // Whether any VISIBLE activity carries flood risk — gates the legend's Risk
+  // section (kept in step with the location filter).
   const hasFlood = useMemo(
-    () => activities.some((a) => a.risk === "Flood Risk"),
-    [activities],
+    () => visibleActivities.some((a) => a.risk === "Flood Risk"),
+    [visibleActivities],
   );
 
   // Drop any selected project that no longer exists once the data changes, so a
@@ -304,7 +320,8 @@ export function DrillChart({
     });
   }, [projects]);
 
-  // Same guard for locations — a vanished terrain selection must not dim all.
+  // Same guard for locations — a vanished terrain selection must not blank the
+  // chart (it would otherwise filter every row away).
   useEffect(() => {
     setSelectedLocations((prev) => {
       const next = new Set([...prev].filter((l) => locations.includes(l)));
@@ -319,8 +336,8 @@ export function DrillChart({
   const focusYear = useCallback((year: number | null) => setActiveYear(year), []);
 
   const { categories, data, activityTypes, categoryToRig } = useMemo(
-    () => activitiesToChartData(activities, readinessMap),
-    [activities, readinessMap],
+    () => activitiesToChartData(visibleActivities, readinessMap),
+    [visibleActivities, readinessMap],
   );
 
   const completedIds = useMemo(
@@ -458,18 +475,16 @@ export function DrillChart({
       // still reads as its type; the red border is the conflict signal.
       const conflictStroke = "#ef4444";
 
-      // Project / location filters: when a selection is active, a bar that
-      // doesn't match (or lacks the field) dims to background context — faded
-      // fill, no outline / label / icons / marker. A bar must pass BOTH active
-      // filters to stay vivid.
+      // Project filter DIMS (the location filter, by contrast, removes rows
+      // upstream): when a project selection is active, a bar whose project
+      // isn't selected (or that has none) fades to background context — no
+      // outline / label / icons / marker.
       const project = api.value(8) as string | null;
-      const location = api.value(9) as string | null;
       const risk = api.value(7) as string | null;
-      const failsProject =
-        selectedProjects.size > 0 && (!project || !selectedProjects.has(project));
-      const failsLocation =
-        selectedLocations.size > 0 && (!location || !selectedLocations.has(location));
-      const dimmed = enableFilters && (failsProject || failsLocation);
+      const dimmed =
+        enableFilters &&
+        selectedProjects.size > 0 &&
+        (!project || !selectedProjects.has(project));
 
       const children: Array<Record<string, unknown>> = [
         {
@@ -912,7 +927,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax, selectedProjects, selectedLocations, enableFilters]);
+  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax, selectedProjects, enableFilters]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 

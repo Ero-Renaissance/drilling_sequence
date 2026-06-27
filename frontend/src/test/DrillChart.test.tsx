@@ -189,6 +189,24 @@ describe("DrillChart", () => {
     await userEvent.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: /1 selected/i })).toBeInTheDocument();
   });
+
+  it("removes rows outside the selected location (hard filter, not dim)", async () => {
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    // Both terrains' activity types show in the legend up front.
+    expect(screen.getByText("Oil Development")).toBeInTheDocument(); // act-pa · OFFSHORE
+    expect(screen.getByText("Gas Development")).toBeInTheDocument(); // act-pb · LAND
+
+    await userEvent.click(screen.getByRole("button", { name: /All locations/i }));
+    await userEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "OFFSHORE" }),
+    );
+    await userEvent.keyboard("{Escape}");
+
+    // The LAND row is gone entirely — its activity type drops from the legend
+    // (a dimming filter would have kept it present).
+    expect(screen.getByText("Oil Development")).toBeInTheDocument();
+    expect(screen.queryByText("Gas Development")).not.toBeInTheDocument();
+  });
 });
 
 // ─── chart-utils unit tests ──────────────────────────────────────────────────
