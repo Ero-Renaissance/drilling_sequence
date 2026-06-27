@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface PendingApproval {
   revision_id: string;
@@ -18,7 +19,7 @@ export async function getPendingApprovals(): Promise<PendingApproval[]> {
   const resp = await fetch("/api/me/pending-approvals", {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch pending approvals");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch pending approvals");
   return resp.json();
 }
 
@@ -57,6 +58,6 @@ export async function getLastApprovedDashboard(): Promise<LastApprovedDashboard>
   const resp = await fetch("/api/me/last-approved-dashboard", {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch the home dashboard");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch the home dashboard");
   return resp.json();
 }

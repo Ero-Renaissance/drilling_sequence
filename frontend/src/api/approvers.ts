@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface Approver {
   id: string;
@@ -17,7 +18,7 @@ export async function listApprovers(projectId: string): Promise<Approver[]> {
   const resp = await fetch(`/api/projects/${projectId}/approvers`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch approvers");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch approvers");
   return resp.json();
 }
 
@@ -30,11 +31,7 @@ export async function addApprover(
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to add approver";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to add approver");
   return resp.json();
 }
 
@@ -46,5 +43,5 @@ export async function removeApprover(
     method: "DELETE",
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to remove approver");
+  if (!resp.ok) await throwApiError(resp, "Failed to remove approver");
 }

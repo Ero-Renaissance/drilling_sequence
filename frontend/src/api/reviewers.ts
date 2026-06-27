@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 import type { Approver } from "./approvers";
 
 // Reviewers share the Approver shape — they're the same entity (ProjectApprover)
@@ -14,7 +15,7 @@ export async function listReviewers(projectId: string): Promise<Reviewer[]> {
   const resp = await fetch(`/api/projects/${projectId}/reviewers`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch reviewers");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch reviewers");
   return resp.json();
 }
 
@@ -27,11 +28,7 @@ export async function addReviewer(
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to add reviewer";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to add reviewer");
   return resp.json();
 }
 
@@ -43,5 +40,5 @@ export async function removeReviewer(
     method: "DELETE",
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to remove reviewer");
+  if (!resp.ok) await throwApiError(resp, "Failed to remove reviewer");
 }

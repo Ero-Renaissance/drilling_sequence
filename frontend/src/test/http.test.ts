@@ -31,4 +31,14 @@ describe("throwApiError", () => {
     );
     expect(err.message).toBe("Failed to save");
   });
+
+  it("surfaces a nested detail.message object (e.g. revision-create conflicts)", async () => {
+    const err = await throwApiError(
+      resp(409, { detail: { message: "Only the submitter can approve this revision." } }),
+      "fallback",
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(409);
+    expect(err.message).toMatch(/Only the submitter/);
+  });
 });

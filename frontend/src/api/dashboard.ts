@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface RigDetail {
   rig: string;
@@ -75,6 +76,6 @@ export async function fetchDashboard(projectId: string): Promise<DashboardRespon
   const resp = await fetch(`/api/projects/${projectId}/dashboard`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to load dashboard");
+  if (!resp.ok) await throwApiError(resp, "Failed to load dashboard");
   return resp.json();
 }

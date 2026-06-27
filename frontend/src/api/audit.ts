@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface AuditEntry {
   id: string;
@@ -24,7 +25,7 @@ export async function getActivityHistory(
     `/api/projects/${projectId}/activities/${activityId}/history`,
     { headers: await authHeaders() },
   );
-  if (!resp.ok) throw new Error("Failed to fetch history");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch history");
   return resp.json();
 }
 
@@ -32,6 +33,6 @@ export async function getProjectAudit(projectId: string): Promise<AuditEntry[]> 
   const resp = await fetch(`/api/projects/${projectId}/audit`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch project audit log");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch project audit log");
   return resp.json();
 }

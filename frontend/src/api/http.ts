@@ -22,7 +22,9 @@ export async function throwApiError(resp: Response, fallback: string): Promise<n
   let detail: string | undefined;
   try {
     const body = await resp.json();
+    // FastAPI returns a string `detail`; some endpoints return `detail: { message }`.
     if (typeof body?.detail === "string") detail = body.detail;
+    else if (typeof body?.detail?.message === "string") detail = body.detail.message;
   } catch {
     /* no body, or non-JSON — use the fallback */
   }

@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface Signature {
   id: string;
@@ -62,7 +63,7 @@ export async function listRevisions(projectId: string): Promise<Revision[]> {
   const resp = await fetch(`/api/projects/${projectId}/revisions`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch revisions");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch revisions");
   return resp.json();
 }
 
@@ -79,11 +80,7 @@ export async function createRevision(
       ...(requestReview === undefined ? {} : { request_review: requestReview }),
     }),
   });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : (body.detail?.message ?? "Failed to create revision");
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to create revision");
   return resp.json();
 }
 
@@ -94,7 +91,7 @@ export async function getRevision(
   const resp = await fetch(`/api/projects/${projectId}/revisions/${revisionId}`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Revision not found");
+  if (!resp.ok) await throwApiError(resp, "Revision not found");
   return resp.json();
 }
 
@@ -111,11 +108,7 @@ export async function signRevision(
       body: JSON.stringify({ role_label: roleLabel }),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to sign revision";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to sign revision");
   return resp.json();
 }
 
@@ -132,11 +125,7 @@ export async function signReview(
       body: JSON.stringify({ role_label: roleLabel }),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to sign off review";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to sign off review");
   return resp.json();
 }
 
@@ -153,11 +142,7 @@ export async function reviewRequestChanges(
       body: JSON.stringify({ reason }),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to request changes";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to request changes");
   return resp.json();
 }
 
@@ -172,11 +157,7 @@ export async function discardRevision(
       headers: await authHeaders(),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to discard revision";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to discard revision");
 }
 
 async function decideRevision(
@@ -193,11 +174,7 @@ async function decideRevision(
       body: JSON.stringify({ reason }),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to update revision";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to update revision");
   return resp.json();
 }
 

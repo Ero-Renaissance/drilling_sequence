@@ -32,7 +32,7 @@ export async function listHwuContracts(projectId: string): Promise<HwuContract[]
   const resp = await fetch(`/api/projects/${projectId}/hwu-contracts`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch HWU contracts");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch HWU contracts");
   return resp.json();
 }
 
@@ -49,11 +49,7 @@ export async function upsertHwuContract(
       body: JSON.stringify(payload),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to save HWU contract";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to save HWU contract");
   return resp.json();
 }
 

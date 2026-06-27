@@ -1,5 +1,6 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
+import { logger } from "@/lib/logger";
 
 export interface Activity {
   id: string;
@@ -61,7 +62,7 @@ export async function listActivities(projectId: string): Promise<Activity[]> {
   const resp = await fetch(`/api/projects/${projectId}/activities`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch activities");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch activities");
   return resp.json();
 }
 
@@ -71,10 +72,7 @@ export async function createActivity(projectId: string, payload: ActivityCreate)
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(body.detail ?? "Failed to create activity");
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to create activity");
   return resp.json();
 }
 
@@ -108,10 +106,7 @@ export async function updateActivity(
       data.detail?.updated_at ?? "",
     );
   }
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(data.detail ?? "Failed to update activity");
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to update activity");
   return resp.json();
 }
 
@@ -125,10 +120,7 @@ export async function setActivityCompletion(
     `/api/projects/${projectId}/activities/${activityId}/${action}`,
     { method: "POST", headers: await authHeaders() },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(body.detail ?? "Failed to update completion");
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to update completion");
   return resp.json();
 }
 
@@ -154,6 +146,12 @@ export async function importActivities(
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ detail: resp.statusText }));
     const detail = body.detail;
+    // Import is the one wrapper that keeps a bespoke (multi-line) error, so log it
+    // here to preserve the "every HTTP failure logs centrally" invariant.
+    logger.warn("Activity import rejected", {
+      status: resp.status,
+      path: typeof window !== "undefined" ? window.location.pathname : undefined,
+    });
     // The importer returns a structured detail ({ message, errors: [...] }) on a
     // validation rejection — surface the per-row errors instead of "[object Object]".
     if (detail && typeof detail === "object") {

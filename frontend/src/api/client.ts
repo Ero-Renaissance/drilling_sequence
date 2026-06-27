@@ -1,13 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
-
-class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+import { throwApiError } from "./http";
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getAccessToken();
@@ -21,10 +13,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, body.detail ?? "Request failed");
-  }
+  if (!response.ok) await throwApiError(response, "Request failed");
 
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

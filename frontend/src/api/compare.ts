@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface FieldChange {
   field: string;
@@ -79,11 +80,7 @@ export async function compareRevisions(
     `/api/projects/${projectId}/revisions/compare?${params}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to compare revisions";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to compare revisions");
   return resp.json();
 }
 
@@ -105,11 +102,7 @@ export async function crossCompareProjects(
     `/api/projects/${targetProjectId}/revisions/cross-compare?${params}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to compare schedules";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to compare schedules");
   return resp.json();
 }
 
@@ -130,10 +123,6 @@ export async function changesSinceApproved(
     `/api/projects/${projectId}/revisions/changes-since-approved?${params}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to load changes";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to load changes");
   return resp.json();
 }

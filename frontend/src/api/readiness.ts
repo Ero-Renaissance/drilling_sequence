@@ -31,7 +31,7 @@ export async function listReadiness(projectId: string): Promise<ActivityReadines
   const resp = await fetch(`/api/projects/${projectId}/readiness`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch readiness data");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch readiness data");
   return resp.json();
 }
 

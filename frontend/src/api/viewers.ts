@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface Viewer {
   user_id: string;
@@ -15,6 +16,6 @@ export async function getViewers(projectId: string): Promise<Viewer[]> {
   const resp = await fetch(`/api/projects/${projectId}/viewers`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch viewers");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch viewers");
   return resp.json();
 }

@@ -37,7 +37,7 @@ export async function listContracts(projectId: string): Promise<RigContract[]> {
   const resp = await fetch(`/api/projects/${projectId}/contracts`, {
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to fetch contracts");
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch contracts");
   return resp.json();
 }
 
@@ -54,11 +54,7 @@ export async function upsertContract(
       body: JSON.stringify(payload),
     },
   );
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ detail: resp.statusText }));
-    const msg = typeof body.detail === "string" ? body.detail : "Failed to save contract";
-    throw new Error(msg);
-  }
+  if (!resp.ok) await throwApiError(resp, "Failed to save contract");
   return resp.json();
 }
 
