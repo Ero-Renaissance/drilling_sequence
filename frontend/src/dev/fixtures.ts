@@ -44,7 +44,8 @@ export const FIXTURE_ACTIVITIES: Activity[] = [
   // Rig-2 — a flood-risk "Behind" bar, plus a narrow + wide pair that double-book (conflict).
   act({ id: "f4", activity_type: "Oil Development", well_name: "BRV-7", rig_name: "Rig-2", location: "LAND", well_project: "Bravo Block", risk: "Flood Risk", start_date: "2026-02-01", end_date: "2026-05-15" }),
   act({ id: "f5", activity_type: "Oil Exploration", well_name: "CHR-2", rig_name: "Rig-2", location: "LAND", well_project: "Charlie Deep", start_date: "2026-06-10", end_date: "2026-06-25" }),
-  act({ id: "f6", activity_type: "Oil Development", well_name: "CHR-9", rig_name: "Rig-2", location: "LAND", well_project: "Charlie Deep", start_date: "2026-06-20", end_date: "2026-09-30" }),
+  // f6 opts out of readiness (readiness_required: false) → no gate icons on its bar.
+  act({ id: "f6", activity_type: "Oil Development", well_name: "CHR-9", rig_name: "Rig-2", location: "LAND", well_project: "Charlie Deep", start_date: "2026-06-20", end_date: "2026-09-30", readiness_required: false }),
   // Rig-3 (offshore) — a completed (grey) bar and a flood-risk bar.
   act({ id: "f7", activity_type: "Water Injection", well_name: "CHR-4", rig_name: "Rig-3", location: "OFFSHORE", well_project: "Charlie Deep", start_date: "2026-03-01", end_date: "2026-07-31", completed_at: "2026-08-01T00:00:00Z" }),
   act({ id: "f8", activity_type: "Drilling", well_name: "ALP-8", rig_name: "Rig-3", location: "OFFSHORE", well_project: "Alpha Field", risk: "Flood Risk", start_date: "2026-09-01", end_date: "2026-12-20" }),
@@ -109,6 +110,7 @@ export const FIXTURE_PRINT_ROWS: PrintRow[] = FIXTURE_ACTIVITIES.map((a) => {
     plan_type: a.plan_type,
     risk: a.risk,
     readiness,
+    readiness_required: a.readiness_required,
     rig_contract_status: c?.status ?? null,
     rig_contract_end: c?.contract_end ?? null,
   };

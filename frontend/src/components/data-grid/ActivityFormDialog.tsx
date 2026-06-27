@@ -33,6 +33,7 @@ const schema = z
     plan_type: z.string().optional(),
     risk: z.string().optional(),
     comment: z.string().optional(),
+    readiness_required: z.boolean(),
   })
   .refine((d) => !d.start_date || !d.end_date || d.end_date >= d.start_date, {
     message: "End date must be on or after start date",
@@ -93,7 +94,10 @@ export function ActivityFormDialog({
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { readiness_required: true },
+  });
 
   async function onSubmit(values: FormValues) {
     setServerError(null);
@@ -108,6 +112,7 @@ export function ActivityFormDialog({
         plan_type: values.plan_type || null,
         risk: values.risk || null,
         comment: values.comment || null,
+        readiness_required: values.readiness_required,
       });
       onCreated(activity);
       reset();
@@ -221,6 +226,20 @@ export function ActivityFormDialog({
               spellCheck
             />
           </Field>
+
+          {/* Readiness opt-out — checked by default. When off, this activity
+              shows no readiness gates on the chart or print-out. */}
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-input"
+              {...register("readiness_required")}
+            />
+            <span className="font-medium">Readiness check required</span>
+            <span className="text-xs text-muted-foreground">
+              — off hides the readiness gates on the chart &amp; print
+            </span>
+          </label>
 
           {serverError && (
             <p className="text-sm text-destructive" role="alert">{serverError}</p>

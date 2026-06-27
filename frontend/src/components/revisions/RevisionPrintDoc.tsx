@@ -76,6 +76,7 @@ export interface PrintRow {
   plan_type: string | null;
   risk: string | null;
   readiness?: Record<string, CheckStatus>;
+  readiness_required?: boolean;
   rig_contract_status?: string | null;
   rig_contract_end?: string | null;
 }
@@ -439,7 +440,9 @@ function StaticGantt({
                                     style={{ left: `${l}%`, width: `${wpct}%` }}
                                   >
                                     <span className="w-full max-w-[6rem]">
-                                      <ReadinessIcons readiness={a.readiness} fill />
+                                      {a.readiness_required !== false && (
+                                        <ReadinessIcons readiness={a.readiness} fill />
+                                      )}
                                     </span>
                                   </span>
                                 </>
@@ -676,7 +679,7 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
                   )}
                 </td>
                 <td className="px-1.5 py-1">
-                  <ReadinessIcons readiness={r.readiness} />
+                  {r.readiness_required !== false && <ReadinessIcons readiness={r.readiness} />}
                 </td>
               </tr>
             ))}

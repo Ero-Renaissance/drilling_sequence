@@ -14,6 +14,7 @@ export interface Activity {
   risk: string | null;
   comment: string | null;
   plan_type: string | null;
+  readiness_required?: boolean;
   completed_at: string | null;
   updated_at: string;
   updated_by_name: string | null;
@@ -50,6 +51,7 @@ export interface ActivityCreate {
   risk?: string | null;
   comment?: string | null;
   plan_type?: string | null;
+  readiness_required?: boolean;
 }
 
 export async function listActivities(projectId: string): Promise<Activity[]> {

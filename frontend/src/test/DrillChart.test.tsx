@@ -231,6 +231,23 @@ describe("activitiesToChartData", () => {
     const { data } = activitiesToChartData(MOCK_ACTIVITIES);
     expect(data).toHaveLength(2);
   });
+
+  it("suppresses readiness checks for an opt-out activity (readiness_required=false)", async () => {
+    const { activitiesToChartData } = await import("@/lib/chart-utils");
+    // Minimal readiness map keyed by activity id (cast: the chart only reads it).
+    const readinessMap = new Map([
+      ["act-001", { FDP: { status: "Completed" } }],
+      ["act-002", { FDP: { status: "Completed" } }],
+    ]) as unknown as Parameters<typeof activitiesToChartData>[1];
+
+    const optOut: Activity = { ...MOCK_ACTIVITIES[0], readiness_required: false };
+    const normal: Activity = MOCK_ACTIVITIES[1]; // readiness_required undefined → treated as required
+    const { data } = activitiesToChartData([optOut, normal], readinessMap);
+    const byId = Object.fromEntries(data.map((d) => [d.activityId, d]));
+
+    expect(byId["act-001"].tooltip.checks).toBeNull(); // opt-out → gates suppressed
+    expect(byId["act-002"].tooltip.checks).not.toBeNull(); // default → gates kept
+  });
 });
 
 // ─── ImportDialog ────────────────────────────────────────────────────────────

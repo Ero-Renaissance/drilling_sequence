@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -47,6 +47,14 @@ class Activity(Base):
     risk: Mapped[str | None] = mapped_column(String(64), nullable=True)
     comment: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # ── Readiness ──────────────────────────────────────────────────────────────
+    # Per-activity opt-out: when False the activity tracks no readiness — its gate
+    # icons are suppressed on the chart and print-out, and it's excluded from the
+    # dashboard readiness KPIs. Defaults True so existing activities keep gates.
+    readiness_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
     # Set when a planner closes a completed activity. Completed activities are
     # dropped when the project is cloned into the next quarter.

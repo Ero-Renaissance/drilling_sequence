@@ -47,6 +47,7 @@ const schema = z
     plan_type: z.string().optional(),
     risk: z.string().optional(),
     comment: z.string().optional(),
+    readiness_required: z.boolean(),
   })
   .refine((d) => !d.start_date || !d.end_date || d.end_date >= d.start_date, {
     message: "End date must be on or after start date",
@@ -180,6 +181,7 @@ export function ActivityChartEditDialog({
       plan_type: activity.plan_type ?? "",
       risk: activity.risk ?? "",
       comment: activity.comment ?? "",
+      readiness_required: activity.readiness_required ?? true,
     },
   });
 
@@ -199,6 +201,7 @@ export function ActivityChartEditDialog({
       plan_type: activity.plan_type ?? "",
       risk: activity.risk ?? "",
       comment: activity.comment ?? "",
+      readiness_required: activity.readiness_required ?? true,
     });
     setCheckStatuses(
       Object.fromEntries(
@@ -283,6 +286,7 @@ export function ActivityChartEditDialog({
         plan_type: values.plan_type || null,
         risk: values.risk || null,
         comment: values.comment || null,
+        readiness_required: values.readiness_required,
       });
 
       // Only persist user-editable checks. CON is derived server-side.
@@ -465,6 +469,20 @@ export function ActivityChartEditDialog({
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Readiness
             </p>
+            {/* Opt-out — when off, this activity's gate icons are hidden on the
+                chart and print-out, and it drops out of the dashboard readiness KPIs. */}
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-input"
+                disabled={locked}
+                {...register("readiness_required")}
+              />
+              <span className="font-medium text-foreground">Readiness check required</span>
+              <span className="text-muted-foreground">
+                — off hides these gates on the chart &amp; print-out
+              </span>
+            </label>
             <div className="grid grid-cols-7 gap-3 rounded-lg border border-border/70 bg-card/60 p-3">
               {EDITABLE_CODES.map((code) => {
                 const status = checkStatuses[code];

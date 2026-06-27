@@ -66,6 +66,7 @@ interface SnapshotRow {
   risk: string | null;
   comment: string | null;
   readiness?: Record<string, CheckStatus>;
+  readiness_required?: boolean;
   rig_contract_status?: string | null;
   rig_contract_end?: string | null;
 }
@@ -214,6 +215,7 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     risk: r.risk,
     comment: r.comment,
     plan_type: r.plan_type,
+    readiness_required: r.readiness_required,
     completed_at: null,
     updated_at: "",
     updated_by_name: null,

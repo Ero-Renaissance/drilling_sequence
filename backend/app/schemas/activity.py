@@ -24,6 +24,7 @@ class ActivityCreate(BaseModel):
     risk: Risk | None = None
     comment: str | None = None
     plan_type: PlanType | None = None
+    readiness_required: bool = True
 
     @field_validator("end_date")
     @classmethod
@@ -46,6 +47,7 @@ class ActivityUpdate(BaseModel):
     risk: Risk | None = None
     comment: str | None = None
     plan_type: PlanType | None = None
+    readiness_required: bool | None = None
     # Optimistic lock: client sends back the updated_at it loaded; omit to skip check
     expected_updated_at: datetime | None = None
 
@@ -64,6 +66,7 @@ class ActivityResponse(BaseModel):
     risk: str | None
     comment: str | None
     plan_type: str | None
+    readiness_required: bool = True
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

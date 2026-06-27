@@ -106,7 +106,9 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
         end: a.end_date,
         plan: a.plan_type,
         risk: a.risk,
-        checks: readinessMap?.get(a.id) ?? null,
+        // Opt-out activities (readiness_required === false) carry no gates, so
+        // suppress the on-bar icon strip and the tooltip's readiness section.
+        checks: a.readiness_required === false ? null : (readinessMap?.get(a.id) ?? null),
       },
     };
   });

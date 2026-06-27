@@ -76,6 +76,45 @@ async def test_create_activity_non_member_denied(
 
 
 # ---------------------------------------------------------------------------
+# Readiness-required toggle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_activity_readiness_required_defaults_true(client: AsyncClient) -> None:
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"])
+    assert activity["readiness_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_activity_readiness_not_required(client: AsyncClient) -> None:
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"], readiness_required=False)
+    assert activity["readiness_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_activity_toggles_readiness_required(client: AsyncClient) -> None:
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"])
+    assert activity["readiness_required"] is True
+
+    resp = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"readiness_required": False},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["readiness_required"] is False
+
+    # The opt-out is captured in the activity's audit trail.
+    hist = await client.get(
+        f"/api/projects/{project['id']}/activities/{activity['id']}/history"
+    )
+    assert hist.status_code == 200
+    assert "readiness_required" in [e["field"] for e in hist.json()]
+
+
+# ---------------------------------------------------------------------------
 # List
 # ---------------------------------------------------------------------------
 

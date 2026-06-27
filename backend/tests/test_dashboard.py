@@ -61,6 +61,33 @@ async def test_dashboard_empty_project(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dashboard_excludes_readiness_not_required(client: AsyncClient) -> None:
+    pid = await _project(client, "OptOut")
+    # A near-term activity that opts OUT of readiness tracking.
+    r = await client.post(
+        f"/api/projects/{pid}/activities",
+        json={
+            "activity_type": "Oil Development",
+            "start_date": _iso(TODAY + timedelta(days=10)),
+            "end_date": _iso(TODAY + timedelta(days=40)),
+            "rig_name": "R1",
+            "well_name": "W",
+            "readiness_required": False,
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
+    # Excluded from the readiness focus window and the not-ready nudge…
+    assert d["readiness"]["focus_count"] == 0
+    assert d["readiness"]["overall_pct"] is None
+    assert d["watchlist"]["near_term_not_ready"] == 0
+    # …but still a normal scheduled activity.
+    assert d["activities"]["total"] == 1
+    assert d["activities"]["starting_soon"] == 1
+
+
+@pytest.mark.asyncio
 async def test_dashboard_counts(client: AsyncClient) -> None:
     pid = await _project(client, "Counts")
     # overdue (past, not completed), Flood risk

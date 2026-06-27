@@ -162,7 +162,13 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     )
 
     # ── readiness (focus window) ───────────────────────────────────────────────
-    focus = [a for a in activities if not done(a) and a.start_date <= focus_end]
+    # Activities that opt out (readiness_required=False) track no gates, so they
+    # are excluded from every readiness KPI below.
+    focus = [
+        a
+        for a in activities
+        if not done(a) and a.start_date <= focus_end and a.readiness_required
+    ]
     applicable_cells = completed_cells = behind_cells = 0
     for a in focus:
         for s in readiness_by_activity.get(a.id, {}).values():
@@ -277,7 +283,9 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     # ── watchlist ──────────────────────────────────────────────────────────────
     watchlist = Watchlist(
         near_term_not_ready=sum(
-            1 for a in activities if not done(a) and near_term(a) and not ready(a)
+            1
+            for a in activities
+            if not done(a) and near_term(a) and a.readiness_required and not ready(a)
         ),
         overdue=overdue,
         past_contract=activities_past_contract,
@@ -328,7 +336,10 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
     focus = [
         a
         for a in snapshot
-        if not is_done(a) and (s := _snap_date(a.get("start_date"))) and s <= focus_end
+        if not is_done(a)
+        and a.get("readiness_required", True)
+        and (s := _snap_date(a.get("start_date")))
+        and s <= focus_end
     ]
 
     applicable = completed = 0

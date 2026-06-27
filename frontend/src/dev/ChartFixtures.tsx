@@ -50,8 +50,9 @@ export default function ChartFixtures() {
           <h1 className="text-lg font-semibold">Chart fixtures</h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
             Dev harness · {FIXTURE_ACTIVITIES.length} activities, no backend. The chart
-            exercises the project filter, flood droplets, readiness tiers, a conflict and a
-            completed bar; the print views render RevisionPrintDoc from the same data.
+            exercises the project + location filters, flood droplets, readiness tiers, a
+            readiness opt-out, a conflict and a completed bar; the print views render
+            RevisionPrintDoc from the same data.
           </p>
         </div>
         <div className="flex items-center gap-1">

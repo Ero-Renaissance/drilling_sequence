@@ -75,6 +75,10 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             "plan_type": a.plan_type,
             "risk": a.risk,
             "comment": a.comment,
+            # Per-activity readiness opt-out — carried so the print-out can suppress
+            # its gate icons and the snapshot KPIs can exclude it. Older stored
+            # revisions lack the key; readers default it to True.
+            "readiness_required": a.readiness_required,
             # Lets the diff tell a finished activity (dropped on clone) apart
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
