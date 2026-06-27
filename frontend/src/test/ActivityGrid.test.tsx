@@ -36,7 +36,33 @@ describe("ActivityGrid", () => {
     await waitFor(() => {
       expect(screen.getByText(/activity type/i)).toBeInTheDocument();
       expect(screen.getByText("Well")).toBeInTheDocument();
-      expect(screen.getByText("Rig")).toBeInTheDocument();
+      expect(screen.getByText("Resource Type")).toBeInTheDocument();
+      expect(screen.getByText("Resource Name")).toBeInTheDocument();
+    });
+  });
+
+  it("shows resource type and name for a rig activity", async () => {
+    renderGrid();
+    await waitFor(() => screen.getByText("Oil Development"));
+    // Both fixture rows use a rig: the type cells read "Rig", names show the rig.
+    expect(screen.getAllByText("Rig").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Rig Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Rig Beta")).toBeInTheDocument();
+  });
+
+  it("switches a resource from Rig to HWU via the type column", async () => {
+    renderGrid();
+    await waitFor(() => screen.getByText("Oil Development"));
+
+    // Open a row's Resource Type cell (reads "Rig") and switch it to HWU.
+    await userEvent.click(screen.getAllByText("Rig")[0]);
+    await userEvent.selectOptions(screen.getByDisplayValue("Rig"), "HWU");
+    await userEvent.tab(); // blur commits the change
+
+    await waitFor(() => {
+      // Type now reads HWU; the name carried over to the HWU field.
+      expect(screen.getAllByText("HWU").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("Rig Alpha")).toBeInTheDocument();
     });
   });
 

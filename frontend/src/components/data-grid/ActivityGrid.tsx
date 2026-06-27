@@ -62,6 +62,8 @@ declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface TableMeta<TData extends RowData> {
     updateCell: (id: string, field: keyof Activity, value: string | null) => void;
+    updateResourceName: (id: string, value: string | null) => void;
+    updateResourceType: (id: string, value: string | null) => void;
     deleteRow: (id: string) => void;
     toggleCompletion: (id: string) => void;
     openHistory: (id: string) => void;
@@ -309,6 +311,50 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     [activities, projectId],
   );
 
+  // Editing the resource name writes to whichever field is active (HWU if the
+  // activity already has one, otherwise rig). A brand-new name defaults to a
+  // rig — flip the Resource Type column to make it an HWU instead.
+  const updateResourceName = useCallback(
+    (id: string, value: string | null) => {
+      const prev = activities.find((a) => a.id === id);
+      if (!prev) return;
+      updateCell(id, prev.hwu_name ? "hwu_name" : "rig_name", value);
+    },
+    [activities, updateCell],
+  );
+
+  // Switching the resource type moves the existing name between rig_name and
+  // hwu_name (mutually exclusive) in a single PATCH; the blank option clears
+  // the resource entirely.
+  const updateResourceType = useCallback(
+    async (id: string, value: string | null) => {
+      const prev = activities.find((a) => a.id === id);
+      if (!prev) return;
+      const name = prev.hwu_name ?? prev.rig_name ?? null;
+      const next =
+        value === "HWU"
+          ? { rig_name: null, hwu_name: name }
+          : value === "Rig"
+            ? { rig_name: name, hwu_name: null }
+            : { rig_name: null, hwu_name: null };
+      setActivities((all) => all.map((a) => (a.id === id ? { ...a, ...next } : a)));
+      try {
+        const updated = await updateActivity(projectId, id, next, prev.updated_at);
+        setActivities((all) => all.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+      } catch (err) {
+        setActivities((all) => all.map((a) => (a.id === id ? prev : a)));
+        if (err instanceof ConflictError) {
+          setError(
+            `Conflict: ${err.updatedBy} modified this activity after you loaded it. Refresh to see the latest version.`,
+          );
+        } else {
+          setError("Failed to change resource type. Change reverted.");
+        }
+      }
+    },
+    [activities, projectId],
+  );
+
   const deleteRow = useCallback(
     async (id: string) => {
       const prev = [...activities];
@@ -455,14 +501,28 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           />
         ),
       }),
-      helper.accessor("rig_name", {
-        header: "Rig",
+      helper.accessor((row) => (row.hwu_name ? "HWU" : row.rig_name ? "Rig" : ""), {
+        id: "resource_type",
+        header: "Resource Type",
+        size: 110,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() || null}
+            options={["Rig", "HWU"]}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateResourceType(row.original.id, v)}
+          />
+        ),
+      }),
+      helper.accessor((row) => row.hwu_name ?? row.rig_name ?? null, {
+        id: "resource_name",
+        header: "Resource Name",
         size: 130,
         cell: ({ getValue, row, table }) => (
           <EditableCell
             value={getValue() ?? null}
             readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateCell(row.original.id, "rig_name", v)}
+            onSave={(v) => table.options.meta?.updateResourceName(row.original.id, v)}
           />
         ),
       }),
@@ -631,6 +691,8 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     initialState: { pagination: { pageSize: 25 } },
     meta: {
       updateCell,
+      updateResourceName,
+      updateResourceType,
       deleteRow,
       toggleCompletion,
       openHistory,
