@@ -21,17 +21,25 @@ interface ImportDialogProps {
 const MAX_INLINE_SKIPPED = 10;
 
 // A sample of the long schedule format offered for download — one row per readiness
-// check per well. Column names/values mirror the backend importer
+// check per well. Shows a rig-based well and an HWU-based well (a row uses a rig OR
+// an HWU). Column names/values mirror the backend importer
 // (backend/app/services/data_processor.py).
 const IMPORT_TEMPLATE_CSV = [
-  "Location,Rig Name,Activity Type,Plan Type,Project,Well Name,Start Date,End Date,Rig Contract Expiry Date,Risk,Readiness Check,Readiness Check Status,Comment",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,FDP,Completed,First development well",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,LLI,On track,",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,LOC,On track,",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,FE,On track,",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,FID,On track,",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,EIA,On track,",
-  "LAND,Rig 1,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,No Flood Risk,BUD,On track,",
+  "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,Readiness Check,Readiness Check Status,Comment",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,FDP,Completed,First development well",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,LLI,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,LOC,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,FE,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,FID,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,EIA,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,BUD,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,FDP,On track,Workover via HWU",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,LLI,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,LOC,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,FE,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,FID,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,EIA,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,BUD,On track,",
   "",
 ].join("\n");
 

@@ -165,28 +165,35 @@ class ParsedActivity:
     readiness: dict = field(default_factory=dict)
 
 
-def parse_long_schedule(df: pd.DataFrame) -> tuple[list[ParsedActivity], dict[str, date]]:
-    """Collapse the long schedule into (activities, {rig_name: contract_end}).
+def parse_long_schedule(
+    df: pd.DataFrame,
+) -> tuple[list[ParsedActivity], dict[str, date], dict[str, date]]:
+    """Collapse the long schedule into (activities, rig_contracts, hwu_contracts).
 
     Rows are grouped by their well-activity identity; each row contributes one
-    readiness gate to its activity, and the per-rig contract-expiry date is captured.
+    readiness gate to its activity. A row uses a rig OR an HWU, and the matching
+    contract-expiry date is captured per resource — rigs keyed by "Rig Name"
+    (from "Rig Contract Expiry Date"), HWUs by "HWU Name" (from "HWU Contract
+    Expiry Date") — so both rig and HWU contracts ingest from one sheet.
     """
     missing = [c for c in LONG_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
 
     activities: dict[tuple, ParsedActivity] = {}
-    contracts: dict[str, date] = {}
+    rig_contracts: dict[str, date] = {}
+    hwu_contracts: dict[str, date] = {}
 
     for _, row in df.iterrows():
         well = _clean(row.get("Well Name"))
         rig = _clean(row.get("Rig Name"))
+        hwu = _clean(row.get("HWU Name"))
         activity_type = _clean(row.get("Activity Type"))
         start = _to_date(row.get("Start Date"))
         end = _to_date(row.get("End Date"))
         project = _clean(row.get("Project"))
 
-        key = (project, well, rig, activity_type, start, end)
+        key = (project, well, rig, hwu, activity_type, start, end)
         rec = activities.get(key)
         if rec is None:
             rec = ParsedActivity(
@@ -196,6 +203,7 @@ def parse_long_schedule(df: pd.DataFrame) -> tuple[list[ParsedActivity], dict[st
                     "end_date": end,
                     "well_name": well,
                     "rig_name": rig,
+                    "hwu_name": hwu,
                     "well_project": project,
                     "location": _clean(row.get("Location")),
                     "plan_type": _map_plan_type(row.get("Plan Type")),
@@ -209,10 +217,13 @@ def parse_long_schedule(df: pd.DataFrame) -> tuple[list[ParsedActivity], dict[st
         if gate:
             rec.readiness[gate.upper()] = _map_readiness_status(row.get("Readiness Check Status"))
 
-        expiry = _to_date(row.get("Rig Contract Expiry Date"))
-        if rig and expiry:
-            contracts[rig] = expiry
+        rig_expiry = _to_date(row.get("Rig Contract Expiry Date"))
+        if rig and rig_expiry:
+            rig_contracts[rig] = rig_expiry
+        hwu_expiry = _to_date(row.get("HWU Contract Expiry Date"))
+        if hwu and hwu_expiry:
+            hwu_contracts[hwu] = hwu_expiry
 
-    return list(activities.values()), contracts
+    return list(activities.values()), rig_contracts, hwu_contracts
 
 

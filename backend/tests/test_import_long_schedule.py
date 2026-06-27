@@ -11,8 +11,8 @@ import pytest
 from httpx import AsyncClient
 
 LONG_HEADER = (
-    "Location,Rig Name,Activity Type,Plan Type,Project,Well Name,"
-    "Start Date,End Date,Rig Contract Expiry Date,Risk,"
+    "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,"
+    "Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,"
     "Readiness Check,Readiness Check Status,Comment"
 )
 GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
@@ -24,12 +24,13 @@ async def _create_project(client: AsyncClient, name: str = "Schedule") -> dict:
     return resp.json()
 
 
-def _well_rows(*, well, project, atype, plan, risk, start, end, expiry, statuses=None, rig="RIG_1"):
+def _well_rows(*, well, project, atype, plan, risk, start, end, expiry="", statuses=None,
+               rig="RIG_1", hwu="", hwu_expiry=""):
     """One well-activity expanded into its 7 readiness rows (the long format)."""
     statuses = statuses or {}
     return [
-        f"LAND,{rig},{atype},{plan},{project},{well},{start},{end},{expiry},{risk},"
-        f"{g},{statuses.get(g, 'On track')},note"
+        f"LAND,{rig},{hwu},{atype},{plan},{project},{well},{start},{end},"
+        f"{expiry},{hwu_expiry},{risk},{g},{statuses.get(g, 'On track')},note"
         for g in GATES
     ]
 
@@ -88,6 +89,38 @@ async def test_long_schedule_collapses_rows_and_maps_values(client: AsyncClient)
     rig1 = next(c for c in contracts if c["rig_name"] == "RIG_1")
     assert rig1["contract_end"] == "2030-12-31"
     assert rig1["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+async def test_long_schedule_imports_hwu_contract(client: AsyncClient) -> None:
+    pid = (await _create_project(client))["id"]
+    csv = _long_csv(
+        _well_rows(well="WELL_R", project="PX", atype="Drilling",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="01/05/2026", end="06/30/2026", expiry="12/31/2030", rig="RIG_1"),
+        _well_rows(well="WELL_H", project="PX", atype="Well Repair/Safety",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="03/01/2026", end="08/31/2026",
+                   rig="", hwu="HWU_9", hwu_expiry="06/30/2031"),
+    )
+    resp = await _upload(client, pid, csv)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["imported"] == 2
+
+    # The HWU activity carries its hwu_name and no rig.
+    acts = {a["well_name"]: a for a in (await client.get(f"/api/projects/{pid}/activities")).json()}
+    assert acts["WELL_H"]["hwu_name"] == "HWU_9"
+    assert acts["WELL_H"]["rig_name"] is None
+
+    # The HWU contract was upserted from its expiry column, marked binding.
+    hwu_contracts = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
+    h9 = next(c for c in hwu_contracts if c["hwu_name"] == "HWU_9")
+    assert h9["contract_end"] == "2031-06-30"
+    assert h9["status"] == "Completed"
+
+    # The rig contract still imports alongside it.
+    rigs = (await client.get(f"/api/projects/{pid}/contracts")).json()
+    assert any(c["rig_name"] == "RIG_1" for c in rigs)
 
 
 @pytest.mark.asyncio

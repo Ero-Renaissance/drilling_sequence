@@ -15,6 +15,7 @@ from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.audit import AuditLog
+from app.models.hwu_contract import HwuContract
 from app.models.project import ProjectRole
 from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ReadinessCheck
 from app.models.rig_contract import RigContract
@@ -340,7 +341,7 @@ async def _import_long_schedule(
     and contract dates (replace mode resets them to match the file).
     """
     try:
-        parsed, contracts = parse_long_schedule(df)
+        parsed, rig_contracts, hwu_contracts = parse_long_schedule(df)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -399,8 +400,9 @@ async def _import_long_schedule(
         for gate, gate_status in readiness.items():
             db.add(ReadinessCheck(activity_id=activity.id, check_code=gate, status=gate_status))
 
-    # Rig contract expiry — upsert each rig with a binding (Completed) end date.
-    for rig_name, expiry in contracts.items():
+    # Resource contract expiry — upsert each rig / HWU with a binding (Completed)
+    # end date, so an imported sheet drives the CON gate exactly like the editor.
+    for rig_name, expiry in rig_contracts.items():
         existing = (
             await db.execute(
                 select(RigContract).where(
@@ -418,6 +420,30 @@ async def _import_long_schedule(
                 RigContract(
                     project_id=project_id,
                     rig_name=rig_name,
+                    contract_end=expiry,
+                    status="Completed",
+                    updated_by=current_user.id,
+                )
+            )
+
+    for hwu_name, expiry in hwu_contracts.items():
+        existing_hwu = (
+            await db.execute(
+                select(HwuContract).where(
+                    HwuContract.project_id == project_id,
+                    HwuContract.hwu_name == hwu_name,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_hwu is not None:
+            existing_hwu.contract_end = expiry
+            existing_hwu.status = "Completed"
+            existing_hwu.updated_by = current_user.id
+        else:
+            db.add(
+                HwuContract(
+                    project_id=project_id,
+                    hwu_name=hwu_name,
                     contract_end=expiry,
                     status="Completed",
                     updated_by=current_user.id,
