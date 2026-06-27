@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard } from "lucide-react";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 // PenSquare kept for the tab icon
@@ -186,6 +186,12 @@ export function ChartTab() {
     [conflicts],
   );
 
+  // The plan is frozen while a revision is awaiting approval — the backend bars
+  // adds/edits/imports with a 423 (assert_project_not_locked checks exactly this:
+  // any activity carrying a lock). Reflect it so the plan-changing actions are
+  // disabled up front, rather than letting the user hit the wall on submit.
+  const isLocked = (activities ?? []).some((a) => a.locked_by_revision_id != null);
+
   const load = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
@@ -223,6 +229,7 @@ export function ChartTab() {
           <ActivityFormDialog
             projectId={projectId}
             onCreated={() => load()}
+            locked={isLocked}
             existingActivityTypes={(activities ?? []).map((a) => a.activity_type)}
             existingRigNames={(activities ?? [])
               .map((a) => a.rig_name)
@@ -231,7 +238,7 @@ export function ChartTab() {
         )}
         <div className="mx-1 h-4 w-px bg-border" />
         {projectId && (
-          <ImportDialog projectId={projectId} onImported={handleImported} />
+          <ImportDialog projectId={projectId} onImported={handleImported} locked={isLocked} />
         )}
         <div className="mx-1 h-4 w-px bg-border" />
         <Button variant="ghost" size="sm" onClick={load} disabled={loading} className="text-muted-foreground">
@@ -241,6 +248,15 @@ export function ChartTab() {
         {activities !== null && (
           <span className="text-xs tabular-nums text-muted-foreground">
             {activities.length} {activities.length === 1 ? "activity" : "activities"}
+          </span>
+        )}
+        {isLocked && (
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
+            title="A revision is awaiting approval — the plan is locked until it's resolved."
+          >
+            <Lock className="h-3 w-3" />
+            Plan locked — revision awaiting approval
           </span>
         )}
         <div className="ml-auto">

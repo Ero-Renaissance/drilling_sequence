@@ -52,6 +52,9 @@ type FormValues = z.infer<typeof schema>;
 interface ActivityFormDialogProps {
   projectId: string;
   onCreated: (activity: Activity) => void;
+  /** When the campaign is locked (a revision awaiting approval), the trigger is
+   *  disabled — the backend would 423 the create anyway. */
+  locked?: boolean;
   /** Existing activity types in the project — fed into the Activity Type combobox. */
   existingActivityTypes?: string[];
   /** Existing rigs in the project — fed into the resource combobox. */
@@ -83,6 +86,7 @@ function Field({
 export function ActivityFormDialog({
   projectId,
   onCreated,
+  locked,
   existingActivityTypes,
   existingRigNames,
   existingHwuNames,
@@ -153,7 +157,11 @@ export function ActivityFormDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button
+          size="sm"
+          disabled={locked}
+          title={locked ? "A revision is awaiting approval — the plan is locked." : undefined}
+        >
           <Plus className="mr-2 h-4 w-4" />
           Add Activity
         </Button>

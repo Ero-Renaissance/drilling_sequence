@@ -15,6 +15,9 @@ import { importActivities, type ImportResult } from "@/api/activities";
 interface ImportDialogProps {
   projectId: string;
   onImported: (count: number) => void;
+  /** When the campaign is locked (a revision awaiting approval), the trigger is
+   *  disabled — the backend would 423 the import anyway. */
+  locked?: boolean;
 }
 
 // How many skipped rows to list inline before collapsing to a "+N more" + download.
@@ -59,7 +62,7 @@ function downloadCsv(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ImportDialog({ projectId, onImported }: ImportDialogProps) {
+export function ImportDialog({ projectId, onImported, locked }: ImportDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [replace, setReplace] = useState(true);
@@ -109,7 +112,12 @@ export function ImportDialog({ projectId, onImported }: ImportDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={locked}
+          title={locked ? "A revision is awaiting approval — the plan is locked." : undefined}
+        >
           <Upload className="mr-2 h-4 w-4" />
           Import CSV / Excel
         </Button>
