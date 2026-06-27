@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { http, HttpResponse } from "msw";
 
 vi.mock("@/lib/auth", () => ({
   getAccessToken: async () => "test-token",
@@ -10,6 +11,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
+import { server } from "./mocks/server";
 
 const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
@@ -103,6 +105,43 @@ describe("ActivityGrid", () => {
     await userEvent.click(screen.getByRole("button", { name: /add activity/i }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText(/fill in the required fields/i)).toBeInTheDocument();
+  });
+
+  it("disables Add Activity and shows the lock chip when the campaign is locked", async () => {
+    // A revision is awaiting approval, so the activity carries a lock — the backend
+    // would 423 a create, so the grid disables the action up front (not just the
+    // chart toolbar; this tab must not be a bypass).
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          {
+            id: "act-locked",
+            project_id: PROJECT_ID,
+            activity_type: "Oil Development",
+            start_date: "2026-01-01",
+            end_date: "2026-03-31",
+            well_name: "Well-A1",
+            rig_name: "Rig Alpha",
+            location: "OFFSHORE",
+            well_project: null,
+            project_group: null,
+            risk: null,
+            comment: null,
+            plan_type: "Firm",
+            completed_at: null,
+            updated_at: "2026-05-25T08:00:00Z",
+            updated_by_name: "Test User",
+            locked_by_revision_id: "rev-001",
+          },
+        ]),
+      ),
+    );
+
+    renderGrid();
+    await waitFor(() => screen.getByText("Oil Development"));
+
+    expect(screen.getByRole("button", { name: /add activity/i })).toBeDisabled();
+    expect(screen.getByText(/plan locked/i)).toBeInTheDocument();
   });
 
   it("can create a new activity via dialog", async () => {

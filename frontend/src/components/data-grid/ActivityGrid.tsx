@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -716,6 +717,11 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     ? activities.find((a) => a.id === historyActivityId)
     : null;
 
+  // Campaign-level lock (a revision awaiting approval) — the same condition as the
+  // backend's assert_project_not_locked. Per-row controls already react to each
+  // row's locked_by_revision_id; this gates the create action, which has no row.
+  const isLocked = activities.some((a) => a.locked_by_revision_id != null);
+
   return (
     <div className="space-y-3">
       {focus && (
@@ -738,6 +744,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
         <ActivityFormDialog
           projectId={projectId}
           onCreated={(a) => setActivities((prev) => [...prev, a])}
+          locked={isLocked}
           existingActivityTypes={activities.map((a) => a.activity_type)}
           existingRigNames={activities
             .map((a) => a.rig_name)
@@ -757,6 +764,16 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           <span className="ml-1.5">Refresh</span>
         </Button>
+
+        {isLocked && (
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
+            title="A revision is awaiting approval — the plan is locked until it's resolved."
+          >
+            <Lock className="h-3 w-3" />
+            Plan locked — revision awaiting approval
+          </span>
+        )}
 
         <div className="relative ml-auto">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
