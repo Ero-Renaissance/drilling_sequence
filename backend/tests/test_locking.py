@@ -60,6 +60,36 @@ async def test_cannot_import_while_revision_pending(client: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
+async def test_cannot_create_activity_while_revision_pending(client: AsyncClient) -> None:
+    """Adding an activity mutates the plan, so it is barred while a revision is
+    pending — the live plan can't diverge from the snapshot under approval. It is
+    allowed again once the revision is discarded."""
+    project_id, _ = await _project_with_activity(client)
+    revision_id = await _create_revision(client, project_id)
+
+    new_activity = {
+        "activity_type": "Oil Well Drilling",
+        "start_date": "2026-03-01",
+        "end_date": "2026-04-01",
+        "well_name": "Well-2",
+        "location": "OFFSHORE",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
+    }
+    blocked = await client.post(
+        f"/api/projects/{project_id}/activities", json=new_activity
+    )
+    assert blocked.status_code == 423
+
+    discard = await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
+    assert discard.status_code == 204
+
+    assert (
+        await client.post(f"/api/projects/{project_id}/activities", json=new_activity)
+    ).status_code == 201
+
+
+@pytest.mark.asyncio
 async def test_edit_allowed_after_revision_discarded(client: AsyncClient) -> None:
     project_id, activity_id = await _project_with_activity(client)
     revision_id = await _create_revision(client, project_id)

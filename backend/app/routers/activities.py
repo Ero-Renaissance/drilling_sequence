@@ -69,6 +69,10 @@ async def create_activity(
     project_id: uuid.UUID, payload: ActivityCreateStrict, current_user: CurrentUser, db: DB
 ) -> ActivityResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # Adding an activity mutates the plan, so it is barred while a revision is
+    # awaiting approval — the same gate as import (which also creates activities),
+    # consistent with the update/complete/delete locks on existing activities.
+    await assert_project_not_locked(project_id, db)
     activity = Activity(project_id=project_id, updated_by=current_user.id, **payload.model_dump())
     db.add(activity)
     await db.commit()
