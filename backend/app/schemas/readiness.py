@@ -37,3 +37,6 @@ class ActivityReadiness(BaseModel):
     start_date: date
     end_date: date
     checks: dict[str, CheckState]
+    # Frozen while a revision is awaiting approval (the readiness PUT 423s) — lets
+    # the grid disable the dots up front, matching the per-activity lock.
+    locked: bool = False

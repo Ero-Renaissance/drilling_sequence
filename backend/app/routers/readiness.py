@@ -103,6 +103,7 @@ async def list_readiness(
                 start_date=act.start_date,
                 end_date=act.end_date,
                 checks={code: _state(code) for code in CHECK_CODES},
+                locked=act.locked_by_revision_id is not None,
             )
         )
     return rows

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { http, HttpResponse } from "msw";
 
 vi.mock("@/lib/auth", () => ({
   getAccessToken: async () => "test-token",
@@ -10,6 +11,8 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
+import { CHECK_CODES } from "@/api/readiness";
+import { server } from "./mocks/server";
 
 const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
@@ -41,6 +44,36 @@ describe("ReadinessGrid", () => {
       expect(screen.getByText("Gas Development")).toBeInTheDocument();
       expect(screen.getByText("Well-A1")).toBeInTheDocument();
     });
+  });
+
+  it("disables the dots and shows the lock chip when the campaign is locked", async () => {
+    const checks = Object.fromEntries(
+      CHECK_CODES.map((c) => [c, { status: "On Track", notes: null, updated_at: null }]),
+    );
+    server.use(
+      http.get("/api/projects/:projectId/readiness", () =>
+        HttpResponse.json([
+          {
+            activity_id: "act-locked",
+            activity_type: "Oil Development",
+            well_name: "Well-A1",
+            rig_name: "Rig Alpha",
+            start_date: "2026-01-01",
+            end_date: "2026-03-31",
+            checks,
+            locked: true,
+          },
+        ]),
+      ),
+    );
+
+    renderGrid();
+    await waitFor(() => screen.getByText("Oil Development"));
+
+    expect(screen.getByText(/plan locked/i)).toBeInTheDocument();
+    const dots = screen.getAllByTitle(/: On Track$/);
+    expect(dots.length).toBeGreaterThan(0);
+    dots.forEach((dot) => expect(dot).toBeDisabled());
   });
 
   it("shows BUD as Completed for Oil Development row", async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Lock } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -235,6 +235,10 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
     setSearchParams(searchParams, { replace: true });
   }
 
+  // A revision awaiting approval freezes readiness edits (the PUT 423s per
+  // activity); disable the dots up front and flag it, matching the other tabs.
+  const isLocked = rows.some((r) => r.locked);
+
   return (
     <div className="space-y-3">
       {notReadyFocus && (
@@ -266,6 +270,16 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           <span className="ml-1.5">Refresh</span>
         </Button>
+
+        {isLocked && (
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
+            title="A revision is awaiting approval — the plan is locked until it's resolved."
+          >
+            <Lock className="h-3 w-3" />
+            Plan locked — revision awaiting approval
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-3">
           <SearchInput
@@ -407,14 +421,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                                         : null,
                                   )
                                 }
-                                disabled={!row.rig_name && !row.hwu_name}
+                                disabled={(!row.rig_name && !row.hwu_name) || !!row.locked}
                               />
                             ) : (
                               <ReadinessDot
                                 code={code}
                                 status={row.checks[code].status}
                                 onChange={(next) => handleChange(row.activity_id, code, next)}
-                                disabled={saving === key}
+                                disabled={saving === key || !!row.locked}
                               />
                             )}
                           </div>

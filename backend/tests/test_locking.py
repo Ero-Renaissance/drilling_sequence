@@ -120,6 +120,21 @@ async def test_readiness_upsert_locked_then_unlocked(client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
+async def test_readiness_list_reports_locked(client: AsyncClient) -> None:
+    """The readiness list flags each row as locked while a revision is pending, so
+    the grid can disable the dots up front; the flag clears once resolved."""
+    project_id, _ = await _project_with_activity(client)
+    revision_id = await _create_revision(client, project_id)
+
+    locked = (await client.get(f"/api/projects/{project_id}/readiness")).json()
+    assert locked and all(row["locked"] for row in locked)
+
+    await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
+    unlocked = (await client.get(f"/api/projects/{project_id}/readiness")).json()
+    assert unlocked and not any(row["locked"] for row in unlocked)
+
+
+@pytest.mark.asyncio
 async def test_contract_edit_locked_then_unlocked(client: AsyncClient) -> None:
     """Rig-contract edits drive derived CON readiness, so they're frozen while a
     revision is pending and allowed again once it's resolved."""

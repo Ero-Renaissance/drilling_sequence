@@ -20,6 +20,8 @@ export interface ActivityReadiness {
   start_date: string;
   end_date: string;
   checks: Record<CheckCode, CheckState>;
+  /** Frozen while a revision is awaiting approval — the dots are disabled. */
+  locked?: boolean;
 }
 
 async function authHeaders(): Promise<HeadersInit> {
