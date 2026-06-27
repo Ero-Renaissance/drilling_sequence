@@ -55,6 +55,7 @@ import {
   conflictingActivityIds,
 } from "@/lib/watchlist";
 import { EditableCell } from "./EditableCell";
+import { toast } from "@/components/ui/toaster";
 import { ActivityFormDialog, LOCATIONS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
 import { HistoryPanel } from "@/components/activity/HistoryPanel";
 
@@ -300,11 +301,15 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       } catch (err) {
         setActivities((all) => all.map((a) => (a.id === id ? prev : a)));
         if (err instanceof ConflictError) {
-          setError(
+          toast.error(
             `Conflict: ${err.updatedBy} modified this activity after you loaded it. Refresh to see the latest version.`,
           );
         } else {
-          setError(`Failed to save "${String(field).replace(/_/g, " ")}". Change reverted.`);
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : `Failed to save "${String(field).replace(/_/g, " ")}". Change reverted.`,
+          );
         }
       }
     },
@@ -344,11 +349,13 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       } catch (err) {
         setActivities((all) => all.map((a) => (a.id === id ? prev : a)));
         if (err instanceof ConflictError) {
-          setError(
+          toast.error(
             `Conflict: ${err.updatedBy} modified this activity after you loaded it. Refresh to see the latest version.`,
           );
         } else {
-          setError("Failed to change resource type. Change reverted.");
+          toast.error(
+            err instanceof Error ? err.message : "Failed to change resource type. Change reverted.",
+          );
         }
       }
     },
@@ -361,9 +368,9 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       setActivities((all) => all.filter((a) => a.id !== id));
       try {
         await deleteActivity(projectId, id);
-      } catch {
+      } catch (err) {
         setActivities(prev);
-        setError("Failed to delete activity.");
+        toast.error(err instanceof Error ? err.message : "Failed to delete activity.");
       }
     },
     [activities, projectId],
@@ -377,8 +384,10 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       try {
         const updated = await setActivityCompletion(projectId, id, completed);
         setActivities((all) => all.map((a) => (a.id === id ? { ...a, ...updated } : a)));
-      } catch {
-        setError(`Failed to ${completed ? "complete" : "reopen"} activity.`);
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : `Failed to ${completed ? "complete" : "reopen"} activity.`,
+        );
       }
     },
     [activities, projectId],
@@ -411,7 +420,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       setSavingReadinessKey(key);
       try {
         await upsertCheck(projectId, activityId, code, next);
-      } catch {
+      } catch (err) {
         setReadinessByActivity((prev) => {
           const reverted = new Map(prev);
           const existing = reverted.get(activityId);
@@ -423,7 +432,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           }
           return reverted;
         });
-        setError(`Failed to save ${code} status.`);
+        toast.error(err instanceof Error ? err.message : `Failed to save ${code} status.`);
       } finally {
         setSavingReadinessKey(null);
       }

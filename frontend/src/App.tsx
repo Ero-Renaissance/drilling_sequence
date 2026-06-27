@@ -17,6 +17,7 @@ import { RevisionDetail } from "@/pages/RevisionDetail";
 import { Admin } from "@/pages/Admin";
 import ChartFixtures from "@/dev/ChartFixtures";
 import { useAuthStore } from "@/store/auth";
+import { Toaster } from "@/components/ui/toaster";
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
@@ -61,6 +62,7 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      <Toaster />
     </BrowserRouter>
   );
 }

@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export interface Activity {
   id: string;
@@ -136,7 +137,7 @@ export async function deleteActivity(projectId: string, activityId: string): Pro
     method: "DELETE",
     headers: await authHeaders(),
   });
-  if (!resp.ok) throw new Error("Failed to delete activity");
+  if (!resp.ok) await throwApiError(resp, "Failed to delete activity");
 }
 
 export async function importActivities(

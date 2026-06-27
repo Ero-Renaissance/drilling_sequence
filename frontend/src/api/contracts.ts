@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export type ContractStatus = "N/A" | "Not Started" | "In Progress" | "Completed";
 
@@ -70,6 +71,6 @@ export async function deleteContract(projectId: string, rigName: string): Promis
     },
   );
   if (!resp.ok && resp.status !== 404) {
-    throw new Error("Failed to delete contract");
+    await throwApiError(resp, "Failed to delete contract");
   }
 }

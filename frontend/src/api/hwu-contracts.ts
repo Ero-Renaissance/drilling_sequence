@@ -1,5 +1,6 @@
 import { getAccessToken } from "@/lib/auth";
 import type { ContractStatus } from "@/api/contracts";
+import { throwApiError } from "./http";
 
 // HWU contracts share the rig contract's workflow-status vocabulary.
 export type { ContractStatus };
@@ -65,6 +66,6 @@ export async function deleteHwuContract(projectId: string, hwuName: string): Pro
     },
   );
   if (!resp.ok && resp.status !== 404) {
-    throw new Error("Failed to delete HWU contract");
+    await throwApiError(resp, "Failed to delete HWU contract");
   }
 }

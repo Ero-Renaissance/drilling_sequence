@@ -14,6 +14,7 @@ import {
 } from "@/api/readiness";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
+import { toast } from "@/components/ui/toaster";
 import { ReadinessDot } from "./ReadinessDot";
 import { CHECK_META, STATUS_DOT } from "./check-meta";
 import { ContractEditorDialog } from "./ContractEditorDialog";
@@ -191,7 +192,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       setSaving(key);
       try {
         await upsertCheck(projectId, activityId, code, next);
-      } catch {
+      } catch (err) {
         if (previous) {
           setRows((prev) =>
             prev.map((r) =>
@@ -204,7 +205,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             ),
           );
         }
-        setError(`Failed to save ${code} status.`);
+        toast.error(err instanceof Error ? err.message : `Failed to save ${code} status.`);
       } finally {
         setSaving(null);
       }

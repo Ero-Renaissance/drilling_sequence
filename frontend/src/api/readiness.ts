@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { throwApiError } from "./http";
 
 export const CHECK_CODES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"] as const;
 export type CheckCode = (typeof CHECK_CODES)[number];
@@ -49,5 +50,5 @@ export async function upsertCheck(
       body: JSON.stringify({ status, notes: notes ?? null }),
     },
   );
-  if (!resp.ok) throw new Error(`Failed to update ${checkCode} status`);
+  if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }
