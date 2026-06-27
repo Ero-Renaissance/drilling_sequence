@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectRigConflicts } from "@/lib/conflicts";
+import { detectResourceConflicts } from "@/lib/conflicts";
 import type { Activity } from "@/api/activities";
 
 function act(overrides: Partial<Activity>): Activity {
@@ -11,6 +11,7 @@ function act(overrides: Partial<Activity>): Activity {
     end_date: "2026-01-31",
     well_name: null,
     rig_name: "Rig Alpha",
+    hwu_name: null,
     well_project: null,
     project_group: null,
     location: null,
@@ -25,18 +26,37 @@ function act(overrides: Partial<Activity>): Activity {
   };
 }
 
-describe("detectRigConflicts", () => {
+describe("detectResourceConflicts", () => {
   it("flags overlapping activities on the same rig", () => {
-    const conflicts = detectRigConflicts([
+    const conflicts = detectResourceConflicts([
       act({ id: "a", start_date: "2026-01-01", end_date: "2026-02-01" }),
       act({ id: "b", start_date: "2026-01-15", end_date: "2026-03-01" }),
     ]);
     expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].rig).toBe("Rig Alpha");
+    expect(conflicts[0].resource).toBe("Rig Alpha");
+    expect(conflicts[0].kind).toBe("rig");
   });
 
-  it("ignores a completed activity — the rig is released", () => {
-    const conflicts = detectRigConflicts([
+  it("flags overlapping activities on the same HWU", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: null, hwu_name: "HWU-1", start_date: "2026-01-01", end_date: "2026-02-01" }),
+      act({ id: "b", rig_name: null, hwu_name: "HWU-1", start_date: "2026-01-15", end_date: "2026-03-01" }),
+    ]);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].resource).toBe("HWU-1");
+    expect(conflicts[0].kind).toBe("hwu");
+  });
+
+  it("does not conflate a rig and an HWU that share a name", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: "X", hwu_name: null, start_date: "2026-01-01", end_date: "2026-02-01" }),
+      act({ id: "b", rig_name: null, hwu_name: "X", start_date: "2026-01-15", end_date: "2026-03-01" }),
+    ]);
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it("ignores a completed activity — the resource is released", () => {
+    const conflicts = detectResourceConflicts([
       act({
         id: "a",
         start_date: "2026-01-01",
@@ -49,7 +69,7 @@ describe("detectRigConflicts", () => {
   });
 
   it("does not flag non-overlapping activities", () => {
-    const conflicts = detectRigConflicts([
+    const conflicts = detectResourceConflicts([
       act({ id: "a", start_date: "2026-01-01", end_date: "2026-01-31" }),
       act({ id: "b", start_date: "2026-02-01", end_date: "2026-02-28" }),
     ]);
@@ -57,7 +77,7 @@ describe("detectRigConflicts", () => {
   });
 
   it("does not flag activities on different rigs", () => {
-    const conflicts = detectRigConflicts([
+    const conflicts = detectResourceConflicts([
       act({ id: "a", rig_name: "Rig Alpha", start_date: "2026-01-01", end_date: "2026-02-01" }),
       act({ id: "b", rig_name: "Rig Beta", start_date: "2026-01-15", end_date: "2026-03-01" }),
     ]);

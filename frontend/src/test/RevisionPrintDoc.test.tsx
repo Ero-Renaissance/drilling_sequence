@@ -77,7 +77,7 @@ describe("RevisionPrintDoc — readiness chart short-bar labels", () => {
 });
 
 describe("RevisionPrintDoc — contract-expiry legend", () => {
-  it("labels the rig contract-expiry key 'Rig Contract Expiration'", () => {
+  it("labels the contract-expiry key 'Contract Expiration'", () => {
     // A rig whose contract is in-force ("Completed") with a far-future end date
     // → a dated ("healthy") urgency → the contract-expiry key renders. The far
     // date keeps the urgency stable no matter when the suite runs.
@@ -101,7 +101,7 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
     // stray text. NB: a bare "Contract" still legitimately appears elsewhere as
     // the CON readiness-check label, so we assert the styled header, not a
     // global text search.
-    const header = screen.getByText("Rig Contract Expiration");
+    const header = screen.getByText("Contract Expiration");
     expect(header.className).toContain("uppercase");
   });
 });

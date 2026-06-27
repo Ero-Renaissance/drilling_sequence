@@ -10,13 +10,14 @@ import { useProjectsStore } from "@/store/projects";
 import { listActivities, type Activity } from "@/api/activities";
 import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
+import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { ImportDialog } from "@/components/chart/ImportDialog";
 import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDialog";
 import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
-import { detectRigConflicts, type RigConflict } from "@/lib/conflicts";
+import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { ApproverSettings } from "@/components/revisions/ApproverSettings";
@@ -116,9 +117,9 @@ export function ProjectDetail() {
   );
 }
 
-function RigConflictBanner({ conflicts }: { conflicts: RigConflict[] }) {
-  // A rig can't be in two places at once — this is a hard error that blocks
-  // submitting the plan for approval, so it's red and open by default.
+function ResourceConflictBanner({ conflicts }: { conflicts: ResourceConflict[] }) {
+  // A rig or HWU can't be in two places at once — this is a hard error that
+  // blocks submitting the plan for approval, so it's red and open by default.
   const [expanded, setExpanded] = useState(true);
   if (conflicts.length === 0) return null;
 
@@ -131,7 +132,7 @@ function RigConflictBanner({ conflicts }: { conflicts: RigConflict[] }) {
       >
         <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
         <span className="font-semibold">
-          {conflicts.length} rig scheduling {conflicts.length === 1 ? "conflict" : "conflicts"} — resolve before submitting for approval
+          {conflicts.length} scheduling {conflicts.length === 1 ? "conflict" : "conflicts"} — resolve before submitting for approval
         </span>
         <span className="ml-auto">
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -142,7 +143,7 @@ function RigConflictBanner({ conflicts }: { conflicts: RigConflict[] }) {
         <ul className="mt-3 space-y-2 border-t border-red-200 pt-3 dark:border-red-500/30">
           {conflicts.map((c, i) => (
             <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-red-900 dark:text-red-200">
-              <span className="font-semibold">{c.rig}</span>
+              <span className="font-semibold">{c.resource}</span>
               <span className="text-red-500/70">·</span>
               <span>{c.a.well_name ?? c.a.activity_type}</span>
               <span className="text-red-500/60">({c.a.start_date} – {c.a.end_date})</span>
@@ -167,12 +168,15 @@ export function ChartTab() {
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(
     undefined,
   );
+  const [contractsByHwu, setContractsByHwu] = useState<Map<string, HwuContract> | undefined>(
+    undefined,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
 
   const conflicts = useMemo(
-    () => (activities ? detectRigConflicts(activities) : []),
+    () => (activities ? detectResourceConflicts(activities) : []),
     [activities],
   );
 
@@ -186,10 +190,11 @@ export function ChartTab() {
     setLoading(true);
     setError(null);
     try {
-      const [acts, readiness, contracts] = await Promise.all([
+      const [acts, readiness, contracts, hwuContracts] = await Promise.all([
         listActivities(projectId),
         listReadiness(projectId).catch(() => []), // readiness is best-effort
         listContracts(projectId).catch(() => []), // contracts are best-effort
+        listHwuContracts(projectId).catch(() => []), // HWU contracts are best-effort
       ]);
       setActivities(acts);
       const map: ReadinessMap = new Map(
@@ -197,6 +202,7 @@ export function ChartTab() {
       );
       setReadinessMap(map);
       setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
+      setContractsByHwu(new Map(hwuContracts.map((c) => [c.hwu_name, c])));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activities");
     } finally {
@@ -245,7 +251,7 @@ export function ChartTab() {
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600" role="alert">{error}</p>
       )}
 
-      <RigConflictBanner conflicts={conflicts} />
+      <ResourceConflictBanner conflicts={conflicts} />
 
       {loading && !activities && (
         <div className="flex h-64 items-center justify-center text-muted-foreground">
@@ -269,6 +275,7 @@ export function ChartTab() {
           activities={activities}
           readinessMap={readinessMap}
           contractsByRig={contractsByRig}
+          contractsByHwu={contractsByHwu}
           conflictIds={conflictIds}
           onActivityClick={setEditActivityId}
           enableFilters
@@ -287,6 +294,7 @@ export function ChartTab() {
               readiness={readiness}
               allActivities={activities}
               contractsByRig={contractsByRig}
+              contractsByHwu={contractsByHwu}
               open={!!editActivityId}
               onOpenChange={(open) => { if (!open) setEditActivityId(null); }}
               onSaved={load}

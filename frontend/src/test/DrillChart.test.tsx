@@ -248,6 +248,20 @@ describe("activitiesToChartData", () => {
     expect(byId["act-001"].tooltip.checks).toBeNull(); // opt-out → gates suppressed
     expect(byId["act-002"].tooltip.checks).not.toBeNull(); // default → gates kept
   });
+
+  it("tags HWU rows and maps the category to the HWU resource", async () => {
+    const { activitiesToChartData } = await import("@/lib/chart-utils");
+    const hwu: Activity = {
+      ...MOCK_ACTIVITIES[0],
+      rig_name: null,
+      hwu_name: "Unit-1",
+      location: "LAND",
+    };
+    const { categories, categoryToResource } = activitiesToChartData([hwu]);
+    // The Y-axis label tags the HWU so it reads distinctly from a rig.
+    expect(categories.some((c) => c.includes("HWU · Unit-1"))).toBe(true);
+    expect(categoryToResource.get(categories[0])).toEqual({ kind: "hwu", name: "Unit-1" });
+  });
 });
 
 // ─── ImportDialog ────────────────────────────────────────────────────────────

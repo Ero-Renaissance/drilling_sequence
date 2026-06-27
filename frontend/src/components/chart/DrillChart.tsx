@@ -9,6 +9,7 @@ import type {
 } from "echarts";
 import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
+import type { HwuContract } from "@/api/hwu-contracts";
 import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
 import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
@@ -50,8 +51,10 @@ const BAR_STRIP_CODES = CHECK_CODES;
 interface DrillChartProps {
   activities: Activity[];
   readinessMap?: ReadinessMap;
-  /** Map of rig_name → contract. When present the Y-axis shows an expiry dot per rig. */
+  /** Map of rig_name → contract. Drives the per-row contract-expiry marker. */
   contractsByRig?: Map<string, RigContract>;
+  /** Map of hwu_name → contract — the HWU parallel to contractsByRig. */
+  contractsByHwu?: Map<string, HwuContract>;
   conflictIds?: Set<string>;
   onActivityClick?: (activityId: string) => void;
   /** Show the multi-select project + location filters (each dims the bars it
@@ -244,6 +247,7 @@ export function DrillChart({
   activities,
   readinessMap,
   contractsByRig,
+  contractsByHwu,
   conflictIds,
   onActivityClick,
   enableFilters = false,
@@ -335,7 +339,7 @@ export function DrillChart({
   // custom-series elements (bars/labels) linger from the previous window.
   const focusYear = useCallback((year: number | null) => setActiveYear(year), []);
 
-  const { categories, data, activityTypes, categoryToRig } = useMemo(
+  const { categories, data, activityTypes, categoryToResource } = useMemo(
     () => activitiesToChartData(visibleActivities, readinessMap),
     [visibleActivities, readinessMap],
   );
@@ -680,19 +684,23 @@ export function DrillChart({
     const contractMarkers: {
       value: [number, number];
       hex: string;
-      contract: { rig: string; date: string; rel: string; status: string };
+      contract: { kind: "rig" | "hwu"; name: string; date: string; rel: string; status: string };
     }[] = [];
-    if (contractsByRig) {
+    if (contractsByRig || contractsByHwu) {
       categories.forEach((cat, i) => {
-        const rig = categoryToRig.get(cat);
-        const contract = rig ? contractsByRig.get(rig) : undefined;
+        // Each row is one resource (rig or HWU); mark its contract's expiry.
+        const res = categoryToResource.get(cat);
+        const contract = res
+          ? (res.kind === "rig" ? contractsByRig : contractsByHwu)?.get(res.name)
+          : undefined;
         const urgency = classifyContract(contract);
         if (contract?.contract_end && urgency && isCompletedUrgency(urgency)) {
           contractMarkers.push({
             value: [new Date(contract.contract_end).getTime(), i],
             hex: URGENCY_VISUAL[urgency].hex,
             contract: {
-              rig: rig ?? "—",
+              kind: res?.kind ?? "rig",
+              name: res?.name ?? "—",
               date: fmtExpiry(contract.contract_end),
               rel: relExpiry(daysUntilExpiry(contract) ?? 0),
               status: URGENCY_VISUAL[urgency].label,
@@ -744,11 +752,12 @@ export function DrillChart({
           const params = p as {
             data: {
               hex?: string;
-              contract?: { rig: string; date: string; rel: string; status: string };
+              contract?: { kind: "rig" | "hwu"; name: string; date: string; rel: string; status: string };
               tooltip?: {
                 activity: string;
                 well: string | null;
                 rig: string | null;
+                hwu: string | null;
                 project: string | null;
                 start: string;
                 end: string;
@@ -772,12 +781,12 @@ export function DrillChart({
               ? `<div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">${label}</span><span style="font-weight:500">${esc(val)}</span></div>`
               : "";
 
-          // Contract-expiry clock marker → a rig / date / urgency card.
+          // Contract-expiry clock marker → a resource / date / urgency card.
           const c = params.data.contract;
           if (c) {
             return `
               <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">Contract expiry</div>
-              ${row("Rig", c.rig)}
+              ${row(c.kind === "hwu" ? "HWU" : "Rig", c.name)}
               ${row("Expires", c.date)}
               <div style="display:flex;gap:8px;margin-top:2px"><span style="min-width:60px"></span><span style="color:${theme.tooltipMuted}">${esc(c.rel)}</span></div>
               <div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">Status</span><span style="font-weight:600;color:${params.data.hex ?? theme.tooltipText}">${esc(c.status)}</span></div>
@@ -812,6 +821,7 @@ export function DrillChart({
             <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">${esc(t.activity)}</div>
             ${row("Well", t.well)}
             ${row("Rig", t.rig)}
+            ${row("HWU", t.hwu)}
             ${row("Project", t.project)}
             ${row("Start", t.start)}
             ${row("End", t.end)}
@@ -927,7 +937,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax, selectedProjects, enableFilters]);
+  }, [categories, displayData, theme, resolved, contractsByRig, contractsByHwu, categoryToResource, activeYear, dataMin, dataMax, selectedProjects, enableFilters]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -1080,7 +1090,7 @@ export function DrillChart({
       <ChartLegend
         activityTypes={activityTypes}
         showReadiness={!!readinessMap}
-        showContractExpiry={!!contractsByRig}
+        showContractExpiry={!!(contractsByRig || contractsByHwu)}
         showFloodRisk={hasFlood}
       />
     </div>

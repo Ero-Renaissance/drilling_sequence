@@ -28,7 +28,8 @@ const schema = z
     start_date: z.string().min(1, "Required"),
     end_date: z.string().min(1, "Required"),
     well_name: z.string().optional(),
-    rig_name: z.string().optional(),
+    resource_type: z.enum(["Rig", "HWU"]),
+    resource_name: z.string().optional(),
     location: z.string().optional(),
     plan_type: z.string().optional(),
     risk: z.string().optional(),
@@ -47,8 +48,10 @@ interface ActivityFormDialogProps {
   onCreated: (activity: Activity) => void;
   /** Existing activity types in the project — fed into the Activity Type combobox. */
   existingActivityTypes?: string[];
-  /** Existing rigs in the project — fed into the Rig Name combobox. */
+  /** Existing rigs in the project — fed into the resource combobox. */
   existingRigNames?: string[];
+  /** Existing HWUs in the project — fed into the resource combobox. */
+  existingHwuNames?: string[];
 }
 
 function Field({
@@ -76,6 +79,7 @@ export function ActivityFormDialog({
   onCreated,
   existingActivityTypes,
   existingRigNames,
+  existingHwuNames,
 }: ActivityFormDialogProps) {
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -84,20 +88,26 @@ export function ActivityFormDialog({
     () => suggestedActivityTypes(existingActivityTypes ?? []),
     [existingActivityTypes],
   );
-  const rigSuggestions = useMemo(
-    () => Array.from(new Set(existingRigNames ?? [])).sort(),
-    [existingRigNames],
-  );
-
   const {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { readiness_required: true },
+    defaultValues: { readiness_required: true, resource_type: "Rig" },
   });
+  const watchedResourceType = watch("resource_type");
+
+  // Suggestions for the resource-name field, switching by the chosen type.
+  const resourceSuggestions = useMemo(
+    () =>
+      Array.from(
+        new Set((watchedResourceType === "HWU" ? existingHwuNames : existingRigNames) ?? []),
+      ).sort(),
+    [existingRigNames, existingHwuNames, watchedResourceType],
+  );
 
   async function onSubmit(values: FormValues) {
     setServerError(null);
@@ -107,7 +117,8 @@ export function ActivityFormDialog({
         start_date: values.start_date,
         end_date: values.end_date,
         well_name: values.well_name || null,
-        rig_name: values.rig_name || null,
+        rig_name: values.resource_type === "Rig" ? values.resource_name || null : null,
+        hwu_name: values.resource_type === "HWU" ? values.resource_name || null : null,
         location: values.location || null,
         plan_type: values.plan_type || null,
         risk: values.risk || null,
@@ -181,18 +192,27 @@ export function ActivityFormDialog({
                 spellCheck
               />
             </Field>
-            <Field label="Rig Name" error={errors.rig_name?.message}>
-              <Input
-                {...register("rig_name")}
-                placeholder="Type or pick existing"
-                list="add-rig-name-suggestions"
-                spellCheck
-              />
-              <datalist id="add-rig-name-suggestions">
-                {rigSuggestions.map((rig) => (
-                  <option key={rig} value={rig} />
-                ))}
-              </datalist>
+            <Field label="Resource" error={errors.resource_name?.message}>
+              <div className="flex gap-2">
+                <select
+                  {...register("resource_type")}
+                  className={`${selectClass} w-24 shrink-0`}
+                >
+                  <option value="Rig">Rig</option>
+                  <option value="HWU">HWU</option>
+                </select>
+                <Input
+                  {...register("resource_name")}
+                  placeholder={watchedResourceType === "HWU" ? "Pick an HWU" : "Pick a rig"}
+                  list="add-resource-suggestions"
+                  spellCheck
+                />
+                <datalist id="add-resource-suggestions">
+                  {resourceSuggestions.map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              </div>
             </Field>
           </div>
 

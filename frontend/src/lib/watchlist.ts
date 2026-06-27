@@ -1,5 +1,5 @@
 import type { Activity } from "@/api/activities";
-import { detectRigConflicts } from "@/lib/conflicts";
+import { detectResourceConflicts } from "@/lib/conflicts";
 
 // Watchlist "focus" filters — shared by the dashboard links and the grids that
 // honour them. Definitions mirror backend/app/services/dashboard.py so the
@@ -17,8 +17,8 @@ export type FocusFilter =
 export const FOCUS_LABEL: Record<FocusFilter, string> = {
   overdue: "Overdue — past their end date and not marked complete",
   "flood-risk": "Flood-risk and starting within the next 90 days",
-  conflicts: "Double-booked — sharing a rig with an overlapping activity",
-  "past-contract": "Scheduled to run past the rig's contract end",
+  conflicts: "Double-booked — sharing a rig/HWU with an overlapping activity",
+  "past-contract": "Scheduled to run past the resource's contract end",
   "not-ready": "Starting within the next 90 days and not yet ready",
 };
 
@@ -54,10 +54,10 @@ export function checksReady(
   return applicable.length > 0 && applicable.every((c) => c.status === "Completed");
 }
 
-/** Activity ids involved in any same-rig overlap (completed work is excluded). */
+/** Activity ids in any same-resource (rig or HWU) overlap; completed work is excluded. */
 export function conflictingActivityIds(activities: Activity[]): Set<string> {
   const ids = new Set<string>();
-  for (const c of detectRigConflicts(activities)) {
+  for (const c of detectResourceConflicts(activities)) {
     ids.add(c.a.id);
     ids.add(c.b.id);
   }

@@ -1,7 +1,9 @@
 import type { Activity } from "@/api/activities";
 
-export interface RigConflict {
-  rig: string;
+export interface ResourceConflict {
+  /** The double-booked resource's name (rig or HWU). */
+  resource: string;
+  kind: "rig" | "hwu";
   a: Activity;
   b: Activity;
   overlapDays: number;
@@ -11,20 +13,33 @@ function toDay(dateStr: string): number {
   return Math.floor(new Date(dateStr + "T00:00:00").getTime() / 86_400_000);
 }
 
-export function detectRigConflicts(activities: Activity[]): RigConflict[] {
-  const byRig = new Map<string, Activity[]>();
+function resourceOf(a: Activity): { kind: "rig" | "hwu"; name: string } | null {
+  if (a.rig_name) return { kind: "rig", name: a.rig_name };
+  if (a.hwu_name) return { kind: "hwu", name: a.hwu_name };
+  return null;
+}
+
+export function detectResourceConflicts(activities: Activity[]): ResourceConflict[] {
+  // Group by (kind, name) so a rig and an HWU that share a name are never conflated.
+  const byResource = new Map<
+    string,
+    { kind: "rig" | "hwu"; name: string; acts: Activity[] }
+  >();
   for (const act of activities) {
-    if (!act.rig_name) continue;
-    // A completed activity is finished work — the rig is released, so it can't
-    // double-book a later/overlapping activity. Excluding it avoids false conflicts.
+    // A completed activity is finished work — the resource is released, so it
+    // can't double-book a later/overlapping activity. Excluding it avoids false
+    // conflicts.
     if (act.completed_at) continue;
-    const bucket = byRig.get(act.rig_name) ?? [];
-    bucket.push(act);
-    byRig.set(act.rig_name, bucket);
+    const r = resourceOf(act);
+    if (!r) continue;
+    const key = `${r.kind}:${r.name}`;
+    const bucket = byResource.get(key) ?? { ...r, acts: [] };
+    bucket.acts.push(act);
+    byResource.set(key, bucket);
   }
 
-  const conflicts: RigConflict[] = [];
-  for (const [rig, acts] of byRig) {
+  const conflicts: ResourceConflict[] = [];
+  for (const { kind, name, acts } of byResource.values()) {
     for (let i = 0; i < acts.length; i++) {
       for (let j = i + 1; j < acts.length; j++) {
         const a = acts[i];
@@ -32,7 +47,7 @@ export function detectRigConflicts(activities: Activity[]): RigConflict[] {
         const overlapStart = Math.max(toDay(a.start_date), toDay(b.start_date));
         const overlapEnd = Math.min(toDay(a.end_date), toDay(b.end_date));
         if (overlapEnd > overlapStart) {
-          conflicts.push({ rig, a, b, overlapDays: overlapEnd - overlapStart });
+          conflicts.push({ resource: name, kind, a, b, overlapDays: overlapEnd - overlapStart });
         }
       }
     }

@@ -22,6 +22,7 @@ import {
   type CheckStatus,
 } from "@/api/readiness";
 import type { RigContract } from "@/api/contracts";
+import type { HwuContract } from "@/api/hwu-contracts";
 import { LOCATIONS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { CHECK_META, STATUS_DOT } from "@/components/readiness/check-meta";
@@ -31,7 +32,7 @@ import {
   daysUntilExpiry,
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
-import { detectRigConflicts } from "@/lib/conflicts";
+import { detectResourceConflicts } from "@/lib/conflicts";
 
 /** Per-activity gates the user can edit. CON is derived from the rig contract. */
 const EDITABLE_CODES = CHECK_CODES.filter((c) => c !== "CON") as readonly CheckCode[];
@@ -42,7 +43,8 @@ const schema = z
     start_date: z.string().min(1, "Required"),
     end_date: z.string().min(1, "Required"),
     well_name: z.string().optional(),
-    rig_name: z.string().optional(),
+    resource_type: z.enum(["Rig", "HWU"]),
+    resource_name: z.string().optional(),
     location: z.string().optional(),
     plan_type: z.string().optional(),
     risk: z.string().optional(),
@@ -62,8 +64,10 @@ interface Props {
   readiness: Record<CheckCode, { status: CheckStatus }> | null;
   /** All activities in the project — used for rig autocomplete + conflict detection. */
   allActivities?: Activity[];
-  /** Rig contracts in the project — used for the rig contract preview chip. */
+  /** Rig contracts in the project — used for the contract preview chip. */
   contractsByRig?: Map<string, RigContract>;
+  /** HWU contracts — the HWU parallel to contractsByRig. */
+  contractsByHwu?: Map<string, HwuContract>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
@@ -96,11 +100,11 @@ const selectClass =
 // ── Contract preview chip (under the rig field) ──────────────────────────────
 
 function ContractPreview({
-  rigName,
+  resourceName,
   contract,
 }: {
-  rigName: string;
-  contract: RigContract | undefined;
+  resourceName: string;
+  contract: RigContract | HwuContract | undefined;
 }) {
   const urgency = classifyContract(contract);
   const days = daysUntilExpiry(contract);
@@ -109,7 +113,7 @@ function ContractPreview({
     return (
       <p className="mt-1.5 text-[11px] text-muted-foreground italic">
         No contract on file for{" "}
-        <span className="font-medium not-italic text-foreground">{rigName}</span>.
+        <span className="font-medium not-italic text-foreground">{resourceName}</span>.
       </p>
     );
   }
@@ -146,6 +150,7 @@ export function ActivityChartEditDialog({
   readiness,
   allActivities,
   contractsByRig,
+  contractsByHwu,
   open,
   onOpenChange,
   onSaved,
@@ -176,7 +181,8 @@ export function ActivityChartEditDialog({
       start_date: activity.start_date,
       end_date: activity.end_date,
       well_name: activity.well_name ?? "",
-      rig_name: activity.rig_name ?? "",
+      resource_type: activity.hwu_name ? "HWU" : "Rig",
+      resource_name: activity.hwu_name ?? activity.rig_name ?? "",
       location: activity.location ?? "",
       plan_type: activity.plan_type ?? "",
       risk: activity.risk ?? "",
@@ -186,7 +192,8 @@ export function ActivityChartEditDialog({
   });
 
   // Live form values — used for warnings + contract preview
-  const watchedRig = watch("rig_name") ?? "";
+  const watchedResourceType = watch("resource_type");
+  const watchedResourceName = watch("resource_name") ?? "";
   const watchedStart = watch("start_date") ?? "";
   const watchedEnd = watch("end_date") ?? "";
 
@@ -196,7 +203,8 @@ export function ActivityChartEditDialog({
       start_date: activity.start_date,
       end_date: activity.end_date,
       well_name: activity.well_name ?? "",
-      rig_name: activity.rig_name ?? "",
+      resource_type: activity.hwu_name ? "HWU" : "Rig",
+      resource_name: activity.hwu_name ?? activity.rig_name ?? "",
       location: activity.location ?? "",
       plan_type: activity.plan_type ?? "",
       risk: activity.risk ?? "",
@@ -211,13 +219,25 @@ export function ActivityChartEditDialog({
     setError(null);
   }, [activity, readiness, reset]);
 
-  // ── Derived: rig suggestion list (existing rigs in project) ─────────────────
-  const rigSuggestions = useMemo(() => {
+  // ── Derived: resource suggestions (existing rigs/HWUs of the chosen type) ────
+  const resourceSuggestions = useMemo(() => {
+    const isHwu = watchedResourceType === "HWU";
     const set = new Set<string>();
-    for (const a of allActivities ?? []) if (a.rig_name) set.add(a.rig_name);
-    for (const rig of contractsByRig?.keys() ?? []) set.add(rig);
+    for (const a of allActivities ?? []) {
+      const name = isHwu ? a.hwu_name : a.rig_name;
+      if (name) set.add(name);
+    }
+    for (const n of (isHwu ? contractsByHwu : contractsByRig)?.keys() ?? []) set.add(n);
     return Array.from(set).sort();
-  }, [allActivities, contractsByRig]);
+  }, [allActivities, contractsByRig, contractsByHwu, watchedResourceType]);
+
+  // The contract for the currently-chosen resource (rig or HWU).
+  const resourceContract = useMemo<RigContract | HwuContract | undefined>(() => {
+    if (!watchedResourceName) return undefined;
+    return watchedResourceType === "HWU"
+      ? contractsByHwu?.get(watchedResourceName)
+      : contractsByRig?.get(watchedResourceName);
+  }, [watchedResourceType, watchedResourceName, contractsByRig, contractsByHwu]);
 
   // ── Derived: activity type suggestion list (project + predefined) ───────────
   const activityTypeSuggestions = useMemo(
@@ -232,8 +252,8 @@ export function ActivityChartEditDialog({
   // Mirrors the backend derivation: contract.status drives most cases; dates
   // only matter once the contract is workflow-Completed.
   const draftConStatus: CheckStatus = useMemo(() => {
-    if (!watchedRig) return "N/A";
-    const contract = contractsByRig?.get(watchedRig);
+    if (!watchedResourceName) return "N/A";
+    const contract = resourceContract;
     if (!contract) return "On Track";
     if (contract.status === "N/A") return "N/A";
     if (contract.status === "Not Started" || contract.status === "In Progress")
@@ -241,37 +261,38 @@ export function ActivityChartEditDialog({
     if (!contract.contract_end) return "On Track";
     if (watchedEnd && contract.contract_end < watchedEnd) return "Behind";
     return "Completed";
-  }, [watchedRig, watchedEnd, contractsByRig]);
+  }, [watchedResourceName, resourceContract, watchedEnd]);
 
   // ── Derived: contract-impact warning ────────────────────────────────────────
   // Only flag a coverage problem when the contract is workflow-Completed —
   // a draft contract's dates aren't binding yet.
   const contractImpactWarning = useMemo(() => {
-    if (!watchedRig || !watchedEnd) return null;
-    const contract = contractsByRig?.get(watchedRig);
+    if (!watchedResourceName || !watchedEnd) return null;
+    const contract = resourceContract;
     if (!contract || contract.status !== "Completed") return null;
     if (!contract.contract_end) return null;
     if (watchedEnd <= contract.contract_end) return null;
-    return `End date falls past the rig's contract end (${contract.contract_end}). CON will be Behind for this activity until the contract is extended.`;
-  }, [watchedRig, watchedEnd, contractsByRig]);
+    return `End date falls past the contract end (${contract.contract_end}). CON will be Behind for this activity until the contract is extended.`;
+  }, [watchedResourceName, watchedEnd, resourceContract]);
 
   // ── Derived: rig conflict warning ───────────────────────────────────────────
   const conflictWarning = useMemo(() => {
-    if (!allActivities || !watchedRig || !watchedStart || !watchedEnd) return null;
+    if (!allActivities || !watchedResourceName || !watchedStart || !watchedEnd) return null;
     const draft: Activity = {
       ...activity,
-      rig_name: watchedRig,
+      rig_name: watchedResourceType === "Rig" ? watchedResourceName : null,
+      hwu_name: watchedResourceType === "HWU" ? watchedResourceName : null,
       start_date: watchedStart,
       end_date: watchedEnd,
     };
     const others = allActivities.filter((a) => a.id !== activity.id);
-    const conflicts = detectRigConflicts([draft, ...others]).filter(
+    const conflicts = detectResourceConflicts([draft, ...others]).filter(
       (c) => c.a.id === activity.id || c.b.id === activity.id,
     );
     if (conflicts.length === 0) return null;
     const other = conflicts[0].a.id === activity.id ? conflicts[0].b : conflicts[0].a;
-    return `Overlaps "${other.activity_type}" on ${watchedRig} (${other.start_date} – ${other.end_date}).`;
-  }, [allActivities, activity, watchedRig, watchedStart, watchedEnd]);
+    return `Overlaps "${other.activity_type}" on ${watchedResourceName} (${other.start_date} – ${other.end_date}).`;
+  }, [allActivities, activity, watchedResourceType, watchedResourceName, watchedStart, watchedEnd]);
 
   async function onSubmit(values: FormValues) {
     setError(null);
@@ -281,7 +302,8 @@ export function ActivityChartEditDialog({
         start_date: values.start_date,
         end_date: values.end_date,
         well_name: values.well_name || null,
-        rig_name: values.rig_name || null,
+        rig_name: values.resource_type === "Rig" ? values.resource_name || null : null,
+        hwu_name: values.resource_type === "HWU" ? values.resource_name || null : null,
         location: values.location || null,
         plan_type: values.plan_type || null,
         risk: values.risk || null,
@@ -378,28 +400,40 @@ export function ActivityChartEditDialog({
                 />
               </Field>
               <Field
-                label="Rig Name"
+                label="Resource"
                 hint={
-                  watchedRig ? (
+                  watchedResourceName ? (
                     <ContractPreview
-                      rigName={watchedRig}
-                      contract={contractsByRig?.get(watchedRig)}
+                      resourceName={watchedResourceName}
+                      contract={resourceContract}
                     />
                   ) : null
                 }
               >
-                <Input
-                  {...register("rig_name")}
-                  placeholder="Type or pick an existing rig"
-                  list="rig-suggestions"
-                  spellCheck
-                  disabled={locked}
-                />
-                <datalist id="rig-suggestions">
-                  {rigSuggestions.map((rig) => (
-                    <option key={rig} value={rig} />
-                  ))}
-                </datalist>
+                <div className="flex gap-2">
+                  <select
+                    {...register("resource_type")}
+                    className={cn(selectClass, "w-24 shrink-0")}
+                    disabled={locked}
+                  >
+                    <option value="Rig">Rig</option>
+                    <option value="HWU">HWU</option>
+                  </select>
+                  <Input
+                    {...register("resource_name")}
+                    placeholder={
+                      watchedResourceType === "HWU" ? "Type or pick an HWU" : "Type or pick a rig"
+                    }
+                    list="resource-suggestions"
+                    spellCheck
+                    disabled={locked}
+                  />
+                  <datalist id="resource-suggestions">
+                    {resourceSuggestions.map((n) => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+                </div>
               </Field>
             </div>
 
@@ -519,7 +553,7 @@ export function ActivityChartEditDialog({
                 <span className="font-medium">{draftConStatus}</span>
               </span>
               <span className="ml-auto text-[11px] text-muted-foreground">
-                Derived from the rig contract — edit the contract to change this.
+                Derived from the resource's contract — edit the contract to change this.
               </span>
             </div>
           </div>

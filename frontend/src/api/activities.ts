@@ -8,6 +8,7 @@ export interface Activity {
   end_date: string;
   well_name: string | null;
   rig_name: string | null;
+  hwu_name?: string | null;
   well_project: string | null;
   project_group: string | null;
   location: string | null;
@@ -45,6 +46,7 @@ export interface ActivityCreate {
   end_date: string;
   well_name?: string | null;
   rig_name?: string | null;
+  hwu_name?: string | null;
   well_project?: string | null;
   project_group?: string | null;
   location?: string | null;
