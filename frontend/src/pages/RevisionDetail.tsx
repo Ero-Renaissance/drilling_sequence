@@ -51,6 +51,7 @@ import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { useAuthStore } from "@/store/auth";
 import { DrillChart } from "@/components/chart/DrillChart";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ReadinessMap } from "@/lib/chart-utils";
 
 interface SnapshotRow {
@@ -945,10 +946,12 @@ export function RevisionDetail() {
       <div className="space-y-3 print:hidden">
         <h2 className="text-sm font-semibold text-foreground">Schedule snapshot</h2>
         {snapshotActivities.length > 0 ? (
-          <DrillChart
-            activities={snapshotActivities}
-            readinessMap={snapshotReadinessMap}
-          />
+          <ErrorBoundary label="chart">
+            <DrillChart
+              activities={snapshotActivities}
+              readinessMap={snapshotReadinessMap}
+            />
+          </ErrorBoundary>
         ) : (
           <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
             No activities in this snapshot.
