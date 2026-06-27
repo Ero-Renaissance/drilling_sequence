@@ -12,6 +12,7 @@ import type { RigContract } from "@/api/contracts";
 import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
 import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
+import { terrainRank } from "@/lib/gantt-rows";
 import {
   buildAlarmClockSvgDataUri,
   buildCheckSvgDataUri,
@@ -53,9 +54,10 @@ interface DrillChartProps {
   contractsByRig?: Map<string, RigContract>;
   conflictIds?: Set<string>;
   onActivityClick?: (activityId: string) => void;
-  /** Show the multi-select project filter (dims non-selected projects). Off in
-   *  the read-only revision snapshot view; on for the live project chart. */
-  enableProjectFilter?: boolean;
+  /** Show the multi-select project + location filters (each dims the bars it
+   *  doesn't match). Off in the read-only revision snapshot view; on for the
+   *  live project chart. */
+  enableFilters?: boolean;
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -169,19 +171,25 @@ function bandMarkArea(areas: BandArea[]) {
 }
 
 /**
- * Multi-select project picker. An empty selection means "no filter" — every bar
- * shows at full strength; once one or more projects are picked, the chart dims
- * the rest (handled in renderItem). Toggling keeps the menu open so several can
- * be (de)selected in one pass.
+ * Multi-select picker (projects, locations, …). An empty selection means "no
+ * filter" — every bar shows at full strength; once one or more values are
+ * picked, the chart dims the rest (handled in renderItem). Toggling keeps the
+ * menu open so several can be (de)selected in one pass.
  */
-function ProjectFilter({
-  projects,
+function MultiSelectFilter({
+  items,
   selected,
   onChange,
+  allLabel,
+  filterLabel,
 }: {
-  projects: string[];
+  items: string[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  /** Trigger text when nothing is picked, e.g. "All projects". */
+  allLabel: string;
+  /** Menu heading, e.g. "Filter by project". */
+  filterLabel: string;
 }) {
   const toggle = (p: string) => {
     const next = new Set(selected);
@@ -196,13 +204,13 @@ function ProjectFilter({
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-border/70 px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          {selected.size === 0 ? "All projects" : `${selected.size} selected`}
+          {selected.size === 0 ? allLabel : `${selected.size} selected`}
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
         <div className="flex items-center justify-between px-2 py-1.5 text-xs">
-          <span className="font-medium text-muted-foreground">Filter by project</span>
+          <span className="font-medium text-muted-foreground">{filterLabel}</span>
           {selected.size > 0 && (
             <button
               type="button"
@@ -214,7 +222,7 @@ function ProjectFilter({
           )}
         </div>
         <DropdownMenuSeparator />
-        {projects.map((p) => (
+        {items.map((p) => (
           <DropdownMenuCheckboxItem
             key={p}
             checked={selected.has(p)}
@@ -238,7 +246,7 @@ export function DrillChart({
   contractsByRig,
   conflictIds,
   onActivityClick,
-  enableProjectFilter = false,
+  enableFilters = false,
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
@@ -246,6 +254,8 @@ export function DrillChart({
   const [activeYear, setActiveYear] = useState<number | null>(null);
   // Selected projects to single out — empty Set means "no filter" (all vivid).
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
+  // Selected locations (terrains) to single out — empty Set means "no filter".
+  const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
 
   // Distinct calendar years the campaign spans — drives the focus-year strip.
   const years = useMemo(() => {
@@ -268,6 +278,17 @@ export function DrillChart({
     return Array.from(s).sort((x, y) => x.localeCompare(y));
   }, [activities]);
 
+  // Distinct locations (terrains) in domain order (LAND → SWAMP → OFFSHORE),
+  // any unknown value sorted last then alphabetically — drives the location
+  // filter's checklist.
+  const locations = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of activities) if (a.location) s.add(a.location);
+    return Array.from(s).sort(
+      (x, y) => terrainRank(x) - terrainRank(y) || x.localeCompare(y),
+    );
+  }, [activities]);
+
   // Whether any activity carries flood risk — gates the legend's Risk section.
   const hasFlood = useMemo(
     () => activities.some((a) => a.risk === "Flood Risk"),
@@ -282,6 +303,14 @@ export function DrillChart({
       return next.size === prev.size ? prev : next;
     });
   }, [projects]);
+
+  // Same guard for locations — a vanished terrain selection must not dim all.
+  useEffect(() => {
+    setSelectedLocations((prev) => {
+      const next = new Set([...prev].filter((l) => locations.includes(l)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [locations]);
 
   // Focus the chart on one calendar year, or the full span (null). We drive this
   // through the option's dataZoom window (see below) rather than an imperative
@@ -429,15 +458,18 @@ export function DrillChart({
       // still reads as its type; the red border is the conflict signal.
       const conflictStroke = "#ef4444";
 
-      // Project filter: when a selection is active, a bar whose project isn't
-      // selected (or that has no project) dims to background context — faded
-      // fill, no outline / label / icons / marker.
+      // Project / location filters: when a selection is active, a bar that
+      // doesn't match (or lacks the field) dims to background context — faded
+      // fill, no outline / label / icons / marker. A bar must pass BOTH active
+      // filters to stay vivid.
       const project = api.value(8) as string | null;
+      const location = api.value(9) as string | null;
       const risk = api.value(7) as string | null;
-      const dimmed =
-        enableProjectFilter &&
-        selectedProjects.size > 0 &&
-        (!project || !selectedProjects.has(project));
+      const failsProject =
+        selectedProjects.size > 0 && (!project || !selectedProjects.has(project));
+      const failsLocation =
+        selectedLocations.size > 0 && (!location || !selectedLocations.has(location));
+      const dimmed = enableFilters && (failsProject || failsLocation);
 
       const children: Array<Record<string, unknown>> = [
         {
@@ -880,7 +912,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax, selectedProjects, enableProjectFilter]);
+  }, [categories, displayData, theme, resolved, contractsByRig, categoryToRig, activeYear, dataMin, dataMax, selectedProjects, selectedLocations, enableFilters]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -960,7 +992,8 @@ export function DrillChart({
       data-testid="drill-chart"
       className="flex w-full flex-col gap-3"
     >
-      {(years.length > 1 || (enableProjectFilter && projects.length > 1)) && (
+      {(years.length > 1 ||
+        (enableFilters && (projects.length > 1 || locations.length > 1))) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {years.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -988,15 +1021,31 @@ export function DrillChart({
               ))}
             </div>
           )}
-          {enableProjectFilter && projects.length > 1 && (
+          {enableFilters && projects.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-xs font-medium text-muted-foreground">
                 Projects
               </span>
-              <ProjectFilter
-                projects={projects}
+              <MultiSelectFilter
+                items={projects}
                 selected={selectedProjects}
                 onChange={setSelectedProjects}
+                allLabel="All projects"
+                filterLabel="Filter by project"
+              />
+            </div>
+          )}
+          {enableFilters && locations.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                Location
+              </span>
+              <MultiSelectFilter
+                items={locations}
+                selected={selectedLocations}
+                onChange={setSelectedLocations}
+                allLabel="All locations"
+                filterLabel="Filter by location"
               />
             </div>
           )}

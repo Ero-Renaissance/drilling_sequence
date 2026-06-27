@@ -82,7 +82,7 @@ export default function ChartFixtures() {
           readinessMap={FIXTURE_READINESS}
           contractsByRig={FIXTURE_CONTRACTS}
           conflictIds={FIXTURE_CONFLICT_IDS}
-          enableProjectFilter
+          enableFilters
         />
       ) : (
         <div className="print-preview overflow-x-auto rounded-lg border border-border bg-white p-3 shadow-sm [&>div]:!block">

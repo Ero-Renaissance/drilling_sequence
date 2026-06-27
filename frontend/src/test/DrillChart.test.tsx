@@ -141,23 +141,51 @@ describe("DrillChart", () => {
     const { rerender } = render(<DrillChart activities={FILTER_ACTIVITIES} />);
     expect(screen.queryByRole("button", { name: /All projects/i })).not.toBeInTheDocument();
     // …on when enabled.
-    rerender(<DrillChart activities={FILTER_ACTIVITIES} enableProjectFilter />);
+    rerender(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
     expect(screen.getByRole("button", { name: /All projects/i })).toBeInTheDocument();
   });
 
   it("does not show the project filter when only one project exists", () => {
-    render(<DrillChart activities={[FILTER_ACTIVITIES[0]]} enableProjectFilter />);
+    render(<DrillChart activities={[FILTER_ACTIVITIES[0]]} enableFilters />);
     expect(screen.queryByRole("button", { name: /All projects/i })).not.toBeInTheDocument();
   });
 
   it("multi-selects projects and reflects the count in the trigger", async () => {
-    render(<DrillChart activities={FILTER_ACTIVITIES} enableProjectFilter />);
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
     await userEvent.click(screen.getByRole("button", { name: /All projects/i }));
     const alpha = await screen.findByRole("menuitemcheckbox", { name: "Project Alpha" });
     await userEvent.click(alpha);
     expect(alpha).toHaveAttribute("aria-checked", "true");
     // The menu stays open for multi-select; close it to read the trigger, which
     // the open menu marks aria-hidden.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: /1 selected/i })).toBeInTheDocument();
+  });
+
+  it("shows the location filter only when enabled and >1 location exists", () => {
+    // FILTER_ACTIVITIES spans two terrains (OFFSHORE + LAND).
+    const { rerender } = render(<DrillChart activities={FILTER_ACTIVITIES} />);
+    expect(
+      screen.queryByRole("button", { name: /All locations/i }),
+    ).not.toBeInTheDocument();
+    rerender(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    expect(screen.getByRole("button", { name: /All locations/i })).toBeInTheDocument();
+  });
+
+  it("does not show the location filter when only one location exists", () => {
+    render(<DrillChart activities={[FILTER_ACTIVITIES[0]]} enableFilters />);
+    expect(
+      screen.queryByRole("button", { name: /All locations/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("multi-selects locations and reflects the count in the trigger", async () => {
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    await userEvent.click(screen.getByRole("button", { name: /All locations/i }));
+    const land = await screen.findByRole("menuitemcheckbox", { name: "LAND" });
+    await userEvent.click(land);
+    expect(land).toHaveAttribute("aria-checked", "true");
+    // Menu stays open for multi-select; close it to read the trigger.
     await userEvent.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: /1 selected/i })).toBeInTheDocument();
   });
