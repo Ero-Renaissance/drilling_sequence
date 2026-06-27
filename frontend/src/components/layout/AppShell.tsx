@@ -5,6 +5,7 @@ import { Header } from "./Header";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export function AppShell() {
   const { user, loading, fetchMe } = useAuthStore();
@@ -52,7 +53,9 @@ export function AppShell() {
           <Header />
           <main className="flex-1 overflow-auto print:overflow-visible">
             <div className="mx-auto max-w-[1600px] p-6 lg:p-8 print:max-w-none print:p-0">
-              <Outlet />
+              <ErrorBoundary>
+                <Outlet />
+              </ErrorBoundary>
             </div>
           </main>
         </div>

@@ -1,3 +1,5 @@
+import { logger } from "@/lib/logger";
+
 /** A failed API call, carrying the HTTP status and the server's human-readable
  *  message so the UI can show it (e.g. the 423 "revision awaiting approval" lock
  *  explanation) instead of a generic fallback. */
@@ -24,5 +26,14 @@ export async function throwApiError(resp: Response, fallback: string): Promise<n
   } catch {
     /* no body, or non-JSON — use the fallback */
   }
-  throw new ApiError(resp.status, detail ?? fallback);
+  const message = detail ?? fallback;
+  // Centralised HTTP-error logging (see CLAUDE.md): 5xx as error, expected 4xx as
+  // warn; attach where the user was. The detail is the server's safe message.
+  logger[resp.status >= 500 ? "error" : "warn"]("API request failed", {
+    status: resp.status,
+    url: resp.url,
+    path: typeof window !== "undefined" ? window.location.pathname : undefined,
+    detail: message,
+  });
+  throw new ApiError(resp.status, message);
 }

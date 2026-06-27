@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.core.logging_config import RequestIdMiddleware, configure_logging
 from app.database import Base, _is_sqlite, engine
 from app.models import approver as _approver_models  # noqa: F401
 from app.models import audit as _audit_models  # noqa: F401
@@ -31,9 +32,9 @@ from app.routers import (
 )
 from app.static_spa import mount_spa
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+configure_logging(
+    level=settings.log_level,
+    json_logs=settings.environment.strip().lower() not in ("development", "test"),
 )
 logger = logging.getLogger("app")
 
@@ -63,6 +64,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Correlate every request's logs (sets a contextvar; echoes X-Request-ID).
+app.add_middleware(RequestIdMiddleware)
 
 
 @app.exception_handler(Exception)
