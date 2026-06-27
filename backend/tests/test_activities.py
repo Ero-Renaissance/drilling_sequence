@@ -21,6 +21,8 @@ async def _create_activity(client: AsyncClient, project_id: str, **overrides) ->
         "well_name": "Well-A1",
         "rig_name": "Rig Alpha",
         "location": "OFFSHORE",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
         **overrides,
     }
     response = await client.post(f"/api/projects/{project_id}/activities", json=payload)
@@ -33,18 +35,62 @@ async def _create_activity(client: AsyncClient, project_id: str, **overrides) ->
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_create_activity_minimal(client: AsyncClient) -> None:
+async def test_create_activity_rejects_missing_required(client: AsyncClient) -> None:
+    # The JSON API now requires the descriptive fields (well_name / location /
+    # plan_type / risk); a minimal payload of only type + dates is rejected.
     project = await _create_project(client)
     response = await client.post(
         f"/api/projects/{project['id']}/activities",
         json={"activity_type": "Oil Well Drilling", "start_date": "2026-01-01", "end_date": "2026-06-30"},
     )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["activity_type"] == "Oil Well Drilling"
-    assert data["start_date"] == "2026-01-01"
-    assert data["end_date"] == "2026-06-30"
-    assert data["project_id"] == project["id"]
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_create_activity_rejects_blank_well_name(client: AsyncClient) -> None:
+    # well_name must be a trimmed, non-empty string on the JSON API.
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities",
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-06-30",
+            "well_name": "   ",
+            "location": "LAND",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_clearing_a_required_field(client: AsyncClient) -> None:
+    # A PATCH may not null/blank a mandatory field (only Comment is optional).
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"])
+    response = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"location": None},
+    )
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.asyncio
+async def test_update_allows_omitting_required_fields(client: AsyncClient) -> None:
+    # Omitting the mandatory fields leaves them unchanged — a partial PATCH that
+    # only touches Comment is fine.
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"])
+    response = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"comment": "Just a note"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["comment"] == "Just a note"
+    assert body["location"] == activity["location"]
 
 
 @pytest.mark.asyncio
@@ -70,7 +116,15 @@ async def test_create_activity_non_member_denied(
     project = await _create_project(client)
     response = await other_client.post(
         f"/api/projects/{project['id']}/activities",
-        json={"activity_type": "Gas Well Drilling", "start_date": "2026-01-01", "end_date": "2026-06-30"},
+        json={
+            "activity_type": "Gas Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-06-30",
+            "well_name": "Well-1",
+            "location": "LAND",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     assert response.status_code == 403
 
@@ -302,14 +356,21 @@ async def test_create_activity_rejects_non_canonical_enum(
     client: AsyncClient, field: str, value: str
 ) -> None:
     project = await _create_project(client)
+    # Start from an otherwise-valid payload so the 422 is specifically about the
+    # non-canonical enum value, not a missing required field.
+    payload = {
+        "activity_type": "Oil Well Drilling",
+        "start_date": "2026-01-01",
+        "end_date": "2026-02-01",
+        "well_name": "Well-1",
+        "location": "LAND",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
+        field: value,
+    }
     response = await client.post(
         f"/api/projects/{project['id']}/activities",
-        json={
-            "activity_type": "Oil Well Drilling",
-            "start_date": "2026-01-01",
-            "end_date": "2026-02-01",
-            field: value,
-        },
+        json=payload,
     )
     assert response.status_code == 422, response.text
 

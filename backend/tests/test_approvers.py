@@ -21,7 +21,15 @@ async def _setup(client: AsyncClient) -> tuple[str, str]:
     # activity so we can create a revision
     await client.post(
         f"/api/projects/{project_id}/activities",
-        json={"activity_type": "Drilling", "start_date": "2026-01-01", "end_date": "2026-03-31"},
+        json={
+            "activity_type": "Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-03-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
 
     # Configure required approvers (both distinct from the creator)
@@ -215,7 +223,15 @@ async def test_no_approvers_configured_cannot_approve(
     project_id = r.json()["id"]
     await client.post(
         f"/api/projects/{project_id}/activities",
-        json={"activity_type": "X", "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        json={
+            "activity_type": "X",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = r.json()["id"]
@@ -250,7 +266,15 @@ async def test_admin_signature_does_not_trigger_approval(
     project_id = r.json()["id"]
     await client.post(
         f"/api/projects/{project_id}/activities",
-        json={"activity_type": "X", "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        json={
+            "activity_type": "X",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     # other@company.com is the sole required approver.
     await client.post(
@@ -292,7 +316,15 @@ async def test_outsider_cannot_sign(client: AsyncClient, other_client: AsyncClie
     project_id = r.json()["id"]
     await client.post(
         f"/api/projects/{project_id}/activities",
-        json={"activity_type": "X", "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        json={
+            "activity_type": "X",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = r.json()["id"]

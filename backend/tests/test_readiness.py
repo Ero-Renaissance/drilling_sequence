@@ -15,6 +15,9 @@ async def _create_activity(client: AsyncClient, project_id: str, **overrides) ->
         "end_date": "2026-03-31",
         "well_name": "Well-A1",
         "rig_name": "Rig Alpha",
+        "location": "OFFSHORE",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
         **overrides,
     }
     resp = await client.post(f"/api/projects/{project_id}/activities", json=payload)

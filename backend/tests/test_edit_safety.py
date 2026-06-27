@@ -13,7 +13,16 @@ async def _mk_project(client: AsyncClient, name: str = "Proj") -> dict:
 
 
 async def _mk_activity(client: AsyncClient, pid: str, **kw) -> dict:
-    body = {"activity_type": "Oil Dev", "start_date": "2026-01-01", "end_date": "2026-03-31", **kw}
+    body = {
+        "activity_type": "Oil Dev",
+        "start_date": "2026-01-01",
+        "end_date": "2026-03-31",
+        "well_name": "Well-1",
+        "location": "OFFSHORE",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
+        **kw,
+    }
     r = await client.post(f"/api/projects/{pid}/activities", json=body)
     assert r.status_code == 201
     return r.json()

@@ -20,6 +20,10 @@ async def _project_with_activity(client: AsyncClient) -> tuple[str, str]:
                 "activity_type": "Oil Well Drilling",
                 "start_date": "2026-01-01",
                 "end_date": "2026-02-01",
+                "well_name": "Well-1",
+                "location": "OFFSHORE",
+                "plan_type": "Firm",
+                "risk": "No Flood Risk",
             },
         )
     ).json()

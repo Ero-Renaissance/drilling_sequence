@@ -13,6 +13,9 @@ async def _activity(client: AsyncClient, pid: str, **overrides) -> AsyncClient:
         "start_date": "2026-01-01",
         "end_date": "2026-03-31",
         "well_name": "W",
+        "location": "OFFSHORE",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
         **overrides,
     }
     return await client.post(f"/api/projects/{pid}/activities", json=payload)

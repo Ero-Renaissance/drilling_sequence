@@ -12,7 +12,15 @@ async def _project(client: AsyncClient, name: str = "Review Project") -> str:
     pid = (await client.post("/api/projects", json={"name": name})).json()["id"]
     r = await client.post(
         f"/api/projects/{pid}/activities",
-        json={"activity_type": "Drilling", "start_date": "2026-01-01", "end_date": "2026-03-31"},
+        json={
+            "activity_type": "Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-03-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     assert r.status_code == 201, r.text
     return pid

@@ -27,6 +27,10 @@ async def _create_activity(client: AsyncClient, project_id: str, seq: int = 1) -
             "activity_type": f"Activity {seq}",
             "start_date": f"2026-0{seq}-01",
             "end_date": f"2026-0{seq}-28",
+            "well_name": f"Well-{seq}",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
         },
     )
     assert r.status_code == 201, r.text

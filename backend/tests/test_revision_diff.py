@@ -219,7 +219,15 @@ async def _project_with_activity(client: AsyncClient, name: str = "Diff Project"
     project_id = r.json()["id"]
     a = await client.post(
         f"/api/projects/{project_id}/activities",
-        json={"activity_type": "Drilling", "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        json={
+            "activity_type": "Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     return project_id, a.json()["id"]
 
@@ -323,6 +331,10 @@ async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None
             "start_date": "2026-01-01",
             "end_date": "2026-02-01",
             "rig_name": "RigAlpha",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
         },
     )
     await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Not Started"})

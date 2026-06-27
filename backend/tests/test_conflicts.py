@@ -9,7 +9,7 @@ async def _project(client: AsyncClient, name: str = "Conflict") -> str:
 
 
 async def _activity(
-    client: AsyncClient, pid: str, *, rig: str, start: str, end: str, well: str | None = None
+    client: AsyncClient, pid: str, *, rig: str, start: str, end: str, well: str = "W"
 ) -> dict:
     r = await client.post(
         f"/api/projects/{pid}/activities",
@@ -19,6 +19,9 @@ async def _activity(
             "end_date": end,
             "rig_name": rig,
             "well_name": well,
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
         },
     )
     assert r.status_code == 201, r.text

@@ -22,6 +22,10 @@ async def _approved_project(
                 "start_date": (TODAY + timedelta(days=10)).isoformat(),
                 "end_date": (TODAY + timedelta(days=20)).isoformat(),
                 "rig_name": "R",
+                "well_name": "Well-1",
+                "location": "OFFSHORE",
+                "plan_type": "Firm",
+                "risk": "No Flood Risk",
             },
         )
     ).json()
@@ -95,6 +99,10 @@ async def test_contracts_at_risk_counted(client: AsyncClient, other_client: Asyn
                 "start_date": (TODAY + timedelta(days=5)).isoformat(),
                 "end_date": (TODAY + timedelta(days=15)).isoformat(),
                 "rig_name": "R",
+                "well_name": "Well-1",
+                "location": "OFFSHORE",
+                "plan_type": "Firm",
+                "risk": "No Flood Risk",
             },
         )
     ).json()

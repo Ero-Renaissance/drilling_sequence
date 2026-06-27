@@ -26,6 +26,9 @@ async def _approved_project(
                 "start_date": "2026-01-01",
                 "end_date": "2026-02-01",
                 "well_name": "Well-1",
+                "location": "OFFSHORE",
+                "plan_type": "Firm",
+                "risk": "No Flood Risk",
             },
         )
     ).json()
@@ -88,6 +91,10 @@ async def test_no_prior_approved_baseline(client: AsyncClient) -> None:
             "activity_type": "Oil Well Drilling",
             "start_date": "2026-01-01",
             "end_date": "2026-02-01",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
         },
     )
 
@@ -158,7 +165,15 @@ async def test_baseline_parent_none_when_not_cloned(client: AsyncClient) -> None
     pid = (await client.post("/api/projects", json={"name": "Standalone"})).json()["id"]
     await client.post(
         f"/api/projects/{pid}/activities",
-        json={"activity_type": "Oil Well Drilling", "start_date": "2026-01-01", "end_date": "2026-02-01"},
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     data = (
         await client.get(

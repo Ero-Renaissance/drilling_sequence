@@ -1,8 +1,8 @@
 import uuid
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, StringConstraints, field_validator, model_validator
 
 # Canonical oil & gas domain enums. Kept in sync with the frontend selects
 # (LOCATIONS / PLAN_TYPES / RISKS) so writes can't introduce free-form variants.
@@ -10,6 +10,9 @@ from pydantic import BaseModel, field_validator, model_validator
 Location = Literal["LAND", "SWAMP", "OFFSHORE"]
 PlanType = Literal["Firm", "Option", "Out of Plan"]
 Risk = Literal["Flood Risk", "No Flood Risk"]
+
+# A required string that is trimmed and must be non-empty.
+NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class ActivityCreate(BaseModel):
@@ -43,6 +46,19 @@ class ActivityCreate(BaseModel):
         return self
 
 
+class ActivityCreateStrict(ActivityCreate):
+    """Create payload for the JSON API: every descriptive field is mandatory
+    except Comment (the resource is governed by the form's "no resource needed"
+    opt-out, so it stays optional here). CSV/Excel import keeps using the lenient
+    ActivityCreate so partial spreadsheets still load.
+    """
+
+    well_name: NonEmptyStr
+    location: Location
+    risk: Risk
+    plan_type: PlanType
+
+
 class ActivityUpdate(BaseModel):
     activity_type: str | None = None
     start_date: date | None = None
@@ -59,6 +75,18 @@ class ActivityUpdate(BaseModel):
     readiness_required: bool | None = None
     # Optimistic lock: client sends back the updated_at it loaded; omit to skip check
     expected_updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _required_fields_not_cleared(self) -> "ActivityUpdate":
+        # The JSON API treats these as mandatory (only Comment is optional). A
+        # PATCH may omit a field (leaves it unchanged) but may not null or blank
+        # it. CSV import never uses this schema, so import stays lenient.
+        if "well_name" in self.model_fields_set and self.well_name is not None:
+            self.well_name = self.well_name.strip()
+        for field in ("well_name", "location", "risk", "plan_type"):
+            if field in self.model_fields_set and not getattr(self, field):
+                raise ValueError(f"{field} is required and cannot be cleared")
+        return self
 
 
 class ActivityResponse(BaseModel):

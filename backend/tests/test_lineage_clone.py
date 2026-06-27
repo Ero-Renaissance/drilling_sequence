@@ -10,7 +10,15 @@ async def _project(client: AsyncClient, name: str) -> str:
 
 
 async def _activity(client: AsyncClient, project_id: str, **fields) -> dict:
-    payload = {"activity_type": "Drilling", "start_date": "2026-01-01", "end_date": "2026-01-31"}
+    payload = {
+        "activity_type": "Drilling",
+        "start_date": "2026-01-01",
+        "end_date": "2026-01-31",
+        "well_name": "Well-1",
+        "location": "OFFSHORE",
+        "plan_type": "Firm",
+        "risk": "No Flood Risk",
+    }
     payload.update(fields)
     r = await client.post(f"/api/projects/{project_id}/activities", json=payload)
     assert r.status_code == 201, r.text

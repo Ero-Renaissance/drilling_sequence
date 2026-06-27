@@ -19,7 +19,13 @@ from app.models.project import ProjectRole
 from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ReadinessCheck
 from app.models.rig_contract import RigContract
 from app.models.user import User
-from app.schemas.activity import ActivityCreate, ActivityResponse, ActivityUpdate, ImportResponse
+from app.schemas.activity import (
+    ActivityCreate,
+    ActivityCreateStrict,
+    ActivityResponse,
+    ActivityUpdate,
+    ImportResponse,
+)
 from app.schemas.audit import AuditEntryResponse
 from app.services.data_processor import (
     csv_df_to_db_rows,
@@ -59,7 +65,7 @@ async def list_activities(
 
 @router.post("", response_model=ActivityResponse, status_code=status.HTTP_201_CREATED)
 async def create_activity(
-    project_id: uuid.UUID, payload: ActivityCreate, current_user: CurrentUser, db: DB
+    project_id: uuid.UUID, payload: ActivityCreateStrict, current_user: CurrentUser, db: DB
 ) -> ActivityResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
     activity = Activity(project_id=project_id, updated_by=current_user.id, **payload.model_dump())

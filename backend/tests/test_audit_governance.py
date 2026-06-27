@@ -9,7 +9,15 @@ async def _project_with_activity(client: AsyncClient, name: str = "Audit Project
     project_id = r.json()["id"]
     await client.post(
         f"/api/projects/{project_id}/activities",
-        json={"activity_type": "Drilling", "start_date": "2026-01-01", "end_date": "2026-03-31"},
+        json={
+            "activity_type": "Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-03-31",
+            "well_name": "Well-1",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
     )
     return project_id
 

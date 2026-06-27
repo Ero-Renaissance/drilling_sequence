@@ -22,7 +22,7 @@ async def _activity(
     rig: str,
     start: date,
     end: date,
-    risk: str | None = None,
+    risk: str = "No Flood Risk",
 ) -> dict:
     r = await client.post(
         f"/api/projects/{pid}/activities",
@@ -32,6 +32,8 @@ async def _activity(
             "end_date": _iso(end),
             "rig_name": rig,
             "well_name": "W",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
             "risk": risk,
         },
     )
@@ -72,6 +74,9 @@ async def test_dashboard_excludes_readiness_not_required(client: AsyncClient) ->
             "end_date": _iso(TODAY + timedelta(days=40)),
             "rig_name": "R1",
             "well_name": "W",
+            "location": "OFFSHORE",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
             "readiness_required": False,
         },
     )
