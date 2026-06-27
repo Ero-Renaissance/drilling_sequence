@@ -208,9 +208,9 @@ async def test_all_approvers_signed_triggers_approval(
     assert len(data["signatures"]) == 2
     assert all(s["signed"] for s in data["approver_status"])
 
-    # Activities should now be unlocked
+    # Plan stays locked on approval (model B) — frozen until Revise Plan.
     acts = (await client.get(f"/api/projects/{project_id}/activities")).json()
-    assert all(a["locked_by_revision_id"] is None for a in acts)
+    assert all(a["locked_by_revision_id"] == revision_id for a in acts)
 
 
 @pytest.mark.asyncio

@@ -650,7 +650,9 @@ async def sign_revision(
         revision, required_approvers, "approval", current_user.email
     ):
         revision.status = "approved"
-        await _unlock_activities(revision, db)
+        # NB: the plan stays LOCKED on approval — the approved snapshot is the
+        # frozen record, and the live plan must not drift from it silently. A
+        # planner reopens it explicitly via Revise Plan (POST .../revisions/reopen).
         db.add(
             governance_event(
                 project_id=project_id,
@@ -785,6 +787,54 @@ async def discard_revision(
             entity_id=revision.id,
             action="discarded",
             detail=f"Rev. {revision.rev_number:02d} discarded",
+        )
+    )
+    await db.commit()
+
+
+@router.post("/reopen", status_code=204)
+async def reopen_plan(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Revise Plan: reopen an approved, frozen plan for editing (planner-only).
+
+    Clears the revision lock so the next planning cycle can begin; the approved
+    revision's immutable snapshot is untouched. Only valid when the plan is frozen
+    by an APPROVED revision — a pending revision must be resolved through its own
+    workflow (approve / reject / discard)."""
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+
+    locked_rev_id = (
+        await db.execute(
+            select(Activity.locked_by_revision_id)
+            .where(
+                Activity.project_id == project_id,
+                Activity.locked_by_revision_id.is_not(None),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if locked_rev_id is None:
+        raise HTTPException(status_code=409, detail="The plan is already open for editing.")
+
+    revision = await db.get(Revision, locked_rev_id)
+    if revision is None or revision.status != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Only an approved plan can be revised; resolve the pending revision first.",
+        )
+
+    await _unlock_activities(revision, db)
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_REVISION,
+            entity_id=revision.id,
+            action="plan_reopened",
+            detail=f"Plan reopened for editing after Rev. {revision.rev_number:02d} (Revise Plan)",
         )
     )
     await db.commit()

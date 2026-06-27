@@ -51,6 +51,7 @@ async def test_live_vs_last_approved(
 ) -> None:
     """Planner pre-submit: live working plan vs the last approved revision."""
     pid, _rev1, aid = await _approved_project(client, other_client)
+    await client.post(f"/api/projects/{pid}/revisions/reopen")  # Revise Plan to edit
     await client.patch(f"/api/projects/{pid}/activities/{aid}", json={"well_name": "Well-1B"})
 
     data = (
@@ -68,6 +69,7 @@ async def test_pending_revision_vs_last_approved(
 ) -> None:
     """Approver view: the pending revision vs the last approved one."""
     pid, _rev1, aid = await _approved_project(client, other_client)
+    await client.post(f"/api/projects/{pid}/revisions/reopen")  # Revise Plan to edit
     await client.patch(f"/api/projects/{pid}/activities/{aid}", json={"well_name": "Well-1B"})
     rev2 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
 

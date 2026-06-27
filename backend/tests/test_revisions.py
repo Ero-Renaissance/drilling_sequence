@@ -136,7 +136,7 @@ async def test_get_revision_detail_has_snapshot(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sign_revision_approves_and_unlocks(
+async def test_sign_revision_approves_and_keeps_plan_locked(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     project_id, _ = await _create_project_with_activities(client)
@@ -155,9 +155,9 @@ async def test_sign_revision_approves_and_unlocks(
     assert data["signatures"][0]["role_label"] == "Project Manager"
     assert data["signatures"][0]["user_name"] == "Other User"
 
-    # Activities unlocked
+    # Plan stays LOCKED on approval (model B) — frozen until Revise Plan reopens it.
     activities = (await client.get(f"/api/projects/{project_id}/activities")).json()
-    assert all(a["locked_by_revision_id"] is None for a in activities)
+    assert all(a["locked_by_revision_id"] == revision_id for a in activities)
 
 
 @pytest.mark.asyncio

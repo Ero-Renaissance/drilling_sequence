@@ -151,11 +151,11 @@ async def test_contract_edit_locked_then_unlocked(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_edit_allowed_after_full_approval(
+async def test_approved_plan_frozen_until_revised(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
-    """Directly answers 'is it editable once fully approved?': yes — approval
-    unlocks the activities (immutable snapshot is retained on the revision)."""
+    """Model B: approval FREEZES the plan (the snapshot is the record); a planner
+    must Revise Plan (reopen) to edit it for the next cycle."""
     project_id, activity_id = await _project_with_activity(client)
     # other@ is the approver — the creator can't approve their own plan.
     await client.post(
@@ -174,6 +174,76 @@ async def test_edit_allowed_after_full_approval(
     assert signed.status_code == 200
     assert signed.json()["status"] == "approved"
 
-    ok = await client.patch(base, json={"well_name": "Editable After Approval"})
+    # Still frozen after approval — no silent edits to an approved plan.
+    assert (await client.patch(base, json={"well_name": "Nope"})).status_code == 423
+
+    # Revise Plan reopens it for the next cycle.
+    assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 204
+
+    ok = await client.patch(base, json={"well_name": "Editable After Revise"})
     assert ok.status_code == 200
-    assert ok.json()["well_name"] == "Editable After Approval"
+    assert ok.json()["well_name"] == "Editable After Revise"
+
+
+@pytest.mark.asyncio
+async def test_reopen_requires_an_approved_plan(client: AsyncClient) -> None:
+    """Revise Plan is only valid when the plan is frozen by an APPROVED revision."""
+    project_id, _ = await _project_with_activity(client)
+    # Draft — nothing locked.
+    assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 409
+    # Pending revision — resolve it through its own workflow, not reopen.
+    await _create_revision(client, project_id)
+    assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_reopen_denied_for_non_planner(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """Reopen is a write — a designated approver who isn't a project member can't do it."""
+    project_id, _ = await _project_with_activity(client)
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    revision_id = await _create_revision(client, project_id)
+    await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Manager"},
+    )
+    # other@ approved it but is not a member → cannot reopen the plan.
+    assert (
+        await other_client.post(f"/api/projects/{project_id}/revisions/reopen")
+    ).status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_project_lock_summary_tracks_lifecycle(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """The project detail's `lock` summary drives the Revise Plan banner: draft →
+    pending → approved (frozen) → draft."""
+    project_id, _ = await _project_with_activity(client)
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+
+    async def lock() -> dict:
+        return (await client.get(f"/api/projects/{project_id}")).json()["lock"]
+
+    assert (await lock())["locked"] is False
+
+    revision_id = await _create_revision(client, project_id)
+    pending = await lock()
+    assert pending["locked"] and pending["reason"] == "pending"
+
+    await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Manager"},
+    )
+    approved = await lock()
+    assert approved["locked"] and approved["reason"] == "approved"
+
+    await client.post(f"/api/projects/{project_id}/revisions/reopen")
+    assert (await lock())["locked"] is False

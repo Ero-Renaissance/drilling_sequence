@@ -274,10 +274,10 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         {isLocked && (
           <span
             className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
-            title="A revision is awaiting approval — the plan is locked until it's resolved."
+            title="The campaign's plan is locked."
           >
             <Lock className="h-3 w-3" />
-            Plan locked — revision awaiting approval
+            Plan locked
           </span>
         )}
 

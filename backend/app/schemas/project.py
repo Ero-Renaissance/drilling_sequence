@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -68,6 +69,19 @@ class ProjectMemberResponse(BaseModel):
         )
 
 
+class ProjectLock(BaseModel):
+    """Whether the campaign's plan is frozen, and why — drives the Revise Plan
+    banner and the lock affordances. `reason="pending"` while a revision is in
+    review/approval; `reason="approved"` once approved (the plan stays frozen until
+    a planner reopens it via Revise Plan)."""
+
+    locked: bool
+    reason: Literal["pending", "approved"] | None = None
+    revision_id: uuid.UUID | None = None
+    rev_number: int | None = None
+    rev_label: str | None = None
+
+
 class ProjectResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -79,6 +93,8 @@ class ProjectResponse(BaseModel):
     created_at: datetime
     cloned_from_project_id: uuid.UUID | None = None
     members: list[ProjectMemberResponse] = []
+    # Populated on the detail endpoint only (None in the list response).
+    lock: ProjectLock | None = None
 
     model_config = {"from_attributes": True}
 

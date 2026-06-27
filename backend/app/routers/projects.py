@@ -15,12 +15,14 @@ from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
 from app.models.readiness import ReadinessCheck
+from app.models.revision import Revision
 from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.audit import AuditEntryResponse
 from app.schemas.project import (
     ProjectClone,
     ProjectCreate,
+    ProjectLock,
     ProjectResponse,
     ProjectUpdate,
 )
@@ -309,6 +311,35 @@ async def clone_project(
     return ProjectResponse.from_project(clone)
 
 
+async def compute_project_lock(project_id: uuid.UUID, db: AsyncSession) -> ProjectLock:
+    """The campaign's plan-lock summary: frozen iff some activity carries a revision
+    lock. The reason is the locking revision's status — `approved` (frozen until
+    Revise Plan) or otherwise `pending` (a revision is in review/approval)."""
+    locked_rev_id = (
+        await db.execute(
+            select(Activity.locked_by_revision_id)
+            .where(
+                Activity.project_id == project_id,
+                Activity.locked_by_revision_id.is_not(None),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if locked_rev_id is None:
+        return ProjectLock(locked=False)
+    revision = (
+        await db.execute(select(Revision).where(Revision.id == locked_rev_id))
+    ).scalar_one_or_none()
+    reason = "approved" if revision and revision.status == "approved" else "pending"
+    return ProjectLock(
+        locked=True,
+        reason=reason,
+        revision_id=locked_rev_id,
+        rev_number=revision.rev_number if revision else None,
+        rev_label=revision.label if revision else None,
+    )
+
+
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
@@ -316,7 +347,9 @@ async def get_project(
     # Read access — admits designated reviewers/approvers who aren't members, so
     # they can open the project they're asked to review/approve.
     project = await _get_project_for_viewer(project_id, current_user, db)
-    return ProjectResponse.from_project(project)
+    response = ProjectResponse.from_project(project)
+    response.lock = await compute_project_lock(project_id, db)
+    return response
 
 
 @router.get("/{project_id}/audit", response_model=list[AuditEntryResponse])

@@ -263,11 +263,12 @@ async def test_compare_two_revisions(
     await client.post(f"/api/projects/{project_id}/approvers", json={"email": "other@company.com"})
 
     rev1 = (await client.post(f"/api/projects/{project_id}/revisions", json={})).json()
-    # other@ signs to approve + unlock so the plan can be edited.
+    # other@ signs to approve; Revise Plan then reopens it so the plan can be edited.
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{rev1['id']}/sign",
         json={"role_label": "Approver"},
     )
+    await client.post(f"/api/projects/{project_id}/revisions/reopen")
     await client.patch(
         f"/api/projects/{project_id}/activities/{activity_id}",
         json={"end_date": "2026-02-15"},
@@ -298,7 +299,8 @@ async def test_compare_revision_vs_live(
         f"/api/projects/{project_id}/revisions/{rev1['id']}/sign",
         json={"role_label": "Approver"},
     )
-    # Edit the live plan after approval.
+    # Revise Plan reopens the approved plan, then edit the live plan.
+    await client.post(f"/api/projects/{project_id}/revisions/reopen")
     await client.patch(
         f"/api/projects/{project_id}/activities/{activity_id}",
         json={"activity_type": "Sidetrack"},

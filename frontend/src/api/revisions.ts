@@ -178,6 +178,15 @@ async function decideRevision(
   return resp.json();
 }
 
+/** Revise Plan: reopen an approved, frozen plan for editing (planner-only). */
+export async function reopenPlan(projectId: string): Promise<void> {
+  const resp = await fetch(`/api/projects/${projectId}/revisions/reopen`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) await throwApiError(resp, "Failed to reopen the plan");
+}
+
 export function rejectRevision(
   projectId: string,
   revisionId: string,

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
 import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock } from "lucide-react";
 import { projectsApi } from "@/api/projects";
-import type { Project } from "@/types";
+import type { Project, ProjectLock } from "@/types";
+import { reopenPlan } from "@/api/revisions";
+import { toast } from "@/components/ui/toaster";
 // PenSquare kept for the tab icon
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,17 +40,61 @@ const tabs = [
   { to: "activity", label: "Activity Log", icon: History },
 ];
 
+export function PlanLockBanner({ projectId, lock }: { projectId: string; lock: ProjectLock }) {
+  const [reopening, setReopening] = useState(false);
+  if (!lock.locked || !lock.reason) return null;
+
+  const rev = lock.rev_label ? `Rev ${lock.rev_number} · ${lock.rev_label}` : `Rev ${lock.rev_number}`;
+
+  async function handleRevise() {
+    setReopening(true);
+    try {
+      await reopenPlan(projectId);
+      toast.success("Plan reopened for editing.");
+      // Reload so every tab reflects the now-unlocked plan, not just the banner.
+      window.location.reload();
+    } catch (err) {
+      setReopening(false);
+      toast.error(err instanceof Error ? err.message : "Failed to reopen the plan");
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm print:hidden">
+      <Lock className="h-4 w-4 shrink-0 text-amber-700" />
+      {lock.reason === "approved" ? (
+        <>
+          <span className="text-amber-800">
+            <span className="font-semibold">{rev} approved.</span> The plan is locked — revise
+            it to make changes, which will go through approval again.
+          </span>
+          <Button size="sm" onClick={handleRevise} disabled={reopening} className="ml-auto">
+            {reopening ? "Reopening…" : "Revise Plan"}
+          </Button>
+        </>
+      ) : (
+        <span className="text-amber-800">
+          <span className="font-semibold">{rev} is awaiting approval.</span> The plan is locked
+          until the revision is resolved.
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const storeProject = useProjectsStore((s) => s.projects.find((p) => p.id === projectId));
   const [fetchedProject, setFetchedProject] = useState<Project | null>(null);
   const project = storeProject ?? fetchedProject ?? null;
 
+  // Always fetch the detail — it carries the fresh plan-lock summary (the store
+  // copy from the list doesn't), which drives the Revise Plan banner.
   useEffect(() => {
-    if (!storeProject && projectId) {
+    if (projectId) {
       projectsApi.get(projectId).then(setFetchedProject).catch(() => {});
     }
-  }, [storeProject, projectId]);
+  }, [projectId]);
 
   if (!projectId) return <Navigate to="/projects" replace />;
 
@@ -72,6 +118,10 @@ export function ProjectDetail() {
           )}
         </div>
       </div>
+
+      {fetchedProject?.lock?.locked && (
+        <PlanLockBanner projectId={projectId} lock={fetchedProject.lock} />
+      )}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-border/70 print:hidden">
@@ -253,10 +303,10 @@ export function ChartTab() {
         {isLocked && (
           <span
             className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
-            title="A revision is awaiting approval — the plan is locked until it's resolved."
+            title="The campaign's plan is locked."
           >
             <Lock className="h-3 w-3" />
-            Plan locked — revision awaiting approval
+            Plan locked
           </span>
         )}
         <div className="ml-auto">

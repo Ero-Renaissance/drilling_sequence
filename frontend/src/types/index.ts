@@ -25,6 +25,15 @@ export interface ProjectMember {
 
 export type ReviewPolicy = "required" | "optional" | "off";
 
+export interface ProjectLock {
+  locked: boolean;
+  /** Why it's frozen: "pending" (in review/approval) or "approved" (revise to edit). */
+  reason: "pending" | "approved" | null;
+  revision_id: string | null;
+  rev_number: number | null;
+  rev_label: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -37,6 +46,8 @@ export interface Project {
   members: ProjectMember[];
   /** Set when this project was cloned from another (the previous quarter). */
   cloned_from_project_id: string | null;
+  /** Plan-lock summary — populated only by the detail endpoint (GET /projects/:id). */
+  lock?: ProjectLock | null;
 }
 
 export interface ProjectCreate {
