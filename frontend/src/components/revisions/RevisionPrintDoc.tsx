@@ -160,7 +160,7 @@ function StaticGantt({
     { loc: string | null; rig: string | null; contractEnd: string | null; urgency: DatedUrgency | null }
   >();
   for (const a of acts) {
-    const k = rowLabel(a.location, printResource(a));
+    const k = rowLabel(a.location, printResource(a) ?? a.activity_type);
     if (!meta.has(k)) {
       meta.set(k, {
         loc: a.location,
@@ -188,7 +188,7 @@ function StaticGantt({
   const activeInWindow = (key: string, w: { from: Date; to: Date }) =>
     acts.some(
       (a) =>
-        rowLabel(a.location, printResource(a)) === key &&
+        rowLabel(a.location, printResource(a) ?? a.activity_type) === key &&
         a.e.getTime() > w.from.getTime() &&
         a.s.getTime() < w.to.getTime(),
     );
@@ -327,7 +327,7 @@ function StaticGantt({
                   const rowActs = acts
                     .filter(
                       (a) =>
-                        rowLabel(a.location, printResource(a)) === key &&
+                        rowLabel(a.location, printResource(a) ?? a.activity_type) === key &&
                         a.e.getTime() > winStart &&
                         a.s.getTime() < w.to.getTime(),
                     )

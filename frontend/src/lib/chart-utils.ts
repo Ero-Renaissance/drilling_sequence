@@ -56,22 +56,23 @@ function resourceLabel(a: Activity): string | null {
   return r.kind === "hwu" ? `HWU · ${r.name}` : r.name;
 }
 
+/** The row's distinguishing second part: its resource (rig / HWU) when it has
+ *  one, otherwise its activity type — so a resource-less activity groups under
+ *  "location – activity type" instead of collapsing onto a bare-location row. */
+function rowSecondary(a: Activity): string {
+  return resourceLabel(a) ?? a.activity_type;
+}
+
 function getLabel(a: Activity): string {
-  const parts: string[] = [];
-  if (a.location) parts.push(a.location);
-  const res = resourceLabel(a);
-  if (res) parts.push(res);
-  if (a.well_name) parts.push(a.well_name);
-  if (parts.length >= 2) return `${parts[0]} – ${parts[1]}`;
-  if (parts.length === 1) return parts[0];
-  return a.activity_type;
+  const second = rowSecondary(a);
+  return a.location ? `${a.location} – ${second}` : second;
 }
 
 function sortActivities(activities: Activity[]): Activity[] {
   return [...activities].sort((a, b) => {
     const locDiff = terrainRank(a.location) - terrainRank(b.location);
     if (locDiff !== 0) return locDiff;
-    const resCmp = (resourceLabel(b) ?? "").localeCompare(resourceLabel(a) ?? "");
+    const resCmp = rowSecondary(b).localeCompare(rowSecondary(a));
     if (resCmp !== 0) return resCmp;
     return a.start_date.localeCompare(b.start_date);
   });

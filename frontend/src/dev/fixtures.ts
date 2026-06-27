@@ -52,6 +52,8 @@ export const FIXTURE_ACTIVITIES: Activity[] = [
   act({ id: "f8", activity_type: "Drilling", well_name: "ALP-8", rig_name: "Rig-3", location: "OFFSHORE", well_project: "Alpha Field", risk: "Flood Risk", start_date: "2026-09-01", end_date: "2026-12-20" }),
   // An HWU activity (no rig) — its own row, tagged "HWU · …", with its own contract.
   act({ id: "f9", activity_type: "Well Repair/Safety", well_name: "HWU-W1", hwu_name: "HWU-Alpha", location: "SWAMP", well_project: "Bravo Block", start_date: "2026-04-01", end_date: "2026-08-31" }),
+  // A resource-less activity (no rig, no HWU) — its row reads "LAND – Drilling".
+  act({ id: "f10", activity_type: "Drilling", well_name: "SURV-1", location: "LAND", well_project: "Bravo Block", start_date: "2026-05-10", end_date: "2026-06-20" }),
 ];
 
 /** f5 and f6 overlap on Rig-2 (Jun 20–25) — a double-booking. */
