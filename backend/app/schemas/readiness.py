@@ -33,6 +33,7 @@ class ActivityReadiness(BaseModel):
     activity_type: str
     well_name: str | None
     rig_name: str | None
+    hwu_name: str | None
     start_date: date
     end_date: date
     checks: dict[str, CheckState]

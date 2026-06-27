@@ -67,7 +67,7 @@ declare module "@tanstack/react-table" {
     openHistory: (id: string) => void;
     readinessByActivity: Map<string, Record<CheckCode, CheckState>>;
     onReadinessChange: (activityId: string, code: CheckCode, next: CheckStatus) => void;
-    onEditContract: (rigName: string | null) => void;
+    onEditContract: (resource: { name: string; kind: "rig" | "hwu" } | null) => void;
     savingReadinessKey: string | null;
   }
 }
@@ -140,17 +140,17 @@ function PlanTypeChip({ value }: { value: string | null }) {
 
 function ReadinessStrip({
   activityId,
-  rigName,
+  resource,
   checks,
   onChange,
   onEditContract,
   savingKey,
 }: {
   activityId: string;
-  rigName: string | null;
+  resource: { name: string; kind: "rig" | "hwu" } | null;
   checks: Record<CheckCode, CheckState> | undefined;
   onChange: (code: CheckCode, next: CheckStatus) => void;
-  onEditContract: (rigName: string | null) => void;
+  onEditContract: (resource: { name: string; kind: "rig" | "hwu" } | null) => void;
   savingKey: string | null;
 }) {
   if (!checks) {
@@ -170,8 +170,8 @@ function ReadinessStrip({
               code={code}
               status={checks[code].status}
               size="sm"
-              onClick={() => onEditContract(rigName)}
-              disabled={!rigName}
+              onClick={() => onEditContract(resource)}
+              disabled={!resource}
             />
           );
         }
@@ -205,7 +205,9 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [historyActivityId, setHistoryActivityId] = useState<string | null>(null);
   const [savingReadinessKey, setSavingReadinessKey] = useState<string | null>(null);
-  const [editingContractRig, setEditingContractRig] = useState<string | null>(null);
+  const [editingContract, setEditingContract] = useState<
+    { name: string; kind: "rig" | "hwu" } | null
+  >(null);
 
   const [contracts, setContracts] = useState<RigContract[]>([]);
 
@@ -512,7 +514,13 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           return (
             <ReadinessStrip
               activityId={row.original.id}
-              rigName={row.original.rig_name ?? null}
+              resource={
+                row.original.rig_name
+                  ? { name: row.original.rig_name, kind: "rig" }
+                  : row.original.hwu_name
+                    ? { name: row.original.hwu_name, kind: "hwu" }
+                    : null
+              }
               checks={meta.readinessByActivity.get(row.original.id)}
               savingKey={meta.savingReadinessKey}
               onChange={(code, next) => meta.onReadinessChange(row.original.id, code, next)}
@@ -628,7 +636,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       openHistory,
       readinessByActivity,
       onReadinessChange,
-      onEditContract: setEditingContractRig,
+      onEditContract: setEditingContract,
       savingReadinessKey,
     },
   });
@@ -662,6 +670,9 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           existingActivityTypes={activities.map((a) => a.activity_type)}
           existingRigNames={activities
             .map((a) => a.rig_name)
+            .filter((n): n is string => !!n)}
+          existingHwuNames={activities
+            .map((a) => a.hwu_name)
             .filter((n): n is string => !!n)}
         />
         <div className="mx-1 h-4 w-px bg-border" />
@@ -854,10 +865,11 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
 
       <ContractEditorDialog
         projectId={projectId}
-        rigName={editingContractRig}
-        open={editingContractRig !== null}
+        resourceName={editingContract?.name ?? null}
+        kind={editingContract?.kind}
+        open={editingContract !== null}
         onOpenChange={(open) => {
-          if (!open) setEditingContractRig(null);
+          if (!open) setEditingContract(null);
         }}
         onSaved={load}
       />

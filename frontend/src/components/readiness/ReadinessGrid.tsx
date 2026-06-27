@@ -144,7 +144,9 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null); // "activityId:checkCode"
-  const [editingContractRig, setEditingContractRig] = useState<string | null>(null);
+  const [editingContract, setEditingContract] = useState<
+    { name: string; kind: "rig" | "hwu" } | null
+  >(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState("");
@@ -395,8 +397,16 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                               <ReadinessDot
                                 code={code}
                                 status={row.checks[code].status}
-                                onClick={() => setEditingContractRig(row.rig_name ?? null)}
-                                disabled={!row.rig_name}
+                                onClick={() =>
+                                  setEditingContract(
+                                    row.rig_name
+                                      ? { name: row.rig_name, kind: "rig" }
+                                      : row.hwu_name
+                                        ? { name: row.hwu_name, kind: "hwu" }
+                                        : null,
+                                  )
+                                }
+                                disabled={!row.rig_name && !row.hwu_name}
                               />
                             ) : (
                               <ReadinessDot
@@ -431,10 +441,11 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
 
       <ContractEditorDialog
         projectId={projectId}
-        rigName={editingContractRig}
-        open={editingContractRig !== null}
+        resourceName={editingContract?.name ?? null}
+        kind={editingContract?.kind}
+        open={editingContract !== null}
         onOpenChange={(open) => {
-          if (!open) setEditingContractRig(null);
+          if (!open) setEditingContract(null);
         }}
         onSaved={load}
       />

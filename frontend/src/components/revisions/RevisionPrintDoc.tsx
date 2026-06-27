@@ -64,6 +64,14 @@ function rowLabel(loc: string | null, rig: string | null): string {
   return r || t || "—";
 }
 
+/** An activity's resource label — its rig, or its HWU tagged (e.g. "HWU · Unit-1"),
+ *  matching the on-screen chart. */
+function printResource(a: { rig_name: string | null; hwu_name?: string | null }): string | null {
+  if (a.rig_name) return a.rig_name;
+  if (a.hwu_name) return `HWU · ${a.hwu_name}`;
+  return null;
+}
+
 export interface PrintRow {
   id: string;
   activity_type: string;
@@ -72,6 +80,7 @@ export interface PrintRow {
   well_name: string | null;
   well_project: string | null;
   rig_name: string | null;
+  hwu_name?: string | null;
   location: string | null; // terrain (LAND / SWAMP / OFFSHORE)
   plan_type: string | null;
   risk: string | null;
@@ -151,7 +160,7 @@ function StaticGantt({
     { loc: string | null; rig: string | null; contractEnd: string | null; urgency: DatedUrgency | null }
   >();
   for (const a of acts) {
-    const k = rowLabel(a.location, a.rig_name);
+    const k = rowLabel(a.location, printResource(a));
     if (!meta.has(k)) {
       meta.set(k, {
         loc: a.location,
@@ -179,7 +188,7 @@ function StaticGantt({
   const activeInWindow = (key: string, w: { from: Date; to: Date }) =>
     acts.some(
       (a) =>
-        rowLabel(a.location, a.rig_name) === key &&
+        rowLabel(a.location, printResource(a)) === key &&
         a.e.getTime() > w.from.getTime() &&
         a.s.getTime() < w.to.getTime(),
     );
@@ -318,7 +327,7 @@ function StaticGantt({
                   const rowActs = acts
                     .filter(
                       (a) =>
-                        rowLabel(a.location, a.rig_name) === key &&
+                        rowLabel(a.location, printResource(a)) === key &&
                         a.e.getTime() > winStart &&
                         a.s.getTime() < w.to.getTime(),
                     )
@@ -652,7 +661,7 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
               </td>
             </tr>
             <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">
-              {["#", "Activity", "Well", "Project", "Terrain", "Rig", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
+              {["#", "Activity", "Well", "Project", "Terrain", "Resource", "Start", "End", "Plan", "Risk", "Readiness"].map((h) => (
                 <th key={h} className="px-1.5 py-1">{h}</th>
               ))}
             </tr>
@@ -665,7 +674,7 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
                 <td className="px-1.5 py-1 text-muted-foreground">{r.well_name ?? "—"}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.well_project ?? "—"}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.location ?? "—"}</td>
-                <td className="px-1.5 py-1 text-muted-foreground">{r.rig_name ?? "—"}</td>
+                <td className="px-1.5 py-1 text-muted-foreground">{printResource(r) ?? "—"}</td>
                 <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.start_date)}</td>
                 <td className="px-1.5 py-1 tabular-nums text-muted-foreground">{fmt(r.end_date)}</td>
                 <td className="px-1.5 py-1 text-muted-foreground">{r.plan_type ?? "—"}</td>

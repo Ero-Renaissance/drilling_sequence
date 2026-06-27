@@ -15,6 +15,7 @@ export interface ActivityReadiness {
   activity_type: string;
   well_name: string | null;
   rig_name: string | null;
+  hwu_name?: string | null;
   start_date: string;
   end_date: string;
   checks: Record<CheckCode, CheckState>;

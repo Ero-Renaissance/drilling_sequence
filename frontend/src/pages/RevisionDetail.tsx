@@ -61,6 +61,7 @@ interface SnapshotRow {
   well_name: string | null;
   well_project: string | null;
   rig_name: string | null;
+  hwu_name?: string | null;
   location: string | null;
   plan_type: string | null;
   risk: string | null;
@@ -209,6 +210,7 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
     end_date: r.end_date,
     well_name: r.well_name,
     rig_name: r.rig_name,
+    hwu_name: r.hwu_name,
     well_project: r.well_project ?? null,
     project_group: null,
     location: r.location,

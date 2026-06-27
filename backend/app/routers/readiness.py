@@ -99,6 +99,7 @@ async def list_readiness(
                 activity_type=act.activity_type,
                 well_name=act.well_name,
                 rig_name=act.rig_name,
+                hwu_name=act.hwu_name,
                 start_date=act.start_date,
                 end_date=act.end_date,
                 checks={code: _state(code) for code in CHECK_CODES},

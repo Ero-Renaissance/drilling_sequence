@@ -7,6 +7,7 @@ import {
   FIXTURE_ACTIVITIES,
   FIXTURE_READINESS,
   FIXTURE_CONTRACTS,
+  FIXTURE_HWU_CONTRACTS,
   FIXTURE_CONFLICT_IDS,
   FIXTURE_PRINT_ROWS,
   FIXTURE_REVISION,
@@ -82,6 +83,7 @@ export default function ChartFixtures() {
           activities={FIXTURE_ACTIVITIES}
           readinessMap={FIXTURE_READINESS}
           contractsByRig={FIXTURE_CONTRACTS}
+          contractsByHwu={FIXTURE_HWU_CONTRACTS}
           conflictIds={FIXTURE_CONFLICT_IDS}
           enableFilters
         />

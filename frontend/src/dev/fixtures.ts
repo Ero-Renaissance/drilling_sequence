@@ -9,6 +9,7 @@
  */
 import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
+import type { HwuContract } from "@/api/hwu-contracts";
 import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import type { RevisionDetail } from "@/api/revisions";
@@ -49,6 +50,8 @@ export const FIXTURE_ACTIVITIES: Activity[] = [
   // Rig-3 (offshore) — a completed (grey) bar and a flood-risk bar.
   act({ id: "f7", activity_type: "Water Injection", well_name: "CHR-4", rig_name: "Rig-3", location: "OFFSHORE", well_project: "Charlie Deep", start_date: "2026-03-01", end_date: "2026-07-31", completed_at: "2026-08-01T00:00:00Z" }),
   act({ id: "f8", activity_type: "Drilling", well_name: "ALP-8", rig_name: "Rig-3", location: "OFFSHORE", well_project: "Alpha Field", risk: "Flood Risk", start_date: "2026-09-01", end_date: "2026-12-20" }),
+  // An HWU activity (no rig) — its own row, tagged "HWU · …", with its own contract.
+  act({ id: "f9", activity_type: "Well Repair/Safety", well_name: "HWU-W1", hwu_name: "HWU-Alpha", location: "SWAMP", well_project: "Bravo Block", start_date: "2026-04-01", end_date: "2026-08-31" }),
 ];
 
 /** f5 and f6 overlap on Rig-2 (Jun 20–25) — a double-booking. */
@@ -88,6 +91,23 @@ export const FIXTURE_CONTRACTS: Map<string, RigContract> = new Map([
   ["Rig-3", contract("Rig-3", "2026-06-25")],
 ]);
 
+function hwuContract(hwu: string, end: string): HwuContract {
+  return {
+    id: `hc-${hwu}`,
+    project_id: PROJECT_ID,
+    hwu_name: hwu,
+    status: "Completed",
+    contract_start: "2025-01-01",
+    contract_end: end,
+    notes: null,
+    updated_at: "2026-06-01T08:00:00Z",
+  };
+}
+
+export const FIXTURE_HWU_CONTRACTS: Map<string, HwuContract> = new Map([
+  ["HWU-Alpha", hwuContract("HWU-Alpha", "2026-08-10")],
+]);
+
 // ── Print fixtures — for rendering RevisionPrintDoc in the harness ─────────────
 
 /** The same activities as PrintRows, with readiness flattened to code→status and
@@ -97,7 +117,11 @@ export const FIXTURE_PRINT_ROWS: PrintRow[] = FIXTURE_ACTIVITIES.map((a) => {
   const readiness = rd
     ? (Object.fromEntries(CHECK_CODES.map((c) => [c, rd[c].status])) as Record<string, CheckStatus>)
     : undefined;
-  const c = a.rig_name ? FIXTURE_CONTRACTS.get(a.rig_name) : undefined;
+  const c = a.rig_name
+    ? FIXTURE_CONTRACTS.get(a.rig_name)
+    : a.hwu_name
+      ? FIXTURE_HWU_CONTRACTS.get(a.hwu_name)
+      : undefined;
   return {
     id: a.id,
     activity_type: a.activity_type,
@@ -106,6 +130,7 @@ export const FIXTURE_PRINT_ROWS: PrintRow[] = FIXTURE_ACTIVITIES.map((a) => {
     well_name: a.well_name,
     well_project: a.well_project,
     rig_name: a.rig_name,
+    hwu_name: a.hwu_name,
     location: a.location,
     plan_type: a.plan_type,
     risk: a.risk,

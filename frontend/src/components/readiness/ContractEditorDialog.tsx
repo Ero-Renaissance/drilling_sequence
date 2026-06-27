@@ -24,10 +24,17 @@ import {
   type ContractStatus,
   type RigContract,
 } from "@/api/contracts";
+import {
+  listHwuContracts,
+  upsertHwuContract,
+  type HwuContract,
+} from "@/api/hwu-contracts";
 
 interface ContractEditorDialogProps {
   projectId: string;
-  rigName: string | null;
+  resourceName: string | null;
+  /** Which contract this edits — a rig's or an HWU's. Defaults to "rig". */
+  kind?: "rig" | "hwu";
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a successful save so the parent can refresh derived readiness data. */
@@ -71,12 +78,13 @@ function StatusSegmented({
 
 export function ContractEditorDialog({
   projectId,
-  rigName,
+  resourceName,
+  kind = "rig",
   open,
   onOpenChange,
   onSaved,
 }: ContractEditorDialogProps) {
-  const [contract, setContract] = useState<RigContract | null>(null);
+  const [contract, setContract] = useState<RigContract | HwuContract | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,15 +94,21 @@ export function ContractEditorDialog({
   const [end, setEnd] = useState("");
   const [notes, setNotes] = useState("");
 
+  const isHwu = kind === "hwu";
+  const fetchContracts = isHwu ? listHwuContracts : listContracts;
+  const saveContract = isHwu ? upsertHwuContract : upsertContract;
+  const contractName = (c: RigContract | HwuContract) =>
+    "rig_name" in c ? c.rig_name : c.hwu_name;
+
   useEffect(() => {
-    if (!open || !rigName) return;
+    if (!open || !resourceName) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listContracts(projectId)
+    fetchContracts(projectId)
       .then((all) => {
         if (cancelled) return;
-        const existing = all.find((c) => c.rig_name === rigName) ?? null;
+        const existing = all.find((c) => contractName(c) === resourceName) ?? null;
         setContract(existing);
         setStatus(existing?.status ?? "Not Started");
         setStart(existing?.contract_start ?? "");
@@ -110,14 +124,14 @@ export function ContractEditorDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, rigName, projectId]);
+  }, [open, resourceName, projectId, kind]);
 
   async function handleSave() {
-    if (!rigName) return;
+    if (!resourceName) return;
     setSaving(true);
     setError(null);
     try {
-      await upsertContract(projectId, rigName, {
+      await saveContract(projectId, resourceName, {
         status,
         contract_start: start || null,
         contract_end: end || null,
@@ -162,15 +176,15 @@ export function ContractEditorDialog({
               <FileSignature className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle>Rig Contract</DialogTitle>
+              <DialogTitle>{isHwu ? "HWU" : "Rig"} Contract</DialogTitle>
               <DialogDescription>
-                {rigName ? (
+                {resourceName ? (
                   <>
                     Contract for{" "}
-                    <span className="font-medium text-foreground">{rigName}</span>.
+                    <span className="font-medium text-foreground">{resourceName}</span>.
                   </>
                 ) : (
-                  "No rig selected"
+                  "No resource selected"
                 )}
               </DialogDescription>
             </div>
@@ -314,7 +328,7 @@ export function ContractEditorDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving || loading || !rigName}>
+          <Button onClick={handleSave} disabled={saving || loading || !resourceName}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Save contract
           </Button>
