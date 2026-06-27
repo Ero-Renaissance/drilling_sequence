@@ -14,6 +14,7 @@ import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { DrillChart } from "@/components/chart/DrillChart";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ImportDialog } from "@/components/chart/ImportDialog";
 import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDialog";
 import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
@@ -271,15 +272,17 @@ export function ChartTab() {
       )}
 
       {activities && activities.length > 0 && (
-        <DrillChart
-          activities={activities}
-          readinessMap={readinessMap}
-          contractsByRig={contractsByRig}
-          contractsByHwu={contractsByHwu}
-          conflictIds={conflictIds}
-          onActivityClick={setEditActivityId}
-          enableFilters
-        />
+        <ErrorBoundary label="chart">
+          <DrillChart
+            activities={activities}
+            readinessMap={readinessMap}
+            contractsByRig={contractsByRig}
+            contractsByHwu={contractsByHwu}
+            conflictIds={conflictIds}
+            onActivityClick={setEditActivityId}
+            enableFilters
+          />
+        </ErrorBoundary>
       )}
 
       {editActivityId && activities && (
@@ -320,7 +323,9 @@ export function DataTab() {
       <div className="flex items-center justify-end">
         <ViewerStrip projectId={projectId} />
       </div>
-      <ActivityGrid projectId={projectId} />
+      <ErrorBoundary label="activity table">
+        <ActivityGrid projectId={projectId} />
+      </ErrorBoundary>
     </div>
   );
 }
@@ -328,7 +333,11 @@ export function DataTab() {
 export function ReadinessTab() {
   const { projectId } = useParams<{ projectId: string }>();
   if (!projectId) return null;
-  return <ReadinessGrid projectId={projectId} />;
+  return (
+    <ErrorBoundary label="readiness table">
+      <ReadinessGrid projectId={projectId} />
+    </ErrorBoundary>
+  );
 }
 
 export function CompareTab() {

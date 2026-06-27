@@ -4,6 +4,10 @@ import { logger } from "@/lib/logger";
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  /** When set (and no explicit `fallback`), a compact panel-scoped fallback is
+   *  shown instead of the full-page one — for boundaries that wrap a single panel
+   *  (chart, table) so a crash there doesn't blank the surrounding page. */
+  label?: string;
 }
 
 interface State {
@@ -34,6 +38,29 @@ export class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
     if (this.props.fallback !== undefined) return this.props.fallback;
+    if (this.props.label) {
+      return (
+        <div
+          role="alert"
+          className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center"
+        >
+          <p className="text-sm font-medium text-foreground">
+            The {this.props.label} failed to render.
+          </p>
+          <p className="max-w-sm text-xs text-muted-foreground">
+            An unexpected error occurred in this panel; the rest of the page is
+            unaffected.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
     return (
       <div
         role="alert"

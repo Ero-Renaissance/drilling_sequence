@@ -30,6 +30,24 @@ describe("ErrorBoundary", () => {
     log.mockRestore();
   });
 
+  it("shows a compact panel-scoped fallback when given a label", () => {
+    const log = vi.spyOn(logger, "error").mockImplementation(() => {});
+    const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <ErrorBoundary label="chart">
+        <Boom />
+      </ErrorBoundary>,
+    );
+
+    // Scoped message, not the full-page "something went wrong".
+    expect(screen.getByRole("alert")).toHaveTextContent(/the chart failed to render/i);
+    expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument();
+
+    consoleErr.mockRestore();
+    log.mockRestore();
+  });
+
   it("renders children when there is no error", () => {
     render(
       <ErrorBoundary>
