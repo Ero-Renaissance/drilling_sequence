@@ -42,18 +42,23 @@ const schema = z
     activity_type: z.string().min(1, "Required"),
     start_date: z.string().min(1, "Required"),
     end_date: z.string().min(1, "Required"),
-    well_name: z.string().optional(),
+    well_name: z.string().min(1, "Required"),
+    no_resource: z.boolean(),
     resource_type: z.enum(["Rig", "HWU"]),
     resource_name: z.string().optional(),
-    location: z.string().optional(),
-    plan_type: z.string().optional(),
-    risk: z.string().optional(),
+    location: z.string().min(1, "Required"),
+    plan_type: z.string().min(1, "Required"),
+    risk: z.string().min(1, "Required"),
     comment: z.string().optional(),
     readiness_required: z.boolean(),
   })
   .refine((d) => !d.start_date || !d.end_date || d.end_date >= d.start_date, {
     message: "End date must be on or after start date",
     path: ["end_date"],
+  })
+  .refine((d) => d.no_resource || !!d.resource_name?.trim(), {
+    message: "Required — or tick “No resource needed”",
+    path: ["resource_name"],
   });
 
 type FormValues = z.infer<typeof schema>;
@@ -181,6 +186,7 @@ export function ActivityChartEditDialog({
       start_date: activity.start_date,
       end_date: activity.end_date,
       well_name: activity.well_name ?? "",
+      no_resource: !activity.rig_name && !activity.hwu_name,
       resource_type: activity.hwu_name ? "HWU" : "Rig",
       resource_name: activity.hwu_name ?? activity.rig_name ?? "",
       location: activity.location ?? "",
@@ -194,6 +200,7 @@ export function ActivityChartEditDialog({
   // Live form values — used for warnings + contract preview
   const watchedResourceType = watch("resource_type");
   const watchedResourceName = watch("resource_name") ?? "";
+  const noResource = watch("no_resource");
   const watchedStart = watch("start_date") ?? "";
   const watchedEnd = watch("end_date") ?? "";
 
@@ -203,6 +210,7 @@ export function ActivityChartEditDialog({
       start_date: activity.start_date,
       end_date: activity.end_date,
       well_name: activity.well_name ?? "",
+      no_resource: !activity.rig_name && !activity.hwu_name,
       resource_type: activity.hwu_name ? "HWU" : "Rig",
       resource_name: activity.hwu_name ?? activity.rig_name ?? "",
       location: activity.location ?? "",
@@ -233,11 +241,11 @@ export function ActivityChartEditDialog({
 
   // The contract for the currently-chosen resource (rig or HWU).
   const resourceContract = useMemo<RigContract | HwuContract | undefined>(() => {
-    if (!watchedResourceName) return undefined;
+    if (noResource || !watchedResourceName) return undefined;
     return watchedResourceType === "HWU"
       ? contractsByHwu?.get(watchedResourceName)
       : contractsByRig?.get(watchedResourceName);
-  }, [watchedResourceType, watchedResourceName, contractsByRig, contractsByHwu]);
+  }, [noResource, watchedResourceType, watchedResourceName, contractsByRig, contractsByHwu]);
 
   // ── Derived: activity type suggestion list (project + predefined) ───────────
   const activityTypeSuggestions = useMemo(
@@ -252,7 +260,7 @@ export function ActivityChartEditDialog({
   // Mirrors the backend derivation: contract.status drives most cases; dates
   // only matter once the contract is workflow-Completed.
   const draftConStatus: CheckStatus = useMemo(() => {
-    if (!watchedResourceName) return "N/A";
+    if (noResource || !watchedResourceName) return "N/A";
     const contract = resourceContract;
     if (!contract) return "On Track";
     if (contract.status === "N/A") return "N/A";
@@ -261,7 +269,7 @@ export function ActivityChartEditDialog({
     if (!contract.contract_end) return "On Track";
     if (watchedEnd && contract.contract_end < watchedEnd) return "Behind";
     return "Completed";
-  }, [watchedResourceName, resourceContract, watchedEnd]);
+  }, [noResource, watchedResourceName, resourceContract, watchedEnd]);
 
   // ── Derived: contract-impact warning ────────────────────────────────────────
   // Only flag a coverage problem when the contract is workflow-Completed —
@@ -277,7 +285,8 @@ export function ActivityChartEditDialog({
 
   // ── Derived: rig conflict warning ───────────────────────────────────────────
   const conflictWarning = useMemo(() => {
-    if (!allActivities || !watchedResourceName || !watchedStart || !watchedEnd) return null;
+    if (noResource || !allActivities || !watchedResourceName || !watchedStart || !watchedEnd)
+      return null;
     const draft: Activity = {
       ...activity,
       rig_name: watchedResourceType === "Rig" ? watchedResourceName : null,
@@ -292,7 +301,7 @@ export function ActivityChartEditDialog({
     if (conflicts.length === 0) return null;
     const other = conflicts[0].a.id === activity.id ? conflicts[0].b : conflicts[0].a;
     return `Overlaps "${other.activity_type}" on ${watchedResourceName} (${other.start_date} – ${other.end_date}).`;
-  }, [allActivities, activity, watchedResourceType, watchedResourceName, watchedStart, watchedEnd]);
+  }, [noResource, allActivities, activity, watchedResourceType, watchedResourceName, watchedStart, watchedEnd]);
 
   async function onSubmit(values: FormValues) {
     setError(null);
@@ -302,8 +311,10 @@ export function ActivityChartEditDialog({
         start_date: values.start_date,
         end_date: values.end_date,
         well_name: values.well_name || null,
-        rig_name: values.resource_type === "Rig" ? values.resource_name || null : null,
-        hwu_name: values.resource_type === "HWU" ? values.resource_name || null : null,
+        rig_name:
+          !values.no_resource && values.resource_type === "Rig" ? values.resource_name || null : null,
+        hwu_name:
+          !values.no_resource && values.resource_type === "HWU" ? values.resource_name || null : null,
         location: values.location || null,
         plan_type: values.plan_type || null,
         risk: values.risk || null,
@@ -391,7 +402,7 @@ export function ActivityChartEditDialog({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Well Name">
+              <Field label="Well Name *" error={errors.well_name?.message}>
                 <Input
                   {...register("well_name")}
                   placeholder="Well-A1"
@@ -400,9 +411,10 @@ export function ActivityChartEditDialog({
                 />
               </Field>
               <Field
-                label="Resource"
+                label="Resource *"
+                error={errors.resource_name?.message}
                 hint={
-                  watchedResourceName ? (
+                  !noResource && watchedResourceName ? (
                     <ContractPreview
                       resourceName={watchedResourceName}
                       contract={resourceContract}
@@ -413,8 +425,8 @@ export function ActivityChartEditDialog({
                 <div className="flex gap-2">
                   <select
                     {...register("resource_type")}
-                    className={cn(selectClass, "w-24 shrink-0")}
-                    disabled={locked}
+                    className={cn(selectClass, "w-24 shrink-0", noResource && "opacity-50")}
+                    disabled={locked || noResource}
                   >
                     <option value="Rig">Rig</option>
                     <option value="HWU">HWU</option>
@@ -426,8 +438,8 @@ export function ActivityChartEditDialog({
                     }
                     list="resource-suggestions"
                     spellCheck
-                    disabled={locked}
-                    className="min-w-0 flex-1"
+                    disabled={locked || noResource}
+                    className={cn("min-w-0 flex-1", noResource && "opacity-50")}
                   />
                   <datalist id="resource-suggestions">
                     {resourceSuggestions.map((n) => (
@@ -435,6 +447,15 @@ export function ActivityChartEditDialog({
                     ))}
                   </datalist>
                 </div>
+                <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-input"
+                    disabled={locked}
+                    {...register("no_resource")}
+                  />
+                  No resource needed
+                </label>
               </Field>
             </div>
 
@@ -457,9 +478,9 @@ export function ActivityChartEditDialog({
             )}
 
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Location">
+              <Field label="Location *" error={errors.location?.message}>
                 <select {...register("location")} className={selectClass} disabled={locked}>
-                  <option value="">—</option>
+                  <option value="">Select…</option>
                   {LOCATIONS.map((l) => (
                     <option key={l} value={l}>
                       {l}
@@ -467,9 +488,9 @@ export function ActivityChartEditDialog({
                   ))}
                 </select>
               </Field>
-              <Field label="Plan Type">
+              <Field label="Plan Type *" error={errors.plan_type?.message}>
                 <select {...register("plan_type")} className={selectClass} disabled={locked}>
-                  <option value="">—</option>
+                  <option value="">Select…</option>
                   {PLAN_TYPES.map((p) => (
                     <option key={p} value={p}>
                       {p}
@@ -477,9 +498,9 @@ export function ActivityChartEditDialog({
                   ))}
                 </select>
               </Field>
-              <Field label="Risk">
+              <Field label="Risk *" error={errors.risk?.message}>
                 <select {...register("risk")} className={selectClass} disabled={locked}>
-                  <option value="">—</option>
+                  <option value="">Select…</option>
                   {RISKS.map((r) => (
                     <option key={r} value={r}>
                       {r}

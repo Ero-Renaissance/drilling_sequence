@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -110,16 +110,38 @@ describe("ActivityGrid", () => {
     await waitFor(() => screen.getByText("Oil Development"));
 
     await userEvent.click(screen.getByRole("button", { name: /add activity/i }));
+    const dialog = within(screen.getByRole("dialog"));
 
-    await userEvent.type(screen.getByLabelText(/activity type/i), "Water Injection");
-    await userEvent.type(screen.getByLabelText(/start date/i), "2026-07-01");
-    await userEvent.type(screen.getByLabelText(/end date/i), "2026-09-30");
+    await userEvent.type(dialog.getByLabelText(/activity type/i), "Water Injection");
+    await userEvent.type(dialog.getByLabelText(/start date/i), "2026-07-01");
+    await userEvent.type(dialog.getByLabelText(/end date/i), "2026-09-30");
+    await userEvent.type(dialog.getByLabelText(/well name/i), "Well-Z9");
+    await userEvent.selectOptions(dialog.getByLabelText(/location/i), "OFFSHORE");
+    await userEvent.selectOptions(dialog.getByLabelText(/plan type/i), "Firm");
+    await userEvent.selectOptions(dialog.getByLabelText(/^risk/i), "No Flood Risk");
+    // This activity needs no rig/HWU.
+    await userEvent.click(dialog.getByLabelText(/no resource needed/i));
 
-    await userEvent.click(screen.getByRole("button", { name: /^add activity$/i }));
+    await userEvent.click(dialog.getByRole("button", { name: /^add activity$/i }));
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+  });
+
+  it("blocks creation until the required fields are filled", async () => {
+    renderGrid();
+    await waitFor(() => screen.getByText("Oil Development"));
+
+    await userEvent.click(screen.getByRole("button", { name: /add activity/i }));
+    // Submit with everything blank.
+    await userEvent.click(screen.getByRole("button", { name: /^add activity$/i }));
+
+    // Dialog stays open and shows required-field errors.
+    await waitFor(() =>
+      expect(screen.getAllByText("Required").length).toBeGreaterThanOrEqual(1),
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("can delete an activity", async () => {

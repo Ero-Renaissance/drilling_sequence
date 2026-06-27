@@ -28,18 +28,23 @@ const schema = z
     activity_type: z.string().min(1, "Required"),
     start_date: z.string().min(1, "Required"),
     end_date: z.string().min(1, "Required"),
-    well_name: z.string().optional(),
+    well_name: z.string().min(1, "Required"),
+    no_resource: z.boolean(),
     resource_type: z.enum(["Rig", "HWU"]),
     resource_name: z.string().optional(),
-    location: z.string().optional(),
-    plan_type: z.string().optional(),
-    risk: z.string().optional(),
+    location: z.string().min(1, "Required"),
+    plan_type: z.string().min(1, "Required"),
+    risk: z.string().min(1, "Required"),
     comment: z.string().optional(),
     readiness_required: z.boolean(),
   })
   .refine((d) => !d.start_date || !d.end_date || d.end_date >= d.start_date, {
     message: "End date must be on or after start date",
     path: ["end_date"],
+  })
+  .refine((d) => d.no_resource || !!d.resource_name?.trim(), {
+    message: "Required — or tick “No resource needed”",
+    path: ["resource_name"],
   });
 
 type FormValues = z.infer<typeof schema>;
@@ -97,9 +102,10 @@ export function ActivityFormDialog({
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { readiness_required: true, resource_type: "Rig" },
+    defaultValues: { readiness_required: true, resource_type: "Rig", no_resource: false },
   });
   const watchedResourceType = watch("resource_type");
+  const noResource = watch("no_resource");
 
   // Suggestions for the resource-name field, switching by the chosen type.
   const resourceSuggestions = useMemo(
@@ -118,8 +124,10 @@ export function ActivityFormDialog({
         start_date: values.start_date,
         end_date: values.end_date,
         well_name: values.well_name || null,
-        rig_name: values.resource_type === "Rig" ? values.resource_name || null : null,
-        hwu_name: values.resource_type === "HWU" ? values.resource_name || null : null,
+        rig_name:
+          !values.no_resource && values.resource_type === "Rig" ? values.resource_name || null : null,
+        hwu_name:
+          !values.no_resource && values.resource_type === "HWU" ? values.resource_name || null : null,
         location: values.location || null,
         plan_type: values.plan_type || null,
         risk: values.risk || null,
@@ -186,28 +194,31 @@ export function ActivityFormDialog({
 
           {/* Optional row 1 */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Well Name" error={errors.well_name?.message}>
+            <Field label="Well Name *" htmlFor="add-well-name" error={errors.well_name?.message}>
               <Input
+                id="add-well-name"
                 {...register("well_name")}
                 placeholder="Well-A1"
                 spellCheck
               />
             </Field>
-            <Field label="Resource" error={errors.resource_name?.message}>
+            <Field label="Resource *" error={errors.resource_name?.message}>
               <div className="flex gap-2">
                 <select
                   {...register("resource_type")}
-                  className={cn(selectClass, "w-24 shrink-0")}
+                  disabled={noResource}
+                  className={cn(selectClass, "w-24 shrink-0", noResource && "opacity-50")}
                 >
                   <option value="Rig">Rig</option>
                   <option value="HWU">HWU</option>
                 </select>
                 <Input
                   {...register("resource_name")}
+                  disabled={noResource}
                   placeholder={watchedResourceType === "HWU" ? "Pick an HWU" : "Pick a rig"}
                   list="add-resource-suggestions"
                   spellCheck
-                  className="min-w-0 flex-1"
+                  className={cn("min-w-0 flex-1", noResource && "opacity-50")}
                 />
                 <datalist id="add-resource-suggestions">
                   {resourceSuggestions.map((n) => (
@@ -215,26 +226,34 @@ export function ActivityFormDialog({
                   ))}
                 </datalist>
               </div>
+              <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-input"
+                  {...register("no_resource")}
+                />
+                No resource needed
+              </label>
             </Field>
           </div>
 
           {/* Optional row 2 */}
           <div className="grid grid-cols-3 gap-3">
-            <Field label="Location">
-              <select {...register("location")} className={selectClass}>
-                <option value="">—</option>
+            <Field label="Location *" htmlFor="add-location" error={errors.location?.message}>
+              <select id="add-location" {...register("location")} className={selectClass}>
+                <option value="">Select…</option>
                 {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
             </Field>
-            <Field label="Plan Type">
-              <select {...register("plan_type")} className={selectClass}>
-                <option value="">—</option>
+            <Field label="Plan Type *" htmlFor="add-plan-type" error={errors.plan_type?.message}>
+              <select id="add-plan-type" {...register("plan_type")} className={selectClass}>
+                <option value="">Select…</option>
                 {PLAN_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </Field>
-            <Field label="Risk">
-              <select {...register("risk")} className={selectClass}>
-                <option value="">—</option>
+            <Field label="Risk *" htmlFor="add-risk" error={errors.risk?.message}>
+              <select id="add-risk" {...register("risk")} className={selectClass}>
+                <option value="">Select…</option>
                 {RISKS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
