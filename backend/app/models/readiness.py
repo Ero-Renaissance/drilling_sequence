@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 CHECK_CODES = ("FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON")
-CHECK_STATUSES = ("Not Started", "In Progress", "Completed", "Behind", "N/A")
+CHECK_STATUSES = ("On Track", "Completed", "Behind", "N/A")
 
 
 class ReadinessCheck(Base):
@@ -23,7 +23,7 @@ class ReadinessCheck(Base):
         ForeignKey("activities.id", ondelete="CASCADE"), nullable=False, index=True
     )
     check_code: Mapped[str] = mapped_column(String(16), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="Not Started")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="On Track")
     notes: Mapped[str | None] = mapped_column(String(512), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

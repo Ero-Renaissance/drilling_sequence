@@ -163,7 +163,7 @@ async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
     assert len(by_gate) == 8
     assert by_gate["BUD"]["completed"] == 1
     assert by_gate["CON"]["completed"] == 1  # derived from the covering contract
-    assert by_gate["LLI"]["not_started"] == 1  # unset gate reads as Not Started
+    assert by_gate["LLI"]["on_track"] == 1  # unset gate reads as On Track
     assert d["activities"]["by_activity_type"]["Oil Development"] == 1
 
 
@@ -184,5 +184,5 @@ async def test_dashboard_con_gate_derived_from_contract(client: AsyncClient) -> 
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     by_gate = {g["code"]: g for g in d["readiness"]["by_gate"]}
     assert by_gate["CON"]["behind"] == 1
-    assert by_gate["CON"]["not_started"] == 0  # derived, not the stale default
+    assert by_gate["CON"]["on_track"] == 0  # derived, not the stale default
     assert d["readiness"]["behind_cells"] == 1

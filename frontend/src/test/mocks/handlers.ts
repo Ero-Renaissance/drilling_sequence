@@ -165,7 +165,7 @@ export const handlers = [
   http.get("/api/projects/:projectId/readiness", () => {
     const makeChecks = (): Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }> =>
       Object.fromEntries(
-        CHECK_CODES.map((c) => [c, { status: "Not Started" as CheckStatus, notes: null, updated_at: null }]),
+        CHECK_CODES.map((c) => [c, { status: "On Track" as CheckStatus, notes: null, updated_at: null }]),
       ) as Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }>;
 
     const rows: ActivityReadiness[] = [

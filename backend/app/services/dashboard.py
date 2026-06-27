@@ -39,8 +39,7 @@ from app.services.snapshot import build_project_snapshot
 # Readiness status string → GateBreakdown field.
 _STATUS_KEY = {
     "Completed": "completed",
-    "In Progress": "in_progress",
-    "Not Started": "not_started",
+    "On Track": "on_track",
     "Behind": "behind",
     "N/A": "na",
 }
@@ -179,17 +178,16 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
                 completed_cells += 1
             elif s == "Behind":
                 behind_cells += 1
-    # Per-gate status split across the focus activities (each of the 8 gates ×
-    # 5 statuses) — surfaces the top blocking gate. A gate with no row reads as
-    # its default, "Not Started".
+    # Per-gate status split across the focus activities — surfaces the top
+    # blocking gate. A gate with no row reads as its default, "On Track".
     gate_buckets = {
-        c: {"completed": 0, "in_progress": 0, "not_started": 0, "behind": 0, "na": 0}
+        c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
         for c in CHECK_CODES
     }
     for a in focus:
         checks = readiness_by_activity.get(a.id, {})
         for c in CHECK_CODES:
-            gate_buckets[c][_STATUS_KEY.get(checks.get(c, "Not Started"), "not_started")] += 1
+            gate_buckets[c][_STATUS_KEY.get(checks.get(c, "On Track"), "on_track")] += 1
 
     readiness_stats = ReadinessStats(
         focus_count=len(focus),
@@ -344,7 +342,7 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
 
     applicable = completed = 0
     gate_buckets = {
-        c: {"completed": 0, "in_progress": 0, "not_started": 0, "behind": 0, "na": 0}
+        c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
         for c in CHECK_CODES
     }
     for a in focus:
@@ -356,7 +354,7 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
             if status == "Completed":
                 completed += 1
         for c in CHECK_CODES:
-            gate_buckets[c][_STATUS_KEY.get(readiness.get(c, "Not Started"), "not_started")] += 1
+            gate_buckets[c][_STATUS_KEY.get(readiness.get(c, "On Track"), "on_track")] += 1
 
     # Contracts at risk — dedupe the denormalised contract by rig (one row per rig).
     contract_end_by_rig: dict[str, date] = {}

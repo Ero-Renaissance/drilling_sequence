@@ -79,7 +79,7 @@ async def list_readiness(
                     notes=activity_checks[code].notes,
                     updated_at=activity_checks[code].updated_at,
                 )
-            return CheckState(status="Not Started", notes=None, updated_at=None)
+            return CheckState(status="On Track", notes=None, updated_at=None)
 
         rows.append(
             ActivityReadiness(

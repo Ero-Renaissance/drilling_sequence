@@ -39,17 +39,14 @@ describe("worstCheck", () => {
     const w = worstCheck({
       FDP: { status: "Completed" },
       LLI: { status: "Behind" },
-      LOC: { status: "In Progress" },
+      LOC: { status: "On Track" },
     });
     expect(w).toEqual({ code: "LLI", status: "Behind" });
   });
 
-  it("ranks In Progress above Not Started above Completed", () => {
-    expect(worstCheck({ FDP: { status: "Completed" }, LLI: { status: "Not Started" } })?.status).toBe(
-      "Not Started",
-    );
-    expect(worstCheck({ FDP: { status: "Not Started" }, LLI: { status: "In Progress" } })?.status).toBe(
-      "In Progress",
+  it("ranks On Track above Completed", () => {
+    expect(worstCheck({ FDP: { status: "Completed" }, LLI: { status: "On Track" } })?.status).toBe(
+      "On Track",
     );
   });
 

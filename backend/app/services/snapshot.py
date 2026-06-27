@@ -17,7 +17,7 @@ from app.services.readiness import derive_con_status
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
     """Return the current activities of a project as snapshot dicts, ordered by
-    start date. Readiness defaults to "Not Started" for any unset gate."""
+    start date. Readiness defaults to "On Track" for any unset gate."""
     act_result = await db.execute(
         select(Activity)
         .where(Activity.project_id == project_id)
@@ -88,7 +88,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
                 code: (
                     derive_con_status(a, contracts_by_rig.get(a.rig_name))
                     if code == "CON"
-                    else checks_by_activity.get(a.id, {}).get(code, "Not Started")
+                    else checks_by_activity.get(a.id, {}).get(code, "On Track")
                 )
                 for code in CHECK_CODES
             },

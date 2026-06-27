@@ -21,8 +21,8 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
     readiness: {
       focus_count: 4, overall_pct: 62, behind_cells: 1, ready: 2,
       by_gate: [
-        { code: "BUD", completed: 2, in_progress: 1, not_started: 1, behind: 0, na: 0 },
-        { code: "FID", completed: 0, in_progress: 1, not_started: 2, behind: 1, na: 0 },
+        { code: "BUD", completed: 2, on_track: 2, behind: 0, na: 0 },
+        { code: "FID", completed: 0, on_track: 3, behind: 1, na: 0 },
       ],
     },
     rigs: { in_use: 5, conflicts: 0, total_idle_days: 120, per_rig: [] },

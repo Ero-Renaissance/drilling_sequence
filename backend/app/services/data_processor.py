@@ -106,12 +106,13 @@ PLAN_TYPE_MAP = {
 }
 
 # Spreadsheet readiness wording → canonical CheckStatus (app/models/readiness.py).
-# "On track" maps to In Progress (the upload's most common status).
+# The status model collapsed to On Track / Completed / Behind / N/A, so the
+# upload's "not started" / "in progress" wording all fold into "On Track".
 READINESS_STATUS_MAP = {
-    "on track": "In Progress",
+    "on track": "On Track",
     "completed": "Completed",
-    "not started": "Not Started",
-    "in progress": "In Progress",
+    "not started": "On Track",
+    "in progress": "On Track",
     "behind": "Behind",
     "n/a": "N/A",
 }
@@ -149,7 +150,7 @@ def _map_plan_type(value: object) -> str | None:
 def _map_readiness_status(value: object) -> str:
     text = _clean(value)
     if text is None:
-        return "Not Started"
+        return "On Track"
     return READINESS_STATUS_MAP.get(text.lower(), text)  # unknown → passthrough (caller validates)
 
 

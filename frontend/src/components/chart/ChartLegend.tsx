@@ -5,13 +5,7 @@ import { CHECK_META, STATUS_DOT, STATUS_LABEL } from "@/components/readiness/che
 import { getActivityColor } from "@/lib/chart-colors";
 import { URGENCY_VISUAL } from "@/lib/contract-urgency";
 
-const STATUSES: CheckStatus[] = [
-  "Not Started",
-  "In Progress",
-  "Completed",
-  "Behind",
-  "N/A",
-];
+const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
 interface ChartLegendProps {
   activityTypes: string[];

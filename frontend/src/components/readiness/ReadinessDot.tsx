@@ -12,13 +12,10 @@ import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "./check
 
 export { STATUS_DOT, CHECK_META, STATUS_ICON_COLOR };
 
-const STATUSES: CheckStatus[] = [
-  "Not Started",
-  "In Progress",
-  "Completed",
-  "Behind",
-  "N/A",
-];
+// The planner-pickable statuses. N/A is intentionally omitted — it's an
+// automatic "not-applicable" value (e.g. the CON gate when there's no rig
+// contract), never a manual choice.
+const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed"];
 
 interface BaseProps {
   code: CheckCode;
@@ -31,7 +28,7 @@ interface BaseProps {
 type ReadinessDotProps = BaseProps &
   (
     | {
-        /** Open the standard 4-state dropdown picker. */
+        /** Open the standard status dropdown picker. */
         onChange: (status: CheckStatus) => void;
         onClick?: never;
       }
@@ -139,7 +136,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
     );
   }
 
-  // Standard path — open the 4-state picker.
+  // Standard path — open the status picker.
   const meta = CHECK_META[code];
   const Icon = meta.icon;
   const onChange = (props as { onChange: (s: CheckStatus) => void }).onChange;

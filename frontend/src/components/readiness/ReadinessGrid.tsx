@@ -18,7 +18,7 @@ import { ReadinessDot } from "./ReadinessDot";
 import { CHECK_META, STATUS_DOT } from "./check-meta";
 import { ContractEditorDialog } from "./ContractEditorDialog";
 
-const STATUSES: CheckStatus[] = ["Not Started", "In Progress", "Completed", "Behind", "N/A"];
+const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
 // ── Legend ───────────────────────────────────────────────────────────────────
 
@@ -77,14 +77,16 @@ function Legend() {
 function ProgressBar({ rows }: { rows: ActivityReadiness[] }) {
   let total = 0,
     completed = 0,
-    inProgress = 0,
+    onTrack = 0,
+    behind = 0,
     na = 0;
   for (const row of rows) {
     for (const code of CHECK_CODES) {
       total++;
       const s = row.checks[code].status;
       if (s === "Completed") completed++;
-      else if (s === "In Progress") inProgress++;
+      else if (s === "On Track") onTrack++;
+      else if (s === "Behind") behind++;
       else if (s === "N/A") na++;
     }
   }
@@ -107,12 +109,8 @@ function ProgressBar({ rows }: { rows: ActivityReadiness[] }) {
       </div>
       <div className="flex gap-5 text-xs">
         <Stat label="Completed" value={completed} dot={STATUS_DOT["Completed"]} />
-        <Stat label="On track" value={inProgress} dot={STATUS_DOT["In Progress"]} />
-        <Stat
-          label="Not Started"
-          value={total - completed - inProgress - na}
-          dot={STATUS_DOT["Not Started"]}
-        />
+        <Stat label="On Track" value={onTrack} dot={STATUS_DOT["On Track"]} />
+        <Stat label="Behind" value={behind} dot={STATUS_DOT["Behind"]} />
         {na > 0 && <Stat label="N/A" value={na} dot={STATUS_DOT["N/A"]} />}
       </div>
     </div>

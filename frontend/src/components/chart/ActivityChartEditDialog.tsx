@@ -157,7 +157,7 @@ export function ActivityChartEditDialog({
   const [checkStatuses, setCheckStatuses] = useState<Record<CheckCode, CheckStatus>>(
     () =>
       Object.fromEntries(
-        CHECK_CODES.map((c) => [c, readiness?.[c]?.status ?? "Not Started"]),
+        CHECK_CODES.map((c) => [c, readiness?.[c]?.status ?? "On Track"]),
       ) as Record<CheckCode, CheckStatus>,
   );
 
@@ -205,7 +205,7 @@ export function ActivityChartEditDialog({
     });
     setCheckStatuses(
       Object.fromEntries(
-        CHECK_CODES.map((c) => [c, readiness?.[c]?.status ?? "Not Started"]),
+        CHECK_CODES.map((c) => [c, readiness?.[c]?.status ?? "On Track"]),
       ) as Record<CheckCode, CheckStatus>,
     );
     setError(null);
@@ -234,11 +234,11 @@ export function ActivityChartEditDialog({
   const draftConStatus: CheckStatus = useMemo(() => {
     if (!watchedRig) return "N/A";
     const contract = contractsByRig?.get(watchedRig);
-    if (!contract) return "Not Started";
+    if (!contract) return "On Track";
     if (contract.status === "N/A") return "N/A";
-    if (contract.status === "Not Started") return "Not Started";
-    if (contract.status === "In Progress") return "In Progress";
-    if (!contract.contract_end) return "In Progress";
+    if (contract.status === "Not Started" || contract.status === "In Progress")
+      return "On Track";
+    if (!contract.contract_end) return "On Track";
     if (watchedEnd && contract.contract_end < watchedEnd) return "Behind";
     return "Completed";
   }, [watchedRig, watchedEnd, contractsByRig]);

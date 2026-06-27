@@ -605,7 +605,7 @@ export function DrillChart({
         if (tier === "full") {
           for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
             const code = BAR_STRIP_CODES[i];
-            const status = (checks[code]?.status ?? "Not Started") as CheckStatus;
+            const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (ICON_SIZE + ICON_GAP), stripY, ICON_SIZE);
           }
         } else if (tier === "half") {
@@ -613,7 +613,7 @@ export function DrillChart({
           const SMALL_GAP = 1;
           for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
             const code = BAR_STRIP_CODES[i];
-            const status = (checks[code]?.status ?? "Not Started") as CheckStatus;
+            const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
         } else if (tier === "grid") {
@@ -622,7 +622,7 @@ export function DrillChart({
           const GRID_GAP = 1;
           for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
             const code = BAR_STRIP_CODES[i];
-            const status = (checks[code]?.status ?? "Not Started") as CheckStatus;
+            const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             const row = Math.floor(i / 4);
             const col = i % 4;
             const x = stripX + col * (GRID_SIZE + GRID_GAP);
@@ -791,7 +791,7 @@ export function DrillChart({
           if (t.checks) {
             const cells = CHECK_CODES.map((code) => {
               const status =
-                (t.checks?.[code]?.status as CheckStatus | undefined) ?? "Not Started";
+                (t.checks?.[code]?.status as CheckStatus | undefined) ?? "On Track";
               // Embed the same Lucide icon used in the on-bar strip + readiness
               // grid, status-coloured. Renders as an HTML <img> via data URI.
               const iconSrc = buildCheckSvgDataUri(code, status);

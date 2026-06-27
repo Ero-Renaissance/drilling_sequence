@@ -2,7 +2,7 @@ import { getAccessToken } from "@/lib/auth";
 
 export const CHECK_CODES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"] as const;
 export type CheckCode = (typeof CHECK_CODES)[number];
-export type CheckStatus = "Not Started" | "In Progress" | "Completed" | "Behind" | "N/A";
+export type CheckStatus = "On Track" | "Completed" | "Behind" | "N/A";
 
 export interface CheckState {
   status: CheckStatus;

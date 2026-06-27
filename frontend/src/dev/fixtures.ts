@@ -56,16 +56,16 @@ export const FIXTURE_CONFLICT_IDS = new Set(["f5", "f6"]);
 
 function readiness(overrides: Partial<Record<CheckCode, CheckStatus>>): Record<CheckCode, { status: CheckStatus }> {
   const out = {} as Record<CheckCode, { status: CheckStatus }>;
-  for (const c of CHECK_CODES) out[c] = { status: overrides[c] ?? "Not Started" };
+  for (const c of CHECK_CODES) out[c] = { status: overrides[c] ?? "On Track" };
   return out;
 }
 
 export const FIXTURE_READINESS: ReadinessMap = new Map([
-  ["f1", readiness({ FDP: "Completed", LLI: "Completed", LOC: "In Progress", FE: "Not Started", FID: "Completed", EIA: "In Progress", BUD: "Completed", CON: "Completed" })],
-  ["f4", readiness({ FDP: "Behind", LLI: "Behind", LOC: "Not Started", FE: "Behind", FID: "Not Started", EIA: "N/A", BUD: "In Progress", CON: "Behind" })],
-  ["f6", readiness({ FDP: "Completed", LLI: "In Progress", LOC: "Completed", FE: "Completed", FID: "In Progress", EIA: "Completed", BUD: "Completed", CON: "N/A" })],
+  ["f1", readiness({ FDP: "Completed", LLI: "Completed", LOC: "On Track", FE: "On Track", FID: "Completed", EIA: "On Track", BUD: "Completed", CON: "Completed" })],
+  ["f4", readiness({ FDP: "Behind", LLI: "Behind", LOC: "On Track", FE: "Behind", FID: "On Track", EIA: "N/A", BUD: "On Track", CON: "Behind" })],
+  ["f6", readiness({ FDP: "Completed", LLI: "On Track", LOC: "Completed", FE: "Completed", FID: "On Track", EIA: "Completed", BUD: "Completed", CON: "N/A" })],
   ["f7", readiness({ FDP: "Completed", LLI: "Completed", LOC: "Completed", FE: "Completed", FID: "Completed", EIA: "Completed", BUD: "Completed", CON: "Completed" })],
-  ["f8", readiness({ FDP: "In Progress", LLI: "Not Started", LOC: "In Progress", FE: "Not Started", FID: "Not Started", EIA: "Not Started", BUD: "In Progress", CON: "Not Started" })],
+  ["f8", readiness({ FDP: "On Track", LLI: "On Track", LOC: "On Track", FE: "On Track", FID: "On Track", EIA: "On Track", BUD: "On Track", CON: "On Track" })],
 ]);
 
 function contract(rig: string, end: string): RigContract {

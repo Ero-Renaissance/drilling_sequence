@@ -9,8 +9,7 @@ export interface RigDetail {
 export interface GateBreakdown {
   code: string;
   completed: number;
-  in_progress: number;
-  not_started: number;
+  on_track: number;
   behind: number;
   na: number;
 }

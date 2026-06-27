@@ -81,9 +81,8 @@ function WatchRow({ count, label, to }: { count: number; label: string; to: stri
 
 const GATE_COLORS = {
   completed: "#16a34a",
-  in_progress: "#f59e0b",
+  on_track: "#f59e0b",
   behind: "#ef4444",
-  not_started: "#94a3b8",
   na: "#cbd5e1",
 } as const;
 
@@ -127,10 +126,9 @@ function BarList({ items, max }: { items: { label: string; value: number; color:
   );
 }
 
-/** A gate's 5-status split as a single stacked bar. */
+/** A gate's status split as a single stacked bar. */
 function GateRow({ gate }: { gate: GateBreakdown }) {
-  const total =
-    gate.completed + gate.in_progress + gate.not_started + gate.behind + gate.na;
+  const total = gate.completed + gate.on_track + gate.behind + gate.na;
   const seg = (value: number, color: string) =>
     value > 0 ? (
       <div className="h-full" style={{ width: `${(value / total) * 100}%`, backgroundColor: color }} />
@@ -142,9 +140,8 @@ function GateRow({ gate }: { gate: GateBreakdown }) {
         {total > 0 && (
           <>
             {seg(gate.completed, GATE_COLORS.completed)}
-            {seg(gate.in_progress, GATE_COLORS.in_progress)}
+            {seg(gate.on_track, GATE_COLORS.on_track)}
             {seg(gate.behind, GATE_COLORS.behind)}
-            {seg(gate.not_started, GATE_COLORS.not_started)}
             {seg(gate.na, GATE_COLORS.na)}
           </>
         )}
@@ -312,9 +309,8 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
                 ))}
                 <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
                   <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
-                  <span><span style={{ color: GATE_COLORS.in_progress }}>●</span> On track</span>
+                  <span><span style={{ color: GATE_COLORS.on_track }}>●</span> On track</span>
                   <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
-                  <span><span style={{ color: GATE_COLORS.not_started }}>●</span> Not started</span>
                 </div>
               </div>
             ) : (

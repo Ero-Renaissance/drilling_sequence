@@ -60,8 +60,7 @@ const LUCIDE_PATHS: Record<CheckCode, string> = {
 
 /** Hex colors (not Tailwind classes — these go inside SVG strings, not className). */
 export const STATUS_STROKE: Record<CheckStatus, string> = {
-  "Not Started": "#a1a1aa", // zinc-400
-  "In Progress": "#f59e0b", // amber-500
+  "On Track": "#f59e0b", // amber-500
   Completed: "#10b981", // emerald-500
   Behind: "#ef4444", // red-500
   "N/A": "#d4d4d8", // zinc-300

@@ -23,8 +23,7 @@ class ActivityStats(BaseModel):
 class GateBreakdown(BaseModel):
     code: str
     completed: int
-    in_progress: int
-    not_started: int
+    on_track: int
     behind: int
     na: int
 

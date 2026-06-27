@@ -70,21 +70,21 @@ describe("ReadinessGrid", () => {
     renderGrid();
     await waitFor(() => screen.getByText("Gas Development"));
 
-    // Open a "Not Started" cell's picker and choose "On track" (stored as In Progress).
-    await userEvent.click(screen.getAllByTitle(/: Not Started$/)[0]);
-    await userEvent.click(await screen.findByRole("menuitem", { name: /On track/i }));
+    // Cells default to "On Track"; open one and choose "Behind".
+    await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/i }));
 
     await waitFor(() => {
-      expect(screen.getAllByTitle(/: On track$/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByTitle(/: Behind$/).length).toBeGreaterThanOrEqual(1);
     });
   });
 
   it("shows legend entries for all statuses", async () => {
     renderGrid();
     await waitFor(() => screen.getByText("Oil Development"));
-    // These labels appear in both the progress stats and the legend — use getAllBy
-    expect(screen.getAllByText("Not Started").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("On track").length).toBeGreaterThanOrEqual(1);
+    // The legend renders every status by its canonical name.
+    expect(screen.getAllByText("On Track").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Behind").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Completed").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(1);
   });

@@ -75,13 +75,13 @@ async def test_long_schedule_collapses_rows_and_maps_values(client: AsyncClient)
     assert by_well["WELL_B"]["well_project"] == "PROJECT_Y"
     assert by_well["WELL_B"]["plan_type"] == "Option"
 
-    # Readiness imported, with "On track" -> In Progress.
+    # Readiness imported, with "On track" -> On Track (the collapsed canonical).
     readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
     checks = {r["well_name"]: r["checks"] for r in readiness}
     assert set(GATES) <= set(checks["WELL_A"])
-    assert all(checks["WELL_A"][g]["status"] == "In Progress" for g in GATES)
+    assert all(checks["WELL_A"][g]["status"] == "On Track" for g in GATES)
     assert checks["WELL_B"]["BUD"]["status"] == "Completed"
-    assert checks["WELL_B"]["FDP"]["status"] == "In Progress"
+    assert checks["WELL_B"]["FDP"]["status"] == "On Track"
 
     # Rig contract upserted with its expiry, marked binding (Completed).
     contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
@@ -123,8 +123,8 @@ async def test_long_schedule_drops_invalid_readiness_cell(client: AsyncClient) -
     assert body["skipped"] == 0  # the well imported; only the gate dropped
     assert any("BUD" in w for w in body["warnings"])
     checks = (await client.get(f"/api/projects/{pid}/readiness")).json()[0]["checks"]
-    assert checks["BUD"]["status"] == "Not Started"  # dropped gate falls back to default
-    assert checks["FDP"]["status"] == "In Progress"
+    assert checks["BUD"]["status"] == "On Track"  # dropped gate falls back to default
+    assert checks["FDP"]["status"] == "On Track"
 
 
 @pytest.mark.asyncio

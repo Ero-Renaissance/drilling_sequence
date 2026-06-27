@@ -8,17 +8,16 @@ import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 
 /**
  * Reduce the readiness gates to the single most-concerning one, for a bar too
- * small to show the full strip. Severity (high → low): Behind > In Progress >
- * Not Started > Completed > N/A. Returns the worst gate's code + status, or null.
+ * small to show the full strip. Severity (high → low): Behind > On Track >
+ * Completed > N/A. Returns the worst gate's code + status, or null.
  */
 export function worstCheck(
   checks: Record<string, { status: CheckStatus }> | null | undefined,
 ): { code: CheckCode; status: CheckStatus } | null {
   if (!checks) return null;
   const rank: Record<CheckStatus, number> = {
-    Behind: 4,
-    "In Progress": 3,
-    "Not Started": 2,
+    Behind: 3,
+    "On Track": 2,
     Completed: 1,
     "N/A": 0,
   };

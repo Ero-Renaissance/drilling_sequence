@@ -40,7 +40,7 @@ function expiryUrgency(
 }
 
 const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"];
-const STATUSES: CheckStatus[] = ["Completed", "In Progress", "Behind", "Not Started", "N/A"];
+const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is then fitted to its data
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
