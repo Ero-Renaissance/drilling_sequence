@@ -8,6 +8,7 @@ import {
   UserMinus,
   FolderPlus,
   Copy,
+  FileSignature,
   Pencil,
   RefreshCw,
   type LucideIcon,
@@ -43,10 +44,28 @@ function iconFor(entry: AuditEntry): LucideIcon {
   if (entry.entity_type === "project") {
     return entry.field === "cloned" ? Copy : FolderPlus;
   }
+  if (entry.entity_type === "contract") {
+    return entry.field === "contract_deleted" ? Trash2 : FileSignature;
+  }
   return Pencil; // activity field edit
 }
 
 function describe(entry: AuditEntry): React.ReactNode {
+  // Contract changes: lead with the action verb, then the human-readable detail.
+  if (entry.entity_type === "contract") {
+    const verb =
+      entry.field === "contract_created"
+        ? "Contract added"
+        : entry.field === "contract_deleted"
+          ? "Contract removed"
+          : "Contract updated";
+    return (
+      <>
+        <span className="font-medium text-foreground">{verb}</span>
+        <span className="ml-1.5 text-muted-foreground">{entry.new_value}</span>
+      </>
+    );
+  }
   // Governance events carry a human-readable detail in new_value.
   if (entry.entity_type && entry.entity_type !== "activity") {
     return entry.new_value ?? fieldLabel(entry.field);

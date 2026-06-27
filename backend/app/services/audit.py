@@ -7,6 +7,12 @@ ENTITY_REVISION = "revision"
 ENTITY_APPROVER = "approver"
 ENTITY_REVIEWER = "reviewer"
 ENTITY_PROJECT = "project"
+ENTITY_CONTRACT = "contract"
+
+
+def contract_state(status: str, contract_end: object | None) -> str:
+    """One-line contract summary (status + end date) for the audit trail."""
+    return f"{status} · ends {contract_end}" if contract_end else status
 
 
 def governance_event(

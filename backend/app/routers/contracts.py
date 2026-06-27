@@ -13,6 +13,7 @@ from app.models.project import ProjectRole
 from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.rig_contract import RigContractResponse, RigContractUpsert
+from app.services.audit import ENTITY_CONTRACT, contract_state, governance_event
 
 router = APIRouter(prefix="/api/projects/{project_id}/contracts", tags=["contracts"])
 
@@ -59,8 +60,12 @@ async def upsert_contract(
         )
     )
     contract = result.scalar_one_or_none()
+    existed = contract is not None
+    old_summary = (
+        contract_state(contract.status, contract.contract_end) if existed else None
+    )
 
-    if contract is None:
+    if not existed:
         contract = RigContract(
             project_id=project_id,
             rig_name=rig_name,
@@ -78,6 +83,18 @@ async def upsert_contract(
         contract.notes = payload.notes
         contract.updated_by = current_user.id
 
+    await db.flush()
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_CONTRACT,
+            entity_id=contract.id,
+            action="contract_updated" if existed else "contract_created",
+            detail=f"Rig {rig_name}: {contract_state(contract.status, contract.contract_end)}",
+            old_value=old_summary,
+        )
+    )
     await db.commit()
     await db.refresh(contract)
     return contract
@@ -102,5 +119,15 @@ async def delete_contract(
     contract = result.scalar_one_or_none()
     if contract is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contract not found")
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_CONTRACT,
+            entity_id=contract.id,
+            action="contract_deleted",
+            detail=f"Rig {rig_name}: {contract_state(contract.status, contract.contract_end)}",
+        )
+    )
     await db.delete(contract)
     await db.commit()
