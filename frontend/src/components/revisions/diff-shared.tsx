@@ -136,7 +136,7 @@ export function SummaryBar({ diff }: { diff: RevisionDiffData }) {
   );
 }
 
-// ── Rig contract changes (rig-level, material to readiness) ─────────────────────
+// ── Resource (rig/HWU) contract changes (material to readiness) ────────────────
 
 export function ContractDiffList({ contracts }: { contracts?: ContractDiff[] }) {
   if (!contracts || contracts.length === 0) return null;
@@ -144,15 +144,15 @@ export function ContractDiffList({ contracts }: { contracts?: ContractDiff[] }) 
     <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
       <div className="flex items-center gap-2">
         <FileText className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-        <h3 className="text-sm font-semibold text-foreground">Rig contracts</h3>
+        <h3 className="text-sm font-semibold text-foreground">Resource contracts</h3>
         <span className="text-xs text-muted-foreground">
-          {contracts.length} rig{contracts.length !== 1 ? "s" : ""} changed
+          {contracts.length} resource{contracts.length !== 1 ? "s" : ""} changed
         </span>
       </div>
       <div className="space-y-1.5">
         {contracts.map((c) => (
-          <div key={c.rig_name} className="rounded-lg border border-border/60 bg-card px-3 py-2">
-            <p className="text-sm font-medium text-foreground">{c.rig_name}</p>
+          <div key={c.resource} className="rounded-lg border border-border/60 bg-card px-3 py-2">
+            <p className="text-sm font-medium text-foreground">{c.resource}</p>
             <div className="mt-1 space-y-1.5">
               {c.fields.map((f) => (
                 <div key={f.field} className="flex flex-wrap items-center gap-2 text-xs">

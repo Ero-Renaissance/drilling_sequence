@@ -58,9 +58,10 @@ class DiffSummary(BaseModel):
 
 
 class ContractDiff(BaseModel):
-    """Rig-level contract change (status / dates), deduped across activities."""
+    """Resource-level contract change (status / dates), deduped across activities.
+    `resource` is the rig name, or an HWU tagged as "HWU · <name>"."""
 
-    rig_name: str
+    resource: str
     fields: list[FieldChange]
 
 

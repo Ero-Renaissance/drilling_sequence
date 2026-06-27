@@ -21,7 +21,7 @@ _SCALAR_FIELDS: list[tuple[str, str]] = [
 ]
 
 
-# Per-rig contract fields, compared rig-level (deduped) rather than per activity.
+# Resource (rig/HWU) contract fields, compared resource-level (deduped), not per activity.
 _CONTRACT_FIELDS: list[tuple[str, str]] = [
     ("rig_contract_status", "Status"),
     ("rig_contract_start", "Contract start"),
@@ -97,32 +97,44 @@ def _has_contract_info(snapshot: list[dict]) -> bool:
     return any("rig_contract_status" in a for a in snapshot)
 
 
-def _contracts_by_rig(snapshot: list[dict]) -> dict[str, dict]:
-    """Collapse the per-activity contract fields back to one entry per rig."""
+def _resource_label(activity: dict) -> str | None:
+    """The activity's resource as a display label — its rig, or its HWU tagged
+    ("HWU · <name>") so rig and HWU rows read distinctly in the diff."""
+    rig = _norm(activity.get("rig_name"))
+    if rig:
+        return rig
+    hwu = _norm(activity.get("hwu_name"))
+    if hwu:
+        return f"HWU · {hwu}"
+    return None
+
+
+def _contracts_by_resource(snapshot: list[dict]) -> dict[str, dict]:
+    """Collapse the per-activity contract fields to one entry per resource (rig or HWU)."""
     out: dict[str, dict] = {}
     for a in snapshot:
-        rig = _norm(a.get("rig_name"))
-        if rig is None or rig in out:
+        label = _resource_label(a)
+        if label is None or label in out:
             continue
-        out[rig] = {key: a.get(key) for key, _ in _CONTRACT_FIELDS}
+        out[label] = {key: a.get(key) for key, _ in _CONTRACT_FIELDS}
     return out
 
 
 def _contract_changes(base: list[dict], target: list[dict]) -> list[dict]:
-    """Rig-level contract changes between two snapshots (status / dates)."""
+    """Resource-level (rig or HWU) contract changes between two snapshots."""
     if not (_has_contract_info(base) and _has_contract_info(target)):
         return []
-    base_c, target_c = _contracts_by_rig(base), _contracts_by_rig(target)
+    base_c, target_c = _contracts_by_resource(base), _contracts_by_resource(target)
     diffs: list[dict] = []
-    for rig in sorted(set(base_c) | set(target_c)):
-        b, t = base_c.get(rig, {}), target_c.get(rig, {})
+    for resource in sorted(set(base_c) | set(target_c)):
+        b, t = base_c.get(resource, {}), target_c.get(resource, {})
         fields = [
             {"field": label, "old": old, "new": new}
             for key, label in _CONTRACT_FIELDS
             if (old := _norm(b.get(key))) != (new := _norm(t.get(key)))
         ]
         if fields:
-            diffs.append({"rig_name": rig, "fields": fields})
+            diffs.append({"resource": resource, "fields": fields})
     return diffs
 
 

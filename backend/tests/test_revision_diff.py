@@ -76,16 +76,39 @@ def test_diff_reports_rig_contract_change() -> None:
 
     assert len(diff["contracts"]) == 1
     c = diff["contracts"][0]
-    assert c["rig_name"] == "Rig Alpha"
+    assert c["resource"] == "Rig Alpha"
     assert any(
         f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "In Progress"
         for f in c["fields"]
     )
-    # Contract changes are rig-level, never per-activity.
+    # Contract changes are resource-level, never per-activity.
     assert all(
         f["field"] not in {"Status", "Contract start", "Contract end"}
         for a in diff["activities"]
         for f in a.get("fields", [])
+    )
+
+
+def _hwu_act(aid: str, hwu: str, status: str, end: str | None) -> dict:
+    return _act(
+        aid, "Workover", "2026-01-01", "2026-01-31",
+        rig_name=None, hwu_name=hwu, rig_contract_status=status, rig_contract_end=end,
+    )
+
+
+def test_diff_reports_hwu_contract_change() -> None:
+    # The HWU contract is captured generically (rig_contract_* keys); the diff
+    # groups it under the HWU resource, tagged "HWU · <name>".
+    base = [_hwu_act("h", "Unit-9", "Completed", "2026-06-30")]
+    target = [_hwu_act("h", "Unit-9", "In Progress", "2026-06-30")]
+    diff = diff_snapshots(base, target)
+
+    assert len(diff["contracts"]) == 1
+    c = diff["contracts"][0]
+    assert c["resource"] == "HWU · Unit-9"
+    assert any(
+        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "In Progress"
+        for f in c["fields"]
     )
 
 
@@ -352,7 +375,7 @@ async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None
     ).json()
     assert len(diff["contracts"]) == 1
     contract = diff["contracts"][0]
-    assert contract["rig_name"] == "RigAlpha"
+    assert contract["resource"] == "RigAlpha"
     assert any(
         f["field"] == "Status" and f["new"] == "In Progress" for f in contract["fields"]
     )

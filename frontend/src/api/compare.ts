@@ -55,7 +55,7 @@ export interface DiffSummary {
 }
 
 export interface ContractDiff {
-  rig_name: string;
+  resource: string;
   fields: FieldChange[];
 }
 
