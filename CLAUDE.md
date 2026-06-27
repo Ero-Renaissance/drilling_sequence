@@ -137,6 +137,52 @@ liability that needs justification, not a convenience.
   carefully as code. Don't regenerate or bump the whole lockfile as a side effect
   of an unrelated task.
 
+# LOGGING & OBSERVABILITY
+Logging is for operators; it is **not** the same as user-facing feedback. User
+feedback is the toast (`toast.error` from `@/components/ui/toaster`) and inline form
+errors; logging is the structured record for debugging and ops. This **extends
+directive 5** (log detail server-side, return a generic safe message to the client)
+and is **bound by the dependency rule above** — the stdlib plus a few lines of owned
+code is the baseline; the libraries named below are *proposals* for IT review, not
+defaults.
+
+**General (both stacks)**
+- **Never type a caught error `any`.** Catch as `unknown` and narrow with a guard
+  (`err instanceof Error` / `ApiError`) or a declared response interface; on the
+  backend, no bare `except:`.
+- **No PII or secrets in logs** — never passwords, tokens, Azure claims, emails, or
+  full request/response bodies. Log identifiers (`project_id`, `activity_id`, user
+  id), not personal data.
+
+**Backend (FastAPI)**
+- **Structured logs via the stdlib `logging` module** (already wired:
+  `getLogger("app")` in `app/main.py`, `getLogger(__name__)` per module). Emit JSON
+  outside dev via an owned `logging.Formatter`. `loguru` / `python-json-logger` are
+  dependency *proposals* — justify per the dependency rule before adding either.
+- **Request correlation:** a per-request id set in ASGI middleware, stored in a
+  `contextvars.ContextVar`, injected into every record via a `logging.Filter`, so one
+  request's logs are greppable. Prefer owned middleware + contextvars over an
+  `asgi-correlation-id` dependency.
+- **Global exception handler** (already present in `app/main.py`): keep logging the
+  traceback + request method/path with `logger.exception(...)` and returning a
+  sanitized 500 — never the traceback — to the client.
+- **Database errors:** when trapping SQLAlchemy / driver (Postgres or MSSQL) errors,
+  log the operation context (what was attempted + entity ids) but **never the raw
+  SQL string or bound parameters** — they can carry data.
+
+**Frontend (React + Vite + TS)**
+- **Centralize HTTP error handling in the `fetch` wrapper** `src/api/http.ts` — there
+  is **no axios; do not add it**. Surface the server `detail` via `throwApiError` /
+  `ApiError`; callers `toast.error(...)` for the user.
+- **Error boundary** around the app (and risky feature modules): a friendly fallback,
+  and an `onError` that routes the component stack to the logger. Owned, or
+  `react-error-boundary` as a dependency *proposal*.
+- **Use a `logger` utility, not raw `console.*` in components.** Gate on Vite's
+  `import.meta.env.DEV` / `.PROD` (**not** `process.env.NODE_ENV`, which is undefined
+  here): readable console output in dev, route errors to the configured monitoring
+  sink in prod. No sink is wired yet — propose one (Azure App Insights /
+  OpenTelemetry suits the Azure stack) before depending on it.
+
 # CODE VERIFICATION PROTOCOL
 Before presenting any code response, mentally execute a self-audit and append a
 brief **"Security Checklist Summary"** confirming:
