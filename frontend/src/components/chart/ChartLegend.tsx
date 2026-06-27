@@ -29,12 +29,15 @@ const EXPIRY_LEGEND_ORDER = ["expired"] as const;
 function Section({
   label,
   children,
+  className,
 }: {
   label: string;
   children: React.ReactNode;
+  /** Optional width cap so dense sections wrap into columns instead of one long row. */
+  className?: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </span>
@@ -62,12 +65,12 @@ export function ChartLegend({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-lg border border-border/70 bg-card/60 px-4 py-3 md:flex-row md:gap-8",
+        "flex flex-col gap-3 rounded-lg border border-border/70 bg-card/60 px-4 py-3 md:flex-row md:flex-wrap md:gap-x-8 md:gap-y-3",
         "print:break-inside-avoid",
         className,
       )}
     >
-      <Section label="Activity types">
+      <Section label="Activity types" className="md:max-w-xs">
         {activityTypes.length === 0 ? (
           <span className="text-xs italic text-muted-foreground">—</span>
         ) : (
@@ -85,9 +88,7 @@ export function ChartLegend({
 
       {showReadiness && (
         <>
-          <div className="hidden w-px bg-border/70 md:block" />
-
-          <Section label="Status">
+          <Section label="Status" className="md:max-w-[10rem]">
             {STATUSES.map((s) => (
               <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
                 <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
@@ -96,9 +97,7 @@ export function ChartLegend({
             ))}
           </Section>
 
-          <div className="hidden w-px bg-border/70 md:block" />
-
-          <Section label="Checks">
+          <Section label="Checks" className="md:max-w-sm">
             {CHECK_CODES.map((code) => {
               const meta = CHECK_META[code];
               const Icon = meta.icon;
@@ -123,9 +122,7 @@ export function ChartLegend({
 
       {showContractExpiry && (
         <>
-          <div className="hidden w-px bg-border/70 md:block" />
-
-          <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-col gap-1.5 md:max-w-[13rem]">
             <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               <AlarmClock className="h-3 w-3" strokeWidth={2.25} />
               Contract expiry
@@ -158,8 +155,6 @@ export function ChartLegend({
 
       {showFloodRisk && (
         <>
-          <div className="hidden w-px bg-border/70 md:block" />
-
           <Section label="Risk">
             <span className="flex items-center gap-1.5 text-xs text-foreground">
               <Droplet
