@@ -20,6 +20,7 @@ from app.routers import (
     admin,
     approvers,
     auth,
+    client_logs,
     contracts,
     dashboard,
     hwu_contracts,
@@ -93,6 +94,7 @@ app.include_router(reviewers.router)
 app.include_router(contracts.router)
 app.include_router(hwu_contracts.router)
 app.include_router(dashboard.router)
+app.include_router(client_logs.router)
 
 
 @app.get("/api/health")
