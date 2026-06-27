@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/toaster";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useProjectsStore } from "@/store/projects";
+import { useAuthStore } from "@/store/auth";
 import { listActivities, type Activity } from "@/api/activities";
 import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
@@ -40,7 +41,21 @@ const tabs = [
   { to: "activity", label: "Activity Log", icon: History },
 ];
 
-export function PlanLockBanner({ projectId, lock }: { projectId: string; lock: ProjectLock }) {
+/** Passed to campaign tabs via <Outlet context>: lets a tab refresh the lock
+ *  banner after a revision action (submit / discard) without a reload. */
+export interface CampaignOutletContext {
+  refreshLock: () => void;
+}
+
+export function PlanLockBanner({
+  projectId,
+  lock,
+  canRevise,
+}: {
+  projectId: string;
+  lock: ProjectLock;
+  canRevise: boolean;
+}) {
   const [reopening, setReopening] = useState(false);
   if (!lock.locked || !lock.reason) return null;
 
@@ -65,12 +80,14 @@ export function PlanLockBanner({ projectId, lock }: { projectId: string; lock: P
       {lock.reason === "approved" ? (
         <>
           <span className="text-amber-800">
-            <span className="font-semibold">{rev} approved.</span> The plan is locked — revise
-            it to make changes, which will go through approval again.
+            <span className="font-semibold">{rev} approved.</span> The plan is locked
+            {canRevise ? " — revise it to make changes, which will go through approval again." : "."}
           </span>
-          <Button size="sm" onClick={handleRevise} disabled={reopening} className="ml-auto">
-            {reopening ? "Reopening…" : "Revise Plan"}
-          </Button>
+          {canRevise && (
+            <Button size="sm" onClick={handleRevise} disabled={reopening} className="ml-auto">
+              {reopening ? "Reopening…" : "Revise Plan"}
+            </Button>
+          )}
         </>
       ) : (
         <span className="text-amber-800">
@@ -87,16 +104,37 @@ export function ProjectDetail() {
   const storeProject = useProjectsStore((s) => s.projects.find((p) => p.id === projectId));
   const [fetchedProject, setFetchedProject] = useState<Project | null>(null);
   const project = storeProject ?? fetchedProject ?? null;
+  const user = useAuthStore((s) => s.user);
 
-  // Always fetch the detail — it carries the fresh plan-lock summary (the store
-  // copy from the list doesn't), which drives the Revise Plan banner.
-  useEffect(() => {
-    if (projectId) {
-      projectsApi.get(projectId).then(setFetchedProject).catch(() => {});
-    }
+  // The detail carries the fresh plan-lock summary (the store copy from the list
+  // doesn't), which drives the Revise Plan banner.
+  const refreshLock = useCallback(() => {
+    if (projectId) projectsApi.get(projectId).then(setFetchedProject).catch(() => {});
   }, [projectId]);
 
+  useEffect(() => {
+    refreshLock();
+  }, [refreshLock]);
+
+  // Keep it fresh when the user returns to the tab/window — catches a revision
+  // submitted or approved elsewhere without a manual reload.
+  useEffect(() => {
+    const onActive = () => refreshLock();
+    window.addEventListener("focus", onActive);
+    document.addEventListener("visibilitychange", onActive);
+    return () => {
+      window.removeEventListener("focus", onActive);
+      document.removeEventListener("visibilitychange", onActive);
+    };
+  }, [refreshLock]);
+
   if (!projectId) return <Navigate to="/projects" replace />;
+
+  // Revise Plan is planner-only (admin or a project planner) — match the backend.
+  const canRevise =
+    !!user &&
+    !!project &&
+    (user.is_admin || project.members.some((m) => m.user_id === user.id && m.role === "planner"));
 
   return (
     <div className="space-y-4 h-full flex flex-col">
@@ -120,7 +158,7 @@ export function ProjectDetail() {
       </div>
 
       {fetchedProject?.lock?.locked && (
-        <PlanLockBanner projectId={projectId} lock={fetchedProject.lock} />
+        <PlanLockBanner projectId={projectId} lock={fetchedProject.lock} canRevise={canRevise} />
       )}
 
       {/* Tabs */}
@@ -162,7 +200,7 @@ export function ProjectDetail() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
-        <Outlet />
+        <Outlet context={{ refreshLock } satisfies CampaignOutletContext} />
       </div>
     </div>
   );

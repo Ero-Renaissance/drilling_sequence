@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   CheckCircle2,
   ChevronRight,
@@ -23,6 +23,7 @@ import {
   type ApproverSignStatus,
 } from "@/api/revisions";
 import { CreateRevisionDialog } from "./CreateRevisionDialog";
+import type { CampaignOutletContext } from "@/pages/ProjectDetail";
 
 function relativeTime(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -319,6 +320,8 @@ export function RevisionList({ projectId }: RevisionListProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // Refresh the campaign's Revise Plan banner after an action changes the lock.
+  const ctx = useOutletContext<CampaignOutletContext | null>();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -345,6 +348,7 @@ export function RevisionList({ projectId }: RevisionListProps) {
       setRevisions((prev) =>
         prev.map((r) => (r.id === revision.id ? { ...r, status: "discarded" } : r)),
       );
+      ctx?.refreshLock?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to discard revision");
     } finally {
@@ -365,6 +369,7 @@ export function RevisionList({ projectId }: RevisionListProps) {
           projectId={projectId}
           onCreated={(rev) => {
             setRevisions((prev) => [rev, ...prev]);
+            ctx?.refreshLock?.();
           }}
         />
         <div className="mx-1 h-4 w-px bg-border" />
