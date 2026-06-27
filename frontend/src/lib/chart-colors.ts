@@ -5,45 +5,26 @@
  * so bars and legend swatches read unambiguously — no patterns required.
  */
 const ACTIVITY_COLORS: Record<string, string> = {
-  // Oil family — warm band: wine → rust → red → pink → orange. Deliberately
-  // kept out of the purple/magenta zone (reserved for HPHT / Abandonment) so
-  // Oil Sidetrack no longer reads as "purple" next to Oil Workover's pink.
+  // Oil family — warm band: crimson → wine → pink → orange.
   "Oil Development": "#dc2626", // crimson
-  "Oil Exploration": "#f97316", // bright orange
   "Oil Appraisal": "#7f1d1d", // dark wine
   "Oil Workover": "#ec4899", // pink
-  "Oil Sidetrack": "#9a3412", // rust / terracotta
-  // Gas family — cool greens / teals
+  "Oil Exploration": "#f97316", // bright orange
+  // Gas family — greens / teals
   "Gas Development": "#16a34a", // emerald
-  "Gas Exploration": "#84cc16", // lime
   "Gas Appraisal": "#14b8a6", // teal
   "Gas Workover": "#0d9488", // dark teal
-  "Gas Sidetrack": "#65a30d", // olive green
-  // Water family — blues
+  "Gas Exploration (including HPHT)": "#84cc16", // lime
+  "Gas Appraisal (including HPHT)": "#0f766e", // deep teal
+  // HPHT — purple
+  "HPHT (Development)": "#9333ea", // purple
+  // Water — blue
   "Water Injection": "#0ea5e9", // sky blue
-  // HPHT — purples
-  "HPHT(Development)": "#9333ea", // purple
   // Operational / admin
   "Well Repair/Safety": "#1d4ed8", // royal blue
-  "Rig Idle": "#475569", // slate
-  "Contracting": "#a16207", // amber-brown
+  "Rig Mobilisation and Intake": "#a16207", // amber-brown
+  "Well Testing": "#4338ca", // indigo
   "Abandonment": "#86198f", // deep magenta
-  "GAP": "#22c55e", // bright green
-  // Drilling operations
-  "Drilling": "#0891b2", // cyan
-  "Casing": "#be185d", // rose
-  "Cementing": "#0284c7", // ocean blue
-  "Testing": "#4338ca", // indigo
-  // Project phases
-  "Design": "#a21caf", // violet
-  "Construction": "#9d174d", // dark rose
-  "Deployment": "#ea580c", // burnt orange
-  "Development": "#0e7490", // dark cyan
-  "Review": "#2563eb", // bright blue
-  "Planning": "#1e40af", // navy
-  "Phase 1": "#15803d", // forest green
-  "Phase 2": "#991b1b", // brick red
-  "Phase 3": "#7c3aed", // bright purple
 };
 
 // Family seeds for auto-generated colors

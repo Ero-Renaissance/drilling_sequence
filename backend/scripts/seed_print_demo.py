@@ -36,9 +36,11 @@ SPAN_END = date(2036, 12, 31)
 
 # Activity types with distinct colours in the frontend palette, so the legend shows variety.
 ACTIVITY_TYPES = [
-    "Oil Development", "Oil Exploration", "Oil Appraisal", "Oil Workover",
-    "Gas Development", "Gas Exploration", "Gas Appraisal", "Gas Sidetrack",
-    "Water Injection", "HPHT(Development)", "Abandonment", "Well Repair/Safety",
+    "Oil Development", "Oil Appraisal", "Oil Workover", "Oil Exploration",
+    "Gas Development", "Gas Appraisal", "Gas Workover",
+    "Gas Exploration (including HPHT)", "Gas Appraisal (including HPHT)",
+    "HPHT (Development)", "Water Injection", "Well Repair/Safety",
+    "Rig Mobilisation and Intake", "Well Testing", "Abandonment",
 ]
 WELL_PREFIXES = ["KANB", "NUNR", "OGUT", "BELE", "SOKU", "GBAR", "AGAH", "EGBM",
                  "OKWE", "IBAF", "UGHE", "ZARM", "TUNB", "FORC", "BONG", "SEAE"]
