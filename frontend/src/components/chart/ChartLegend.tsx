@@ -88,7 +88,7 @@ export function ChartLegend({
 
       {showReadiness && (
         <>
-          <Section label="Checks" className="md:max-w-sm">
+          <Section label="Readiness" className="md:max-w-sm">
             {CHECK_CODES.map((code) => {
               const meta = CHECK_META[code];
               const Icon = meta.icon;
