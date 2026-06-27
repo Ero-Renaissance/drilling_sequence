@@ -548,7 +548,7 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
         <>
           <span className="mx-0.5 h-3 w-px bg-border" />
           <span className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-muted-foreground">
-            <AlarmClock className="h-3 w-3" strokeWidth={2.25} /> Contract
+            <AlarmClock className="h-3 w-3" strokeWidth={2.25} /> Rig Contract Expiration
           </span>
           {DATED_URGENCIES.map((u) => (
             <span key={u} className="inline-flex items-center gap-1">

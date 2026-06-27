@@ -75,3 +75,33 @@ describe("RevisionPrintDoc — readiness chart short-bar labels", () => {
     expect(bravo.parentElement?.style.backgroundColor).not.toBe("");
   });
 });
+
+describe("RevisionPrintDoc — contract-expiry legend", () => {
+  it("labels the rig contract-expiry key 'Rig Contract Expiration'", () => {
+    // A rig whose contract is in-force ("Completed") with a far-future end date
+    // → a dated ("healthy") urgency → the contract-expiry key renders. The far
+    // date keeps the urgency stable no matter when the suite runs.
+    const withContract: PrintRow[] = [
+      { ...rows[1], rig_contract_status: "Completed", rig_contract_end: "2099-12-31" },
+    ];
+
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={withContract}
+        chart="readiness"
+        includeSchedule={false}
+        signatures="wetink"
+      />,
+    );
+
+    // The expiry-key section header now reads the full label, and it's the
+    // styled header (uppercase, like the "Activity"/"Flood risk" headers), not
+    // stray text. NB: a bare "Contract" still legitimately appears elsewhere as
+    // the CON readiness-check label, so we assert the styled header, not a
+    // global text search.
+    const header = screen.getByText("Rig Contract Expiration");
+    expect(header.className).toContain("uppercase");
+  });
+});
