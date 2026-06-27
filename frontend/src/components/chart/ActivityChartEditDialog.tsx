@@ -427,6 +427,7 @@ export function ActivityChartEditDialog({
                     list="resource-suggestions"
                     spellCheck
                     disabled={locked}
+                    className="min-w-0 flex-1"
                   />
                   <datalist id="resource-suggestions">
                     {resourceSuggestions.map((n) => (

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createActivity, type Activity } from "@/api/activities";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
+import { cn } from "@/lib/utils";
 
 const LOCATIONS = ["LAND", "SWAMP", "OFFSHORE"] as const;
 const PLAN_TYPES = ["Firm", "Option", "Out of Plan"] as const;
@@ -196,7 +197,7 @@ export function ActivityFormDialog({
               <div className="flex gap-2">
                 <select
                   {...register("resource_type")}
-                  className={`${selectClass} w-24 shrink-0`}
+                  className={cn(selectClass, "w-24 shrink-0")}
                 >
                   <option value="Rig">Rig</option>
                   <option value="HWU">HWU</option>
@@ -206,6 +207,7 @@ export function ActivityFormDialog({
                   placeholder={watchedResourceType === "HWU" ? "Pick an HWU" : "Pick a rig"}
                   list="add-resource-suggestions"
                   spellCheck
+                  className="min-w-0 flex-1"
                 />
                 <datalist id="add-resource-suggestions">
                   {resourceSuggestions.map((n) => (
