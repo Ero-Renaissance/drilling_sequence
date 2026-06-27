@@ -13,7 +13,6 @@ import { getActivityColor } from "@/lib/chart-colors";
 import {
   classifyContract,
   URGENCY_VISUAL,
-  type ContractUrgency,
 } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, placeBarLabel } from "@/lib/print-gantt";
@@ -24,9 +23,9 @@ import type { CheckCode, CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
 import type { Project } from "@/types";
 
-// The four in-force urgencies that have an end date to place on the timeline.
+// Contract urgencies that carry an end date. #5 marks only the "expired" state
+// on the Gantt + print; the dashboard keeps the full gradient.
 type DatedUrgency = "expired" | "critical" | "soon" | "healthy";
-const DATED_URGENCIES: DatedUrgency[] = ["expired", "critical", "soon", "healthy"];
 
 /** Urgency of a rig's contract from the snapshot's denormalised fields, or null
  *  unless it's an in-force ("Completed") contract with an end date to mark. */
@@ -35,8 +34,12 @@ function expiryUrgency(
   end: string | null | undefined,
 ): DatedUrgency | null {
   if (!end) return null;
-  const u = classifyContract({ status: (status ?? undefined) as ContractStatus | undefined, contract_end: end });
-  return u !== null && (DATED_URGENCIES as ContractUrgency[]).includes(u) ? (u as DatedUrgency) : null;
+  const u = classifyContract({
+    status: (status ?? undefined) as ContractStatus | undefined,
+    contract_end: end,
+  });
+  // #5: flag EXPIRED contracts only.
+  return u === "expired" ? "expired" : null;
 }
 
 const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"];
@@ -494,7 +497,7 @@ function StaticGantt({
                         <span
                           className="pointer-events-none absolute inset-y-0 z-10 flex flex-col items-center"
                           style={{ left: `${expiryPct}%`, transform: "translateX(-50%)" }}
-                          title={`Contract expires ${fmt(m!.contractEnd)}`}
+                          title={`Contract expired ${fmt(m!.contractEnd)}`}
                         >
                           <span className="rounded-full bg-white/85 leading-none">
                             <AlarmClock className="h-2.5 w-2.5" style={{ color: expiryHex }} strokeWidth={2.5} />
@@ -562,12 +565,13 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
           <span className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-muted-foreground">
             <AlarmClock className="h-3 w-3" strokeWidth={2.25} /> Contract Expiration
           </span>
-          {DATED_URGENCIES.map((u) => (
-            <span key={u} className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: URGENCY_VISUAL[u].hex }} />
-              {URGENCY_VISUAL[u].label}
-            </span>
-          ))}
+          <span className="inline-flex items-center gap-1">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: URGENCY_VISUAL.expired.hex }}
+            />
+            {URGENCY_VISUAL.expired.label}
+          </span>
         </>
       )}
     </div>

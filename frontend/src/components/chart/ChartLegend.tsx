@@ -24,7 +24,7 @@ interface ChartLegendProps {
   className?: string;
 }
 
-const EXPIRY_LEGEND_ORDER = ["expired", "critical", "soon", "healthy"] as const;
+const EXPIRY_LEGEND_ORDER = ["expired"] as const;
 
 function Section({
   label,
@@ -56,10 +56,7 @@ export function ChartLegend({
     (typeof EXPIRY_LEGEND_ORDER)[number],
     { name: string; range: string }
   > = {
-    expired: { name: "Expired", range: "ended" },
-    critical: { name: "Critical", range: "< 30 days" },
-    soon: { name: "Expiring soon", range: "30 – 90 days" },
-    healthy: { name: "Healthy", range: "90+ days" },
+    expired: { name: "Expired", range: "end date passed" },
   };
 
   return (
@@ -134,7 +131,7 @@ export function ChartLegend({
               Contract expiry
             </span>
             <p className="text-[10px] text-muted-foreground">
-              Shown on the timeline at the expiry date — color indicates urgency.
+              A red clock marks a rig or HWU whose contract has already expired.
             </p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               {EXPIRY_LEGEND_ORDER.map((key) => (

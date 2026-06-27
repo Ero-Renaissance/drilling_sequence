@@ -23,7 +23,6 @@ import { STATUS_LABEL } from "@/components/readiness/check-meta";
 import {
   classifyContract,
   daysUntilExpiry,
-  isCompletedUrgency,
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
 import { useThemeStore } from "@/store/theme";
@@ -694,7 +693,9 @@ export function DrillChart({
           ? (res.kind === "rig" ? contractsByRig : contractsByHwu)?.get(res.name)
           : undefined;
         const urgency = classifyContract(contract);
-        if (contract?.contract_end && urgency && isCompletedUrgency(urgency)) {
+        // #5: the Gantt flags EXPIRED contracts only (the dashboard keeps the
+        // full Healthy → Expired gradient for early-warning planning).
+        if (contract?.contract_end && urgency === "expired") {
           contractMarkers.push({
             value: [new Date(contract.contract_end).getTime(), i],
             hex: URGENCY_VISUAL[urgency].hex,

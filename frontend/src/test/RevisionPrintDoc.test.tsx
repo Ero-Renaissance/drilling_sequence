@@ -78,11 +78,12 @@ describe("RevisionPrintDoc — readiness chart short-bar labels", () => {
 
 describe("RevisionPrintDoc — contract-expiry legend", () => {
   it("labels the contract-expiry key 'Contract Expiration'", () => {
-    // A rig whose contract is in-force ("Completed") with a far-future end date
-    // → a dated ("healthy") urgency → the contract-expiry key renders. The far
-    // date keeps the urgency stable no matter when the suite runs.
+    // A rig whose contract is "Completed" with an end date in the PAST → an
+    // "expired" urgency → the contract-expiry key renders. #5: only expired
+    // contracts are flagged on the print. The far-past date keeps it expired no
+    // matter when the suite runs.
     const withContract: PrintRow[] = [
-      { ...rows[1], rig_contract_status: "Completed", rig_contract_end: "2099-12-31" },
+      { ...rows[1], rig_contract_status: "Completed", rig_contract_end: "2020-01-01" },
     ];
 
     render(
@@ -103,5 +104,26 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
     // global text search.
     const header = screen.getByText("Contract Expiration");
     expect(header.className).toContain("uppercase");
+  });
+
+  it("hides the contract-expiry key for a non-expired contract (#5)", () => {
+    // A "Completed" contract with a far-FUTURE end date → "healthy", not expired
+    // → the print flags nothing, so the key is absent.
+    const healthy: PrintRow[] = [
+      { ...rows[1], rig_contract_status: "Completed", rig_contract_end: "2099-12-31" },
+    ];
+
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={healthy}
+        chart="readiness"
+        includeSchedule={false}
+        signatures="wetink"
+      />,
+    );
+
+    expect(screen.queryByText("Contract Expiration")).not.toBeInTheDocument();
   });
 });

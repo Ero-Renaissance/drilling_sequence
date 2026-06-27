@@ -135,20 +135,6 @@ export const URGENCY_VISUAL: Record<
   },
 };
 
-/** The four urgencies tied to an in-force contract — used by the chart Y-axis
- *  AlarmClock formatter, which only renders the clock for these states. */
-export const COMPLETED_URGENCIES: Array<Exclude<ContractUrgency, null>> = [
-  "healthy",
-  "soon",
-  "critical",
-  "expired",
-  "incomplete",
-];
-
-export function isCompletedUrgency(u: ContractUrgency): boolean {
-  return u !== null && COMPLETED_URGENCIES.includes(u);
-}
-
 /** Returns days until contract_end (negative if expired). Null if no date. */
 export function daysUntilExpiry(
   contract: ContractLike | null | undefined,
