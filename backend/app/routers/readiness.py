@@ -10,6 +10,7 @@ from app.core.locks import ensure_activity_unlocked
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
+from app.models.hwu_contract import HwuContract
 from app.models.project import ProjectRole
 from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.rig_contract import RigContract
@@ -20,7 +21,7 @@ from app.schemas.readiness import (
     CheckUpsert,
     CheckUpsertResponse,
 )
-from app.services.readiness import derive_con_status
+from app.services.readiness import derive_con_status, resolve_con_contract
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
 
@@ -52,18 +53,29 @@ async def list_readiness(
     for check in checks_result.scalars().all():
         checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check
 
-    # CON is derived from rig contracts, not stored per-activity.
-    contracts_result = await db.execute(
-        select(RigContract).where(RigContract.project_id == project_id)
-    )
+    # CON is derived from the activity's resource contract (rig or HWU), not
+    # stored per-activity.
     contracts_by_rig: dict[str, RigContract] = {
-        c.rig_name: c for c in contracts_result.scalars().all()
+        c.rig_name: c
+        for c in (
+            await db.execute(
+                select(RigContract).where(RigContract.project_id == project_id)
+            )
+        ).scalars().all()
+    }
+    contracts_by_hwu: dict[str, HwuContract] = {
+        c.hwu_name: c
+        for c in (
+            await db.execute(
+                select(HwuContract).where(HwuContract.project_id == project_id)
+            )
+        ).scalars().all()
     }
 
     rows: list[ActivityReadiness] = []
     for act in activities:
         activity_checks = checks_by_activity.get(act.id, {})
-        con_contract = contracts_by_rig.get(act.rig_name) if act.rig_name else None
+        con_contract = resolve_con_contract(act, contracts_by_rig, contracts_by_hwu)
         con_status = derive_con_status(act, con_contract)
 
         def _state(code: str) -> CheckState:

@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # Canonical oil & gas domain enums. Kept in sync with the frontend selects
 # (LOCATIONS / PLAN_TYPES / RISKS) so writes can't introduce free-form variants.
@@ -18,6 +18,7 @@ class ActivityCreate(BaseModel):
     end_date: date
     well_name: str | None = None
     rig_name: str | None = None
+    hwu_name: str | None = None
     well_project: str | None = None
     project_group: str | None = None
     location: Location | None = None
@@ -34,6 +35,13 @@ class ActivityCreate(BaseModel):
             raise ValueError("end_date must be on or after start_date")
         return v
 
+    @model_validator(mode="after")
+    def _resource_exclusive(self) -> "ActivityCreate":
+        # An activity is scheduled on a rig OR an HWU, never both.
+        if self.rig_name and self.hwu_name:
+            raise ValueError("an activity uses either a rig or an HWU, not both")
+        return self
+
 
 class ActivityUpdate(BaseModel):
     activity_type: str | None = None
@@ -41,6 +49,7 @@ class ActivityUpdate(BaseModel):
     end_date: date | None = None
     well_name: str | None = None
     rig_name: str | None = None
+    hwu_name: str | None = None
     well_project: str | None = None
     project_group: str | None = None
     location: Location | None = None
@@ -60,6 +69,7 @@ class ActivityResponse(BaseModel):
     end_date: date
     well_name: str | None
     rig_name: str | None
+    hwu_name: str | None
     well_project: str | None
     project_group: str | None
     location: str | None

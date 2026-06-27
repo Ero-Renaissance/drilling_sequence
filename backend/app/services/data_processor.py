@@ -22,6 +22,9 @@ CSV_ALIASES: dict[str, str] = {
     "Team": "rig_name",
     "Contractor": "rig_name",
     "Rig Name": "rig_name",
+    "HWU Name": "hwu_name",
+    "HWU": "hwu_name",
+    "Hydraulic Workover Unit": "hwu_name",
     # group aliases
     "Group": "project_group",
     "Category": "project_group",

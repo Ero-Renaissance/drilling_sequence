@@ -10,9 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.hwu_contract import HwuContract
 from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.rig_contract import RigContract
-from app.services.readiness import derive_con_status
+from app.services.readiness import derive_con_status, resolve_con_contract
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -35,17 +36,32 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     for check in checks_result.scalars().all():
         checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check.status
 
-    # Rig contracts gate readiness (CON) and are a material part of the plan under
-    # approval, so capture each activity's rig contract state. Denormalised onto the
-    # activity (rather than a separate block) so the snapshot stays a flat list and
-    # older stored revisions keep parsing.
-    contracts_result = await db.execute(
-        select(RigContract).where(RigContract.project_id == project_id)
-    )
-    contracts_by_rig = {c.rig_name: c for c in contracts_result.scalars().all()}
+    # Resource contracts (rig or HWU) gate readiness (CON) and are a material part
+    # of the plan under approval, so capture each activity's contract state.
+    # Denormalised onto the activity (rather than a separate block) so the snapshot
+    # stays a flat list and older stored revisions keep parsing.
+    contracts_by_rig = {
+        c.rig_name: c
+        for c in (
+            await db.execute(
+                select(RigContract).where(RigContract.project_id == project_id)
+            )
+        ).scalars().all()
+    }
+    contracts_by_hwu = {
+        c.hwu_name: c
+        for c in (
+            await db.execute(
+                select(HwuContract).where(HwuContract.project_id == project_id)
+            )
+        ).scalars().all()
+    }
 
-    def contract_fields(rig_name: str | None) -> dict:
-        contract = contracts_by_rig.get(rig_name) if rig_name else None
+    def contract_fields(activity: Activity) -> dict:
+        # The activity's resource contract — its rig's or its HWU's. Kept under the
+        # rig_contract_* keys so the print-out, KPIs and diff read one set of fields
+        # regardless of resource type, and older stored revisions keep parsing.
+        contract = resolve_con_contract(activity, contracts_by_rig, contracts_by_hwu)
         return {
             "rig_contract_status": contract.status if contract else None,
             "rig_contract_start": (
@@ -71,6 +87,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             "well_name": a.well_name,
             "well_project": a.well_project,
             "rig_name": a.rig_name,
+            "hwu_name": a.hwu_name,
             "location": a.location,
             "plan_type": a.plan_type,
             "risk": a.risk,
@@ -86,13 +103,15 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # snapshot's readiness matches the Readiness tab and the dashboard.
             "readiness": {
                 code: (
-                    derive_con_status(a, contracts_by_rig.get(a.rig_name))
+                    derive_con_status(
+                        a, resolve_con_contract(a, contracts_by_rig, contracts_by_hwu)
+                    )
                     if code == "CON"
                     else checks_by_activity.get(a.id, {}).get(code, "On Track")
                 )
                 for code in CHECK_CODES
             },
-            **contract_fields(a.rig_name),
+            **contract_fields(a),
         }
         for a in activities
     ]

@@ -106,6 +106,15 @@ async def update_activity(
 
     # ── Apply changes & write audit log ───────────────────────────────────────
     changes = payload.model_dump(exclude_unset=True, exclude=_AUDIT_EXCLUDE)
+    # An activity is scheduled on a rig OR an HWU, never both. Check the MERGED
+    # state — a field absent from this payload keeps its current value.
+    if changes.get("rig_name", activity.rig_name) and changes.get(
+        "hwu_name", activity.hwu_name
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="an activity uses either a rig or an HWU, not both; clear one first",
+        )
     for field, new_val in changes.items():
         old_val = getattr(activity, field)
         if old_val != new_val:

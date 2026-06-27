@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
+from app.models.hwu_contract import HwuContract
 from app.models.project import Project
 from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.revision import Revision, Signature
@@ -31,8 +32,8 @@ from app.schemas.dashboard import (
     RiskStats,
     Watchlist,
 )
-from app.services.conflicts import detect_rig_conflicts
-from app.services.readiness import derive_con_status
+from app.services.conflicts import detect_resource_conflicts
+from app.services.readiness import derive_con_status, resolve_con_contract
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
 
@@ -79,14 +80,18 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         await db.execute(select(RigContract).where(RigContract.project_id == project_id))
     ).scalars().all()
     contracts_by_rig = {c.rig_name: c for c in contracts}
+    hwu_contracts = (
+        await db.execute(select(HwuContract).where(HwuContract.project_id == project_id))
+    ).scalars().all()
+    contracts_by_hwu = {c.hwu_name: c for c in hwu_contracts}
 
-    # CON (Contract) readiness is derived from the rig contract, not stored as a
-    # ReadinessCheck row. Inject it so the readiness %, the per-gate breakdown,
-    # and the "ready" count all account for the contract gate — and agree with
-    # the Readiness tab (which derives it the same way).
+    # CON (Contract) readiness is derived from the resource contract (rig or HWU),
+    # not stored as a ReadinessCheck row. Inject it so the readiness %, the per-gate
+    # breakdown, and the "ready" count all account for the contract gate — and agree
+    # with the Readiness tab (which derives it the same way).
     for a in activities:
         readiness_by_activity.setdefault(a.id, {})["CON"] = derive_con_status(
-            a, contracts_by_rig.get(a.rig_name)
+            a, resolve_con_contract(a, contracts_by_rig, contracts_by_hwu)
         )
 
     revisions = (
@@ -198,7 +203,7 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     )
 
     # ── rigs ───────────────────────────────────────────────────────────────────
-    conflicts = detect_rig_conflicts(activities)
+    conflicts = detect_resource_conflicts(activities)
     by_rig: dict[str, list[Activity]] = {}
     for a in activities:
         if a.rig_name:
@@ -222,13 +227,11 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     )
 
     # ── contracts (binding = status Completed, with an end date) ────────────────
+    # Rig and HWU contracts are pooled — both are resource contracts at risk.
     buckets = {"expired": 0, "critical": 0, "soon": 0, "healthy": 0}
-    contract_end_by_rig: dict[str, date] = {}
-    for c in contracts:
-        if c.status != "Completed" or c.contract_end is None:
-            continue
-        contract_end_by_rig[c.rig_name] = c.contract_end
-        d = (c.contract_end - today).days
+
+    def _bucket_expiry(end: date) -> None:
+        d = (end - today).days
         if d < 0:
             buckets["expired"] += 1
         elif d < _CRITICAL_DAYS:
@@ -237,12 +240,32 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
             buckets["soon"] += 1
         else:
             buckets["healthy"] += 1
+
+    contract_end_by_rig: dict[str, date] = {}
+    for c in contracts:
+        if c.status == "Completed" and c.contract_end is not None:
+            contract_end_by_rig[c.rig_name] = c.contract_end
+            _bucket_expiry(c.contract_end)
+    contract_end_by_hwu: dict[str, date] = {}
+    for c in hwu_contracts:
+        if c.status == "Completed" and c.contract_end is not None:
+            contract_end_by_hwu[c.hwu_name] = c.contract_end
+            _bucket_expiry(c.contract_end)
+
     activities_past_contract = sum(
         1
         for a in activities
         if not done(a)
-        and a.rig_name in contract_end_by_rig
-        and a.end_date > contract_end_by_rig[a.rig_name]
+        and (
+            (
+                a.rig_name in contract_end_by_rig
+                and a.end_date > contract_end_by_rig[a.rig_name]
+            )
+            or (
+                a.hwu_name in contract_end_by_hwu
+                and a.end_date > contract_end_by_hwu[a.hwu_name]
+            )
+        )
     )
     contract_stats = ContractStats(**buckets, activities_past_contract=activities_past_contract)
     contracts_expiring = buckets["expired"] + buckets["critical"] + buckets["soon"]

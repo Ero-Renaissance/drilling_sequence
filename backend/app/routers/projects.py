@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
+from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
 from app.models.readiness import ReadinessCheck
 from app.models.rig_contract import RigContract
@@ -193,6 +194,7 @@ async def clone_project(
             end_date=src.end_date,
             well_name=src.well_name,
             rig_name=src.rig_name,
+            hwu_name=src.hwu_name,
             project_group=src.project_group,
             location=src.location,
             risk=src.risk,
@@ -240,6 +242,25 @@ async def clone_project(
             RigContract(
                 project_id=clone.id,
                 rig_name=contract.rig_name,
+                status=contract.status,
+                contract_start=contract.contract_start,
+                contract_end=contract.contract_end,
+                notes=contract.notes,
+                updated_by=current_user.id,
+            )
+        )
+
+    # Same for HWU contracts.
+    source_hwu_contracts = (
+        await db.execute(
+            select(HwuContract).where(HwuContract.project_id == project_id)
+        )
+    ).scalars().all()
+    for contract in source_hwu_contracts:
+        db.add(
+            HwuContract(
+                project_id=clone.id,
+                hwu_name=contract.hwu_name,
                 status=contract.status,
                 contract_start=contract.contract_start,
                 contract_end=contract.contract_end,

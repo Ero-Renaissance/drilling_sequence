@@ -30,8 +30,11 @@ class Activity(Base):
     # ── Entity (well / item / task / name) ────────────────────────────────────
     well_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    # ── Resource (rig / team / equipment) ─────────────────────────────────────
+    # ── Resource (rig / team / equipment) — an activity uses a rig OR an HWU ──
     rig_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # Hydraulic Workover Unit — the alternative resource to a rig. At most one of
+    # rig_name / hwu_name is set (enforced in the activities router).
+    hwu_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     # ── Project the well is tied to (a development project owns many wells).
     #    Named well_project: `project` is the relationship to the parent Project. ──
