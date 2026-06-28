@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { createActivity, type Activity } from "@/api/activities";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
 import { cn } from "@/lib/utils";
+import { ResourceContractSection } from "@/components/readiness/ResourceContractSection";
 
 const LOCATIONS = ["LAND", "SWAMP", "OFFSHORE"] as const;
 const PLAN_TYPES = ["Firm", "Option", "Out of Plan"] as const;
@@ -110,6 +111,7 @@ export function ActivityFormDialog({
   });
   const watchedResourceType = watch("resource_type");
   const noResource = watch("no_resource");
+  const watchedResourceName = watch("resource_name") ?? "";
 
   // Suggestions for the resource-name field, switching by the chosen type.
   const resourceSuggestions = useMemo(
@@ -244,6 +246,15 @@ export function ActivityFormDialog({
               </label>
             </Field>
           </div>
+
+          {!noResource && watchedResourceName.trim() && (
+            <ResourceContractSection
+              projectId={projectId}
+              resourceName={watchedResourceName.trim()}
+              kind={watchedResourceType === "HWU" ? "hwu" : "rig"}
+              locked={locked}
+            />
+          )}
 
           {/* Optional row 2 */}
           <div className="grid grid-cols-3 gap-3">

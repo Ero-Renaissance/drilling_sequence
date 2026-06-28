@@ -231,9 +231,9 @@ async def clone_project(
                 )
             )
 
-    # Carry the rig contracts over so the new quarter starts from the same
-    # contract state — otherwise the clone has no contracts, CON readiness reads
-    # as unset, and cross-quarter comparison reports every rig as "removed".
+    # Carry the rig contracts over so the new quarter starts from the same contract
+    # state — otherwise the clone has no contracts, the expiry markers read as unset,
+    # and cross-quarter comparison reports every rig as "removed".
     source_contracts = (
         await db.execute(
             select(RigContract).where(RigContract.project_id == project_id)

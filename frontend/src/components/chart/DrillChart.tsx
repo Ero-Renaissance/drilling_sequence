@@ -37,14 +37,10 @@ import {
 import { ChartLegend } from "./ChartLegend";
 
 /**
- * All 8 per-activity gates including CON.
- *
- * The Y-axis AlarmClock answers a RIG-level question — "how soon does this
- * rig's contract expire?" — and only fires for in-force (Completed) contracts.
- * The strip answers a per-ACTIVITY question — "does the contract cover THIS
- * specific activity?" — which varies per row even on the same rig once the
- * contract is Completed (Completed vs Behind depending on activity dates).
- * Both signals are useful, so we render CON in both places.
+ * The per-activity readiness gates shown on each bar. (The Y-axis AlarmClock is a
+ * separate, RIG-level signal — "how soon does this rig's contract expire?" — and
+ * only fires for in-force (Completed) contracts; the contract is no longer mirrored
+ * as a per-activity readiness gate.)
  */
 const BAR_STRIP_CODES = CHECK_CODES;
 

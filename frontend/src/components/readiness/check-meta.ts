@@ -1,7 +1,6 @@
 import {
   Banknote,
   DraftingCompass,
-  FileSignature,
   Gavel,
   LandPlot,
   Leaf,
@@ -23,7 +22,6 @@ export const CHECK_META: Record<CheckCode, { label: string; icon: LucideIcon }> 
   FID: { label: "Final Inv. Decision", icon: Gavel },
   EIA: { label: "Env. Assessment", icon: Leaf },
   BUD: { label: "Budget", icon: Banknote },
-  CON: { label: "Contract", icon: FileSignature },
 };
 
 /**

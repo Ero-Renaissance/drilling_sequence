@@ -1,7 +1,7 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
 
-export const CHECK_CODES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"] as const;
+export const CHECK_CODES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"] as const;
 export type CheckCode = (typeof CHECK_CODES)[number];
 export type CheckStatus = "On Track" | "Completed" | "Behind" | "N/A";
 

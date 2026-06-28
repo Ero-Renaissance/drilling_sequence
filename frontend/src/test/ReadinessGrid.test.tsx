@@ -93,9 +93,9 @@ describe("ReadinessGrid", () => {
 
   it("shows per-row completion count", async () => {
     renderGrid();
-    // 1 completed / 8 effective (8 check codes, none N/A) for Oil Development row
+    // 1 completed / 7 effective (7 check codes, none N/A) for Oil Development row
     await waitFor(() => {
-      expect(screen.getByText("1/8")).toBeInTheDocument();
+      expect(screen.getByText("1/7")).toBeInTheDocument();
     });
   });
 

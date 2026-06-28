@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-CheckCode = Literal["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"]
+CheckCode = Literal["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
 CheckStatus = Literal["On Track", "Completed", "Behind", "N/A"]
 
 

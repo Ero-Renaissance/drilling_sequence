@@ -42,7 +42,7 @@ function expiryUrgency(
   return u === "expired" ? "expired" : null;
 }
 
-const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"];
+const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"];
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is then fitted to its data
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
@@ -619,7 +619,7 @@ function ReadinessIcons({
 }) {
   if (fill) {
     return (
-      <span className="grid w-full grid-cols-8 gap-px">
+      <span className="grid w-full grid-cols-7 gap-px">
         {CHECK_CODES.map((c) => {
           const Icon = CHECK_META[c].icon;
           const st = (readiness?.[c] ?? "Not Started") as CheckStatus;

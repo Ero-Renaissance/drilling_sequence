@@ -43,8 +43,9 @@ async def upsert_contract(
     db: DB,
 ) -> RigContract:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
-    # CON readiness derives from the rig contract — freeze it while a revision is
-    # awaiting approval so the snapshot under review can't shift underneath it.
+    # The contract is captured in the snapshot (its expiry drives the chart marker),
+    # so freeze it while a revision is awaiting approval — the plan under review
+    # can't shift underneath it.
     await assert_project_not_locked(project_id, db)
 
     if not rig_name.strip():

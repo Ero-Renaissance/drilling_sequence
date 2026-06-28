@@ -92,31 +92,6 @@ async def test_hwu_contract_denied_for_non_member(
     ).status_code == 403
 
 
-# ── CON gate parity: the HWU contract drives readiness ───────────────────────
-
-@pytest.mark.asyncio
-async def test_hwu_contract_drives_con_gate(client: AsyncClient) -> None:
-    pid = await _project(client)
-    await _activity(
-        client, pid, hwu_name="HWU-1", start_date="2026-01-01", end_date="2026-06-30"
-    )
-    # Contract covers the activity → CON Completed.
-    await client.put(
-        f"/api/projects/{pid}/hwu-contracts/HWU-1",
-        json={"status": "Completed", "contract_end": "2026-12-31"},
-    )
-    readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    assert readiness[0]["checks"]["CON"]["status"] == "Completed"
-
-    # Contract ends before the activity does → won't cover → CON Behind.
-    await client.put(
-        f"/api/projects/{pid}/hwu-contracts/HWU-1",
-        json={"status": "Completed", "contract_end": "2026-03-01"},
-    )
-    readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    assert readiness[0]["checks"]["CON"]["status"] == "Behind"
-
-
 # ── Conflict + clone parity ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio

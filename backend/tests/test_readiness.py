@@ -50,9 +50,10 @@ async def test_readiness_all_on_track_by_default(client: AsyncClient) -> None:
     assert row["activity_type"] == "Oil Well Drilling"
     assert row["well_name"] == "Well-A1"
 
-    # All 8 codes present; unset gates (and the no-contract CON) default to "On Track".
+    # All 7 readiness codes present; unset gates default to "On Track". (CON was
+    # retired — the contract is shown via the expiry marker, not as a readiness gate.)
     checks = row["checks"]
-    assert set(checks.keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON"}
+    assert set(checks.keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"}
     for code, state in checks.items():
         assert state["status"] == "On Track", f"{code} should default to On Track"
 

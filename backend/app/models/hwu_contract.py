@@ -11,8 +11,8 @@ class HwuContract(Base):
     """A Hydraulic Workover Unit contract — the HWU parallel to RigContract.
 
     Same shape and semantics: a workflow item whose dates become binding (driving
-    the CON readiness gate and the contract-expiry marker) only once the status is
-    "Completed". Shares the CONTRACT_STATUSES vocabulary defined on the rig contract.
+    the contract-expiry marker) only once the status is "Completed". Shares the
+    CONTRACT_STATUSES vocabulary defined on the rig contract.
     """
 
     __tablename__ = "hwu_contracts"

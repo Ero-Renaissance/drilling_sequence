@@ -17,7 +17,6 @@ import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { ReadinessDot } from "./ReadinessDot";
 import { CHECK_META, STATUS_DOT } from "./check-meta";
-import { ContractEditorDialog } from "./ContractEditorDialog";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
@@ -145,9 +144,6 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null); // "activityId:checkCode"
-  const [editingContract, setEditingContract] = useState<
-    { name: string; kind: "rig" | "hwu" } | null
-  >(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState("");
@@ -404,33 +400,15 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                     </td>
                     {CHECK_CODES.map((code) => {
                       const key = `${row.activity_id}:${code}`;
-                      const isCon = code === "CON";
                       return (
                         <td key={code} className="px-1 py-2 text-center">
                           <div className="flex justify-center">
-                            {isCon ? (
-                              <ReadinessDot
-                                code={code}
-                                status={row.checks[code].status}
-                                onClick={() =>
-                                  setEditingContract(
-                                    row.rig_name
-                                      ? { name: row.rig_name, kind: "rig" }
-                                      : row.hwu_name
-                                        ? { name: row.hwu_name, kind: "hwu" }
-                                        : null,
-                                  )
-                                }
-                                disabled={(!row.rig_name && !row.hwu_name) || !!row.locked}
-                              />
-                            ) : (
-                              <ReadinessDot
-                                code={code}
-                                status={row.checks[code].status}
-                                onChange={(next) => handleChange(row.activity_id, code, next)}
-                                disabled={saving === key || !!row.locked}
-                              />
-                            )}
+                            <ReadinessDot
+                              code={code}
+                              status={row.checks[code].status}
+                              onChange={(next) => handleChange(row.activity_id, code, next)}
+                              disabled={saving === key || !!row.locked}
+                            />
                           </div>
                         </td>
                       );
@@ -452,17 +430,6 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           setPageSize(size);
           setPageIndex(0);
         }}
-      />
-
-      <ContractEditorDialog
-        projectId={projectId}
-        resourceName={editingContract?.name ?? null}
-        kind={editingContract?.kind}
-        open={editingContract !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditingContract(null);
-        }}
-        onSaved={load}
       />
     </div>
   );

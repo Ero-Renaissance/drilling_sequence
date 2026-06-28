@@ -13,7 +13,7 @@ from app.models.activity import Activity
 from app.models.hwu_contract import HwuContract
 from app.models.readiness import CHECK_CODES, ReadinessCheck
 from app.models.rig_contract import RigContract
-from app.services.readiness import derive_con_status, resolve_con_contract
+from app.services.readiness import resolve_activity_contract
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -36,8 +36,9 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     for check in checks_result.scalars().all():
         checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check.status
 
-    # Resource contracts (rig or HWU) gate readiness (CON) and are a material part
-    # of the plan under approval, so capture each activity's contract state.
+    # Resource contracts (rig or HWU) drive the contract-expiry marker and are a
+    # material part of the plan under approval, so capture each activity's contract
+    # state.
     # Denormalised onto the activity (rather than a separate block) so the snapshot
     # stays a flat list and older stored revisions keep parsing.
     contracts_by_rig = {
@@ -61,7 +62,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
         # The activity's resource contract — its rig's or its HWU's. Kept under the
         # rig_contract_* keys so the print-out, KPIs and diff read one set of fields
         # regardless of resource type, and older stored revisions keep parsing.
-        contract = resolve_con_contract(activity, contracts_by_rig, contracts_by_hwu)
+        contract = resolve_activity_contract(activity, contracts_by_rig, contracts_by_hwu)
         return {
             "rig_contract_status": contract.status if contract else None,
             "rig_contract_start": (
@@ -99,16 +100,8 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # Lets the diff tell a finished activity (dropped on clone) apart
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
-            # CON is derived from the rig contract (not a stored row), so the
-            # snapshot's readiness matches the Readiness tab and the dashboard.
             "readiness": {
-                code: (
-                    derive_con_status(
-                        a, resolve_con_contract(a, contracts_by_rig, contracts_by_hwu)
-                    )
-                    if code == "CON"
-                    else checks_by_activity.get(a.id, {}).get(code, "On Track")
-                )
+                code: checks_by_activity.get(a.id, {}).get(code, "On Track")
                 for code in CHECK_CODES
             },
             **contract_fields(a),

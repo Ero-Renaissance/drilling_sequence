@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { AlertTriangle, CheckCircle2, FileSignature, Lock, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,17 +25,13 @@ import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import { LOCATIONS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
-import { CHECK_META, STATUS_DOT } from "@/components/readiness/check-meta";
+import { CHECK_META } from "@/components/readiness/check-meta";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
-import {
-  classifyContract,
-  daysUntilExpiry,
-  URGENCY_VISUAL,
-} from "@/lib/contract-urgency";
+import { ResourceContractSection } from "@/components/readiness/ResourceContractSection";
 import { detectResourceConflicts } from "@/lib/conflicts";
 
-/** Per-activity gates the user can edit. CON is derived from the rig contract. */
-const EDITABLE_CODES = CHECK_CODES.filter((c) => c !== "CON") as readonly CheckCode[];
+/** Per-activity readiness gates the user can edit. */
+const EDITABLE_CODES = CHECK_CODES;
 
 const schema = z
   .object({
@@ -101,51 +97,6 @@ function Field({
 
 const selectClass =
   "flex h-9 w-full rounded-md border border-input bg-background/60 px-3 py-1 text-sm shadow-soft-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50";
-
-// ── Contract preview chip (under the rig field) ──────────────────────────────
-
-function ContractPreview({
-  resourceName,
-  contract,
-}: {
-  resourceName: string;
-  contract: RigContract | HwuContract | undefined;
-}) {
-  const urgency = classifyContract(contract);
-  const days = daysUntilExpiry(contract);
-
-  if (!urgency) {
-    return (
-      <p className="mt-1.5 text-[11px] text-muted-foreground italic">
-        No contract on file for{" "}
-        <span className="font-medium not-italic text-foreground">{resourceName}</span>.
-      </p>
-    );
-  }
-
-  const v = URGENCY_VISUAL[urgency];
-  const endLabel = contract?.contract_end ?? "no end date";
-
-  return (
-    <div
-      className={cn(
-        "mt-1.5 inline-flex items-center gap-2 rounded-full border px-2 py-1 text-[11px] font-medium",
-        v.tintBg,
-        v.tintText,
-        v.tintBorder,
-      )}
-    >
-      <span className={cn("h-1.5 w-1.5 rounded-full", v.dotClass)} />
-      <span>{v.label}</span>
-      <span className="font-normal opacity-80">
-        · ends {endLabel}
-        {days !== null && urgency !== "incomplete"
-          ? ` (${days >= 0 ? `${days}d left` : `${Math.abs(days)}d ago`})`
-          : ""}
-      </span>
-    </div>
-  );
-}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -256,21 +207,6 @@ export function ActivityChartEditDialog({
     [allActivities],
   );
 
-  // ── Derived: live CON status for this draft ────────────────────────────────
-  // Mirrors the backend derivation: contract.status drives most cases; dates
-  // only matter once the contract is workflow-Completed.
-  const draftConStatus: CheckStatus = useMemo(() => {
-    if (noResource || !watchedResourceName) return "N/A";
-    const contract = resourceContract;
-    if (!contract) return "On Track";
-    if (contract.status === "N/A") return "N/A";
-    if (contract.status === "Not Started" || contract.status === "In Progress")
-      return "On Track";
-    if (!contract.contract_end) return "On Track";
-    if (watchedEnd && contract.contract_end < watchedEnd) return "Behind";
-    return "Completed";
-  }, [noResource, watchedResourceName, resourceContract, watchedEnd]);
-
   // ── Derived: contract-impact warning ────────────────────────────────────────
   // Only flag a coverage problem when the contract is workflow-Completed —
   // a draft contract's dates aren't binding yet.
@@ -280,7 +216,7 @@ export function ActivityChartEditDialog({
     if (!contract || contract.status !== "Completed") return null;
     if (!contract.contract_end) return null;
     if (watchedEnd <= contract.contract_end) return null;
-    return `End date falls past the contract end (${contract.contract_end}). CON will be Behind for this activity until the contract is extended.`;
+    return `End date falls past the contract end (${contract.contract_end}). The contract must be extended to cover this activity.`;
   }, [watchedResourceName, watchedEnd, resourceContract]);
 
   // ── Derived: rig conflict warning ───────────────────────────────────────────
@@ -322,7 +258,7 @@ export function ActivityChartEditDialog({
         readiness_required: values.readiness_required,
       });
 
-      // Only persist user-editable checks. CON is derived server-side.
+      // Persist the per-activity readiness gates.
       await Promise.all(
         EDITABLE_CODES.map((code) =>
           upsertCheck(projectId, activity.id, code, checkStatuses[code]),
@@ -410,18 +346,7 @@ export function ActivityChartEditDialog({
                   disabled={locked}
                 />
               </Field>
-              <Field
-                label="Resource *"
-                error={errors.resource_name?.message}
-                hint={
-                  !noResource && watchedResourceName ? (
-                    <ContractPreview
-                      resourceName={watchedResourceName}
-                      contract={resourceContract}
-                    />
-                  ) : null
-                }
-              >
+              <Field label="Resource *" error={errors.resource_name?.message}>
                 <div className="flex gap-2">
                   <select
                     {...register("resource_type")}
@@ -475,6 +400,15 @@ export function ActivityChartEditDialog({
                   </div>
                 )}
               </div>
+            )}
+
+            {!noResource && watchedResourceName && (
+              <ResourceContractSection
+                projectId={projectId}
+                resourceName={watchedResourceName}
+                kind={watchedResourceType === "HWU" ? "hwu" : "rig"}
+                locked={locked}
+              />
             )}
 
             <div className="grid grid-cols-3 gap-3">
@@ -564,19 +498,6 @@ export function ActivityChartEditDialog({
                   </div>
                 );
               })}
-            </div>
-
-            {/* CON — read-only, derived from rig contract */}
-            <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
-              <FileSignature className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="font-medium text-foreground">CON · Contract</span>
-              <span className="flex items-center gap-1.5">
-                <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[draftConStatus])} />
-                <span className="font-medium">{draftConStatus}</span>
-              </span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                Derived from the resource's contract — edit the contract to change this.
-              </span>
             </div>
           </div>
 

@@ -44,7 +44,6 @@ import {
   type CheckStatus,
 } from "@/api/readiness";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
-import { ContractEditorDialog } from "@/components/readiness/ContractEditorDialog";
 import { useSearchParams } from "react-router-dom";
 import { listContracts, type RigContract } from "@/api/contracts";
 import {
@@ -71,7 +70,6 @@ declare module "@tanstack/react-table" {
     openHistory: (id: string) => void;
     readinessByActivity: Map<string, Record<CheckCode, CheckState>>;
     onReadinessChange: (activityId: string, code: CheckCode, next: CheckStatus) => void;
-    onEditContract: (resource: { name: string; kind: "rig" | "hwu" } | null) => void;
     savingReadinessKey: string | null;
   }
 }
@@ -144,17 +142,13 @@ function PlanTypeChip({ value }: { value: string | null }) {
 
 function ReadinessStrip({
   activityId,
-  resource,
   checks,
   onChange,
-  onEditContract,
   savingKey,
 }: {
   activityId: string;
-  resource: { name: string; kind: "rig" | "hwu" } | null;
   checks: Record<CheckCode, CheckState> | undefined;
   onChange: (code: CheckCode, next: CheckStatus) => void;
-  onEditContract: (resource: { name: string; kind: "rig" | "hwu" } | null) => void;
   savingKey: string | null;
 }) {
   if (!checks) {
@@ -166,30 +160,16 @@ function ReadinessStrip({
   }
   return (
     <div className="flex items-center gap-0.5 px-1">
-      {CHECK_CODES.map((code) => {
-        if (code === "CON") {
-          return (
-            <ReadinessDot
-              key={code}
-              code={code}
-              status={checks[code].status}
-              size="sm"
-              onClick={() => onEditContract(resource)}
-              disabled={!resource}
-            />
-          );
-        }
-        return (
-          <ReadinessDot
-            key={code}
-            code={code}
-            status={checks[code].status}
-            size="sm"
-            onChange={(next) => onChange(code, next)}
-            disabled={savingKey === `${activityId}:${code}`}
-          />
-        );
-      })}
+      {CHECK_CODES.map((code) => (
+        <ReadinessDot
+          key={code}
+          code={code}
+          status={checks[code].status}
+          size="sm"
+          onChange={(next) => onChange(code, next)}
+          disabled={savingKey === `${activityId}:${code}`}
+        />
+      ))}
     </div>
   );
 }
@@ -209,9 +189,6 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [historyActivityId, setHistoryActivityId] = useState<string | null>(null);
   const [savingReadinessKey, setSavingReadinessKey] = useState<string | null>(null);
-  const [editingContract, setEditingContract] = useState<
-    { name: string; kind: "rig" | "hwu" } | null
-  >(null);
 
   const [contracts, setContracts] = useState<RigContract[]>([]);
 
@@ -586,17 +563,9 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           return (
             <ReadinessStrip
               activityId={row.original.id}
-              resource={
-                row.original.rig_name
-                  ? { name: row.original.rig_name, kind: "rig" }
-                  : row.original.hwu_name
-                    ? { name: row.original.hwu_name, kind: "hwu" }
-                    : null
-              }
               checks={meta.readinessByActivity.get(row.original.id)}
               savingKey={meta.savingReadinessKey}
               onChange={(code, next) => meta.onReadinessChange(row.original.id, code, next)}
-              onEditContract={meta.onEditContract}
             />
           );
         },
@@ -710,7 +679,6 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       openHistory,
       readinessByActivity,
       onReadinessChange,
-      onEditContract: setEditingContract,
       savingReadinessKey,
     },
   });
@@ -952,17 +920,6 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
         </kbd>{" "}
         to cancel
       </p>
-
-      <ContractEditorDialog
-        projectId={projectId}
-        resourceName={editingContract?.name ?? null}
-        kind={editingContract?.kind}
-        open={editingContract !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditingContract(null);
-        }}
-        onSaved={load}
-      />
     </div>
   );
 }

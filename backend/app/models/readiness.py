@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
-CHECK_CODES = ("FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "CON")
+CHECK_CODES = ("FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD")
 CHECK_STATUSES = ("On Track", "Completed", "Behind", "N/A")
 
 

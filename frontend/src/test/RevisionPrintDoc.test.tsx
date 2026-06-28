@@ -99,9 +99,7 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
 
     // The expiry-key section header now reads the full label, and it's the
     // styled header (uppercase, like the "Activity"/"Flood risk" headers), not
-    // stray text. NB: a bare "Contract" still legitimately appears elsewhere as
-    // the CON readiness-check label, so we assert the styled header, not a
-    // global text search.
+    // stray text. We assert the styled header rather than a global text search.
     const header = screen.getByText("Contract Expiration");
     expect(header.className).toContain("uppercase");
   });

@@ -15,9 +15,7 @@ export { STATUS_DOT, CHECK_META, STATUS_ICON_COLOR };
 // The planner-pickable statuses. N/A is selectable so a planner can mark a
 // single gate "not applicable" for a well even when the activity still requires
 // readiness — an N/A gate is excluded from the readiness rollup (see
-// dashboard.ready: only non-N/A gates count). N/A is also the automatic value
-// for the CON gate when there's no contract; CON isn't picked here (its dot
-// opens the contract editor), so that derived value is untouched.
+// dashboard.ready: only non-N/A gates count).
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
 interface BaseProps {
@@ -36,8 +34,7 @@ type ReadinessDotProps = BaseProps &
         onClick?: never;
       }
     | {
-        /** Override the dropdown — callers handle the click (e.g. CON opens
-         *  the rig contract editor). */
+        /** Override the dropdown — the caller handles the click. */
         onClick: () => void;
         onChange?: never;
       }

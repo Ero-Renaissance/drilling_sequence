@@ -32,7 +32,7 @@ async def _approved_project(
     await client.put(
         f"/api/projects/{pid}/activities/{a['id']}/readiness/BUD", json={"status": "Completed"}
     )
-    # Covering contract → CON derives Completed; ends well out → not "at risk".
+    # A Completed contract that ends well out → not "at risk".
     await client.put(
         f"/api/projects/{pid}/contracts/R",
         json={"status": "Completed", "contract_end": (TODAY + timedelta(days=200)).isoformat()},
@@ -78,12 +78,11 @@ async def test_last_approved_kpis(client: AsyncClient, other_client: AsyncClient
     assert k["activities_total"] == 1
     assert k["rigs_in_use"] == 1
     assert k["contracts_at_risk"] == 0  # contract ends +200d → healthy
-    # The snapshot materialises all 8 gates (unset → On Track), so BUD +
-    # derived CON Completed out of 8 applicable = 25%.
-    assert k["readiness_pct"] == 25
+    # The snapshot materialises all 7 gates (unset → On Track), so BUD Completed
+    # out of 7 applicable = 14%.
+    assert k["readiness_pct"] == 14
     by_gate = {g["code"]: g for g in k["by_gate"]}
     assert by_gate["BUD"]["completed"] == 1
-    assert by_gate["CON"]["completed"] == 1  # derived from the covering contract
     assert by_gate["LLI"]["on_track"] == 1
 
 

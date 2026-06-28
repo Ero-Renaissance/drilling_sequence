@@ -136,8 +136,8 @@ async def test_readiness_list_reports_locked(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_contract_edit_locked_then_unlocked(client: AsyncClient) -> None:
-    """Rig-contract edits drive derived CON readiness, so they're frozen while a
-    revision is pending and allowed again once it's resolved."""
+    """Rig-contract edits are captured in the snapshot (via its expiry), so they're
+    frozen while a revision is pending and allowed again once it's resolved."""
     project_id, _ = await _project_with_activity(client)
     revision_id = await _create_revision(client, project_id)
 

@@ -33,7 +33,6 @@ from app.schemas.dashboard import (
     Watchlist,
 )
 from app.services.conflicts import detect_resource_conflicts
-from app.services.readiness import derive_con_status, resolve_con_contract
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
 
@@ -79,20 +78,9 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     contracts = (
         await db.execute(select(RigContract).where(RigContract.project_id == project_id))
     ).scalars().all()
-    contracts_by_rig = {c.rig_name: c for c in contracts}
     hwu_contracts = (
         await db.execute(select(HwuContract).where(HwuContract.project_id == project_id))
     ).scalars().all()
-    contracts_by_hwu = {c.hwu_name: c for c in hwu_contracts}
-
-    # CON (Contract) readiness is derived from the resource contract (rig or HWU),
-    # not stored as a ReadinessCheck row. Inject it so the readiness %, the per-gate
-    # breakdown, and the "ready" count all account for the contract gate — and agree
-    # with the Readiness tab (which derives it the same way).
-    for a in activities:
-        readiness_by_activity.setdefault(a.id, {})["CON"] = derive_con_status(
-            a, resolve_con_contract(a, contracts_by_rig, contracts_by_hwu)
-        )
 
     revisions = (
         await db.execute(

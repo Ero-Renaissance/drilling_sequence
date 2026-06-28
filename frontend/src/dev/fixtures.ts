@@ -66,11 +66,11 @@ function readiness(overrides: Partial<Record<CheckCode, CheckStatus>>): Record<C
 }
 
 export const FIXTURE_READINESS: ReadinessMap = new Map([
-  ["f1", readiness({ FDP: "Completed", LLI: "Completed", LOC: "On Track", FE: "On Track", FID: "Completed", EIA: "On Track", BUD: "Completed", CON: "Completed" })],
-  ["f4", readiness({ FDP: "Behind", LLI: "Behind", LOC: "On Track", FE: "Behind", FID: "On Track", EIA: "N/A", BUD: "On Track", CON: "Behind" })],
-  ["f6", readiness({ FDP: "Completed", LLI: "On Track", LOC: "Completed", FE: "Completed", FID: "On Track", EIA: "Completed", BUD: "Completed", CON: "N/A" })],
-  ["f7", readiness({ FDP: "Completed", LLI: "Completed", LOC: "Completed", FE: "Completed", FID: "Completed", EIA: "Completed", BUD: "Completed", CON: "Completed" })],
-  ["f8", readiness({ FDP: "On Track", LLI: "On Track", LOC: "On Track", FE: "On Track", FID: "On Track", EIA: "On Track", BUD: "On Track", CON: "On Track" })],
+  ["f1", readiness({ FDP: "Completed", LLI: "Completed", LOC: "On Track", FE: "On Track", FID: "Completed", EIA: "On Track", BUD: "Completed" })],
+  ["f4", readiness({ FDP: "Behind", LLI: "Behind", LOC: "On Track", FE: "Behind", FID: "On Track", EIA: "N/A", BUD: "On Track" })],
+  ["f6", readiness({ FDP: "Completed", LLI: "On Track", LOC: "Completed", FE: "Completed", FID: "On Track", EIA: "Completed", BUD: "Completed" })],
+  ["f7", readiness({ FDP: "Completed", LLI: "Completed", LOC: "Completed", FE: "Completed", FID: "Completed", EIA: "Completed", BUD: "Completed" })],
+  ["f8", readiness({ FDP: "On Track", LLI: "On Track", LOC: "On Track", FE: "On Track", FID: "On Track", EIA: "On Track", BUD: "On Track" })],
 ]);
 
 function contract(rig: string, end: string): RigContract {

@@ -371,7 +371,7 @@ async def _import_long_schedule(
             continue
         readiness: dict[str, str] = {}
         for gate, gate_status in pa.readiness.items():
-            if gate == "CON" or gate not in CHECK_CODES:
+            if gate not in CHECK_CODES:
                 warnings.append(f"{label}: dropped unknown readiness check '{gate}'")
             elif gate_status not in CHECK_STATUSES:
                 warnings.append(f"{label}: dropped {gate} (invalid status '{gate_status}')")
@@ -405,7 +405,8 @@ async def _import_long_schedule(
             db.add(ReadinessCheck(activity_id=activity.id, check_code=gate, status=gate_status))
 
     # Resource contract expiry — upsert each rig / HWU with a binding (Completed)
-    # end date, so an imported sheet drives the CON gate exactly like the editor.
+    # end date, so an imported sheet sets the contract exactly like the editor (it
+    # drives the contract-expiry marker).
     for rig_name, expiry in rig_contracts.items():
         existing = (
             await db.execute(

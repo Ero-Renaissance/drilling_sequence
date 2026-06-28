@@ -35,8 +35,8 @@ async def assert_project_not_locked(project_id: uuid.UUID, db: AsyncSession) -> 
     awaiting approval.
 
     Used by operations that aren't tied to a single activity but still alter the
-    plan under review — bulk CSV import and rig-contract edits (the latter drives
-    derived CON readiness).
+    plan under review — bulk CSV import and rig-contract edits (the contract is
+    captured in the snapshot via its expiry).
     """
     result = await db.execute(
         select(Activity.id)
