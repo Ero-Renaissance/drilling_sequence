@@ -476,7 +476,6 @@ export function DrillChart({
         height: barRect.height,
       };
 
-      const baseStyle = api.style() as Record<string, unknown>;
       const item = displayData[params.dataIndex] as {
         isConflict?: boolean;
         isCompleted?: boolean;
@@ -486,11 +485,12 @@ export function DrillChart({
       const isConflict = item?.isConflict ?? false;
       const isCompleted = item?.isCompleted ?? false;
 
-      // Bar fill: solid family color straight from itemStyle. Each activity type
-      // gets its own distinct hue in chart-colors.ts so bar + legend always match.
-      // Completed activities read as "done": a neutral grey (not a dimmed
-      // version of the activity-type hue, which looked like another oil shade).
-      const fill = isCompleted ? theme.completedFill : baseStyle.fill;
+      // Bar fill: solid family color straight from the item's visual (its
+      // itemStyle.color). Each activity type gets its own distinct hue in
+      // chart-colors.ts so bar + legend always match. Completed activities read as
+      // "done": a neutral grey (not a dimmed version of the activity-type hue,
+      // which looked like another oil shade).
+      const fill = isCompleted ? theme.completedFill : (api.visual("color") as string);
 
       // A rig double-booking is physically impossible, so it must be unmissable.
       // We outline the bar in solid red rather than overlaying a hatch pattern —
@@ -516,7 +516,6 @@ export function DrillChart({
           type: "rect",
           shape: clippedBar,
           style: {
-            ...baseStyle,
             fill,
             opacity: dimmed ? 0.16 : 1,
             stroke: isConflict && !dimmed ? conflictStroke : undefined,
