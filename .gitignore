@@ -24,6 +24,8 @@ build/
 *.dylib
 *.env
 .env*
+# …but DO track the no-secrets template files.
+!.env.example
 .venv/
 venv/
 ENV/
