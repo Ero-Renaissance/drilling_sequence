@@ -264,6 +264,14 @@ function ResourceConflictBanner({ conflicts }: { conflicts: ResourceConflict[] }
   );
 }
 
+function presentTo(projectId: string, filters: { projects: string[]; locations: string[] }): string {
+  const params = new URLSearchParams();
+  filters.projects.forEach((p) => params.append("projects", p));
+  filters.locations.forEach((l) => params.append("locations", l));
+  const query = params.toString();
+  return `/projects/${projectId}/present${query ? `?${query}` : ""}`;
+}
+
 export function ChartTab() {
   const { projectId } = useParams<{ projectId: string }>();
   const [activities, setActivities] = useState<Activity[] | null>(null);
@@ -279,6 +287,10 @@ export function ChartTab() {
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
   const [notes, setNotes] = useState<ChangeNote[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [chartFilters, setChartFilters] = useState<{ projects: string[]; locations: string[] }>({
+    projects: [],
+    locations: [],
+  });
 
   const conflicts = useMemo(
     () => (activities ? detectResourceConflicts(activities) : []),
@@ -354,7 +366,7 @@ export function ChartTab() {
         </Button>
         {projectId && (
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
-            <NavLink to={`/projects/${projectId}/present`}>
+            <NavLink to={presentTo(projectId, chartFilters)}>
               <MonitorPlay className="h-4 w-4" />
               <span className="ml-1.5">Present</span>
             </NavLink>
@@ -411,6 +423,7 @@ export function ChartTab() {
             contractsByHwu={contractsByHwu}
             conflictIds={conflictIds}
             onActivityClick={setEditActivityId}
+            onFiltersChange={setChartFilters}
             enableFilters
           />
         </ErrorBoundary>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams, NavLink } from "react-router-dom";
+import { useParams, NavLink, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 import { listActivities, type Activity } from "@/api/activities";
@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
  */
 export function Presentation() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams] = useSearchParams();
   const [project, setProject] = useState<Project | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [readinessMap, setReadinessMap] = useState<ReadinessMap | undefined>(undefined);
@@ -81,6 +82,9 @@ export function Presentation() {
               readinessMap={readinessMap}
               contractsByRig={contractsByRig}
               contractsByHwu={contractsByHwu}
+              enableFilters
+              initialProjects={searchParams.getAll("projects")}
+              initialLocations={searchParams.getAll("locations")}
             />
           </ErrorBoundary>
         ) : (

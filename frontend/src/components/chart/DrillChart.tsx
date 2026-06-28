@@ -60,6 +60,13 @@ interface DrillChartProps {
    *  doesn't match). Off in the read-only revision snapshot view; on for the
    *  live project chart. */
   enableFilters?: boolean;
+  /** Initial filter selections — lets a caller (e.g. the presentation view) open
+   *  the chart already filtered. */
+  initialProjects?: string[];
+  initialLocations?: string[];
+  /** Fires when the project/location filters change, so a parent can carry the
+   *  current selection (e.g. into the presentation link). */
+  onFiltersChange?: (filters: { projects: string[]; locations: string[] }) => void;
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -250,16 +257,25 @@ export function DrillChart({
   conflictIds,
   onActivityClick,
   enableFilters = false,
+  initialProjects,
+  initialLocations,
+  onFiltersChange,
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
 
   const [activeYear, setActiveYear] = useState<number | null>(null);
   // Selected projects to single out — empty Set means "no filter" (all vivid).
-  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(() => new Set(initialProjects));
   // Selected locations (terrains) — empty Set means "no filter"; otherwise only
   // rows in these terrains are shown (the rest are removed, not dimmed).
-  const [selectedLocations, setSelectedLocations] = useState<Set<string>>(new Set());
+  const [selectedLocations, setSelectedLocations] = useState<Set<string>>(() => new Set(initialLocations));
+
+  // Surface filter changes so a parent can carry the selection (e.g. into the
+  // presentation link). Fires on the initial selection too.
+  useEffect(() => {
+    onFiltersChange?.({ projects: [...selectedProjects], locations: [...selectedLocations] });
+  }, [selectedProjects, selectedLocations, onFiltersChange]);
 
   // Distinct calendar years the campaign spans — drives the focus-year strip.
   const years = useMemo(() => {
