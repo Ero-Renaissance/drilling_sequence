@@ -19,6 +19,7 @@ import {
   TooltipComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { LegacyGridContainLabel } from "echarts/features";
 
 echarts.use([
   // Charts — CustomChart drives the Gantt (rect/text/image in renderItem);
@@ -33,6 +34,10 @@ echarts.use([
   DataZoomInsideComponent,
   MarkLineComponent,
   CanvasRenderer,
+  // Back-compat for `grid.containLabel: true` (auto-sizes the grid so long axis
+  // labels — rig names, dates — aren't clipped). v6 made it a registerable feature;
+  // the wholesale echarts import used to include it implicitly.
+  LegacyGridContainLabel,
 ]);
 
 export { echarts };
