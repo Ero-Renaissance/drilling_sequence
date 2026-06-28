@@ -14,6 +14,8 @@ export interface AdminUser {
   email: string;
   is_admin: boolean;
   project_count: number;
+  /** Admin granted by the email allowlist — can't be revoked from the admin page. */
+  admin_via_allowlist: boolean;
 }
 
 export interface ProjectMember {

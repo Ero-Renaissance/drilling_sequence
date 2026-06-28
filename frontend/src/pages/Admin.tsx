@@ -4,6 +4,14 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { adminApi } from "@/api/admin";
 import { useAuthStore } from "@/store/auth";
 import type { AdminUser } from "@/types";
@@ -24,6 +32,7 @@ export function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [confirmUser, setConfirmUser] = useState<AdminUser | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +70,10 @@ export function Admin() {
         <p className="text-sm text-muted-foreground">
           Grant or revoke global admin access. Admins can view and manage every project.
         </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Admins granted via the email allowlist (marked) or an Azure AD role can&apos;t be revoked
+          here — update the allowlist or the AD role instead.
+        </p>
       </div>
 
       {error && (
@@ -93,6 +106,12 @@ export function Admin() {
           <ul className="divide-y divide-border/60">
             {users.map((user) => {
               const isSelf = currentUser?.id === user.id;
+              const revokeLocked = user.is_admin && (isSelf || user.admin_via_allowlist);
+              const lockReason = !revokeLocked
+                ? undefined
+                : isSelf
+                  ? "You cannot revoke your own admin access"
+                  : "Admin via the email allowlist — remove them from admin_emails to revoke";
               return (
                 <li key={user.id} className="flex items-center gap-3 px-4 py-3">
                   <Avatar className="h-9 w-9">
@@ -112,6 +131,14 @@ export function Admin() {
                           Admin
                         </Badge>
                       )}
+                      {user.is_admin && user.admin_via_allowlist && (
+                        <span
+                          className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          title="Admin granted by the email allowlist — revoke by editing admin_emails"
+                        >
+                          via allowlist
+                        </span>
+                      )}
                       {isSelf && (
                         <span className="text-[10px] text-muted-foreground">(you)</span>
                       )}
@@ -125,11 +152,9 @@ export function Admin() {
                     variant={user.is_admin ? "ghost" : "outline"}
                     size="sm"
                     className="shrink-0"
-                    disabled={pendingId === user.id || (isSelf && user.is_admin)}
-                    title={
-                      isSelf && user.is_admin ? "You cannot revoke your own admin access" : undefined
-                    }
-                    onClick={() => toggleAdmin(user)}
+                    disabled={pendingId === user.id || revokeLocked}
+                    title={lockReason}
+                    onClick={() => setConfirmUser(user)}
                   >
                     {pendingId === user.id ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -146,6 +171,43 @@ export function Admin() {
           </ul>
         )}
       </div>
+
+      <Dialog open={!!confirmUser} onOpenChange={(o) => !o && setConfirmUser(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmUser?.is_admin ? "Revoke admin access?" : "Make this user an admin?"}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmUser?.is_admin ? (
+                <>
+                  Remove global admin from <strong>{confirmUser?.name}</strong>. They&apos;ll lose
+                  access to every campaign they aren&apos;t a member of.
+                </>
+              ) : (
+                <>
+                  <strong>{confirmUser?.name}</strong> will be able to view and manage every
+                  campaign. Grant global admin only when needed.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={confirmUser?.is_admin ? "destructive" : "default"}
+              onClick={() => {
+                if (confirmUser) toggleAdmin(confirmUser);
+                setConfirmUser(null);
+              }}
+            >
+              {confirmUser?.is_admin ? "Revoke admin" : "Make admin"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

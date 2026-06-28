@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import get_current_admin
 from app.database import get_db
 from app.models.project import ProjectMember
@@ -42,6 +43,7 @@ async def list_users(_admin: CurrentAdmin, db: DB) -> list[AdminUserResponse]:
             email=u.email,
             is_admin=u.is_admin,
             project_count=counts.get(u.id, 0),
+            admin_via_allowlist=u.email.lower() in settings.admin_emails_list,
         )
         for u in users
     ]
@@ -65,6 +67,18 @@ async def update_user(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # The allowlist (admin_emails) is a floor: it re-grants admin at every login, so a
+    # manual revoke here wouldn't stick. Reject it with a clear, actionable message.
+    via_allowlist = user.email.lower() in settings.admin_emails_list
+    if not payload.is_admin and via_allowlist:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This user is an admin via the email allowlist; "
+                "remove them from admin_emails to revoke."
+            ),
+        )
 
     previous = user.is_admin
     user.is_admin = payload.is_admin
@@ -95,4 +109,5 @@ async def update_user(
         email=user.email,
         is_admin=user.is_admin,
         project_count=count,
+        admin_via_allowlist=via_allowlist,
     )
