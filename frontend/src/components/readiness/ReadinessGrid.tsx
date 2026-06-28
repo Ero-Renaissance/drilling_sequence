@@ -47,21 +47,20 @@ function Legend() {
         {/* Check icons */}
         <div className="flex flex-1 flex-col gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Checks
+            Readiness Checks
           </span>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 md:grid-cols-4">
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
             {CHECK_CODES.map((code) => {
               const meta = CHECK_META[code];
               const Icon = meta.icon;
               return (
                 <span
                   key={code}
-                  className="flex items-center gap-2 text-xs text-foreground"
-                  title={meta.label}
+                  className="flex items-center gap-1.5 whitespace-nowrap text-xs text-foreground"
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
                   <span className="font-medium">{code}</span>
-                  <span className="truncate text-muted-foreground">{meta.label}</span>
+                  <span className="text-muted-foreground">{meta.label}</span>
                 </span>
               );
             })}
@@ -327,7 +326,16 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full min-w-[860px] table-fixed border-collapse text-sm">
+            <colgroup>
+              <col className="w-[26%]" />
+              <col className="w-[15%]" />
+              <col className="w-[15%]" />
+              <col className="w-[6%]" />
+              {CHECK_CODES.map((code) => (
+                <col key={code} />
+              ))}
+            </colgroup>
             <thead>
               <tr className="border-b border-border/70 bg-muted/30">
                 <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -347,15 +355,12 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                   return (
                     <th
                       key={code}
-                      className="w-[72px] px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                      className="px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                       title={CHECK_META[code].label}
                     >
                       <div className="flex items-center justify-center gap-1.5 text-foreground/80">
                         <Icon className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2} />
                         <span>{code}</span>
-                      </div>
-                      <div className="mt-0.5 truncate text-[9px] font-normal normal-case text-muted-foreground/70">
-                        {CHECK_META[code].label}
                       </div>
                     </th>
                   );
