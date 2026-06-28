@@ -67,8 +67,10 @@ interface DrillChartProps {
   /** Fires when the project/location filters change, so a parent can carry the
    *  current selection (e.g. into the presentation link). */
   onFiltersChange?: (filters: { projects: string[]; locations: string[] }) => void;
-  /** Hide the built-in legend (the presentation view renders it to the side). */
-  hideLegend?: boolean;
+  /** Where the legend sits relative to the chart. "right" is for the wide
+   *  presentation view (aligned with the chart, below the filters); "bottom"
+   *  (default) everywhere else. */
+  legendPosition?: "bottom" | "right";
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -262,7 +264,7 @@ export function DrillChart({
   initialProjects,
   initialLocations,
   onFiltersChange,
-  hideLegend = false,
+  legendPosition = "bottom",
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
@@ -1032,6 +1034,37 @@ export function DrillChart({
     [focusYear, onActivityClick, updateBands],
   );
 
+  const chartEl = (
+    <div
+      className={`overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm${
+        legendPosition === "right" ? " min-w-0 flex-1" : ""
+      }`}
+    >
+      <ReactECharts
+        ref={chartRef}
+        option={option}
+        style={{ height: chartHeight, minWidth: 700 }}
+        notMerge
+        lazyUpdate
+        opts={{ renderer: "canvas", devicePixelRatio: window.devicePixelRatio }}
+        onEvents={onEvents}
+      />
+    </div>
+  );
+  const legendEl = (
+    <ChartLegend
+      activityTypes={activityTypes}
+      showReadiness={!!readinessMap}
+      showContractExpiry={!!(contractsByRig || contractsByHwu)}
+      showFloodRisk={hasFlood}
+      className={
+        legendPosition === "right"
+          ? "self-start lg:w-60 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:gap-3"
+          : undefined
+      }
+    />
+  );
+
   return (
     <div
       data-testid="drill-chart"
@@ -1096,24 +1129,16 @@ export function DrillChart({
           )}
         </div>
       )}
-      <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
-        <ReactECharts
-          ref={chartRef}
-          option={option}
-          style={{ height: chartHeight, minWidth: 700 }}
-          notMerge
-          lazyUpdate
-          opts={{ renderer: "canvas", devicePixelRatio: window.devicePixelRatio }}
-          onEvents={onEvents}
-        />
-      </div>
-      {!hideLegend && (
-        <ChartLegend
-          activityTypes={activityTypes}
-          showReadiness={!!readinessMap}
-          showContractExpiry={!!(contractsByRig || contractsByHwu)}
-          showFloodRisk={hasFlood}
-        />
+      {legendPosition === "right" ? (
+        <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
+          {chartEl}
+          {legendEl}
+        </div>
+      ) : (
+        <>
+          {chartEl}
+          {legendEl}
+        </>
       )}
     </div>
   );
