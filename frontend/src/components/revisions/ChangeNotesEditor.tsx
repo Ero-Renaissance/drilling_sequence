@@ -71,33 +71,29 @@ function changeTone(a: ActivityDiff): string {
   return "text-red-600 dark:text-red-400";
 }
 
+/** A date column cell: the date, and when it shifted, "was → now" plus the day
+ *  delta coloured green (earlier) or red (later). */
 function DateCell({ pair }: { pair: { prev: string | null; next: string | null } }) {
   const { prev, next } = pair;
   if (prev && next && prev !== next) {
+    const shift = dayShift(prev, next);
     return (
-      <span className="tabular-nums">
+      <span className="tabular-nums whitespace-nowrap">
         {fmtMonth(prev)} <span className="text-muted-foreground/60">→</span> {fmtMonth(next)}
+        {shift !== null && shift !== 0 && (
+          <span
+            className={cn(
+              "ml-1 font-medium",
+              shift > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
+            )}
+          >
+            {shift > 0 ? `+${shift}` : shift}d
+          </span>
+        )}
       </span>
     );
   }
   return <span className="tabular-nums">{fmtMonth(next ?? prev) ?? "—"}</span>;
-}
-
-function ShiftCell({ a }: { a: ActivityDiff }) {
-  const { prev, next } = datePair(a, "end");
-  const shift = dayShift(prev, next);
-  if (shift === null) return <span className="text-muted-foreground">—</span>;
-  const tone =
-    shift > 0
-      ? "text-red-600 dark:text-red-400"
-      : shift < 0
-        ? "text-emerald-600 dark:text-emerald-400"
-        : "text-muted-foreground";
-  return (
-    <span className={cn("tabular-nums font-medium", tone)}>
-      {shift > 0 ? `+${shift}` : shift}d
-    </span>
-  );
 }
 
 /**
@@ -250,13 +246,17 @@ function ResourceBlock({
                 <th className="py-1 pr-2 font-medium">Project</th>
                 <th className="py-1 pr-2 font-medium">Well</th>
                 <th className="py-1 pr-2 font-medium">Activity</th>
-                <th className="py-1 pr-2 font-medium">Start (was → now)</th>
-                <th className="py-1 pr-2 font-medium">End (was → now)</th>
                 <th
                   className="py-1 pr-2 font-medium"
-                  title="Finish-date shift vs the previous plan — green = earlier, red = later"
+                  title="Spud (start) date vs the previous plan — green = earlier, red = later (slips push OSD)"
                 >
-                  Shift
+                  Start / spud
+                </th>
+                <th
+                  className="py-1 pr-2 font-medium"
+                  title="Finish date vs the previous plan — green = earlier, red = later"
+                >
+                  End
                 </th>
                 <th className="py-1 font-medium">Comment</th>
               </tr>
@@ -273,9 +273,6 @@ function ResourceBlock({
                   </td>
                   <td className="py-1 pr-2 text-foreground/80">
                     <DateCell pair={datePair(a, "end")} />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <ShiftCell a={a} />
                   </td>
                   <td className="py-1 text-muted-foreground">{a.comment ?? ""}</td>
                 </tr>
