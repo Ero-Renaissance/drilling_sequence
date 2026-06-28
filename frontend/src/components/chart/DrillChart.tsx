@@ -67,6 +67,8 @@ interface DrillChartProps {
   /** Fires when the project/location filters change, so a parent can carry the
    *  current selection (e.g. into the presentation link). */
   onFiltersChange?: (filters: { projects: string[]; locations: string[] }) => void;
+  /** Hide the built-in legend (the presentation view renders it to the side). */
+  hideLegend?: boolean;
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -260,6 +262,7 @@ export function DrillChart({
   initialProjects,
   initialLocations,
   onFiltersChange,
+  hideLegend = false,
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
@@ -1104,12 +1107,14 @@ export function DrillChart({
           onEvents={onEvents}
         />
       </div>
-      <ChartLegend
-        activityTypes={activityTypes}
-        showReadiness={!!readinessMap}
-        showContractExpiry={!!(contractsByRig || contractsByHwu)}
-        showFloodRisk={hasFlood}
-      />
+      {!hideLegend && (
+        <ChartLegend
+          activityTypes={activityTypes}
+          showReadiness={!!readinessMap}
+          showContractExpiry={!!(contractsByRig || contractsByHwu)}
+          showFloodRisk={hasFlood}
+        />
+      )}
     </div>
   );
 }

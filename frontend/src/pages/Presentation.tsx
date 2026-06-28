@@ -11,6 +11,7 @@ import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { DrillChart } from "@/components/chart/DrillChart";
+import { ChartLegend } from "@/components/chart/ChartLegend";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChangeNotesPanel } from "@/components/revisions/ChangeNotesPanel";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,9 @@ export function Presentation() {
 
   if (!projectId) return null;
 
+  const activityTypes = [...new Set(activities.map((a) => a.activity_type))];
+  const hasFlood = activities.some((a) => a.risk === "Flood Risk");
+
   return (
     <div className="fixed inset-0 z-20 overflow-auto bg-background">
       <div className="mx-auto max-w-[1600px] space-y-4 p-6">
@@ -77,15 +81,27 @@ export function Presentation() {
 
         {activities.length > 0 ? (
           <ErrorBoundary label="chart">
-            <DrillChart
-              activities={activities}
-              readinessMap={readinessMap}
-              contractsByRig={contractsByRig}
-              contractsByHwu={contractsByHwu}
-              enableFilters
-              initialProjects={searchParams.getAll("projects")}
-              initialLocations={searchParams.getAll("locations")}
-            />
+            <div className="flex flex-col gap-4 lg:flex-row">
+              <div className="min-w-0 flex-1">
+                <DrillChart
+                  activities={activities}
+                  readinessMap={readinessMap}
+                  contractsByRig={contractsByRig}
+                  contractsByHwu={contractsByHwu}
+                  enableFilters
+                  hideLegend
+                  initialProjects={searchParams.getAll("projects")}
+                  initialLocations={searchParams.getAll("locations")}
+                />
+              </div>
+              <ChartLegend
+                activityTypes={activityTypes}
+                showReadiness={!!readinessMap}
+                showContractExpiry={!!(contractsByRig || contractsByHwu)}
+                showFloodRisk={hasFlood}
+                className="self-start lg:w-60 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:gap-3"
+              />
+            </div>
           </ErrorBoundary>
         ) : (
           <p className="text-sm text-muted-foreground">No activities to present.</p>
