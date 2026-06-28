@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -18,7 +18,10 @@ import { Label } from "@/components/ui/label";
 import { createActivity, type Activity } from "@/api/activities";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
 import { cn } from "@/lib/utils";
-import { ResourceContractSection } from "@/components/readiness/ResourceContractSection";
+import {
+  ResourceContractSection,
+  type ResourceContractHandle,
+} from "@/components/readiness/ResourceContractSection";
 
 const LOCATIONS = ["LAND", "SWAMP", "OFFSHORE"] as const;
 const PLAN_TYPES = ["Firm", "Option", "Out of Plan"] as const;
@@ -94,6 +97,7 @@ export function ActivityFormDialog({
 }: ActivityFormDialogProps) {
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const contractRef = useRef<ResourceContractHandle>(null);
 
   const activityTypeSuggestions = useMemo(
     () => suggestedActivityTypes(existingActivityTypes ?? []),
@@ -125,6 +129,9 @@ export function ActivityFormDialog({
   async function onSubmit(values: FormValues) {
     setServerError(null);
     try {
+      // The resource's contract (only if the user edited it) saves with the
+      // activity — one Save, not two.
+      await contractRef.current?.save();
       const activity = await createActivity(projectId, {
         activity_type: values.activity_type,
         start_date: values.start_date,
@@ -249,6 +256,7 @@ export function ActivityFormDialog({
 
           {!noResource && watchedResourceName.trim() && (
             <ResourceContractSection
+              ref={contractRef}
               projectId={projectId}
               resourceName={watchedResourceName.trim()}
               kind={watchedResourceType === "HWU" ? "hwu" : "rig"}

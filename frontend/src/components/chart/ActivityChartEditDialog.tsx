@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -27,7 +27,10 @@ import { LOCATIONS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFor
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { CHECK_META } from "@/components/readiness/check-meta";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
-import { ResourceContractSection } from "@/components/readiness/ResourceContractSection";
+import {
+  ResourceContractSection,
+  type ResourceContractHandle,
+} from "@/components/readiness/ResourceContractSection";
 import { detectResourceConflicts } from "@/lib/conflicts";
 
 /** Per-activity readiness gates the user can edit. */
@@ -123,6 +126,7 @@ export function ActivityChartEditDialog({
   );
 
   const [error, setError] = useState<string | null>(null);
+  const contractRef = useRef<ResourceContractHandle>(null);
 
   const {
     register,
@@ -265,6 +269,10 @@ export function ActivityChartEditDialog({
         ),
       );
 
+      // The resource's contract (only if the user edited it) saves with the
+      // activity — one Save, not two.
+      await contractRef.current?.save();
+
       onSaved();
       onOpenChange(false);
     } catch (err) {
@@ -404,6 +412,7 @@ export function ActivityChartEditDialog({
 
             {!noResource && watchedResourceName && (
               <ResourceContractSection
+                ref={contractRef}
                 projectId={projectId}
                 resourceName={watchedResourceName}
                 kind={watchedResourceType === "HWU" ? "hwu" : "rig"}

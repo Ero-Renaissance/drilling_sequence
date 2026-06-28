@@ -31,23 +31,15 @@ type ReadinessDotProps = BaseProps &
     | {
         /** Open the standard status dropdown picker. */
         onChange: (status: CheckStatus) => void;
-        onClick?: never;
-      }
-    | {
-        /** Override the dropdown — the caller handles the click. */
-        onClick: () => void;
-        onChange?: never;
       }
     | {
         /** Display only — no interaction. Used for frozen snapshots. */
         onChange?: never;
-        onClick?: never;
       }
   );
 
 type IconButtonProps = BaseProps & {
   onClick?: () => void;
-  asDropdownTrigger?: boolean;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
 const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
@@ -58,7 +50,6 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
       disabled,
       size = "lg",
       onClick,
-      asDropdownTrigger = false,
       ...rest
     },
     ref,
@@ -76,9 +67,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         disabled={disabled}
         onClick={onClick}
         title={title}
-        aria-label={
-          asDropdownTrigger ? `${title}. Click to change.` : `${title}. Click to edit contract.`
-        }
+        aria-label={`${title}. Click to change.`}
         className={cn(
           "group inline-flex items-center justify-center rounded-md transition-colors",
           "hover:bg-accent/50",
@@ -105,7 +94,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
   const { code, status, disabled, size = "lg" } = props;
 
   // Display-only — no handler at all. Just render the icon.
-  if (!("onChange" in props && props.onChange) && !("onClick" in props && props.onClick)) {
+  if (!("onChange" in props && props.onChange)) {
     const meta = CHECK_META[code];
     const Icon = meta.icon;
     const iconSize = size === "lg" ? "h-[18px] w-[18px]" : "h-4 w-4";
@@ -123,19 +112,6 @@ export function ReadinessDot(props: ReadinessDotProps) {
     );
   }
 
-  // Override path — caller handles the click directly.
-  if ("onClick" in props && props.onClick) {
-    return (
-      <IconButton
-        code={code}
-        status={status}
-        disabled={disabled}
-        size={size}
-        onClick={props.onClick}
-      />
-    );
-  }
-
   // Standard path — open the status picker. When disabled (e.g. the plan is
   // locked for approval), render a bare disabled button and DON'T mount the
   // dropdown: `disabled` on a Radix DropdownMenuTrigger child does not reliably
@@ -145,7 +121,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
   const onChange = (props as { onChange: (s: CheckStatus) => void }).onChange;
 
   if (disabled) {
-    return <IconButton code={code} status={status} disabled size={size} asDropdownTrigger />;
+    return <IconButton code={code} status={status} disabled size={size} />;
   }
 
   return (
@@ -156,7 +132,6 @@ export function ReadinessDot(props: ReadinessDotProps) {
           status={status}
           disabled={disabled}
           size={size}
-          asDropdownTrigger
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" sideOffset={6} className="w-48">

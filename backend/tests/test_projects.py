@@ -265,7 +265,7 @@ async def test_clone_inherits_review_policy(client: AsyncClient, db: AsyncSessio
 async def test_clone_copies_rig_contracts(client: AsyncClient) -> None:
     source = await _create_project(client, name="Q1")
     await client.put(
-        f"/api/projects/{source['id']}/contracts/RigAlpha", json={"status": "In Progress"}
+        f"/api/projects/{source['id']}/contracts/RigAlpha", json={"status": "Draft"}
     )
 
     clone = (
@@ -273,7 +273,7 @@ async def test_clone_copies_rig_contracts(client: AsyncClient) -> None:
     ).json()
     contracts = (await client.get(f"/api/projects/{clone['id']}/contracts")).json()
     assert any(
-        c["rig_name"] == "RigAlpha" and c["status"] == "In Progress" for c in contracts
+        c["rig_name"] == "RigAlpha" and c["status"] == "Draft" for c in contracts
     )
 
 

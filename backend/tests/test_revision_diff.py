@@ -71,14 +71,14 @@ def _rig_act(aid: str, rig: str, status: str, end: str | None) -> dict:
 
 def test_diff_reports_rig_contract_change() -> None:
     base = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
-    target = [_rig_act("a", "Rig Alpha", "In Progress", "2026-06-30")]
+    target = [_rig_act("a", "Rig Alpha", "Draft", "2026-06-30")]
     diff = diff_snapshots(base, target)
 
     assert len(diff["contracts"]) == 1
     c = diff["contracts"][0]
     assert c["resource"] == "Rig Alpha"
     assert any(
-        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "In Progress"
+        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "Draft"
         for f in c["fields"]
     )
     # Contract changes are resource-level, never per-activity.
@@ -100,14 +100,14 @@ def test_diff_reports_hwu_contract_change() -> None:
     # The HWU contract is captured generically (rig_contract_* keys); the diff
     # groups it under the HWU resource, tagged "HWU · <name>".
     base = [_hwu_act("h", "Unit-9", "Completed", "2026-06-30")]
-    target = [_hwu_act("h", "Unit-9", "In Progress", "2026-06-30")]
+    target = [_hwu_act("h", "Unit-9", "Draft", "2026-06-30")]
     diff = diff_snapshots(base, target)
 
     assert len(diff["contracts"]) == 1
     c = diff["contracts"][0]
     assert c["resource"] == "HWU · Unit-9"
     assert any(
-        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "In Progress"
+        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "Draft"
         for f in c["fields"]
     )
 
@@ -362,12 +362,12 @@ async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None
             "risk": "No Flood Risk",
         },
     )
-    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Not Started"})
+    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Draft"})
 
     rev1 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
     # Discard to unlock, change the contract, then snapshot again.
     await client.delete(f"/api/projects/{pid}/revisions/{rev1['id']}")
-    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "In Progress"})
+    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Completed"})
     rev2 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
 
     diff = (
@@ -379,5 +379,5 @@ async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None
     contract = diff["contracts"][0]
     assert contract["resource"] == "RigAlpha"
     assert any(
-        f["field"] == "Status" and f["new"] == "In Progress" for f in contract["fields"]
+        f["field"] == "Status" and f["new"] == "Completed" for f in contract["fields"]
     )

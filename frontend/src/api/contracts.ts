@@ -1,14 +1,9 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
 
-export type ContractStatus = "N/A" | "Not Started" | "In Progress" | "Completed";
+export type ContractStatus = "Draft" | "Completed";
 
-export const CONTRACT_STATUSES: ContractStatus[] = [
-  "N/A",
-  "Not Started",
-  "In Progress",
-  "Completed",
-];
+export const CONTRACT_STATUSES: ContractStatus[] = ["Draft", "Completed"];
 
 export interface RigContract {
   id: string;

@@ -4,13 +4,13 @@ from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-ContractStatus = Literal["N/A", "Not Started", "In Progress", "Completed"]
+ContractStatus = Literal["Draft", "Completed"]
 
 
 class RigContractUpsert(BaseModel):
     """Create or replace the contract for a rig."""
 
-    status: ContractStatus = "Not Started"
+    status: ContractStatus = "Draft"
     contract_start: date | None = None
     contract_end: date | None = None
     notes: str | None = None

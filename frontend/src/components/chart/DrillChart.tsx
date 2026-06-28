@@ -587,10 +587,12 @@ export function DrillChart({
       }
 
       // Readiness icon strip below the bar — 4 adaptive tiers by bar width.
-      // Thresholds tuned for the 8-icon set (7 readiness gates + CON).
-      //   ≥ 135px → 8 full-size icons (14px) in a single row
-      //   90–135  → 8 half-size icons (10px) in a single row
-      //   45–90   → 4×2 mini grid (9px icons, 4 + 4 across two rows)
+      // Thresholds sized for the 7-gate set (FDP/LLI/LOC/FE/FID/EIA/BUD); they
+      // predate the CON-gate removal and still hold (7 icons need a touch less
+      // width than the 8 they were tuned for).
+      //   ≥ 135px → 7 full-size icons (14px) in a single row
+      //   90–135  → 7 half-size icons (10px) in a single row
+      //   45–90   → mini grid (9px icons, 4 + 3 across two rows)
       //   <  45   → single worst-status icon (12px) — identifies the failing check
       const checks = item?.tooltip?.checks ?? null;
       const barWidth = Math.max(end[0] - start[0], 1);
@@ -637,7 +639,7 @@ export function DrillChart({
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
         } else if (tier === "grid") {
-          // 4×2 mini grid — 8 icons split evenly (4 in each row)
+          // Mini grid — 7 icons across two rows (4 on top, 3 below)
           const GRID_SIZE = 9;
           const GRID_GAP = 1;
           for (let i = 0; i < BAR_STRIP_CODES.length; i++) {

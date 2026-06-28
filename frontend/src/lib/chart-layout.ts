@@ -36,10 +36,13 @@ export function worstCheck(
 export type IconTier = "full" | "half" | "grid" | "single";
 
 /**
- * Pick the readiness-strip tier by bar width (px). Tuned for the 8-icon set:
- *   ≥135 → "full"  (8 × 14px, one row)
- *   ≥90  → "half"  (8 × 10px, one row)
- *   ≥45  → "grid"  (4 × 2 mini grid)
+ * Pick the readiness-strip tier by bar width (px). Sized for the 7-gate set
+ * (FDP/LLI/LOC/FE/FID/EIA/BUD); the cutoffs predate the CON-gate removal and still
+ * hold — 7 icons need a touch less width than the 8 they were tuned for, so each
+ * tier keeps a little extra slack and the grid footprint is unchanged:
+ *   ≥135 → "full"  (7 × 14px, one row)
+ *   ≥90  → "half"  (7 × 10px, one row)
+ *   ≥45  → "grid"  (4 + 3 mini grid, two rows)
  *   <45  → "single" (worst-status icon only)
  */
 export function iconTier(barWidth: number): IconTier {

@@ -142,12 +142,12 @@ async def test_contract_edit_locked_then_unlocked(client: AsyncClient) -> None:
     revision_id = await _create_revision(client, project_id)
 
     url = f"/api/projects/{project_id}/contracts/RigAlpha"
-    assert (await client.put(url, json={"status": "Not Started"})).status_code == 423
+    assert (await client.put(url, json={"status": "Draft"})).status_code == 423
 
     discard = await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
     assert discard.status_code == 204
 
-    assert (await client.put(url, json={"status": "Not Started"})).status_code == 200
+    assert (await client.put(url, json={"status": "Draft"})).status_code == 200
 
 
 @pytest.mark.asyncio

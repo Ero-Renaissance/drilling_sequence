@@ -2,10 +2,10 @@
  * Contract classification — surfaced as a Y-axis indicator on the chart,
  * a chip in the activity edit dialog, and the Dashboard "Contract Alerts" KPI.
  *
- * The rig contract is a WORKFLOW ITEM with an explicit status. Dates only
- * become binding (and only drive an expiry urgency) when the planner marks
- * the contract as "Completed" — every other workflow state communicates the
- * negotiation phase, not an in-force agreement.
+ * The rig contract is a two-state WORKFLOW ITEM. Dates only become binding (and
+ * only drive an expiry urgency) when the planner marks the contract "Completed"
+ * (signed/in force); a "Draft" contract is still being prepared, so its dates
+ * aren't binding.
  */
 
 import type { ContractStatus } from "@/api/contracts";
@@ -16,9 +16,7 @@ export type ContractUrgency =
   | "critical" // Completed contract, 0 – 30 days remaining
   | "expired" //  Completed contract, end date is in the past
   | "incomplete" // Completed contract but no end date entered yet
-  | "in_progress" // Workflow: under negotiation
-  | "not_started" // Workflow: paperwork hasn't begun
-  | "na" //       Workflow: rig doesn't need a contract
+  | "draft" //   Draft contract — not yet in force, dates aren't binding
   | null; //      No contract record on file
 
 interface ContractLike {
@@ -33,12 +31,8 @@ export function classifyContract(
   if (!contract) return null;
 
   switch (contract.status) {
-    case "N/A":
-      return "na";
-    case "Not Started":
-      return "not_started";
-    case "In Progress":
-      return "in_progress";
+    case "Draft":
+      return "draft";
     case "Completed":
     case undefined: {
       // status missing only for very old data — treat as Completed-ish so the
@@ -109,26 +103,10 @@ export const URGENCY_VISUAL: Record<
     tintText: "text-muted-foreground",
     tintBorder: "border-border",
   },
-  in_progress: {
-    label: "Under negotiation",
-    dotClass: "bg-amber-500",
-    hex: "#f59e0b",
-    tintBg: "bg-amber-500/12",
-    tintText: "text-amber-600 dark:text-amber-400",
-    tintBorder: "border-amber-500/30",
-  },
-  not_started: {
-    label: "Not started",
+  draft: {
+    label: "Draft",
     dotClass: "bg-zinc-400 dark:bg-zinc-500",
     hex: "#a1a1aa",
-    tintBg: "bg-muted",
-    tintText: "text-muted-foreground",
-    tintBorder: "border-border",
-  },
-  na: {
-    label: "Not applicable",
-    dotClass: "bg-zinc-300 dark:bg-zinc-600",
-    hex: "#d4d4d8",
     tintBg: "bg-muted",
     tintText: "text-muted-foreground",
     tintBorder: "border-border",

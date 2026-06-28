@@ -6,11 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-# Workflow status the planner sets explicitly. Dates only become binding
-# (i.e. drive the rig-level expiry alarm) when status is "Completed" — for the
-# other states the rig contract is still a workflow item, not an in-force
-# agreement.
-CONTRACT_STATUSES = ("N/A", "Not Started", "In Progress", "Completed")
+# Two-state workflow the planner sets explicitly: a contract is either a "Draft"
+# (being prepared — dates are tentative) or "Completed" (signed/in force). Dates
+# only become binding (i.e. drive the rig-level expiry alarm) once "Completed".
+CONTRACT_STATUSES = ("Draft", "Completed")
 
 
 class RigContract(Base):
@@ -27,7 +26,7 @@ class RigContract(Base):
     )
     rig_name: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="Not Started"
+        String(32), nullable=False, server_default="Draft"
     )
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)

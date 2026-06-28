@@ -26,7 +26,7 @@ class HwuContract(Base):
     )
     hwu_name: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="Not Started"
+        String(32), nullable=False, server_default="Draft"
     )
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)

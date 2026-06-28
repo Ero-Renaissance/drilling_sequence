@@ -10,7 +10,7 @@ from app.schemas.rig_contract import ContractStatus
 class HwuContractUpsert(BaseModel):
     """Create or replace the contract for an HWU."""
 
-    status: ContractStatus = "Not Started"
+    status: ContractStatus = "Draft"
     contract_start: date | None = None
     contract_end: date | None = None
     notes: str | None = None
