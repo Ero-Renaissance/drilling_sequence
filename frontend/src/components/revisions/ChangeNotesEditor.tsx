@@ -39,23 +39,24 @@ function fmtMonth(iso: string | null): string | null {
   return MONTHS[Number(m) - 1] ? `${MONTHS[Number(m) - 1]} ${y.slice(2)}` : iso;
 }
 
-function fmtRange(start: string | null, end: string | null): string {
-  const s = fmtMonth(start);
-  const e = fmtMonth(end);
-  return s || e ? `${s ?? "?"} – ${e ?? "?"}` : "—";
-}
-
 const prevOf = (a: ActivityDiff, label: "Start date" | "End date") =>
   a.fields.find((f) => f.field === label)?.old ?? null;
 
-function previousRange(a: ActivityDiff): string {
-  if (a.change === "added") return "—";
-  if (a.change === "removed") return fmtRange(a.start_date, a.end_date);
-  return fmtRange(prevOf(a, "Start date") ?? a.start_date, prevOf(a, "End date") ?? a.end_date);
+/** The previous and new value of one date column. Added has no previous; removed
+ *  has no new (its dates are the last-known / base values). */
+function datePair(a: ActivityDiff, which: "start" | "end"): { prev: string | null; next: string | null } {
+  const cur = which === "start" ? a.start_date : a.end_date;
+  if (a.change === "added") return { prev: null, next: cur };
+  if (a.change === "removed") return { prev: cur, next: null };
+  return { prev: prevOf(a, which === "start" ? "Start date" : "End date") ?? cur, next: cur };
 }
 
-const currentRange = (a: ActivityDiff) =>
-  a.change === "removed" ? "—" : fmtRange(a.start_date, a.end_date);
+function dayShift(prev: string | null, next: string | null): number | null {
+  if (!prev || !next) return null;
+  const a = Date.parse(prev.slice(0, 10));
+  const b = Date.parse(next.slice(0, 10));
+  return Number.isNaN(a) || Number.isNaN(b) ? null : Math.round((b - a) / 86_400_000);
+}
 
 function changeLabel(a: ActivityDiff): string {
   if (a.change === "added") return "Added";
@@ -68,6 +69,35 @@ function changeTone(a: ActivityDiff): string {
   if (a.change === "modified") return "text-amber-600 dark:text-amber-400";
   if (a.removal_reason === "completed") return "text-sky-600 dark:text-sky-400";
   return "text-red-600 dark:text-red-400";
+}
+
+function DateCell({ pair }: { pair: { prev: string | null; next: string | null } }) {
+  const { prev, next } = pair;
+  if (prev && next && prev !== next) {
+    return (
+      <span className="tabular-nums">
+        {fmtMonth(prev)} <span className="text-muted-foreground/60">→</span> {fmtMonth(next)}
+      </span>
+    );
+  }
+  return <span className="tabular-nums">{fmtMonth(next ?? prev) ?? "—"}</span>;
+}
+
+function ShiftCell({ a }: { a: ActivityDiff }) {
+  const { prev, next } = datePair(a, "end");
+  const shift = dayShift(prev, next);
+  if (shift === null) return <span className="text-muted-foreground">—</span>;
+  const tone =
+    shift > 0
+      ? "text-red-600 dark:text-red-400"
+      : shift < 0
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-muted-foreground";
+  return (
+    <span className={cn("tabular-nums font-medium", tone)}>
+      {shift > 0 ? `+${shift}` : shift}d
+    </span>
+  );
 }
 
 /**
@@ -213,15 +243,21 @@ function ResourceBlock({
 
       {group.activities.length > 0 && (
         <div className="mb-1.5 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-[11px]">
+          <table className="w-full min-w-[680px] text-left text-[11px]">
             <thead className="text-muted-foreground">
               <tr className="border-b border-border/60">
                 <th className="py-1 pr-2 font-medium">Change</th>
                 <th className="py-1 pr-2 font-medium">Project</th>
                 <th className="py-1 pr-2 font-medium">Well</th>
                 <th className="py-1 pr-2 font-medium">Activity</th>
-                <th className="py-1 pr-2 font-medium">Previous</th>
-                <th className="py-1 pr-2 font-medium">Current</th>
+                <th className="py-1 pr-2 font-medium">Start (was → now)</th>
+                <th className="py-1 pr-2 font-medium">End (was → now)</th>
+                <th
+                  className="py-1 pr-2 font-medium"
+                  title="Finish-date shift vs the previous plan — green = earlier, red = later"
+                >
+                  Shift
+                </th>
                 <th className="py-1 font-medium">Comment</th>
               </tr>
             </thead>
@@ -232,8 +268,15 @@ function ResourceBlock({
                   <td className="py-1 pr-2 text-foreground/80">{a.well_project ?? "—"}</td>
                   <td className="py-1 pr-2 text-foreground/80">{a.well_name ?? "—"}</td>
                   <td className="py-1 pr-2 text-foreground/80">{a.activity_type}</td>
-                  <td className="py-1 pr-2 tabular-nums text-muted-foreground">{previousRange(a)}</td>
-                  <td className="py-1 pr-2 tabular-nums text-foreground/80">{currentRange(a)}</td>
+                  <td className="py-1 pr-2 text-foreground/80">
+                    <DateCell pair={datePair(a, "start")} />
+                  </td>
+                  <td className="py-1 pr-2 text-foreground/80">
+                    <DateCell pair={datePair(a, "end")} />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <ShiftCell a={a} />
+                  </td>
                   <td className="py-1 text-muted-foreground">{a.comment ?? ""}</td>
                 </tr>
               ))}

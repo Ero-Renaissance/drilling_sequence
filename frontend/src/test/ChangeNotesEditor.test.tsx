@@ -66,6 +66,24 @@ describe("ChangeNotesEditor", () => {
     expect(screen.getByText("HWU · HWU_1")).toBeInTheDocument();
   });
 
+  it("shows the finish-date shift in days for a slipped activity", () => {
+    const slipped = diffActivity({
+      end_date: "2026-10-01",
+      fields: [{ field: "End date", old: "2026-09-01", new: "2026-10-01" }],
+    });
+    render(
+      <ChangeNotesEditor
+        projectId="p1"
+        activities={[slipped]}
+        contracts={[]}
+        notes={[]}
+        canEdit
+        locked={false}
+      />,
+    );
+    expect(screen.getByText("+30d")).toBeInTheDocument();
+  });
+
   it("shows a locked hint and read-only notes when locked", () => {
     render(
       <ChangeNotesEditor
