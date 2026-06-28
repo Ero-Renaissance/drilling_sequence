@@ -4,7 +4,7 @@ import { crossCompareProjects, type RevisionDiff as RevisionDiffData } from "@/a
 import { listRevisions, type Revision } from "@/api/revisions";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
-import { ActivityDiffList, ContractDiffList, LIVE_REF, optionLabel, SummaryBar } from "./diff-shared";
+import { LIVE_REF, optionLabel, SummaryBar } from "./diff-shared";
 import { useOutletContext } from "react-router-dom";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import { ChangeNotesEditor } from "./ChangeNotesEditor";
@@ -159,20 +159,22 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
           {diff && !loading && (
             <>
               <SummaryBar diff={diff} />
-              <ContractDiffList contracts={diff.contracts} />
-              {diff.activities.length === 0 ? (
+              {diff.activities.length === 0 &&
+              diff.contracts.length === 0 &&
+              notes.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
                   No activity changes between these schedules.
                 </p>
               ) : (
-                <ActivityDiffList activities={diff.activities} />
+                <ChangeNotesEditor
+                  projectId={projectId}
+                  activities={diff.activities}
+                  contracts={diff.contracts}
+                  notes={notes}
+                  canEdit={canEditNotes}
+                  locked={!!ctx?.locked}
+                />
               )}
-              <ChangeNotesEditor
-                projectId={projectId}
-                activities={diff.activities}
-                notes={notes}
-                canEdit={canEditNotes}
-              />
             </>
           )}
         </>

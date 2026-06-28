@@ -13,6 +13,7 @@ class ActivityDiff(BaseModel):
     activity_id: str
     activity_type: str
     well_name: str | None = None
+    well_project: str | None = None
     rig_name: str | None = None
     hwu_name: str | None = None
     comment: str | None = None
