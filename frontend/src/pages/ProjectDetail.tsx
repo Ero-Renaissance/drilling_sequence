@@ -14,6 +14,7 @@ import { listActivities, type Activity } from "@/api/activities";
 import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
+import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { DrillChart } from "@/components/chart/DrillChart";
@@ -28,6 +29,7 @@ import { ApproverSettings } from "@/components/revisions/ApproverSettings";
 import { ReviewSettings } from "@/components/revisions/ReviewSettings";
 import { ComparePanel } from "@/components/revisions/ComparePanel";
 import { RevisionList } from "@/components/revisions/RevisionList";
+import { ChangeNotesPanel } from "@/components/revisions/ChangeNotesPanel";
 import { ProjectAuditLog } from "@/components/activity/ProjectAuditLog";
 import { ViewerStrip } from "@/components/viewers/ViewerStrip";
 
@@ -275,6 +277,8 @@ export function ChartTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<ChangeNote[]>([]);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   const conflicts = useMemo(
     () => (activities ? detectResourceConflicts(activities) : []),
@@ -297,11 +301,12 @@ export function ChartTab() {
     setLoading(true);
     setError(null);
     try {
-      const [acts, readiness, contracts, hwuContracts] = await Promise.all([
+      const [acts, readiness, contracts, hwuContracts, changeNotes] = await Promise.all([
         listActivities(projectId),
         listReadiness(projectId).catch(() => []), // readiness is best-effort
         listContracts(projectId).catch(() => []), // contracts are best-effort
         listHwuContracts(projectId).catch(() => []), // HWU contracts are best-effort
+        listChangeNotes(projectId).catch(() => []), // change notes are best-effort
       ]);
       setActivities(acts);
       const map: ReadinessMap = new Map(
@@ -310,6 +315,7 @@ export function ChartTab() {
       setReadinessMap(map);
       setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
       setContractsByHwu(new Map(hwuContracts.map((c) => [c.hwu_name, c])));
+      setNotes(changeNotes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activities");
     } finally {
@@ -399,6 +405,28 @@ export function ChartTab() {
             enableFilters
           />
         </ErrorBoundary>
+      )}
+
+      {notes.some((n) => n.body.trim()) && (
+        <div className="rounded-lg border border-border/70 bg-card shadow-soft-sm print:hidden">
+          <button
+            type="button"
+            onClick={() => setNotesOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground"
+          >
+            <span>Change notes</span>
+            {notesOpen ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+          {notesOpen && (
+            <div className="border-t border-border/60 p-3">
+              <ChangeNotesPanel notes={notes} />
+            </div>
+          )}
+        </div>
       )}
 
       {editActivityId && activities && (
