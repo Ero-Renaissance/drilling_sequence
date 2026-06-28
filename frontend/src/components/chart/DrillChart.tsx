@@ -1059,7 +1059,7 @@ export function DrillChart({
       showFloodRisk={hasFlood}
       className={
         legendPosition === "right"
-          ? "self-start lg:w-60 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:gap-3"
+          ? "lg:w-60 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:gap-3"
           : undefined
       }
     />
