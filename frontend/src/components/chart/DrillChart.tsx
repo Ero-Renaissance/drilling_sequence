@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactECharts from "echarts-for-react";
+import ReactECharts from "echarts-for-react/lib/core";
 import { ChevronDown } from "lucide-react";
+import { echarts } from "@/lib/echarts";
 import type {
   EChartsOption,
   CustomSeriesRenderItemParams,
@@ -1041,6 +1042,7 @@ export function DrillChart({
       }`}
     >
       <ReactECharts
+        echarts={echarts}
         ref={chartRef}
         option={option}
         style={{ height: chartHeight, minWidth: 700 }}

@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 // Mock echarts-for-react to avoid canvas in jsdom
-vi.mock("echarts-for-react", () => ({
+vi.mock("echarts-for-react/lib/core", () => ({
   default: ({ style }: { style?: React.CSSProperties }) => (
     <div data-testid="echarts-instance" style={style} />
   ),

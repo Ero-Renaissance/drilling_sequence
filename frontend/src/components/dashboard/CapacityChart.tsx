@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import ReactECharts from "echarts-for-react";
+import ReactECharts from "echarts-for-react/lib/core";
 import type { EChartsOption, BarSeriesOption, LineSeriesOption } from "echarts";
 
 import { useThemeStore } from "@/store/theme";
+import { echarts } from "@/lib/echarts";
 import type { CapacityData } from "@/lib/campaign-capacity";
 
 // Locations stack dark → light (Land at the base), matching the Excel one-sheet.
@@ -148,6 +149,7 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
         </p>
       ) : (
         <ReactECharts
+          echarts={echarts}
           option={option}
           style={{ height: 320 }}
           notMerge
