@@ -41,4 +41,21 @@ describe("throwApiError", () => {
     expect(err.status).toBe(409);
     expect(err.message).toMatch(/Only the submitter/);
   });
+
+  it("surfaces a FastAPI validation-array message, stripping the Value-error prefix", async () => {
+    const err = await throwApiError(
+      resp(422, {
+        detail: [
+          {
+            type: "value_error",
+            loc: ["body", "start_date"],
+            msg: "Value error, start date is required and cannot be cleared",
+          },
+        ],
+      }),
+      "fallback",
+    ).catch((e) => e);
+    expect(err.status).toBe(422);
+    expect(err.message).toBe("start date is required and cannot be cleared");
+  });
 });

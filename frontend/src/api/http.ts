@@ -25,6 +25,10 @@ export async function throwApiError(resp: Response, fallback: string): Promise<n
     // FastAPI returns a string `detail`; some endpoints return `detail: { message }`.
     if (typeof body?.detail === "string") detail = body.detail;
     else if (typeof body?.detail?.message === "string") detail = body.detail.message;
+    // FastAPI validation errors carry the reason in detail[].msg; Pydantic prefixes
+    // custom-validator messages with "Value error, " — strip it for a clean toast.
+    else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === "string")
+      detail = body.detail[0].msg.replace(/^Value error,\s*/, "");
   } catch {
     /* no body, or non-JSON — use the fallback */
   }

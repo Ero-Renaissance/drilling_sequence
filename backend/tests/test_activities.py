@@ -66,13 +66,19 @@ async def test_create_activity_rejects_blank_well_name(client: AsyncClient) -> N
 
 
 @pytest.mark.asyncio
-async def test_update_rejects_clearing_a_required_field(client: AsyncClient) -> None:
-    # A PATCH may not null/blank a mandatory field (only Comment is optional).
+@pytest.mark.parametrize(
+    "field", ["location", "start_date", "end_date", "activity_type", "well_name"]
+)
+@pytest.mark.asyncio
+async def test_update_rejects_clearing_a_required_field(client: AsyncClient, field: str) -> None:
+    # A PATCH may not null/blank a mandatory field (only Comment is optional). The
+    # NOT NULL columns (start/end date, activity_type) must 422 at validation, never
+    # 500 at the DB — regression: a null start_date used to hit an IntegrityError.
     project = await _create_project(client)
     activity = await _create_activity(client, project["id"])
     response = await client.patch(
         f"/api/projects/{project['id']}/activities/{activity['id']}",
-        json={"location": None},
+        json={field: None},
     )
     assert response.status_code == 422, response.text
 

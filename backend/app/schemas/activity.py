@@ -83,9 +83,17 @@ class ActivityUpdate(BaseModel):
         # it. CSV import never uses this schema, so import stays lenient.
         if "well_name" in self.model_fields_set and self.well_name is not None:
             self.well_name = self.well_name.strip()
-        for field in ("well_name", "location", "risk", "plan_type"):
+        for field in (
+            "activity_type",
+            "start_date",
+            "end_date",
+            "well_name",
+            "location",
+            "risk",
+            "plan_type",
+        ):
             if field in self.model_fields_set and not getattr(self, field):
-                raise ValueError(f"{field} is required and cannot be cleared")
+                raise ValueError(f"{field.replace('_', ' ')} is required and cannot be cleared")
         return self
 
 
