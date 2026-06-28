@@ -10,6 +10,12 @@ vi.mock("@/lib/auth", () => ({
   loginRequest: {},
 }));
 
+const { toastSuccess } = vi.hoisted(() => ({ toastSuccess: vi.fn() }));
+vi.mock("@/components/ui/toaster", () => ({
+  toast: { success: toastSuccess, error: vi.fn(), info: vi.fn() },
+  Toaster: () => null,
+}));
+
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { server } from "./mocks/server";
 
@@ -194,6 +200,7 @@ describe("ActivityGrid", () => {
     await waitFor(() => {
       expect(screen.getAllByTestId("delete-activity")).toHaveLength(1);
     });
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining("Deleted"));
   });
 
   it("shows inline editable cells", async () => {

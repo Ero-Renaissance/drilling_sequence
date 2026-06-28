@@ -366,9 +366,11 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const deleteRow = useCallback(
     async (id: string) => {
       const prev = [...activities];
+      const removed = prev.find((a) => a.id === id);
       setActivities((all) => all.filter((a) => a.id !== id));
       try {
         await deleteActivity(projectId, id);
+        toast.success(`Deleted ${removed?.well_name || removed?.activity_type || "activity"}.`);
       } catch (err) {
         setActivities(prev);
         toast.error(err instanceof Error ? err.message : "Failed to delete activity.");
