@@ -6,14 +6,9 @@ import {
   type RevisionDiff as RevisionDiffData,
 } from "@/api/compare";
 import type { Revision } from "@/api/revisions";
-import {
-  ActivityDiffList,
-  ContractDiffList,
-  LIVE_REF,
-  optionLabel,
-  sideLabel,
-  SummaryBar,
-} from "./diff-shared";
+import { LIVE_REF, optionLabel, sideLabel, SummaryBar } from "./diff-shared";
+import { ChangeNotesEditor } from "./ChangeNotesEditor";
+import type { ChangeNote } from "@/api/change-notes";
 
 // Sentinel base ref: let the server resolve the most recent approved baseline
 // (this project's last approved revision, else the clone parent's).
@@ -33,9 +28,17 @@ interface RevisionDiffProps {
   /** Set when this project was cloned from another — enables the
    *  "previous quarter (last approved)" baseline. */
   cloneParentId?: string | null;
+  /** The revision's frozen change notes — shown per resource, read-only. */
+  changeNotes?: ChangeNote[];
 }
 
-export function RevisionDiff({ projectId, target, revisions, cloneParentId }: RevisionDiffProps) {
+export function RevisionDiff({
+  projectId,
+  target,
+  revisions,
+  cloneParentId,
+  changeNotes,
+}: RevisionDiffProps) {
   // Candidate base revisions: every other revision (incl. discarded/rejected —
   // they're still valid "before" snapshots), most recent first.
   const candidates = useMemo(
@@ -127,13 +130,22 @@ export function RevisionDiff({ projectId, target, revisions, cloneParentId }: Re
             </p>
           )}
           <SummaryBar diff={diff} />
-          <ContractDiffList contracts={diff.contracts} />
-          {diff.activities.length === 0 ? (
+          {diff.activities.length === 0 &&
+          diff.contracts.length === 0 &&
+          (changeNotes?.length ?? 0) === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
               No activity changes between these versions.
             </p>
           ) : (
-            <ActivityDiffList activities={diff.activities} />
+            <ChangeNotesEditor
+              projectId={projectId}
+              activities={diff.activities}
+              contracts={diff.contracts}
+              notes={changeNotes ?? []}
+              canEdit={false}
+              locked={false}
+              readOnly
+            />
           )}
         </>
       )}

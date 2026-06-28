@@ -7,7 +7,8 @@ export interface ChangeNote {
   kind: ChangeNoteKind;
   resource_name: string | null;
   body: string;
-  updated_at: string;
+  /** Absent on notes snapshotted into a revision (only the live notes carry it). */
+  updated_at?: string;
 }
 
 export interface ChangeNoteUpsert {

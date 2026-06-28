@@ -64,5 +64,16 @@ class RevisionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChangeNoteSnapshot(BaseModel):
+    """One per-resource change note, frozen into the revision at submit."""
+
+    kind: str
+    resource_name: str | None = None
+    body: str
+
+
 class RevisionDetailResponse(RevisionResponse):
     snapshot_json: str
+    # Per-resource change notes captured at submit (the planner's rationale),
+    # frozen with the revision. Empty for revisions predating the feature.
+    change_notes: list[ChangeNoteSnapshot] = []

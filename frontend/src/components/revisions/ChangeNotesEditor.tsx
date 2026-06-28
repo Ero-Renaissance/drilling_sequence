@@ -108,6 +108,7 @@ export function ChangeNotesEditor({
   notes,
   canEdit,
   locked,
+  readOnly = false,
 }: {
   projectId: string;
   activities: ActivityDiff[];
@@ -115,6 +116,9 @@ export function ChangeNotesEditor({
   notes: ChangeNote[];
   canEdit: boolean;
   locked: boolean;
+  /** Read-only display (revision detail): drop the authoring chrome and render
+   *  each note as plain text instead of an editable box. */
+  readOnly?: boolean;
 }) {
   // Group by resource: changed activities, then fold in resources that only have a
   // contract change or a (stale) note, so nothing relevant is hidden.
@@ -149,6 +153,23 @@ export function ChangeNotesEditor({
   const contractFor = (g: ResourceGroup) =>
     contracts.find((c) => c.resource === labelFor(g.kind, g.resourceName));
 
+  const blocks = ordered.map((g) => (
+    <ResourceBlock
+      key={groupKey(g.kind, g.resourceName)}
+      projectId={projectId}
+      group={g}
+      contract={contractFor(g)}
+      initial={noteFor(g)}
+      canEdit={canEdit}
+      locked={locked}
+      readOnly={readOnly}
+    />
+  ));
+
+  // Read-only (revision detail): no authoring header/box — the surrounding diff
+  // panel supplies the context; each block shows its note as plain text.
+  if (readOnly) return <div className="space-y-2">{blocks}</div>;
+
   return (
     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -165,17 +186,7 @@ export function ChangeNotesEditor({
           </span>
         )}
       </div>
-      {ordered.map((g) => (
-        <ResourceBlock
-          key={groupKey(g.kind, g.resourceName)}
-          projectId={projectId}
-          group={g}
-          contract={contractFor(g)}
-          initial={noteFor(g)}
-          canEdit={canEdit}
-          locked={locked}
-        />
-      ))}
+      {blocks}
     </div>
   );
 }
@@ -189,6 +200,7 @@ function ResourceBlock({
   initial,
   canEdit,
   locked,
+  readOnly,
 }: {
   projectId: string;
   group: ResourceGroup;
@@ -196,6 +208,7 @@ function ResourceBlock({
   initial: string;
   canEdit: boolean;
   locked: boolean;
+  readOnly: boolean;
 }) {
   const [body, setBody] = useState(initial);
   const [saved, setSaved] = useState(initial);
@@ -293,19 +306,27 @@ function ResourceBlock({
         </div>
       )}
 
-      <textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onBlur={save}
-        readOnly={!canEdit}
-        disabled={saving}
-        rows={2}
-        maxLength={4000}
-        placeholder={
-          canEdit ? "What changed for this resource, and why…" : locked ? "Locked with the plan" : "No note"
-        }
-        className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring read-only:opacity-70 disabled:opacity-60"
-      />
+      {readOnly ? (
+        initial.trim() ? (
+          <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1.5 text-sm text-foreground/90">
+            {initial}
+          </p>
+        ) : null
+      ) : (
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onBlur={save}
+          readOnly={!canEdit}
+          disabled={saving}
+          rows={2}
+          maxLength={4000}
+          placeholder={
+            canEdit ? "What changed for this resource, and why…" : locked ? "Locked with the plan" : "No note"
+          }
+          className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring read-only:opacity-70 disabled:opacity-60"
+        />
+      )}
     </div>
   );
 }

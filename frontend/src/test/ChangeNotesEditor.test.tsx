@@ -98,4 +98,26 @@ describe("ChangeNotesEditor", () => {
     expect(screen.getByText(/locked with the plan/i)).toBeInTheDocument();
     expect(screen.getByDisplayValue("x")).toHaveAttribute("readonly");
   });
+
+  it("read-only mode renders notes as plain text, without the editor or header", () => {
+    render(
+      <ChangeNotesEditor
+        projectId="p1"
+        activities={[diffActivity({})]}
+        contracts={[]}
+        // No updated_at — the shape of a note snapshotted into a revision.
+        notes={[{ kind: "rig", resource_name: "RIG_2", body: "Spud moved to Jul." }]}
+        canEdit={false}
+        locked={false}
+        readOnly
+      />,
+    );
+    // The per-resource table still renders…
+    expect(screen.getByText("RIG_2")).toBeInTheDocument();
+    expect(screen.getByText("Modified")).toBeInTheDocument();
+    // …but the note is plain text (no editable box), and the authoring header is gone.
+    expect(screen.getByText("Spud moved to Jul.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByText("Change notes")).not.toBeInTheDocument();
+  });
 });

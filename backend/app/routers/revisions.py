@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Literal
@@ -37,6 +38,8 @@ from app.services.email import notify_revision_decision, notify_revision_pending
 from app.services.integrity import revision_integrity_digest
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/projects/{project_id}/revisions",
@@ -109,6 +112,24 @@ def _build_approver_status(
             )
         )
     return statuses
+
+
+def _parse_change_notes(raw: str | None, revision_id: uuid.UUID) -> list[dict]:
+    """Parse a revision's frozen ``change_notes_json`` defensively.
+
+    We control the write (always a JSON list of ``{kind, resource_name, body}``),
+    so a parse failure means corruption — log the identifier only (never the raw
+    value, which carries note text) and degrade to an empty list rather than 500
+    the detail page.
+    """
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Malformed change_notes_json for revision %s", revision_id)
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 async def _to_response(
@@ -605,6 +626,7 @@ async def get_revision(
     required_approvers = await _get_required_approvers(project_id, db)
     base = await _to_response(revision, required_approvers, db)
     base["snapshot_json"] = revision.snapshot_json
+    base["change_notes"] = _parse_change_notes(revision.change_notes_json, revision.id)
     return RevisionDetailResponse.model_validate(base)
 
 

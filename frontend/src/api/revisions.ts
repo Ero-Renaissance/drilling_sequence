@@ -1,5 +1,6 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
+import type { ChangeNote } from "./change-notes";
 
 export interface Signature {
   id: string;
@@ -52,6 +53,8 @@ export interface Revision {
 
 export interface RevisionDetail extends Revision {
   snapshot_json: string;
+  /** Per-resource change notes captured at submit, frozen with the revision. */
+  change_notes: ChangeNote[];
 }
 
 async function authHeaders(): Promise<HeadersInit> {

@@ -333,6 +333,7 @@ export const handlers = [
           readiness: { FDP: "Not Started", LLI: "In Progress", LOC: "Not Started", FE: "N/A", FID: "Not Started", EIA: "Not Started", BUD: "Completed" },
         },
       ]),
+      change_notes: [],
     };
     return HttpResponse.json(detail);
   }),

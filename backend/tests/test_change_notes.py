@@ -111,3 +111,30 @@ async def test_snapshotted_into_revision(client: AsyncClient, db) -> None:
     revision = await db.get(Revision, uuid.UUID(rev.json()["id"]))
     notes = json.loads(revision.change_notes_json)
     assert any(n["resource_name"] == "RigAlpha" and "Spud moved" in n["body"] for n in notes)
+
+
+async def test_revision_detail_exposes_change_notes(client: AsyncClient) -> None:
+    """The frozen notes are surfaced read-only on the revision-detail response."""
+    pid = await _project(client)
+    await client.put(
+        f"/api/projects/{pid}/change-notes",
+        json={"kind": "rig", "resource_name": "RigAlpha", "body": "Spud moved to Jul."},
+    )
+    rev = await client.post(f"/api/projects/{pid}/revisions", json={})
+
+    detail = await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")
+    assert detail.status_code == 200, detail.text
+    notes = detail.json()["change_notes"]
+    assert any(
+        n["kind"] == "rig" and n["resource_name"] == "RigAlpha" and "Spud moved" in n["body"]
+        for n in notes
+    )
+
+
+async def test_revision_detail_change_notes_empty_when_none(client: AsyncClient) -> None:
+    """A revision submitted with no notes reports an empty list, never null."""
+    pid = await _project(client)
+    rev = await client.post(f"/api/projects/{pid}/revisions", json={})
+    detail = await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["change_notes"] == []

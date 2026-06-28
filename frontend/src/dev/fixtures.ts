@@ -182,4 +182,5 @@ export const FIXTURE_REVISION: RevisionDetail = {
   decision_at: null,
   integrity_digest: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
   snapshot_json: "{}",
+  change_notes: [],
 };

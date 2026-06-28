@@ -938,6 +938,7 @@ export function RevisionDetail() {
           target={revision}
           revisions={revisions}
           cloneParentId={project?.cloned_from_project_id ?? null}
+          changeNotes={revision.change_notes}
         />
       </div>
 
