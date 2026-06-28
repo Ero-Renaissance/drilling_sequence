@@ -14,6 +14,7 @@ import {
   ActivityLogTab,
 } from "@/pages/ProjectDetail";
 import { RevisionDetail } from "@/pages/RevisionDetail";
+import { Presentation } from "@/pages/Presentation";
 import { Admin } from "@/pages/Admin";
 import ChartFixtures from "@/dev/ChartFixtures";
 import { useAuthStore } from "@/store/auth";
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="activity" element={<ActivityLogTab />} />
             <Route path="revisions/:revisionId" element={<RevisionDetail />} />
           </Route>
+          <Route path="/projects/:projectId/present" element={<Presentation />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

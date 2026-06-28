@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock } from "lucide-react";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project, ProjectLock } from "@/types";
 import { reopenPlan } from "@/api/revisions";
@@ -295,6 +295,7 @@ export function ChartTab() {
   // any activity carrying a lock). Reflect it so the plan-changing actions are
   // disabled up front, rather than letting the user hit the wall on submit.
   const isLocked = (activities ?? []).some((a) => a.locked_by_revision_id != null);
+  const noteCount = notes.filter((n) => n.body.trim()).length;
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -351,6 +352,14 @@ export function ChartTab() {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           <span className="ml-1.5">Refresh</span>
         </Button>
+        {projectId && (
+          <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
+            <NavLink to={`/projects/${projectId}/present`}>
+              <MonitorPlay className="h-4 w-4" />
+              <span className="ml-1.5">Present</span>
+            </NavLink>
+          </Button>
+        )}
         {activities !== null && (
           <span className="text-xs tabular-nums text-muted-foreground">
             {activities.length} {activities.length === 1 ? "activity" : "activities"}
@@ -407,14 +416,17 @@ export function ChartTab() {
         </ErrorBoundary>
       )}
 
-      {notes.some((n) => n.body.trim()) && (
+      {activities && activities.length > 0 && (
         <div className="rounded-lg border border-border/70 bg-card shadow-soft-sm print:hidden">
           <button
             type="button"
             onClick={() => setNotesOpen((v) => !v)}
             className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground"
           >
-            <span>Change notes</span>
+            <span>
+              Change notes
+              {noteCount > 0 && <span className="ml-1 text-muted-foreground">({noteCount})</span>}
+            </span>
             {notesOpen ? (
               <ChevronUp className="h-4 w-4 text-muted-foreground" />
             ) : (
@@ -423,7 +435,10 @@ export function ChartTab() {
           </button>
           {notesOpen && (
             <div className="border-t border-border/60 p-3">
-              <ChangeNotesPanel notes={notes} />
+              <ChangeNotesPanel
+                notes={notes}
+                emptyText="No change notes yet — add them on the Compare tab."
+              />
             </div>
           )}
         </div>
