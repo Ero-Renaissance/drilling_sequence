@@ -250,13 +250,13 @@ function ResourceBlock({
                   className="py-1 pr-2 font-medium"
                   title="Spud (start) date vs the previous plan — green = earlier, red = later (slips push OSD)"
                 >
-                  Start / spud
+                  Start / spud (was → now)
                 </th>
                 <th
                   className="py-1 pr-2 font-medium"
                   title="Finish date vs the previous plan — green = earlier, red = later"
                 >
-                  End
+                  End (was → now)
                 </th>
                 <th className="py-1 font-medium">Comment</th>
               </tr>
