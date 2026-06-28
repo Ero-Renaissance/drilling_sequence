@@ -2,8 +2,9 @@
 Data processing — CSV / Excel import helpers.
 """
 
+import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -41,16 +42,88 @@ CSV_ALIASES: dict[str, str] = {
 }
 
 
+# Spreadsheet dates are read DAY-FIRST (DD/MM/YYYY or DD-MM-YYYY), the local
+# convention. Real Excel date *cells* arrive as datetimes and pass through unchanged;
+# only text dates are parsed. A non-blank cell that isn't a valid day-first date
+# rejects the whole upload — we never silently misread a month-first date.
+DATE_FORMAT_HINT = "DD/MM/YYYY or DD-MM-YYYY (e.g. 31/07/2026)"
+
+
+def _parse_dates(values: pd.Series) -> pd.Series:
+    """Parse a column of (already-validated) day-first / ISO dates; blanks → NaT.
+    `format="mixed"` infers each cell's format (pandas' recommended pairing with
+    `dayfirst`), which also silences the ISO-vs-dayfirst warning."""
+    return pd.to_datetime(values, dayfirst=True, format="mixed", errors="coerce")
+
+
+# Day-first DD/MM/YYYY or DD-MM-YYYY (1–2 digit day/month, 4-digit year); ISO too.
+_DAYFIRST_RE = re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$")
+_ISO_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+
+
+def _is_blank(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return bool(pd.isna(value))
+
+
+def _is_valid_date_cell(value: object) -> bool:
+    """True if a cell is blank, a real date/datetime (an Excel date cell), or a
+    day-first / ISO date string naming a real date. A month-first string like
+    07/15/2026 (month 15) or an impossible date (31/02/2026) is rejected — pandas'
+    dayfirst silently falls back to month-first, so we check day/month ourselves."""
+    if _is_blank(value):
+        return True  # a missing *required* date is caught later by the row schema
+    if isinstance(value, (datetime, date)):
+        return True  # real Excel date cell — already a date, display-format-agnostic
+    s = str(value).strip()
+    m = _DAYFIRST_RE.match(s)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    else:
+        iso = _ISO_RE.match(s)
+        if not iso:
+            return False
+        year, month, day = int(iso.group(1)), int(iso.group(2)), int(iso.group(3))
+    try:
+        date(year, month, day)  # rejects month > 12, day > 31, 31 Feb, …
+    except ValueError:
+        return False
+    return True
+
+
+def validate_date_columns(df: pd.DataFrame, columns: list[str]) -> None:
+    """Reject the upload if any present date column has a cell that isn't a valid
+    day-first (or ISO) date. Blank cells pass here (a missing *required* date is
+    caught later by the row schema); the error names the column, the offending values
+    and their row numbers so the user can fix the file and re-upload."""
+    for col in columns:
+        if col not in df.columns:
+            continue
+        bad_values: list[str] = []
+        bad_rows: list[str] = []
+        for idx, value in df[col].items():
+            if not _is_valid_date_cell(value):
+                bad_values.append(str(value).strip())
+                bad_rows.append(str(int(idx) + 2))  # +2: header row + 1-based
+        if bad_values:
+            examples = list(dict.fromkeys(bad_values))[:5]
+            raise ValueError(
+                f"Couldn't read {len(bad_values)} date(s) in column '{col}'. "
+                f"Dates must be {DATE_FORMAT_HINT}. "
+                f"Problem value(s): {', '.join(repr(e) for e in examples)} "
+                f"(row(s) {', '.join(bad_rows[:5])})."
+            )
+
+
 def validate_csv_columns(df: pd.DataFrame) -> None:
-    """Raise ValueError if mandatory columns are missing from a CSV upload."""
+    """Raise ValueError if mandatory columns are missing or any date is malformed."""
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
-    for col in ["Start Date", "End Date"]:
-        try:
-            pd.to_datetime(df[col])
-        except Exception as exc:
-            raise ValueError(f"Invalid date format in '{col}': {exc}") from exc
+    validate_date_columns(df, ["Start Date", "End Date"])
 
 
 _DATE_DB_FIELDS = {"start_date", "end_date"}
@@ -68,7 +141,7 @@ def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:
     }
     df = df.copy()
     for col in date_csv_cols:
-        df[col] = pd.to_datetime(df[col], errors="coerce")
+        df[col] = _parse_dates(df[col])
 
     rows = []
     for _, row in df.iterrows():
@@ -135,11 +208,12 @@ def _clean(value: object) -> str | None:
 
 
 def _to_date(value: object) -> date | None:
-    """Parse a cell to a date. Handles datetimes and US (month-first) strings like
-    07/15/2026; unparseable → None (the schema then rejects a missing required date)."""
+    """Parse a cell to a date. Handles real datetimes and day-first strings like
+    31/07/2026; blank/unparseable → None. Malformed dates are caught up front by
+    validate_date_columns, so here None means a genuinely empty cell."""
     if value is None or (not isinstance(value, str) and pd.isna(value)):
         return None
-    ts = pd.to_datetime(value, errors="coerce")
+    ts = pd.to_datetime(value, dayfirst=True, errors="coerce")
     return None if pd.isna(ts) else ts.date()
 
 
@@ -179,6 +253,9 @@ def parse_long_schedule(
     missing = [c for c in LONG_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
+    validate_date_columns(
+        df, ["Start Date", "End Date", "Rig Contract Expiry Date", "HWU Contract Expiry Date"]
+    )
 
     activities: dict[tuple, ParsedActivity] = {}
     rig_contracts: dict[str, date] = {}

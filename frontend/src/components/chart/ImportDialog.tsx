@@ -29,20 +29,20 @@ const MAX_INLINE_SKIPPED = 10;
 // (backend/app/services/data_processor.py).
 const IMPORT_TEMPLATE_CSV = [
   "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,Readiness Check,Readiness Check Status,Comment",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,FDP,Completed,First development well",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,LLI,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,LOC,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,FE,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,FID,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,EIA,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,2026-01-15,2026-06-30,2030-12-31,,No Flood Risk,BUD,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,FDP,On track,Workover via HWU",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,LLI,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,LOC,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,FE,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,FID,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,EIA,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,2026-03-01,2026-08-31,,2031-06-30,No Flood Risk,BUD,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,FDP,Completed,First development well",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,LLI,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,LOC,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,FE,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,FID,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,EIA,On track,",
+  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,BUD,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,FDP,On track,Workover via HWU",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,LLI,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,LOC,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,FE,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,FID,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,EIA,On track,",
+  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,BUD,On track,",
   "",
 ].join("\n");
 
@@ -217,6 +217,11 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
                 <Download className="h-3.5 w-3.5" />
                 Download a blank template
               </button>
+
+              <p className="text-xs text-muted-foreground">
+                Dates must be <strong>day-first</strong> — DD/MM/YYYY or DD-MM-YYYY (e.g.
+                31/07/2026). Excel date cells work too.
+              </p>
 
               <div
                 className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:bg-muted/50 transition-colors"

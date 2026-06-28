@@ -1,7 +1,7 @@
 """Import of the long-format schedule upload (one row per readiness gate).
 
 Exercises the collapse (rows → activities), the value mappings (plan type,
-readiness status, US dates), readiness + rig-contract ingestion, replace
+readiness status, day-first dates), readiness + rig-contract ingestion, replace
 semantics, and validation rejection.
 """
 
@@ -55,10 +55,10 @@ async def test_long_schedule_collapses_rows_and_maps_values(client: AsyncClient)
     csv = _long_csv(
         _well_rows(well="WELL_A", project="PROJECT_X", atype="Gas Development",
                    plan="In Plan (Firm)", risk="No Flood Risk",
-                   start="01/05/2026", end="07/15/2026", expiry="12/31/2030"),
+                   start="05/01/2026", end="15/07/2026", expiry="31/12/2030"),
         _well_rows(well="WELL_B", project="PROJECT_Y", atype="Oil Development",
                    plan="In Plan (Option)", risk="Flood Risk",
-                   start="02/01/2026", end="08/01/2026", expiry="12/31/2030",
+                   start="01/02/2026", end="01/08/2026", expiry="31/12/2030",
                    statuses={"BUD": "Completed"}),
     )
     resp = await _upload(client, pid, csv)
@@ -71,7 +71,7 @@ async def test_long_schedule_collapses_rows_and_maps_values(client: AsyncClient)
     assert by_well["WELL_A"]["well_project"] == "PROJECT_X"
     assert by_well["WELL_A"]["plan_type"] == "Firm"          # "In Plan (Firm)" mapped
     assert by_well["WELL_A"]["risk"] == "No Flood Risk"
-    assert by_well["WELL_A"]["start_date"] == "2026-01-05"   # US (month-first) date parsed
+    assert by_well["WELL_A"]["start_date"] == "2026-01-05"   # 05/01/2026 read day-first
     assert by_well["WELL_A"]["end_date"] == "2026-07-15"
     assert by_well["WELL_B"]["well_project"] == "PROJECT_Y"
     assert by_well["WELL_B"]["plan_type"] == "Option"
@@ -97,11 +97,11 @@ async def test_long_schedule_imports_hwu_contract(client: AsyncClient) -> None:
     csv = _long_csv(
         _well_rows(well="WELL_R", project="PX", atype="Drilling",
                    plan="In Plan (Firm)", risk="No Flood Risk",
-                   start="01/05/2026", end="06/30/2026", expiry="12/31/2030", rig="RIG_1"),
+                   start="05/01/2026", end="30/06/2026", expiry="31/12/2030", rig="RIG_1"),
         _well_rows(well="WELL_H", project="PX", atype="Well Repair/Safety",
                    plan="In Plan (Firm)", risk="No Flood Risk",
-                   start="03/01/2026", end="08/31/2026",
-                   rig="", hwu="HWU_9", hwu_expiry="06/30/2031"),
+                   start="01/03/2026", end="31/08/2026",
+                   rig="", hwu="HWU_9", hwu_expiry="30/06/2031"),
     )
     resp = await _upload(client, pid, csv)
     assert resp.status_code == 200, resp.text
@@ -128,11 +128,11 @@ async def test_long_schedule_replace_resets_activities_and_readiness(client: Asy
     pid = (await _create_project(client))["id"]
     first = _long_csv(_well_rows(well="WELL_A", project="P1", atype="Gas Development",
                                  plan="In Plan (Firm)", risk="No Flood Risk",
-                                 start="01/05/2026", end="07/15/2026", expiry="12/31/2030"))
+                                 start="05/01/2026", end="15/07/2026", expiry="31/12/2030"))
     assert (await _upload(client, pid, first)).status_code == 200
     second = _long_csv(_well_rows(well="WELL_C", project="P2", atype="Oil Development",
                                   plan="In Plan (Option)", risk="Flood Risk",
-                                  start="03/01/2026", end="09/01/2026", expiry="12/31/2031"))
+                                  start="01/03/2026", end="01/09/2026", expiry="31/12/2031"))
     assert (await _upload(client, pid, second, replace=True)).status_code == 200
 
     acts = (await client.get(f"/api/projects/{pid}/activities")).json()
@@ -147,7 +147,7 @@ async def test_long_schedule_drops_invalid_readiness_cell(client: AsyncClient) -
     pid = (await _create_project(client))["id"]
     csv = _long_csv(_well_rows(well="WELL_A", project="P", atype="Gas Development",
                                plan="In Plan (Firm)", risk="No Flood Risk",
-                               start="01/05/2026", end="07/15/2026", expiry="12/31/2030",
+                               start="05/01/2026", end="15/07/2026", expiry="31/12/2030",
                                statuses={"BUD": "Frozen"}))  # not mappable / not canonical
     resp = await _upload(client, pid, csv)
     assert resp.status_code == 200, resp.text
@@ -166,10 +166,10 @@ async def test_long_schedule_skips_invalid_well_imports_rest(client: AsyncClient
     csv = _long_csv(
         _well_rows(well="GOOD", project="P", atype="Gas Development",
                    plan="In Plan (Firm)", risk="No Flood Risk",
-                   start="01/05/2026", end="07/15/2026", expiry="12/31/2030"),
+                   start="05/01/2026", end="15/07/2026", expiry="31/12/2030"),
         _well_rows(well="BADDATES", project="P", atype="Oil Development",
                    plan="In Plan (Option)", risk="Flood Risk",
-                   start="07/15/2026", end="01/05/2026", expiry="12/31/2030"),  # end < start
+                   start="15/07/2026", end="05/01/2026", expiry="31/12/2030"),  # end < start
     )
     resp = await _upload(client, pid, csv)
     assert resp.status_code == 200, resp.text
@@ -185,12 +185,12 @@ async def test_long_schedule_replace_with_all_invalid_preserves_existing(client:
     pid = (await _create_project(client))["id"]
     good = _long_csv(_well_rows(well="KEEP", project="P", atype="Gas Development",
                                 plan="In Plan (Firm)", risk="No Flood Risk",
-                                start="01/05/2026", end="07/15/2026", expiry="12/31/2030"))
+                                start="05/01/2026", end="15/07/2026", expiry="31/12/2030"))
     assert (await _upload(client, pid, good)).status_code == 200
     # Replace with an entirely-invalid file → must NOT wipe the existing schedule.
     all_bad = _long_csv(_well_rows(well="BAD", project="P", atype="Oil Development",
                                    plan="In Plan (Option)", risk="Flood Risk",
-                                   start="07/15/2026", end="01/05/2026", expiry="12/31/2030"))
+                                   start="15/07/2026", end="05/01/2026", expiry="31/12/2030"))
     resp = await _upload(client, pid, all_bad, replace=True)
     assert resp.status_code == 200, resp.text
     assert resp.json()["imported"] == 0 and resp.json()["skipped"] == 1
@@ -202,7 +202,24 @@ async def test_long_schedule_replace_with_all_invalid_preserves_existing(client:
 async def test_long_schedule_missing_required_column(client: AsyncClient) -> None:
     pid = (await _create_project(client))["id"]
     header = "Activity Type,Start Date,End Date,Readiness Check,Readiness Check Status"
-    body = (header + "\nGas Development,01/05/2026,07/15/2026,BUD,On track\n").encode()
+    body = (header + "\nGas Development,05/01/2026,15/07/2026,BUD,On track\n").encode()
     resp = await _upload(client, pid, body)
     assert resp.status_code == 422
     assert "Well Name" in str(resp.json())
+
+
+@pytest.mark.asyncio
+async def test_long_schedule_rejects_wrong_date_format(client: AsyncClient) -> None:
+    """A month-first date (07/15/2026 — month 15 isn't valid day-first) rejects the
+    whole upload with a clear, actionable message, rather than being silently
+    misread as a different day."""
+    pid = (await _create_project(client))["id"]
+    csv = _long_csv(_well_rows(well="WELL_A", project="P", atype="Gas Development",
+                               plan="In Plan (Firm)", risk="No Flood Risk",
+                               start="07/15/2026", end="31/07/2026", expiry="31/12/2030"))
+    resp = await _upload(client, pid, csv)
+    assert resp.status_code == 422, resp.text
+    detail = str(resp.json())
+    assert "Start Date" in detail and "DD/MM/YYYY" in detail
+    # A rejected upload imports nothing.
+    assert (await client.get(f"/api/projects/{pid}/activities")).json() == []

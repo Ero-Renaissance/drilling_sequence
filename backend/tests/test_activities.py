@@ -402,6 +402,14 @@ CSV_BAD_PLAN_TYPE = (
     "Activity Type,Start Date,End Date,Plan Type\n"
     "Oil Well Drilling,2026-01-01,2026-02-01,Speculative\n"
 )
+CSV_DAYFIRST = (
+    "Activity Type,Start Date,End Date,Well Name,Rig Name,Location\n"
+    "Oil Well Drilling,05/01/2026,31/03/2026,Well-A1,Rig Alpha,OFFSHORE\n"  # 5 Jan → 31 Mar
+)
+CSV_BAD_DATE_FORMAT = (
+    "Activity Type,Start Date,End Date\n"
+    "Oil Well Drilling,07/15/2026,31/07/2026\n"  # 07/15 isn't a valid day-first date
+)
 
 
 @pytest.mark.parametrize(
@@ -418,6 +426,34 @@ async def test_import_csv_rejects_invalid_rows(client: AsyncClient, csv_text: st
     # Nothing was inserted from a rejected import.
     listing = await client.get(f"/api/projects/{project['id']}/activities")
     assert listing.json() == []
+
+
+@pytest.mark.asyncio
+async def test_import_csv_parses_dayfirst_dates(client: AsyncClient) -> None:
+    """Text dates are read day-first: 05/01/2026 is 5 January, not 1 May."""
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities/import",
+        files={"file": ("ok.csv", io.BytesIO(CSV_DAYFIRST.encode()), "text/csv")},
+    )
+    assert response.status_code == 200, response.text
+    acts = (await client.get(f"/api/projects/{project['id']}/activities")).json()
+    assert acts[0]["start_date"] == "2026-01-05"
+    assert acts[0]["end_date"] == "2026-03-31"
+
+
+@pytest.mark.asyncio
+async def test_import_csv_rejects_wrong_date_format(client: AsyncClient) -> None:
+    """A month-first text date rejects the upload with a clear, actionable message."""
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities/import",
+        files={"file": ("bad.csv", io.BytesIO(CSV_BAD_DATE_FORMAT.encode()), "text/csv")},
+    )
+    assert response.status_code == 422, response.text
+    detail = str(response.json())
+    assert "Start Date" in detail and "DD/MM/YYYY" in detail
+    assert (await client.get(f"/api/projects/{project['id']}/activities")).json() == []
 
 
 @pytest.mark.asyncio
