@@ -73,6 +73,18 @@ export async function getAccessToken(): Promise<string | null> {
       ...loginRequest,
       account,
     });
+    if (!result.accessToken) {
+      // MSAL cache edge case: a "successful" silent call can return an empty
+      // accessToken (e.g. cached response for a different resource). Force a
+      // network refresh rather than silently sending the request unauthenticated.
+      logger.warn("acquireTokenSilent returned an empty access token — forcing refresh");
+      const fresh = await msalInstance.acquireTokenSilent({
+        ...loginRequest,
+        account,
+        forceRefresh: true,
+      });
+      return fresh.accessToken || null;
+    }
     return result.accessToken;
   } catch (err: unknown) {
     const code =
