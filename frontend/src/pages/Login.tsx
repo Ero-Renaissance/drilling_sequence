@@ -36,8 +36,13 @@ export function Login() {
   useEffect(() => {
     if (previewMode) {
       clear(); // render the login UI (no user, not loading) instead of auto-signing in
-    } else if (isDev) {
+    } else if (isDev || msalInstance?.getActiveAccount()) {
+      // Dev mode always has a session; in prod, an active MSAL account (set by
+      // initializeMsal before render) means the user is already signed in —
+      // resolve them and bounce to the dashboard instead of stranding them here.
       fetchMe();
+    } else {
+      clear(); // no session — show the sign-in button (not the loading spinner)
     }
   }, [fetchMe, clear, isDev, previewMode]);
 
