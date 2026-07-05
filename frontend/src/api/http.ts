@@ -34,12 +34,11 @@ export async function throwApiError(resp: Response, fallback: string): Promise<n
   }
   const message = detail ?? fallback;
   // Centralised HTTP-error logging (see CLAUDE.md): 5xx as error, expected 4xx as
-  // warn; attach where the user was. The detail is the server's safe message.
-  logger[resp.status >= 500 ? "error" : "warn"]("API request failed", {
-    status: resp.status,
-    url: resp.url,
-    path: typeof window !== "undefined" ? window.location.pathname : undefined,
-    detail: message,
-  });
+  // warn. Status/url/detail live in the message itself so the console line is
+  // diagnosable without expanding an object; context carries where the user was.
+  logger[resp.status >= 500 ? "error" : "warn"](
+    `API request failed (${resp.status} ${resp.url}): ${message}`,
+    { path: typeof window !== "undefined" ? window.location.pathname : undefined },
+  );
   throw new ApiError(resp.status, message);
 }
