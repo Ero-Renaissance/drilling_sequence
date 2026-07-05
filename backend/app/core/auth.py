@@ -13,6 +13,7 @@ from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import SecurityScopes
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +41,11 @@ def _azure_scheme():
     """
     from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer  # type: ignore
 
+    # The package logs the raw bearer token at WARNING when it's malformed;
+    # credentials must never reach our logs — cap its logger at ERROR. We log
+    # the (token-free) rejection reason ourselves in _extract_claims.
+    logging.getLogger("fastapi_azure_auth").setLevel(logging.ERROR)
+
     return SingleTenantAzureAuthorizationCodeBearer(
         app_client_id=settings.azure_client_id,
         tenant_id=settings.azure_tenant_id,
@@ -64,8 +70,11 @@ async def _extract_claims(request: Request) -> dict:
         )
 
     # fastapi-azure-auth validates the token signature, audience, and expiry.
+    # Its __call__ is written for FastAPI dependency injection and requires a
+    # SecurityScopes argument; we call it manually, so pass an empty one (scope
+    # enforcement stays off — audience checking already ties tokens to this API).
     try:
-        user_claims = await azure_scheme(request)  # raises 401 on invalid token
+        user_claims = await azure_scheme(request, SecurityScopes())  # raises 401 on invalid token
     except HTTPException as exc:
         # The client gets the validator's generic 401; record WHY it failed
         # server-side so a misconfiguration (wrong audience, v1 token, expired

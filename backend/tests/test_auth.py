@@ -52,7 +52,10 @@ class _FakeBearer:
         self.app_client_id = app_client_id
         self.tenant_id = tenant_id
 
-    async def __call__(self, request):
+    # Mirrors the REAL fastapi-azure-auth signature: __call__ requires a
+    # SecurityScopes argument (it's designed for FastAPI dependency injection).
+    # Keeping the fake strict caught/prevents calling it with request only.
+    async def __call__(self, request, security_scopes):
         return _FakeClaims(self.roles_to_return)
 
 
@@ -111,7 +114,7 @@ async def test_extract_claims_logs_why_token_validation_failed(monkeypatch, capl
     diagnosable from the app log."""
 
     class _RejectingBearer(_FakeBearer):
-        async def __call__(self, request):
+        async def __call__(self, request, security_scopes):
             raise HTTPException(status_code=401, detail="Token contains invalid claims")
 
     _install_fake_azure(monkeypatch)
