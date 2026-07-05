@@ -8,6 +8,7 @@ Production:                Bearer token is validated against Azure AD via fastap
 Tests override get_current_user via app.dependency_overrides — no token needed.
 """
 
+import logging
 from functools import lru_cache
 from typing import Annotated
 
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 _DEV_CLAIMS = {
     "oid": "00000000-0000-0000-0000-000000000001",
@@ -61,7 +64,19 @@ async def _extract_claims(request: Request) -> dict:
         )
 
     # fastapi-azure-auth validates the token signature, audience, and expiry.
-    user_claims = await azure_scheme(request)  # raises 401 on invalid token
+    try:
+        user_claims = await azure_scheme(request)  # raises 401 on invalid token
+    except HTTPException as exc:
+        # The client gets the validator's generic 401; record WHY it failed
+        # server-side so a misconfiguration (wrong audience, v1 token, expired
+        # JWKS, …) is diagnosable from the app log. Never log the token itself.
+        logger.warning(
+            "Azure AD token validation failed (%s %s): %s",
+            request.method,
+            request.url.path,
+            exc.detail,
+        )
+        raise
     return {
         "oid": user_claims.oid,
         "name": user_claims.name,

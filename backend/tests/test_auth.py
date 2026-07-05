@@ -1,3 +1,4 @@
+import logging
 import sys
 import types
 
@@ -101,6 +102,35 @@ async def test_extract_claims_rejects_missing_bearer(monkeypatch) -> None:
     with pytest.raises(HTTPException) as exc:
         await _extract_claims(_Req({}))
     assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_extract_claims_logs_why_token_validation_failed(monkeypatch, caplog) -> None:
+    """An invalid token still 401s the client, but the validator's reason must be
+    logged server-side so misconfigurations (wrong audience, v1 token, …) are
+    diagnosable from the app log."""
+
+    class _RejectingBearer(_FakeBearer):
+        async def __call__(self, request):
+            raise HTTPException(status_code=401, detail="Token contains invalid claims")
+
+    _install_fake_azure(monkeypatch)
+    module = types.ModuleType("fastapi_azure_auth")
+    module.SingleTenantAzureAuthorizationCodeBearer = _RejectingBearer
+    monkeypatch.setitem(sys.modules, "fastapi_azure_auth", module)
+    _azure_scheme.cache_clear()
+
+    req = _Req({"Authorization": "Bearer bad-token"})
+    req.method = "GET"
+    req.url = types.SimpleNamespace(path="/api/auth/me")
+
+    with caplog.at_level(logging.WARNING, logger="app.core.auth"):
+        with pytest.raises(HTTPException) as exc:
+            await _extract_claims(req)
+
+    assert exc.value.status_code == 401
+    assert "Token contains invalid claims" in caplog.text
+    assert "bad-token" not in caplog.text  # the token itself is never logged
 
 
 @pytest.mark.asyncio
