@@ -25,6 +25,25 @@ export const loginRequest = {
   scopes: [`api://${import.meta.env.VITE_AZURE_CLIENT_ID}/user_impersonation`],
 };
 
+/**
+ * Initialise MSAL and complete a login redirect, if one is in flight. MSAL v3
+ * requires an explicit initialize() before any other call, and the auth code
+ * Azure AD puts in the URL hash after loginRedirect is only exchanged for
+ * tokens by handleRedirectPromise() — without it the account cache stays empty
+ * and every API call goes out unauthenticated.
+ *
+ * Must complete before the app renders: AppShell fetches /api/auth/me on
+ * mount, and that call needs the redirect processed to attach a token.
+ */
+export async function initializeMsal(): Promise<void> {
+  if (!msalInstance) return; // dev mode — auth is bypassed
+
+  await msalInstance.initialize();
+  const result = await msalInstance.handleRedirectPromise();
+  const account = result?.account ?? msalInstance.getAllAccounts()[0] ?? null;
+  if (account) msalInstance.setActiveAccount(account);
+}
+
 /** Acquire an access token silently, falling back to redirect if needed. */
 export async function getAccessToken(): Promise<string | null> {
   // Dev mode: no real token needed — backend accepts any Bearer value, and
@@ -33,13 +52,13 @@ export async function getAccessToken(): Promise<string | null> {
     return "dev-token";
   }
 
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length === 0) return null;
+  const account = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0];
+  if (!account) return null;
 
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...loginRequest,
-      account: accounts[0],
+      account,
     });
     return result.accessToken;
   } catch {

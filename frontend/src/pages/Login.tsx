@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { msalInstance, loginRequest } from "@/lib/auth";
+import { toast } from "@/components/ui/toaster";
+import { logger } from "@/lib/logger";
 
 function MicrosoftIcon({ className }: { className?: string }) {
   return (
@@ -47,7 +49,14 @@ export function Login() {
     if (isDev) {
       await fetchMe();
     } else {
-      await msalInstance?.loginRedirect(loginRequest);
+      try {
+        await msalInstance?.loginRedirect(loginRequest);
+      } catch (err: unknown) {
+        logger.error("Sign-in redirect failed to start", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        toast.error("Sign-in could not start. Please try again or contact support.");
+      }
     }
   };
 
