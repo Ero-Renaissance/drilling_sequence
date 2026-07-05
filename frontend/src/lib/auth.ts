@@ -1,4 +1,5 @@
 import { Configuration, PublicClientApplication } from "@azure/msal-browser";
+import { logger } from "@/lib/logger";
 
 const msalConfig: Configuration = {
   auth: {
@@ -46,6 +47,11 @@ export async function initializeMsal(): Promise<void> {
   const result = await msalInstance.handleRedirectPromise();
   const account = result?.account ?? msalInstance.getAllAccounts()[0] ?? null;
   if (account) msalInstance.setActiveAccount(account);
+  // Dev-only breadcrumb (logger.info is silent in prod): says whether this load
+  // came back from a login redirect and whether a signed-in account now exists.
+  logger.info(
+    `MSAL ready — redirect ${result ? "processed" : "none"}, account ${account ? "active" : "absent"}`,
+  );
 }
 
 /** Acquire an access token silently, falling back to redirect if needed. */
@@ -57,7 +63,10 @@ export async function getAccessToken(): Promise<string | null> {
   }
 
   const account = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0];
-  if (!account) return null;
+  if (!account) {
+    logger.warn("No signed-in MSAL account — request goes out unauthenticated (expect 401)");
+    return null;
+  }
 
   try {
     const result = await msalInstance.acquireTokenSilent({
@@ -65,7 +74,14 @@ export async function getAccessToken(): Promise<string | null> {
       account,
     });
     return result.accessToken;
-  } catch {
+  } catch (err: unknown) {
+    const code =
+      typeof (err as { errorCode?: unknown })?.errorCode === "string"
+        ? (err as { errorCode: string }).errorCode
+        : err instanceof Error
+          ? err.name
+          : "unknown";
+    logger.warn(`Silent token acquisition failed [${code}] — falling back to redirect`);
     await msalInstance.acquireTokenRedirect(loginRequest);
     return null;
   }
