@@ -7,6 +7,9 @@ interface ImportMetaEnv {
   readonly VITE_AZURE_CLIENT_ID: string;
   readonly VITE_AZURE_TENANT_ID: string;
   readonly VITE_AZURE_REDIRECT_URI: string;
+  // Scope name under the app registration's "Expose an API" (defaults to
+  // user_impersonation when unset).
+  readonly VITE_AZURE_API_SCOPE?: string;
   readonly VITE_DEV_MODE: string;
 }
 

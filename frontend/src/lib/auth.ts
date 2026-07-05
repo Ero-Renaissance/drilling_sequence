@@ -21,8 +21,12 @@ export const msalInstance: PublicClientApplication | null = isDevMode
   ? null
   : new PublicClientApplication(msalConfig);
 
+// The scope name must match one exposed under the app registration's
+// "Expose an API" blade (AADSTS65005 at sign-in means it doesn't exist there).
+const apiScope = import.meta.env.VITE_AZURE_API_SCOPE || "user_impersonation";
+
 export const loginRequest = {
-  scopes: [`api://${import.meta.env.VITE_AZURE_CLIENT_ID}/user_impersonation`],
+  scopes: [`api://${import.meta.env.VITE_AZURE_CLIENT_ID}/${apiScope}`],
 };
 
 /**
