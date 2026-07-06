@@ -14,10 +14,12 @@ vi.mock("@/store/auth", () => ({
 
 const listUsers = vi.fn();
 const setAdmin = vi.fn();
+const setCanPlan = vi.fn();
 vi.mock("@/api/admin", () => ({
   adminApi: {
     listUsers: () => listUsers(),
     setAdmin: (id: string, isAdmin: boolean) => setAdmin(id, isAdmin),
+    setCanPlan: (id: string, canPlan: boolean) => setCanPlan(id, canPlan),
   },
 }));
 
@@ -30,6 +32,7 @@ function user(over: Partial<AdminUser>): AdminUser {
     name: "Ada Lovelace",
     email: "ada@company.com",
     is_admin: false,
+    can_plan: false,
     project_count: 0,
     admin_via_allowlist: false,
     ...over,

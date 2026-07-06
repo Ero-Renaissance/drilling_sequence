@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ShieldCheck, ShieldOff, Loader2, Users } from "lucide-react";
+import { ClipboardList, ShieldCheck, ShieldOff, Loader2, Users } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,12 +63,26 @@ export function Admin() {
     }
   }
 
+  async function toggleCanPlan(user: AdminUser) {
+    setPendingId(user.id);
+    setError(null);
+    try {
+      const updated = await adminApi.setCanPlan(user.id, !user.can_plan);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update user");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">User Management</h1>
         <p className="text-sm text-muted-foreground">
-          Grant or revoke global admin access. Admins can view and manage every project.
+          Grant or revoke global access. Admins can view and manage every campaign; planners
+          can create campaigns and manage the plans they hold the planner role on.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Admins granted via the email allowlist (marked) or an Azure AD role can&apos;t be revoked
@@ -131,6 +145,12 @@ export function Admin() {
                           Admin
                         </Badge>
                       )}
+                      {user.can_plan && (
+                        <Badge variant="secondary" className="gap-1 text-[10px]">
+                          <ClipboardList className="h-3 w-3" />
+                          Planner
+                        </Badge>
+                      )}
                       {user.is_admin && user.admin_via_allowlist && (
                         <span
                           className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
@@ -148,6 +168,21 @@ export function Admin() {
                   <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
                     {user.project_count} project{user.project_count !== 1 ? "s" : ""}
                   </span>
+                  <Button
+                    variant={user.can_plan ? "ghost" : "outline"}
+                    size="sm"
+                    className="shrink-0"
+                    disabled={pendingId === user.id}
+                    title={
+                      user.can_plan
+                        ? "Remove the planner grant — they immediately lose planning rights on every campaign"
+                        : "Grant planner — they can create campaigns and be added as a campaign planner"
+                    }
+                    onClick={() => toggleCanPlan(user)}
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    {user.can_plan ? "Revoke planner" : "Make planner"}
+                  </Button>
                   <Button
                     variant={user.is_admin ? "ghost" : "outline"}
                     size="sm"

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.project import ProjectRole, ProjectStatus, ReviewPolicy
 
@@ -49,6 +49,14 @@ class ProjectUpdate(BaseModel):
         if v is not None and not v.strip():
             raise ValueError("Project name cannot be empty")
         return v.strip() if v else v
+
+
+class PlannerAdd(BaseModel):
+    """Add a co-planner to a campaign, identified by their sign-in email. The
+    target must already exist (signed in at least once) and hold the global
+    planner grant."""
+
+    email: EmailStr = Field(max_length=256)
 
 
 class ProjectMemberResponse(BaseModel):

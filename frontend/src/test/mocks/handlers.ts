@@ -12,6 +12,7 @@ export const mockUser: User = {
   name: "Test User",
   email: "test@company.com",
   is_admin: false,
+  can_plan: true,
 };
 
 export const mockProject: Project = {

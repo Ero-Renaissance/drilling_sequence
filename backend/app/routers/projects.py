@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
-from app.core.rbac import assert_can_view, assert_member
+from app.core.rbac import assert_can_plan, assert_can_view, assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
@@ -20,6 +20,7 @@ from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.audit import AuditEntryResponse
 from app.schemas.project import (
+    PlannerAdd,
     ProjectClone,
     ProjectCreate,
     ProjectLock,
@@ -97,7 +98,9 @@ async def list_projects(current_user: CurrentUser, db: DB) -> list[ProjectRespon
 async def create_project(
     payload: ProjectCreate, current_user: CurrentUser, db: DB
 ) -> ProjectResponse:
-    """Create a new project. The creator is automatically added as Planner."""
+    """Create a new project. Requires the global planner grant (or admin); the
+    creator is automatically added as Planner."""
+    assert_can_plan(current_user)
     project = Project(
         name=payload.name,
         field=payload.field,
@@ -149,7 +152,9 @@ async def clone_project(
     readiness checks, and the required-approver list. Revision/signature history
     is NOT copied; the clone starts a fresh approval cycle. Activity dates are
     kept as-is. The current user becomes the Planner of the clone. Restricted to a
-    Planner on the source project."""
+    Planner on the source project (which, via assert_member, also requires the
+    global planner grant); assert_can_plan additionally covers the admin path."""
+    assert_can_plan(current_user)
     source = await _get_project_for_user(
         project_id, current_user, db, allowed_roles={ProjectRole.planner}
     )
@@ -309,6 +314,131 @@ async def clone_project(
     )
     clone = result.scalar_one()
     return ProjectResponse.from_project(clone)
+
+
+@router.post(
+    "/{project_id}/planners",
+    response_model=ProjectResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_planner(
+    project_id: uuid.UUID,
+    payload: PlannerAdd,
+    current_user: CurrentUser,
+    db: DB,
+) -> ProjectResponse:
+    """Add a co-planner to the campaign, by email. Restricted to the campaign's
+    planners (or an admin). Strict rule: the target must already hold the global
+    planner grant — planning rights are curated by admins, not delegated."""
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    project = await _load_project_or_404(project_id, db)
+
+    email = payload.email.strip().lower()
+    target = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
+    if target is None:
+        # The target must have signed in at least once (users are created on
+        # first login). Safe to disclose to a campaign planner.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No user with that email has signed in yet",
+        )
+    if not target.can_plan and not target.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That user does not hold the planner grant; an admin must grant it first",
+        )
+
+    existing = next((m for m in project.members if m.user_id == target.id), None)
+    if existing is not None and existing.role == ProjectRole.planner:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That user is already a planner on this campaign",
+        )
+    if existing is not None:
+        existing.role = ProjectRole.planner
+    else:
+        db.add(
+            ProjectMember(
+                project_id=project_id,
+                user_id=target.id,
+                role=ProjectRole.planner,
+            )
+        )
+
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_PROJECT,
+            entity_id=project_id,
+            action="planner_added",
+            detail=f"Added {target.email} as planner",
+        )
+    )
+    await db.commit()
+    # Expire cached instances so the reload sees the new membership row even on
+    # sessions configured with expire_on_commit=False.
+    db.expire_all()
+    return ProjectResponse.from_project(await _load_project_or_404(project_id, db))
+
+
+@router.delete("/{project_id}/planners/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_planner(
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: DB,
+) -> None:
+    """Remove a planner from the campaign. Restricted to the campaign's planners
+    (or an admin). A campaign must always keep at least one planner."""
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+
+    member = (
+        await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == user_id,
+                ProjectMember.role == ProjectRole.planner,
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="That user is not a planner on this campaign",
+        )
+
+    planner_count = len(
+        (
+            await db.execute(
+                select(ProjectMember.id).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.role == ProjectRole.planner,
+                )
+            )
+        ).scalars().all()
+    )
+    if planner_count <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A campaign must keep at least one planner",
+        )
+
+    removed_email = (await db.get(User, user_id)).email if member else ""
+    await db.delete(member)
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_PROJECT,
+            entity_id=project_id,
+            action="planner_removed",
+            detail=f"Removed {removed_email} as planner",
+        )
+    )
+    await db.commit()
 
 
 async def compute_project_lock(project_id: uuid.UUID, db: AsyncSession) -> ProjectLock:

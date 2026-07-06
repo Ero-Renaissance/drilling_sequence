@@ -6,6 +6,8 @@ export interface User {
   name: string;
   email: string;
   is_admin: boolean;
+  /** Global planner grant — may create campaigns / hold the planner role. */
+  can_plan: boolean;
 }
 
 export interface AdminUser {
@@ -13,6 +15,8 @@ export interface AdminUser {
   name: string;
   email: string;
   is_admin: boolean;
+  /** Global planner grant — may create campaigns / hold the planner role. */
+  can_plan: boolean;
   project_count: number;
   /** Admin granted by the email allowlist — can't be revoked from the admin page. */
   admin_via_allowlist: boolean;

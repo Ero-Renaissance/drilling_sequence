@@ -6,10 +6,15 @@ import { Input } from "@/components/ui/input";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { CreateProjectDialog } from "@/components/projects/CreateProjectDialog";
 import { useProjectsStore } from "@/store/projects";
+import { useAuthStore } from "@/store/auth";
 import { useState } from "react";
 
 export function ProjectList() {
   const { projects, loading, fetchProjects, archiveProject } = useProjectsStore();
+  const user = useAuthStore((s) => s.user);
+  // Backend-enforced; hiding the button just avoids a dead-end 403 for
+  // users without the global planner grant.
+  const mayCreate = !!user && (user.is_admin || user.can_plan);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -32,7 +37,7 @@ export function ProjectList() {
             {projects.length} active drilling campaign{projects.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <CreateProjectDialog />
+        {mayCreate && <CreateProjectDialog />}
       </div>
 
       {/* Search */}
@@ -64,10 +69,12 @@ export function ProjectList() {
               <p className="text-sm text-muted-foreground">
                 {search
                   ? "Try a different keyword"
-                  : "Create your first campaign to start planning your rig sequence"}
+                  : mayCreate
+                    ? "Create your first campaign to start planning your rig sequence"
+                    : "Campaigns you're given access to will appear here"}
               </p>
             </div>
-            {!search && <CreateProjectDialog />}
+            {!search && mayCreate && <CreateProjectDialog />}
           </CardContent>
         </Card>
       ) : (

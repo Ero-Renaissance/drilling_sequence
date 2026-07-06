@@ -8,5 +8,7 @@ class UserResponse(BaseModel):
     name: str
     email: str
     is_admin: bool = False
+    # Global planner grant — may create campaigns / hold the planner role.
+    can_plan: bool = False
 
     model_config = {"from_attributes": True}

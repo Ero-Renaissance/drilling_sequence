@@ -17,5 +17,11 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=expression.false()
     )
+    # Global planner grant: may create campaigns and hold the planner role on
+    # them. Granted/revoked by an admin on the Admin page; revoking it strips
+    # planning rights everywhere immediately (enforced in rbac.assert_member).
+    can_plan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=expression.false()
+    )
 
     project_memberships: Mapped[list["ProjectMember"]] = relationship(back_populates="user")

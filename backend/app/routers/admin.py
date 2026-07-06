@@ -42,6 +42,7 @@ async def list_users(_admin: CurrentAdmin, db: DB) -> list[AdminUserResponse]:
             name=u.name,
             email=u.email,
             is_admin=u.is_admin,
+            can_plan=u.can_plan,
             project_count=counts.get(u.id, 0),
             admin_via_allowlist=u.email.lower() in settings.admin_emails_list,
         )
@@ -56,9 +57,10 @@ async def update_user(
     admin: CurrentAdmin,
     db: DB,
 ) -> AdminUserResponse:
-    """Grant or revoke global admin. An admin cannot revoke their own access
+    """Grant or revoke global privileges: `is_admin` and/or `can_plan` (the
+    global planner grant). An admin cannot revoke their own admin access
     (prevents locking the last admin out)."""
-    if user_id == admin.id and not payload.is_admin:
+    if user_id == admin.id and payload.is_admin is False:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot revoke your own admin access",
@@ -71,7 +73,7 @@ async def update_user(
     # The allowlist (admin_emails) is a floor: it re-grants admin at every login, so a
     # manual revoke here wouldn't stick. Reject it with a clear, actionable message.
     via_allowlist = user.email.lower() in settings.admin_emails_list
-    if not payload.is_admin and via_allowlist:
+    if payload.is_admin is False and via_allowlist:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -80,22 +82,36 @@ async def update_user(
             ),
         )
 
-    previous = user.is_admin
-    user.is_admin = payload.is_admin
+    previous_admin = user.is_admin
+    previous_plan = user.can_plan
+    if payload.is_admin is not None:
+        user.is_admin = payload.is_admin
+    if payload.can_plan is not None:
+        user.can_plan = payload.can_plan
     await db.commit()
     await db.refresh(user)
 
-    # Global admin changes are high-privilege and rare; record a defensible,
+    # Global privilege changes are high-privilege and rare; record a defensible,
     # server-side trail (the project-scoped audit log can't hold a global event).
-    if previous != user.is_admin:
+    if previous_admin != user.is_admin:
         logger.info(
             "admin_privilege_change actor=%s actor_id=%s target=%s target_id=%s is_admin=%s->%s",
             admin.email,
             admin.id,
             user.email,
             user.id,
-            previous,
+            previous_admin,
             user.is_admin,
+        )
+    if previous_plan != user.can_plan:
+        logger.info(
+            "planner_grant_change actor=%s actor_id=%s target=%s target_id=%s can_plan=%s->%s",
+            admin.email,
+            admin.id,
+            user.email,
+            user.id,
+            previous_plan,
+            user.can_plan,
         )
 
     count = (
@@ -108,6 +124,7 @@ async def update_user(
         name=user.name,
         email=user.email,
         is_admin=user.is_admin,
+        can_plan=user.can_plan,
         project_count=count,
         admin_via_allowlist=via_allowlist,
     )

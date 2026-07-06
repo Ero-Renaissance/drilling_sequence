@@ -30,11 +30,16 @@ _TestSessionLocal = async_sessionmaker(_engine, class_=AsyncSession, expire_on_c
 TEST_USER_ID = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
 OTHER_USER_ID = uuid.UUID("bbbbbbbb-0000-0000-0000-000000000002")
 THIRD_USER_ID = uuid.UUID("cccccccc-0000-0000-0000-000000000003")
+NOPLAN_USER_ID = uuid.UUID("dddddddd-0000-0000-0000-000000000004")
 
+# The three workhorse users hold the global planner grant (can_plan) so the
+# existing suite — which creates campaigns freely — keeps working. NOPLAN is a
+# plain authenticated user without the grant, for planner-authorization tests.
 _USERS: dict[uuid.UUID, dict] = {
-    TEST_USER_ID: {"ad_object_id": "test-oid-001", "name": "Test User", "email": "test@company.com"},
-    OTHER_USER_ID: {"ad_object_id": "test-oid-002", "name": "Other User", "email": "other@company.com"},
-    THIRD_USER_ID: {"ad_object_id": "test-oid-003", "name": "Third User", "email": "third@company.com"},
+    TEST_USER_ID: {"ad_object_id": "test-oid-001", "name": "Test User", "email": "test@company.com", "can_plan": True},
+    OTHER_USER_ID: {"ad_object_id": "test-oid-002", "name": "Other User", "email": "other@company.com", "can_plan": True},
+    THIRD_USER_ID: {"ad_object_id": "test-oid-003", "name": "Third User", "email": "third@company.com", "can_plan": True},
+    NOPLAN_USER_ID: {"ad_object_id": "test-oid-004", "name": "NoPlan User", "email": "noplan@company.com", "can_plan": False},
 }
 
 # Per-request ContextVars — safe when multiple clients are active in one test
@@ -126,6 +131,17 @@ async def third_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     that the submitter can't sign their own revision (separation of duties)."""
     async with AsyncClient(
         transport=_TestTransport(user_id=THIRD_USER_ID, db=db),
+        base_url="http://test",
+    ) as c:
+        yield c
+
+
+@pytest_asyncio.fixture
+async def noplan_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Authenticated user WITHOUT the global planner grant — for asserting that
+    campaign creation and planner-role actions are denied."""
+    async with AsyncClient(
+        transport=_TestTransport(user_id=NOPLAN_USER_ID, db=db),
         base_url="http://test",
     ) as c:
         yield c
