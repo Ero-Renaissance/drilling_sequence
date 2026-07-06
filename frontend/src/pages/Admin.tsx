@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SearchInput } from "@/components/ui/search-input";
 import { adminApi } from "@/api/admin";
 import { useAuthStore } from "@/store/auth";
 import type { AdminUser } from "@/types";
@@ -33,6 +34,8 @@ export function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirmUser, setConfirmUser] = useState<AdminUser | null>(null);
+  const [search, setSearch] = useState("");
+  const [privilegedOnly, setPrivilegedOnly] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +79,17 @@ export function Admin() {
     }
   }
 
+  // Client-side filter: the org can be large (thousands of read-only users),
+  // but the payload per row is tiny, so one fetch + local search stays snappy.
+  const query = search.trim().toLowerCase();
+  const filtered = users.filter(
+    (u) =>
+      (!privilegedOnly || u.is_admin || u.can_plan) &&
+      (!query ||
+        u.name.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query)),
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -100,14 +114,36 @@ export function Admin() {
       )}
 
       <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm">
-        <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
           <Users className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold">
             Users
             <span className="ml-2 font-normal text-muted-foreground">
-              {loading ? "" : users.length}
+              {loading
+                ? ""
+                : filtered.length === users.length
+                  ? users.length
+                  : `${filtered.length} of ${users.length}`}
             </span>
           </h2>
+          <div className="ml-auto flex items-center gap-2">
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={privilegedOnly}
+                onChange={(e) => setPrivilegedOnly(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Admins &amp; planners only
+            </label>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search name or email…"
+              ariaLabel="Search users"
+              testId="admin-user-search"
+            />
+          </div>
         </div>
 
         {loading ? (
@@ -118,7 +154,12 @@ export function Admin() {
           </div>
         ) : (
           <ul className="divide-y divide-border/60">
-            {users.map((user) => {
+            {filtered.length === 0 && (
+              <li className="px-4 py-6 text-center text-sm text-muted-foreground">
+                No users match{search ? ` “${search}”` : " the filter"}.
+              </li>
+            )}
+            {filtered.map((user) => {
               const isSelf = currentUser?.id === user.id;
               const revokeLocked = user.is_admin && (isSelf || user.admin_via_allowlist);
               const lockReason = !revokeLocked

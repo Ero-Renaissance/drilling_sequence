@@ -71,4 +71,25 @@ describe("Admin", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /make admin/i }));
     await waitFor(() => expect(setAdmin).toHaveBeenCalledWith("u1", true));
   });
+
+  it("filters users by search and by the admins-and-planners toggle", async () => {
+    listUsers.mockResolvedValue([
+      user({ id: "u1", name: "Ada Lovelace", email: "ada@company.com", can_plan: true }),
+      user({ id: "u2", name: "Bob Viewer", email: "bob@company.com" }),
+    ]);
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+    expect(screen.getByText("Bob Viewer")).toBeInTheDocument();
+
+    // Search narrows by name/email.
+    fireEvent.change(screen.getByTestId("admin-user-search"), { target: { value: "bob" } });
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+    expect(screen.getByText("Bob Viewer")).toBeInTheDocument();
+
+    // Privileged-only hides plain read-only users.
+    fireEvent.change(screen.getByTestId("admin-user-search"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /admins & planners only/i }));
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.queryByText("Bob Viewer")).not.toBeInTheDocument();
+  });
 });
