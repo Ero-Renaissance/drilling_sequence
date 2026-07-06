@@ -49,6 +49,8 @@ def _azure_scheme():
     return SingleTenantAzureAuthorizationCodeBearer(
         app_client_id=settings.azure_client_id,
         tenant_id=settings.azure_tenant_id,
+        # Guests are rejected with 403 unless explicitly allowed (fail closed).
+        allow_guest_users=settings.azure_allow_guest_users,
     )
 
 

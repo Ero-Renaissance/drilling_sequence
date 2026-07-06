@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     azure_tenant_id: str = ""
     azure_client_id: str = ""
 
+    # Whether Azure AD *guest* accounts (external users invited into the tenant)
+    # may authenticate. Fail-closed default: members only. Enable only when the
+    # deployment intentionally serves guests (e.g. a dev tenant where the tester's
+    # account is a guest, or cross-company collaborators vetted by IT).
+    azure_allow_guest_users: bool = False
+
     # Single-origin deploy without a reverse proxy: point STATIC_DIR at the
     # frontend's built `dist/` and uvicorn serves the SPA itself (assets + an
     # index.html fallback). Leave empty when a reverse proxy / the Vite dev

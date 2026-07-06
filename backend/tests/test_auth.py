@@ -47,10 +47,11 @@ class _FakeBearer:
     instances = 0
     roles_to_return: list = ["Admin"]
 
-    def __init__(self, app_client_id, tenant_id):
+    def __init__(self, app_client_id, tenant_id, allow_guest_users=False):
         type(self).instances += 1
         self.app_client_id = app_client_id
         self.tenant_id = tenant_id
+        self.allow_guest_users = allow_guest_users
 
     # Mirrors the REAL fastapi-azure-auth signature: __call__ requires a
     # SecurityScopes argument (it's designed for FastAPI dependency injection).
@@ -141,6 +142,25 @@ async def test_extract_claims_dev_mode_short_circuits(monkeypatch) -> None:
     monkeypatch.setattr(settings, "dev_mode", True)
     claims = await _extract_claims(_Req({}))  # no token required in dev mode
     assert claims["preferred_username"] == "dev@company.com"
+
+
+def test_azure_scheme_guest_access_follows_setting(monkeypatch) -> None:
+    """The scheme's guest policy comes from settings (which default to closed —
+    see Settings.azure_allow_guest_users), not from the library default."""
+    _install_fake_azure(monkeypatch)
+    monkeypatch.setattr(settings, "azure_allow_guest_users", False)
+    assert _azure_scheme().allow_guest_users is False
+
+    monkeypatch.setattr(settings, "azure_allow_guest_users", True)
+    _azure_scheme.cache_clear()
+    assert _azure_scheme().allow_guest_users is True
+
+
+def test_guest_setting_defaults_closed() -> None:
+    """A bare Settings (no env) must reject guests — fail-closed default."""
+    from app.config import Settings
+
+    assert Settings(_env_file=None).azure_allow_guest_users is False
 
 
 def test_azure_scheme_is_built_once(monkeypatch) -> None:
