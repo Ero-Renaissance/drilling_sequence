@@ -10,4 +10,8 @@ export const projectsApi = {
   update: (id: string, payload: ProjectUpdate) =>
     api.patch<Project>(`/api/projects/${id}`, payload),
   archive: (id: string) => api.delete(`/api/projects/${id}`),
+  addPlanner: (id: string, email: string) =>
+    api.post<Project>(`/api/projects/${id}/planners`, { email }),
+  removePlanner: (id: string, userId: string) =>
+    api.delete(`/api/projects/${id}/planners/${userId}`),
 };

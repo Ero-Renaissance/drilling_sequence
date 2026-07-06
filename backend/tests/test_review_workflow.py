@@ -71,8 +71,8 @@ async def test_reviewer_endpoints_planner_gated(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     pid = await _project(client)
-    # other@ is not a member at all → forbidden on add/list.
-    assert (await other_client.get(f"/api/projects/{pid}/reviewers")).status_code == 403
+    # Reads are org-wide; mutating the reviewer matrix stays planner-only.
+    assert (await other_client.get(f"/api/projects/{pid}/reviewers")).status_code == 200
     assert (
         await other_client.post(f"/api/projects/{pid}/reviewers", json={"email": "x@x.com"})
     ).status_code == 403

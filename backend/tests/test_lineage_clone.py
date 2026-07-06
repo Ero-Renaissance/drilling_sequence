@@ -93,7 +93,7 @@ async def test_cross_compare_matches_by_lineage(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cross_compare_denied_for_non_member(
+async def test_cross_compare_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     q1 = await _project(client, "Q1")
@@ -102,4 +102,4 @@ async def test_cross_compare_denied_for_non_member(
         f"/api/projects/{q2}/revisions/cross-compare",
         params={"base_project_id": q1},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200

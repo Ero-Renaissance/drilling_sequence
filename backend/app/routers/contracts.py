@@ -25,7 +25,7 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 async def list_contracts(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> list[RigContract]:
-    await assert_member(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view campaign data.
     result = await db.execute(
         select(RigContract)
         .where(RigContract.project_id == project_id)

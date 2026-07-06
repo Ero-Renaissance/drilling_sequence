@@ -85,12 +85,13 @@ async def test_list_projects_shows_own_projects(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_projects_excludes_other_users(
+async def test_list_projects_is_org_wide(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
+    # Visibility is org-wide: every active campaign appears for every user.
     await _create_project(client, name="My Project")
     response = await other_client.get("/api/projects")
-    assert response.json() == []
+    assert [p["name"] for p in response.json()] == ["My Project"]
 
 
 @pytest.mark.asyncio
@@ -120,12 +121,12 @@ async def test_get_project_not_found(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_project_other_user_denied(
+async def test_get_project_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
-    project = await _create_project(client, name="Private Project")
+    project = await _create_project(client, name="Shared Project")
     response = await other_client.get(f"/api/projects/{project['id']}")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

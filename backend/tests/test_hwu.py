@@ -83,8 +83,8 @@ async def test_hwu_contract_denied_for_non_member(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     pid = await _project(client)
-    # A non-member can neither read nor write the project's HWU contracts (BOLA).
-    assert (await other_client.get(f"/api/projects/{pid}/hwu-contracts")).status_code == 403
+    # Reads are org-wide; contract writes stay planner-only.
+    assert (await other_client.get(f"/api/projects/{pid}/hwu-contracts")).status_code == 200
     assert (
         await other_client.put(
             f"/api/projects/{pid}/hwu-contracts/HWU-1", json={"status": "Completed"}

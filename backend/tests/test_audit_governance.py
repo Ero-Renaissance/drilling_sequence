@@ -176,9 +176,10 @@ async def test_hwu_contract_change_is_audited(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_audit_feed_denied_to_non_member(
+async def test_audit_feed_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
+    # Reads are org-wide: the audit trail is visible to every signed-in user.
     project_id = await _project_with_activity(client)
     r = await other_client.get(f"/api/projects/{project_id}/audit")
-    assert r.status_code in (403, 404)
+    assert r.status_code == 200

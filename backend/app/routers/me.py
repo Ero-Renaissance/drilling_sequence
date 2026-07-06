@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.database import get_db
 from app.models.approver import ProjectApprover
-from app.models.project import Project, ProjectMember, ProjectStatus
+from app.models.project import Project, ProjectStatus
 from app.models.revision import Revision
 from app.models.user import User
 from app.schemas.dashboard import LastApprovedDashboard
@@ -94,14 +94,11 @@ async def last_approved_dashboard(
     """Home KPIs from the most-recently-approved revision across the caller's
     active projects (membership-scoped, mirroring the projects list). Read-only;
     `available=False` when none of the caller's projects has an approved revision."""
+    # Mirrors the org-wide campaign list: every active campaign is visible to
+    # every authenticated user, so the home KPIs span all of them.
     project_ids = (
         await db.execute(
-            select(Project.id)
-            .join(ProjectMember, ProjectMember.project_id == Project.id)
-            .where(
-                ProjectMember.user_id == current_user.id,
-                Project.status == ProjectStatus.active,
-            )
+            select(Project.id).where(Project.status == ProjectStatus.active)
         )
     ).scalars().all()
     return await build_last_approved(list(project_ids), db)

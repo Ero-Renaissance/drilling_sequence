@@ -34,7 +34,7 @@ def _match(project_id: uuid.UUID, kind: str, resource_name: str | None):
 async def list_change_notes(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> list[ChangeNote]:
-    await assert_member(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view campaign data.
     result = await db.execute(
         select(ChangeNote)
         .where(ChangeNote.project_id == project_id)

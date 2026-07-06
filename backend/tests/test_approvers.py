@@ -127,7 +127,7 @@ async def test_remove_approver(client: AsyncClient) -> None:
 async def test_non_member_cannot_access_approvers(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
-    """Approver list/add/remove are gated by project membership."""
+    """Approver add/remove are planner-gated; the list is org-wide readable."""
     r = await client.post("/api/projects", json={"name": "P"})
     project_id = r.json()["id"]
     r = await client.post(
@@ -135,8 +135,8 @@ async def test_non_member_cannot_access_approvers(
     )
     approver_id = r.json()["id"]
 
-    # Other User has no membership → every approver endpoint is forbidden
-    assert (await other_client.get(f"/api/projects/{project_id}/approvers")).status_code == 403
+    # Reads are org-wide; mutating the approver matrix stays planner-only.
+    assert (await other_client.get(f"/api/projects/{project_id}/approvers")).status_code == 200
     assert (
         await other_client.post(
             f"/api/projects/{project_id}/approvers", json={"email": "y@y.com"}

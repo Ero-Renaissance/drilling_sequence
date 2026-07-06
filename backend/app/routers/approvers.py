@@ -25,7 +25,7 @@ async def list_approvers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ProjectApprover]:
-    await assert_member(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view campaign data.
     result = await db.execute(
         select(ProjectApprover)
         .where(

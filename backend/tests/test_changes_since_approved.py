@@ -203,7 +203,8 @@ async def test_access_allows_designated_approver(
     pid, _rev1, _aid = await _approved_project(client, other_client)
     url = f"/api/projects/{pid}/revisions/changes-since-approved?target=live"
 
-    assert (await third_client.get(url)).status_code == 403  # not a member or approver
+    # Reads are org-wide: the diff is viewable before (and after) designation.
+    assert (await third_client.get(url)).status_code == 200
     await client.post(
         f"/api/projects/{pid}/approvers",
         json={"email": "third@company.com", "role_label": "Approver"},

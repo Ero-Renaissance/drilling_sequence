@@ -30,7 +30,7 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 async def list_readiness(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> list[ActivityReadiness]:
-    await assert_member(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view campaign data.
 
     acts_result = await db.execute(
         select(Activity)

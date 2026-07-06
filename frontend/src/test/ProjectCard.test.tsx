@@ -1,10 +1,17 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { ProjectCard } from "@/components/projects/ProjectCard";
-import { mockProject } from "./mocks/handlers";
+import { useAuthStore } from "@/store/auth";
+import { mockProject, mockUser } from "./mocks/handlers";
 
 const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
+
+// The card's clone/archive affordances are planner-gated: signed in as the
+// campaign's planner (mockUser holds the grant and the planner role).
+beforeEach(() => {
+  useAuthStore.setState({ user: mockUser, loading: false });
+});
 
 function renderCard(onArchive?: (id: string) => void) {
   return render(
@@ -44,5 +51,17 @@ describe("ProjectCard", () => {
   it("does not render archive button when onArchive is not provided", () => {
     renderCard();
     expect(screen.queryByTitle("Archive campaign")).not.toBeInTheDocument();
+  });
+
+  it("hides clone and archive for a read-only user (org-wide viewer)", () => {
+    useAuthStore.setState({
+      user: { ...mockUser, id: "someone-else", can_plan: false },
+      loading: false,
+    });
+    const onArchive = vi.fn();
+    renderCard(onArchive);
+    expect(screen.queryByTitle("Archive campaign")).not.toBeInTheDocument();
+    // The card itself still renders read-only.
+    expect(screen.getByText("North Sea Campaign")).toBeInTheDocument();
   });
 });

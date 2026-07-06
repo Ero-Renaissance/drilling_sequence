@@ -169,9 +169,10 @@ async def test_viewers_includes_current_user(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_viewers_denied_for_non_member(
+async def test_viewers_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
+    # Presence is org-wide readable, like every other campaign read.
     proj = await _mk_project(client)
     r = await other_client.get(f"/api/projects/{proj['id']}/viewers")
-    assert r.status_code == 403
+    assert r.status_code == 200

@@ -160,9 +160,9 @@ async def test_readiness_requires_auth(client: AsyncClient, other_client: AsyncC
     project = await _create_project(client)
     activity = await _create_activity(client, project["id"])
 
-    # other_client is not a member of the project
+    # Reads are org-wide; readiness writes stay planner-only.
     resp = await other_client.get(f"/api/projects/{project['id']}/readiness")
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
     resp = await other_client.put(
         f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/BUD",

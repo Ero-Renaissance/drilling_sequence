@@ -197,12 +197,13 @@ async def test_list_activities_returns_created(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_activities_non_member_denied(
+async def test_list_activities_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
+    # Reads are org-wide: a non-member may view the plan (writes stay gated).
     project = await _create_project(client)
     response = await other_client.get(f"/api/projects/{project['id']}/activities")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

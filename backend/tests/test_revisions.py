@@ -245,11 +245,11 @@ async def test_non_member_cannot_access_revisions(
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
-    # Other User is not a member of this project → every endpoint is forbidden
-    assert (await other_client.get(f"/api/projects/{project_id}/revisions")).status_code == 403
+    # Reads are org-wide; every mutating revision endpoint stays forbidden.
+    assert (await other_client.get(f"/api/projects/{project_id}/revisions")).status_code == 200
     assert (
         await other_client.get(f"/api/projects/{project_id}/revisions/{revision_id}")
-    ).status_code == 403
+    ).status_code == 200
     assert (
         await other_client.post(f"/api/projects/{project_id}/revisions", json={})
     ).status_code == 403
@@ -294,14 +294,14 @@ async def test_designated_signer_can_read_without_membership(
 
 
 @pytest.mark.asyncio
-async def test_outsider_cannot_read_project_or_revisions(
+async def test_outsider_can_read_project_and_revisions(
     client: AsyncClient, third_client: AsyncClient
 ) -> None:
-    """A user who is neither a member nor a designated signer is still denied read
-    (the broadened access admits signers only, not the whole world)."""
+    """Reads are org-wide: any authenticated user may view a campaign and its
+    revisions, membership or not. (Writes and signing stay gated.)"""
     project_id, _ = await _create_project_with_activities(client)
-    assert (await third_client.get(f"/api/projects/{project_id}")).status_code == 403
-    assert (await third_client.get(f"/api/projects/{project_id}/revisions")).status_code == 403
+    assert (await third_client.get(f"/api/projects/{project_id}")).status_code == 200
+    assert (await third_client.get(f"/api/projects/{project_id}/revisions")).status_code == 200
 
 
 # ── Reject / request-changes workflow ───────────────────────────────────────

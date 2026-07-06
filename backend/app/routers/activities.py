@@ -55,7 +55,7 @@ def _normalize_ts(ts: datetime) -> datetime:
 async def list_activities(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> list[ActivityResponse]:
-    await assert_member(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view campaign data.
     result = await db.execute(
         select(Activity)
         .where(Activity.project_id == project_id)
@@ -228,7 +228,7 @@ async def get_activity_history(
     db: DB,
     limit: int = Query(default=50, le=200),
 ) -> list[AuditEntryResponse]:
-    await assert_member(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view campaign data.
     result = await db.execute(
         select(AuditLog)
         .where(

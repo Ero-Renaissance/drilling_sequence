@@ -31,10 +31,8 @@ async def test_designated_approver_can_view_diff(
     project_id, revision_id = await _project_with_revision(client)
     url = f"/api/projects/{project_id}/revisions/compare?base={revision_id}&target=live"
 
-    # The other user is neither a member nor an approver → denied.
-    assert (await other_client.get(url)).status_code == 403
-
-    # Designate them an approver by email → they can now see what they sign.
+    # Reads are org-wide, so the designated approver can always see what they
+    # sign — with or without membership.
     await client.post(
         f"/api/projects/{project_id}/approvers",
         json={"email": "other@company.com", "role_label": "Approver"},
@@ -43,10 +41,10 @@ async def test_designated_approver_can_view_diff(
 
 
 @pytest.mark.asyncio
-async def test_unrelated_user_still_denied_diff(
+async def test_unrelated_user_may_view_diff(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     project_id, revision_id = await _project_with_revision(client)
     url = f"/api/projects/{project_id}/revisions/compare?base={revision_id}&target=live"
-    # No membership, no approver designation → stays 403 (BOLA scoping holds).
-    assert (await other_client.get(url)).status_code == 403
+    # Reads are org-wide: no membership or designation needed to view.
+    assert (await other_client.get(url)).status_code == 200

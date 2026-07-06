@@ -25,6 +25,7 @@ import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
 import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
+import { PlannersPanel } from "@/components/projects/PlannersPanel";
 import { CampaignCapacitySection } from "@/components/dashboard/CampaignCapacitySection";
 import { ApproverSettings } from "@/components/revisions/ApproverSettings";
 import { ReviewSettings } from "@/components/revisions/ReviewSettings";
@@ -137,11 +138,14 @@ export function ProjectDetail() {
 
   if (!projectId) return <Navigate to="/projects" replace />;
 
-  // Revise Plan is planner-only (admin or a project planner) — match the backend.
+  // Revise Plan is planner-only — match the backend: admin, or a project
+  // planner who still holds the global planner grant (strict rule).
   const canRevise =
     !!user &&
     !!project &&
-    (user.is_admin || project.members.some((m) => m.user_id === user.id && m.role === "planner"));
+    (user.is_admin ||
+      (user.can_plan &&
+        project.members.some((m) => m.user_id === user.id && m.role === "planner")));
 
   return (
     <div className="space-y-4 h-full flex flex-col">
@@ -489,6 +493,7 @@ export function OverviewTab() {
     <div className="space-y-6">
       <ProjectDashboard projectId={projectId} />
       <CampaignCapacitySection projectId={projectId} />
+      <PlannersPanel projectId={projectId} />
     </div>
   );
 }

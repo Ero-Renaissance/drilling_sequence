@@ -136,8 +136,8 @@ async def test_most_recently_approved_wins(
 
 @pytest.mark.asyncio
 async def test_membership_scoped(client: AsyncClient, other_client: AsyncClient) -> None:
-    """other@ is a designated approver (by email) but not a project member, so the
-    approval doesn't appear on their home dashboard."""
+    """Visibility is org-wide: the home dashboard spans every active campaign,
+    member or not."""
     await _approved_project(client, other_client)
     d = (await other_client.get("/api/me/last-approved-dashboard")).json()
-    assert d["available"] is False
+    assert d["available"] is True

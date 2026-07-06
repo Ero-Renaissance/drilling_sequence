@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
-from app.core.rbac import assert_can_plan, assert_can_view, assert_member
+from app.core.rbac import assert_can_plan, assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.approver import ProjectApprover
@@ -66,26 +66,13 @@ async def _get_project_for_user(
     return project
 
 
-async def _get_project_for_viewer(
-    project_id: uuid.UUID, user: User, db: AsyncSession
-) -> Project:
-    """Load a project for **read** access. Broader than membership on purpose: a
-    designated reviewer/approver is matched by email and may not be a ProjectMember,
-    yet must be able to open the project they're asked to review/approve. Allowed:
-    a global admin, a designated signer (by email), or any project member. See
-    `assert_can_view`."""
-    project = await _load_project_or_404(project_id, db)
-    await assert_can_view(project_id, user, db)
-    return project
-
-
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects(current_user: CurrentUser, db: DB) -> list[ProjectResponse]:
-    """List all projects the current user is a member of."""
+    """List all active campaigns. Visibility is org-wide by design: every
+    authenticated user can see every campaign (read-only); only the campaign's
+    planners — and global admins — can change anything."""
     result = await db.execute(
         select(Project)
-        .join(ProjectMember, ProjectMember.project_id == Project.id)
-        .where(ProjectMember.user_id == current_user.id)
         .where(Project.status == ProjectStatus.active)
         .options(selectinload(Project.members).selectinload(ProjectMember.user))
         .order_by(Project.created_at.desc())
@@ -474,9 +461,8 @@ async def compute_project_lock(project_id: uuid.UUID, db: AsyncSession) -> Proje
 async def get_project(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> ProjectResponse:
-    # Read access — admits designated reviewers/approvers who aren't members, so
-    # they can open the project they're asked to review/approve.
-    project = await _get_project_for_viewer(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may open any campaign.
+    project = await _load_project_or_404(project_id, db)
     response = ProjectResponse.from_project(project)
     response.lock = await compute_project_lock(project_id, db)
     return response
@@ -490,8 +476,8 @@ async def get_project_audit(
     limit: int = Query(default=100, le=500),
 ) -> list[AuditEntryResponse]:
     """Return the project's audit trail (activity edits + governance events),
-    newest first. Visible to any project member."""
-    await _get_project_for_user(project_id, current_user, db)
+    newest first. Reads are org-wide: any authenticated user may view it."""
+    await _load_project_or_404(project_id, db)
     result = await db.execute(
         select(AuditLog)
         .where(AuditLog.project_id == project_id)

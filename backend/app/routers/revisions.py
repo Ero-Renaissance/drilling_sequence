@@ -13,7 +13,6 @@ from app.core.auth import get_current_user
 from app.core.rbac import (
     assert_can_review,
     assert_can_sign,
-    assert_can_view,
     assert_member,
 )
 from app.database import get_db
@@ -235,7 +234,7 @@ async def list_revisions(
 ):
     # Read access — a designated reviewer/approver (not necessarily a member) must
     # be able to list the revisions of a project they're asked to act on.
-    await assert_can_view(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view revisions.
     result = await db.execute(
         select(Revision)
         .where(Revision.project_id == project_id)
@@ -534,7 +533,7 @@ async def compare_revisions(
     """Diff two snapshots of a project. `base` and `target` are each a revision
     UUID or the literal "live" (the current working plan). `base` is the older
     side; `target` defaults to the live plan."""
-    await assert_can_view(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view diffs.
     base_snapshot, base_side = await _resolve_diff_side(project_id, base, db)
     target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
     diff = diff_snapshots(base_snapshot, target_snapshot)
@@ -557,8 +556,7 @@ async def cross_compare(
     UUID within that project or the literal "live". Activities are matched by
     lineage (carried across clones), so a rig reassigned to another well reads
     as a modified field rather than add+remove."""
-    await assert_can_view(project_id, current_user, db)
-    await assert_can_view(base_project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view cross-project diffs.
     base_snapshot, base_side = await _resolve_diff_side(base_project_id, base, db)
     target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
     diff = diff_snapshots(base_snapshot, target_snapshot, match_by="lineage")
@@ -591,7 +589,7 @@ async def changes_since_approved(
     Either way the baseline is resolved under *this* project's authorization, so an
     email-only signer can use it without membership of the parent project.
     """
-    await assert_can_view(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view diffs.
 
     target_snapshot, target_side = await _resolve_diff_side(project_id, target, db)
 
@@ -617,9 +615,7 @@ async def get_revision(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> RevisionDetailResponse:
-    # Read access — a designated reviewer/approver (not necessarily a member) must
-    # be able to open the revision they're asked to review/approve.
-    await assert_can_view(project_id, current_user, db)
+    # Reads are org-wide: any authenticated user may view revisions.
     revision = await db.get(Revision, revision_id)
     if not revision or revision.project_id != project_id:
         raise HTTPException(status_code=404, detail="Revision not found")

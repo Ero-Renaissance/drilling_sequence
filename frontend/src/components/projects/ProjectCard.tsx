@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { CloneProjectDialog } from "@/components/projects/CloneProjectDialog";
+import { useAuthStore } from "@/store/auth";
 import type { Project } from "@/types";
 
 interface ProjectCardProps {
@@ -14,7 +15,16 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onArchive }: ProjectCardProps) {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const plannerCount = project.members.filter((m) => m.role === "planner").length;
+  // Clone/archive are planner actions on THIS campaign — match the backend
+  // (admin, or a planner member holding the global grant). Everyone else gets
+  // the card read-only.
+  const canManage =
+    !!user &&
+    (user.is_admin ||
+      (user.can_plan &&
+        project.members.some((m) => m.user_id === user.id && m.role === "planner")));
 
   return (
     <Card
@@ -50,8 +60,8 @@ export function ProjectCard({ project, onArchive }: ProjectCardProps) {
           </div>
 
           <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-            <CloneProjectDialog project={project} />
-            {onArchive && (
+            {canManage && <CloneProjectDialog project={project} />}
+            {canManage && onArchive && (
               <Button
                 variant="ghost"
                 size="icon"

@@ -42,12 +42,12 @@ async def _activity(
 
 
 @pytest.mark.asyncio
-async def test_dashboard_denied_for_non_member(
+async def test_dashboard_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     pid = await _project(client)
-    # The other user is not a member of the project → BOLA scoping denies the read.
-    assert (await other_client.get(f"/api/projects/{pid}/dashboard")).status_code == 403
+    # Reads are org-wide: any authenticated user may view the KPI dashboard.
+    assert (await other_client.get(f"/api/projects/{pid}/dashboard")).status_code == 200
 
 
 @pytest.mark.asyncio

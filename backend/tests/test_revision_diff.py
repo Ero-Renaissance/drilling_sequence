@@ -331,7 +331,7 @@ async def test_compare_invalid_ref_returns_422(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_compare_denied_for_non_member(
+async def test_compare_open_to_any_authenticated_user(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     project_id, _ = await _project_with_activity(client)
@@ -340,7 +340,7 @@ async def test_compare_denied_for_non_member(
         f"/api/projects/{project_id}/revisions/compare",
         params={"base": rev1["id"]},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
 @pytest.mark.asyncio
