@@ -203,6 +203,27 @@ async def test_optimize_endpoint_denied_without_grant(noplan_client: AsyncClient
 
 
 @pytest.mark.asyncio
+async def test_milp_engine_degrades_to_heuristic_when_solver_absent(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """OPTIMIZER_ENGINE=milp must degrade to the heuristic (with a warning) when
+    OR-Tools isn't installed — this is what makes the `solver` extra safe to
+    declare on the live IIS deploy without installing it. Results are unaffected."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "optimizer_engine", "milp")
+    r = await client.post("/api/optimizer/rig-fleet", json=_REQUEST)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # OR-Tools is not in the test venv, so the engine falls back and says so.
+    assert body["engine"] == "heuristic"
+    assert body["warning"] and "heuristic" in body["warning"].lower()
+    # Same answer as the default heuristic run — the fallback is transparent.
+    by_terrain = {t["terrain"]: t["rig_count"] for t in body["results"]}
+    assert by_terrain == {"Land": 1, "Swamp": 2}
+
+
+@pytest.mark.asyncio
 async def test_optimize_endpoint_validates_terrain(client: AsyncClient) -> None:
     bad = {"demand": [{"terrain": "Desert", "project": "X", "wells_by_year": {"2027": 1}}]}
     r = await client.post("/api/optimizer/rig-fleet", json=bad)

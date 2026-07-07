@@ -124,9 +124,20 @@ Two engines behind one interface, selected by environment variable
 - **Heuristic (default):** deterministic greedy/packing scheduler in owned code,
   plus an analytic lower bound (total required rig-months ÷ available rig-months)
   so the result is provably optimal or within one rig. No new dependencies.
-- **MILP (optional):** exact optimization via a solver library (e.g. Google
-  OR-Tools, Apache-2.0). **New dependency — flagged for IT review before adoption**
-  (ships native binaries). The feature works fully without it.
+- **MILP (optional):** exact optimization via **Google OR-Tools CP-SAT**
+  (`ortools>=9.15`, Apache-2.0). CP-SAT's interval / `AddNoOverlap` /
+  `AddCumulative` constraints fit the rig-scheduling shape directly (rigs =
+  resources, wells = intervals). **New dependency — flagged for IT/supply-chain
+  review before installation:** ships prebuilt `win_amd64` + macOS wheels
+  (cp311–cp314, no build toolchain); net-new transitive additions to vet are
+  protobuf + absl-py (numpy already present via pandas).
+  - Declared as the optional `solver` extra in `pyproject.toml`, **not installed
+    by default**. `app/routers/optimizer.py` probes `import ortools` and degrades
+    to the heuristic (with a warning in the response) when it's absent — so a
+    deploy that skips `pip install .[solver]` is byte-for-byte unchanged and the
+    live IIS deployment carries no new binary until the install is opted into on
+    a specific host and `OPTIMIZER_ENGINE=milp` is set. Chosen to match the
+    da-schedule project's solver stack so one IT review covers both.
 
 ## 8. Access, audit, and integration
 

@@ -44,6 +44,19 @@ dev = [
     "pytest-mock==3.15.1",
     "ruff==0.15.15",
 ]
+# CP-SAT solver for the rig-fleet optimizer's exact ("milp") engine. OPTIONAL and
+# NOT installed by default: app/routers/optimizer.py probes `import ortools` and,
+# when absent, degrades to the owned heuristic engine — so a deploy that skips
+# this extra is byte-for-byte unchanged (no new native binary in the venv).
+# Install + set OPTIMIZER_ENGINE=milp only on a host where exact optimization is
+# wanted, after IT review. NEW DEPENDENCY — flagged for IT/supply-chain review:
+#   ortools  9.15  (Apache-2.0) — Google OR-Tools; ships prebuilt win_amd64 +
+#     macOS wheels cp311–cp314 (no build toolchain). Net-new transitive additions
+#     to vet: protobuf + absl-py (numpy is already present via pandas). protobuf
+#     is the one to watch — large, version-sensitive, its own CVE history.
+solver = [
+    "ortools>=9.15",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
