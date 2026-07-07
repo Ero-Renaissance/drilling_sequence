@@ -70,15 +70,18 @@ def test_batch_counter_continues_across_years_by_default() -> None:
     assert gaps[3] == "inter_well"  # counter reset on New Year → plain 2-week move
 
 
-def test_project_move_is_45_days() -> None:
-    """One rig serving two projects back-to-back takes the 45-day move."""
-    result = optimize_terrain(
-        "Land", {"P1": {2027: 1}, "P2": {2027: 1}}, A, STRICT
-    )
-    assert result.feasible and result.rig_count == 1
-    wells = result.rigs[0].wells
-    assert wells[1].gap_kind == "project_move"
-    assert wells[1].gap_before_days == 45
+def test_project_move_is_terrain_specific() -> None:
+    """Between projects: land rigs move in 45 days; swamp and offshore in 30."""
+    land = optimize_terrain("Land", {"P1": {2027: 1}, "P2": {2027: 1}}, A, STRICT)
+    assert land.feasible and land.rig_count == 1
+    assert land.rigs[0].wells[1].gap_kind == "project_move"
+    assert land.rigs[0].wells[1].gap_before_days == 45
+
+    for terrain in ("Swamp", "SWO"):
+        r = optimize_terrain(terrain, {"P1": {2027: 1}, "P2": {2027: 1}}, A, STRICT)
+        assert r.feasible and r.rig_count == 1
+        assert r.rigs[0].wells[1].gap_kind == "project_move"
+        assert r.rigs[0].wells[1].gap_before_days == 30
 
 
 # ---------------------------------------------------------------------------

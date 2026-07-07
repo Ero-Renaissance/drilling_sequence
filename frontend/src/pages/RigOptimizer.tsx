@@ -35,7 +35,9 @@ const DEFAULT_ASSUMPTIONS: OptimizerAssumptions = {
   inter_well_gap_days: 14,
   batch_size: 3,
   batch_gap_days: 28,
-  project_move_days: 45,
+  project_move_days_land: 45,
+  project_move_days_swamp: 30,
+  project_move_days_swo: 30,
   rig_months_per_year: 12,
 };
 
@@ -244,9 +246,21 @@ export function RigOptimizer() {
             suffix="days (replaces the well gap)"
           />
           <NumberField
-            label="Move between projects"
-            value={assumptions.project_move_days}
-            onChange={(v) => setA({ project_move_days: v })}
+            label="Project move (Land)"
+            value={assumptions.project_move_days_land}
+            onChange={(v) => setA({ project_move_days_land: v })}
+            suffix="days"
+          />
+          <NumberField
+            label="Project move (Swamp)"
+            value={assumptions.project_move_days_swamp}
+            onChange={(v) => setA({ project_move_days_swamp: v })}
+            suffix="days"
+          />
+          <NumberField
+            label="Project move (Offshore)"
+            value={assumptions.project_move_days_swo}
+            onChange={(v) => setA({ project_move_days_swo: v })}
             suffix="days"
           />
           <NumberField

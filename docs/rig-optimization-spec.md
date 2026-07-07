@@ -49,7 +49,8 @@ Well 4 (2.5 mo) ── 2 wks ── Well 5 (2.5 mo) ── 2 wks ── Well 6 (
 - **Between consecutive wells in a project:** 2 weeks (rig move).
 - **After every 3rd well in a project:** 4 weeks — this **replaces** that slot's
   2-week gap (batch boundary), it is not additive.
-- **Between projects in the same terrain:** 45 days rig move.
+- **Between projects in the same terrain:** rig move of **45 days (Land)** or
+  **30 days (Swamp / Offshore)** — added 2026-07-06.
 
 Worked total: a 6-well project occupies one rig for **≈ 17.8 months**
 (15.0 months drilling + 12 weeks of gaps), and that rig is available at its next
@@ -87,7 +88,7 @@ Grid with one row per project:
 | Gap between wells | 2 weeks | within a project |
 | Batch size | 3 wells | after which the batch gap applies |
 | Gap after each batch | 4 weeks | replaces the inter-well gap at that slot |
-| Move between projects | 45 days | same terrain |
+| Move between projects | Land 45 days · Swamp 30 · Offshore 30 | same terrain, terrain-specific |
 | Rig availability | 12 months/year | derate here for maintenance if desired |
 
 A saved set of these parameters is a **scenario**. The defaults above ship as the

@@ -9,7 +9,9 @@ export interface OptimizerAssumptions {
   inter_well_gap_days: number;
   batch_size: number;
   batch_gap_days: number;
-  project_move_days: number;
+  project_move_days_land: number;
+  project_move_days_swamp: number;
+  project_move_days_swo: number;
   rig_months_per_year: number;
 }
 

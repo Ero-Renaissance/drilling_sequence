@@ -172,7 +172,7 @@ async def export_rig_fleet(
         c.font = bold
     gap_labels = {
         "none": "", "inter_well": "Rig move (2 wk)",
-        "batch": "Batch gap (4 wk)", "project_move": "Project move (45 d)",
+        "batch": "Batch gap (4 wk)", "project_move": "Project move",
     }
     for r in results:
         for rig in r.rigs:

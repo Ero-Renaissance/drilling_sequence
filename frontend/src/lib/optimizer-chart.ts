@@ -13,7 +13,7 @@ const TERRAIN_LOCATION: Record<Terrain, string> = {
 const GAP_TEXT: Record<string, string> = {
   inter_well: "after a 2-week rig move",
   batch: "after a 4-week batch gap",
-  project_move: "after a 45-day project move",
+  project_move: "after a project move",
 };
 
 /** Dress the optimizer's rig schedules up as synthetic activities so the real

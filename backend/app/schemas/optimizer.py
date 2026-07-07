@@ -31,7 +31,10 @@ class AssumptionsIn(BaseModel):
     inter_well_gap_days: int = Field(default=14, ge=0, le=365)
     batch_size: int = Field(default=3, ge=1, le=50)
     batch_gap_days: int = Field(default=28, ge=0, le=365)
-    project_move_days: int = Field(default=45, ge=0, le=365)
+    # Move between projects, per terrain: land 45 days; swamp/offshore 30.
+    project_move_days_land: int = Field(default=45, ge=0, le=365)
+    project_move_days_swamp: int = Field(default=30, ge=0, le=365)
+    project_move_days_swo: int = Field(default=30, ge=0, le=365)
     rig_months_per_year: int = Field(default=12, ge=1, le=12)
 
 

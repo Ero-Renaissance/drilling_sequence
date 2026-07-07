@@ -55,8 +55,19 @@ class Assumptions:
     inter_well_gap_days: int = 14  # 2 weeks between wells in a project
     batch_size: int = 3  # wells per batch
     batch_gap_days: int = 28  # 4 weeks after each batch (replaces the 2 weeks)
-    project_move_days: int = 45  # move between projects, same terrain
+    # Move between projects, same terrain — terrain-specific: land rigs take
+    # 45 days; swamp and offshore (SWO) rigs 30.
+    project_move_days_land: int = 45
+    project_move_days_swamp: int = 30
+    project_move_days_swo: int = 30
     rig_months_per_year: int = 12  # <12 inserts maintenance at each year start
+
+    def project_move_days(self, terrain: str) -> int:
+        return {
+            "Land": self.project_move_days_land,
+            "Swamp": self.project_move_days_swamp,
+            "SWO": self.project_move_days_swo,
+        }.get(terrain, self.project_move_days_land)
 
 
 @dataclass(frozen=True)
@@ -135,6 +146,7 @@ def _maintenance_days(assumptions: Assumptions) -> int:
 def _candidate(
     rig: _RigState,
     well: WellDemand,
+    terrain: str,
     assumptions: Assumptions,
     options: Options,
     horizon_start: date,
@@ -163,7 +175,7 @@ def _candidate(
         else:
             gap_days, gap_kind = assumptions.inter_well_gap_days, "inter_well"
     else:
-        gap_days, gap_kind = assumptions.project_move_days, "project_move"
+        gap_days, gap_kind = assumptions.project_move_days(terrain), "project_move"
 
     # A move/gap can elapse while the rig would otherwise idle, so the gap pushes
     # the start only when the rig frees up too late — hence max(), not sum-then-max.
@@ -204,7 +216,7 @@ def _simulate(
     for well in wells:
         best: tuple[date, int, str, bool, _RigState] | None = None
         for rig in rigs:
-            cand = _candidate(rig, well, assumptions, options, horizon_start)
+            cand = _candidate(rig, well, terrain, assumptions, options, horizon_start)
             if cand is None:
                 continue
             start, gap_days, gap_kind, batch_reset = cand
