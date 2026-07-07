@@ -35,6 +35,14 @@ logger = logging.getLogger(__name__)
 # infeasibility), which is reported explicitly instead.
 _MAX_RIGS_PER_TERRAIN = 500
 
+# Display names for the hypothetical fleet ("SWO" reads as Shallow Offshore in
+# the UI and maps onto the sequence chart's OFFSHORE terrain band).
+_RIG_NAME_PREFIX = {
+    "Land": "Land Rig",
+    "Swamp": "Swamp Rig",
+    "SWO": "Shallow Offshore Rig",
+}
+
 
 @dataclass(frozen=True)
 class Assumptions:
@@ -184,8 +192,9 @@ def _simulate(
     """Greedy assignment of every well onto n_rigs rigs: the rig offering the
     earliest start wins (durations are uniform, so earliest start == earliest
     finish). Returns (rigs, missed_wells); feasible iff missed_wells is empty."""
+    prefix = _RIG_NAME_PREFIX.get(terrain, f"{terrain} Rig")
     rigs = [
-        _RigState(name=f"{terrain} Rig {i + 1}", free_from=horizon_start)
+        _RigState(name=f"{prefix} {i + 1}", free_from=horizon_start)
         for i in range(n_rigs)
     ]
     missed: list[dict] = []

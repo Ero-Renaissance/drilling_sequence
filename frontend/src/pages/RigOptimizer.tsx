@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { Calculator, FileUp, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toaster";
 import {
   optimizerApi,
@@ -10,9 +9,12 @@ import {
   type OptimizerAssumptions,
   type OptimizerOptions,
   type OptimizationResponse,
-  type RigPlan,
   type Terrain,
 } from "@/api/optimizer";
+import { DrillChart } from "@/components/chart/DrillChart";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { optimizerResultsToActivities } from "@/lib/optimizer-chart";
+import { useMemo } from "react";
 
 const TERRAINS: Terrain[] = ["Land", "Swamp", "SWO"];
 
@@ -20,6 +22,12 @@ const TERRAIN_COLOR: Record<Terrain, string> = {
   Land: "#f58220",
   Swamp: "#3cb44a",
   SWO: "#0e7490",
+};
+
+const TERRAIN_LABEL: Record<Terrain, string> = {
+  Land: "Land",
+  Swamp: "Swamp",
+  SWO: "Shallow Offshore",
 };
 
 const DEFAULT_ASSUMPTIONS: OptimizerAssumptions = {
@@ -50,11 +58,6 @@ function emptyRow(): GridRow {
   return { terrain: "Land", project: "", wells: {} };
 }
 
-function hashCode(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return h;
-}
 
 /** Assumption field with a label — numbers only, bounds enforced server-side too. */
 function NumberField({
@@ -85,54 +88,6 @@ function NumberField({
   );
 }
 
-function RigTimeline({
-  rig,
-  horizon,
-  color,
-}: {
-  rig: RigPlan;
-  horizon: [number, number];
-  color: string;
-}) {
-  const [h0, h1] = horizon;
-  const span = Math.max(1, h1 - h0);
-  const pos = (iso: string) => ((Date.parse(iso) - h0) / span) * 100;
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-28 shrink-0 truncate text-xs text-muted-foreground">{rig.name}</span>
-      <div className="relative h-6 flex-1 overflow-hidden rounded bg-muted/60">
-        {rig.wells.map((w, i) => {
-          const left = pos(w.start);
-          const width = pos(w.end) - left;
-          const gapKindLabel =
-            w.gap_kind === "batch"
-              ? "4-wk batch gap"
-              : w.gap_kind === "project_move"
-                ? "45-day project move"
-                : w.gap_kind === "inter_well"
-                  ? "2-wk move"
-                  : "";
-          return (
-            <div
-              key={i}
-              className="absolute top-0.5 bottom-0.5 rounded-sm"
-              style={{
-                left: `${left}%`,
-                width: `${Math.max(width, 0.5)}%`,
-                background: color,
-                // Alternate opacity by project so adjacent projects on one rig
-                // read as distinct blocks.
-                opacity: 0.55 + 0.35 * (Math.abs(hashCode(w.project)) % 2),
-              }}
-              title={`${w.label}\n${w.start} → ${w.end}${gapKindLabel ? `\npreceded by ${gapKindLabel}` : ""}`}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export function RigOptimizer() {
   const [assumptions, setAssumptions] = useState(DEFAULT_ASSUMPTIONS);
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
@@ -142,6 +97,13 @@ export function RigOptimizer() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<OptimizationResponse | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // The optimizer's schedules rendered by the real sequence chart: one row per
+  // rig, grouped Land → Swamp → Offshore, project filter intact.
+  const chartActivities = useMemo(
+    () => (result ? optimizerResultsToActivities(result.results) : []),
+    [result],
+  );
 
   const setA = (patch: Partial<OptimizerAssumptions>) =>
     setAssumptions((a) => ({ ...a, ...patch }));
@@ -454,84 +416,76 @@ export function RigOptimizer() {
       {/* Results */}
       {result && (
         <div className="space-y-4">
-          {result.results.map((tr) => {
-            const starts = tr.rigs.flatMap((r) => r.wells.map((w) => Date.parse(w.start)));
-            const ends = tr.rigs.flatMap((r) => r.wells.map((w) => Date.parse(w.end)));
-            const horizon: [number, number] = [
-              Math.min(...(starts.length ? starts : [0])),
-              Math.max(...(ends.length ? ends : [1])),
-            ];
-            return (
+          {/* KPI bar: total rigs per terrain, at a glance */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {result.results.map((tr) => (
               <div
                 key={tr.terrain}
                 className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm"
+                style={{ borderTopColor: TERRAIN_COLOR[tr.terrain], borderTopWidth: 3 }}
               >
-                <div className="mb-3 flex flex-wrap items-center gap-3">
-                  <span
-                    className="h-3 w-3 rounded-full"
-                    style={{ background: TERRAIN_COLOR[tr.terrain] }}
-                  />
-                  <h2 className="text-base font-semibold">{tr.terrain}</h2>
-                  {tr.feasible ? (
-                    <Badge variant="secondary" className="text-sm">
-                      {tr.rig_count} rig{tr.rig_count !== 1 ? "s" : ""}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="bg-destructive/15 text-destructive">
-                      Infeasible
-                    </Badge>
-                  )}
-                  {tr.binding && (
-                    <span className="text-xs text-muted-foreground">
-                      binding constraint: {tr.binding.project} in {tr.binding.year}
-                    </span>
-                  )}
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {TERRAIN_LABEL[tr.terrain]}
                 </div>
-
-                {!tr.feasible && (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    These commitments cannot be met under the current rules at any fleet
-                    size:{" "}
-                    {tr.infeasible_wells
-                      .map((w) => `${w.project} (${w.year})`)
-                      .filter((v, i, a) => a.indexOf(v) === i)
-                      .join(", ")}
-                    . Relax an assumption (e.g. allow slip or spud-based delivery) or
-                    re-plan those years.
-                  </div>
-                )}
-
-                {tr.feasible && (
+                {tr.feasible ? (
                   <>
-                    <div className="space-y-1.5">
-                      {tr.rigs.map((rig) => (
-                        <RigTimeline
-                          key={rig.name}
-                          rig={rig}
-                          horizon={horizon}
-                          color={TERRAIN_COLOR[tr.terrain]}
-                        />
-                      ))}
+                    <div className="mt-1 text-3xl font-semibold tabular-nums">
+                      {tr.rig_count}
+                      <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                        rig{tr.rig_count !== 1 ? "s" : ""}
+                      </span>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-4 border-t border-border/60 pt-2 text-xs text-muted-foreground">
-                      <span>
-                        Rigs active by year:{" "}
-                        {Object.entries(tr.rigs_active_per_year)
-                          .map(([y, n]) => `${y}: ${n}`)
-                          .join(" · ")}
-                      </span>
-                      <span>
-                        Utilization:{" "}
-                        {Object.entries(tr.utilization_per_rig)
-                          .map(([rig, u]) => `${rig.replace(`${tr.terrain} `, "")} ${(u * 100).toFixed(0)}%`)
-                          .join(" · ")}
-                      </span>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {tr.binding
+                        ? `set by ${tr.binding.project} in ${tr.binding.year}`
+                        : "single-rig terrain"}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      by year:{" "}
+                      {Object.entries(tr.rigs_active_per_year)
+                        .map(([y, n]) => `${y}: ${n}`)
+                        .join(" · ")}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-1 text-2xl font-semibold text-destructive">
+                      Infeasible
+                    </div>
+                    <div className="mt-1 text-xs text-destructive/90">
+                      {tr.infeasible_wells
+                        .map((w) => `${w.project} (${w.year})`)
+                        .filter((v, i, a) => a.indexOf(v) === i)
+                        .join(", ")}{" "}
+                      cannot be met under the current rules — relax an assumption
+                      (slip, spud-based delivery) or re-plan those years.
                     </div>
                   </>
                 )}
               </div>
-            );
-          })}
+            ))}
+          </div>
+
+          {/* Rig sequence — the same Gantt as the campaign sequence view */}
+          {chartActivities.length > 0 && (
+            <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
+              <h2 className="mb-2 text-sm font-semibold">Rig sequence</h2>
+              <ErrorBoundary label="rig sequence chart">
+                <DrillChart activities={chartActivities} enableFilters />
+              </ErrorBoundary>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+                {result.results
+                  .filter((tr) => tr.feasible)
+                  .flatMap((tr) =>
+                    Object.entries(tr.utilization_per_rig).map(([rig, u]) => (
+                      <span key={rig}>
+                        {rig}: {(u * 100).toFixed(0)}% utilized
+                      </span>
+                    )),
+                  )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

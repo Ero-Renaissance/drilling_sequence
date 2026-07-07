@@ -14,6 +14,16 @@ vi.mock("@/api/optimizer", async () => {
   };
 });
 
+// The sequence chart is echarts-based — stub it; the adapter's output is what
+// matters here, not canvas rendering.
+const chartSpy = vi.fn();
+vi.mock("@/components/chart/DrillChart", () => ({
+  DrillChart: (props: { activities: unknown[] }) => {
+    chartSpy(props.activities);
+    return <div data-testid="drill-chart">{props.activities.length} bars</div>;
+  },
+}));
+
 import { RigOptimizer } from "@/pages/RigOptimizer";
 
 describe("RigOptimizer", () => {
@@ -83,8 +93,22 @@ describe("RigOptimizer", () => {
       { terrain: "Land", project: "P1", wells_by_year: { "2027": 5 } },
     ]);
 
-    await screen.findByText("2 rigs");
-    expect(screen.getByText(/binding constraint: P1 in 2027/)).toBeInTheDocument();
+    // KPI card: terrain label + rig count + binding constraint.
+    await screen.findByText("2");
+    expect(screen.getByText(/set by P1 in 2027/)).toBeInTheDocument();
+    // The rig sequence renders through the real sequence chart (stubbed here),
+    // fed by the adapter — one bar per scheduled well.
+    await screen.findByTestId("drill-chart");
+    expect(chartSpy).toHaveBeenCalled();
+    const activities = chartSpy.mock.calls[chartSpy.mock.calls.length - 1][0] as {
+      rig_name: string;
+      location: string;
+      project_group: string;
+    }[];
+    expect(activities).toHaveLength(1);
+    expect(activities[0].rig_name).toBe("Land Rig 1");
+    expect(activities[0].location).toBe("LAND");
+    expect(activities[0].project_group).toBe("P1");
   });
 
   it("shows infeasibility loudly instead of a wrong number", async () => {
