@@ -26,6 +26,7 @@ from app.routers import (
     dashboard,
     hwu_contracts,
     me,
+    optimizer,
     projects,
     readiness,
     reviewers,
@@ -97,6 +98,7 @@ app.include_router(hwu_contracts.router)
 app.include_router(dashboard.router)
 app.include_router(change_notes.router)
 app.include_router(client_logs.router)
+app.include_router(optimizer.router)
 
 
 @app.get("/api/health")

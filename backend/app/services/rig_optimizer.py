@@ -1,0 +1,322 @@
+"""Rig fleet optimization engine (docs/rig-optimization-spec.md).
+
+Answers: the minimum number of rigs, per terrain, that delivers the committed
+wells-per-project-per-year schedule under the agreed "Scenario 1" chain rules:
+
+    well (2.5 mo) ─ 2 wks ─ well ─ 2 wks ─ well ─ 4 wks (after every 3rd) ─ …
+    …and 45 days when a rig moves between projects in the same terrain.
+
+Terrains are sealed fleets, so each terrain is solved independently. Within a
+terrain the engine searches fleet sizes upward from 1; for each size it runs a
+deterministic greedy simulation (earliest-finish rig wins each well, longest
+projects scheduled first) and returns the first size with no missed deadline.
+The simulation that failed at size N-1 supplies the "binding constraint" — the
+first well that could not meet its year — so the answer is explainable.
+
+Owned code only (no solver dependency). The optional MILP engine is selected via
+settings.optimizer_engine but requires a solver library that has NOT been
+adopted (IT review needed); until then it falls back here with a warning.
+
+All durations are integer days; months are converted at 30.44 days/month by the
+API layer's defaults (2.5 months → 76 days). Calendar arithmetic uses real
+dates, so leap years and month lengths are exact.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+logger = logging.getLogger(__name__)
+
+# Hard ceiling on the fleet search purely as a runaway guard; reached only if a
+# single well can't meet its own deadline even on a dedicated rig (structural
+# infeasibility), which is reported explicitly instead.
+_MAX_RIGS_PER_TERRAIN = 500
+
+
+@dataclass(frozen=True)
+class Assumptions:
+    """Scenario parameters — every value is frontend-editable (spec §4.2)."""
+
+    well_duration_days: int = 76  # 2.5 months
+    inter_well_gap_days: int = 14  # 2 weeks between wells in a project
+    batch_size: int = 3  # wells per batch
+    batch_gap_days: int = 28  # 4 weeks after each batch (replaces the 2 weeks)
+    project_move_days: int = 45  # move between projects, same terrain
+    rig_months_per_year: int = 12  # <12 inserts maintenance at each year start
+
+
+@dataclass(frozen=True)
+class Options:
+    """Configurable relaxations — all default to the strict reading (spec §5)."""
+
+    delivery: str = "finished"  # "finished" | "spudded"
+    allow_slip_days: int = 0  # grace past 31 December
+    allow_drill_ahead: bool = False  # may start before the committed year
+    batch_reset_on_new_year: bool = False  # batch counter resets on 1 January
+
+
+@dataclass(frozen=True)
+class WellDemand:
+    project: str
+    year: int
+    sequence: int  # 1-based well number within (project, year), for labelling
+
+
+@dataclass
+class ScheduledWell:
+    project: str
+    year: int  # committed year
+    label: str
+    start: date
+    end: date  # exclusive of gaps; drilling window only
+    gap_before_days: int
+    gap_kind: str  # "none" | "inter_well" | "batch" | "project_move"
+
+
+@dataclass
+class RigPlan:
+    name: str
+    wells: list[ScheduledWell] = field(default_factory=list)
+
+
+@dataclass
+class TerrainResult:
+    terrain: str
+    feasible: bool
+    rig_count: int
+    rigs: list[RigPlan]
+    rigs_active_per_year: dict[int, int]
+    utilization_per_rig: dict[str, float]  # drilling days / horizon days
+    binding: dict | None  # {"project", "year"} that forced the last rig
+    infeasible_wells: list[dict]  # populated when feasible=False
+
+
+@dataclass
+class _RigState:
+    name: str
+    free_from: date
+    last_project: str | None = None
+    wells_since_batch_gap: int = 0
+    last_well_start: date | None = None
+    maintained_years: set[int] = field(default_factory=set)
+    plan: RigPlan = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        self.plan = RigPlan(name=self.name)
+
+
+def _year_start(year: int) -> date:
+    return date(year, 1, 1)
+
+
+def _year_end(year: int) -> date:
+    return date(year, 12, 31)
+
+
+def _maintenance_days(assumptions: Assumptions) -> int:
+    idle_months = max(0, 12 - assumptions.rig_months_per_year)
+    return round(idle_months * 30.44)
+
+
+def _candidate(
+    rig: _RigState,
+    well: WellDemand,
+    assumptions: Assumptions,
+    options: Options,
+    horizon_start: date,
+) -> tuple[date, int, str, bool] | None:
+    """Earliest (start, gap_days, gap_kind, batch_reset) this rig could give the
+    well, or None if even the earliest start misses the well's deadline."""
+    earliest_allowed = (
+        horizon_start if options.allow_drill_ahead else _year_start(well.year)
+    )
+
+    batch_reset = False
+    if rig.last_project is None:
+        gap_days, gap_kind = 0, "none"  # day-one availability (spec §9.3)
+    elif rig.last_project == well.project:
+        counter = rig.wells_since_batch_gap
+        if options.batch_reset_on_new_year and rig.last_well_start is not None:
+            # Optional 1-January reset: if this well cannot start until a later
+            # calendar year than the previous well started in, the chain crossed
+            # New Year and the batch count starts fresh.
+            probe = max(rig.free_from, earliest_allowed)
+            if probe.year > rig.last_well_start.year:
+                counter = 0
+                batch_reset = True
+        if counter >= assumptions.batch_size:
+            gap_days, gap_kind = assumptions.batch_gap_days, "batch"
+        else:
+            gap_days, gap_kind = assumptions.inter_well_gap_days, "inter_well"
+    else:
+        gap_days, gap_kind = assumptions.project_move_days, "project_move"
+
+    # A move/gap can elapse while the rig would otherwise idle, so the gap pushes
+    # the start only when the rig frees up too late — hence max(), not sum-then-max.
+    start = max(rig.free_from + timedelta(days=gap_days), earliest_allowed)
+
+    # Optional maintenance block at each calendar-year start (availability < 12).
+    maint = _maintenance_days(assumptions)
+    if maint and start.year not in rig.maintained_years:
+        start = max(start, _year_start(start.year) + timedelta(days=maint))
+
+    deadline = _year_end(well.year) + timedelta(days=options.allow_slip_days)
+    if options.delivery == "spudded":
+        if start > deadline:
+            return None
+    else:  # finished in-year (default)
+        if start + timedelta(days=assumptions.well_duration_days) > deadline:
+            return None
+    return start, gap_days, gap_kind, batch_reset
+
+
+def _simulate(
+    terrain: str,
+    wells: list[WellDemand],
+    n_rigs: int,
+    assumptions: Assumptions,
+    options: Options,
+    horizon_start: date,
+) -> tuple[list[_RigState], list[dict]]:
+    """Greedy assignment of every well onto n_rigs rigs: the rig offering the
+    earliest start wins (durations are uniform, so earliest start == earliest
+    finish). Returns (rigs, missed_wells); feasible iff missed_wells is empty."""
+    rigs = [
+        _RigState(name=f"{terrain} Rig {i + 1}", free_from=horizon_start)
+        for i in range(n_rigs)
+    ]
+    missed: list[dict] = []
+    for well in wells:
+        best: tuple[date, int, str, bool, _RigState] | None = None
+        for rig in rigs:
+            cand = _candidate(rig, well, assumptions, options, horizon_start)
+            if cand is None:
+                continue
+            start, gap_days, gap_kind, batch_reset = cand
+            if best is None or start < best[0]:
+                best = (start, gap_days, gap_kind, batch_reset, rig)
+        if best is None:
+            missed.append({"project": well.project, "year": well.year})
+            continue
+        start, gap_days, gap_kind, batch_reset, rig = best
+        end = start + timedelta(days=assumptions.well_duration_days)
+        rig.plan.wells.append(
+            ScheduledWell(
+                project=well.project,
+                year=well.year,
+                label=f"{well.project} · {well.year} · Well {well.sequence}",
+                start=start,
+                end=end,
+                gap_before_days=gap_days,
+                gap_kind=gap_kind,
+            )
+        )
+        # Batch counter: this well is #1 of a fresh batch after a batch gap, a
+        # project switch, a first-ever well, or a New-Year reset; otherwise it
+        # extends the running batch.
+        continuing = (
+            rig.last_project == well.project
+            and gap_kind == "inter_well"
+            and not batch_reset
+        )
+        rig.wells_since_batch_gap = rig.wells_since_batch_gap + 1 if continuing else 1
+        if _maintenance_days(assumptions):
+            rig.maintained_years.add(start.year)
+        rig.last_project = well.project
+        rig.last_well_start = start
+        rig.free_from = end
+    return rigs, missed
+
+
+def optimize_terrain(
+    terrain: str,
+    demand: dict[str, dict[int, int]],  # project -> {year: wells}
+    assumptions: Assumptions,
+    options: Options,
+) -> TerrainResult:
+    """Find the minimum rig fleet for one terrain (spec §3, §6)."""
+    years = sorted({y for by_year in demand.values() for y in by_year if by_year[y]})
+    if not years:
+        return TerrainResult(terrain, True, 0, [], {}, {}, None, [])
+    horizon_start = _year_start(years[0])
+    horizon_end = _year_end(years[-1])
+    horizon_days = (horizon_end - horizon_start).days + 1
+
+    # Well list: by committed year, longest project first (LPT) so big chains
+    # start early, then stable by project name for determinism.
+    totals = {p: sum(by_year.values()) for p, by_year in demand.items()}
+    wells: list[WellDemand] = []
+    for project in sorted(demand, key=lambda p: (-totals[p], p)):
+        for year in sorted(demand[project]):
+            for seq in range(demand[project][year]):
+                wells.append(WellDemand(project=project, year=year, sequence=seq + 1))
+    wells.sort(key=lambda w: (w.year, -totals[w.project], w.project, w.sequence))
+
+    binding: dict | None = None
+    previous_missed: list[dict] = []
+    for n in range(1, min(len(wells), _MAX_RIGS_PER_TERRAIN) + 1):
+        rigs, missed = _simulate(terrain, wells, n, assumptions, options, horizon_start)
+        if missed:
+            previous_missed = missed
+            continue
+        if n > 1 and previous_missed:
+            binding = previous_missed[0]  # what N-1 rigs could not deliver
+        active: dict[int, int] = {}
+        utilization: dict[str, float] = {}
+        for rig in rigs:
+            drilling = sum((w.end - w.start).days for w in rig.plan.wells)
+            utilization[rig.name] = round(drilling / horizon_days, 3)
+            for y in years:
+                if any(
+                    w.start <= _year_end(y) and w.end >= _year_start(y)
+                    for w in rig.plan.wells
+                ):
+                    active[y] = active.get(y, 0) + 1
+        return TerrainResult(
+            terrain=terrain,
+            feasible=True,
+            rig_count=n,
+            rigs=[r.plan for r in rigs],
+            rigs_active_per_year={y: active.get(y, 0) for y in years},
+            utilization_per_rig=utilization,
+            binding=binding,
+            infeasible_wells=[],
+        )
+
+    # Even one rig per well can't meet some deadline: structurally infeasible.
+    _, missed = _simulate(
+        terrain, wells, min(len(wells), _MAX_RIGS_PER_TERRAIN), assumptions, options, horizon_start
+    )
+    logger.warning(
+        "rig optimization infeasible terrain=%s missed=%d", terrain, len(missed)
+    )
+    return TerrainResult(
+        terrain=terrain,
+        feasible=False,
+        rig_count=0,
+        rigs=[],
+        rigs_active_per_year={},
+        utilization_per_rig={},
+        binding=None,
+        infeasible_wells=missed,
+    )
+
+
+def optimize(
+    demand_rows: list[dict],  # [{terrain, project, wells_by_year}]
+    assumptions: Assumptions,
+    options: Options,
+) -> list[TerrainResult]:
+    """Solve each terrain independently (rigs never cross terrains, spec §3.1)."""
+    by_terrain: dict[str, dict[str, dict[int, int]]] = {}
+    for row in demand_rows:
+        by_terrain.setdefault(row["terrain"], {})[row["project"]] = {
+            int(y): int(n) for y, n in row["wells_by_year"].items() if int(n) > 0
+        }
+    return [
+        optimize_terrain(terrain, projects, assumptions, options)
+        for terrain, projects in sorted(by_terrain.items())
+    ]

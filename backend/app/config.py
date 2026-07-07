@@ -54,6 +54,11 @@ class Settings(BaseSettings):
                 )
         return self
 
+    # Rig fleet optimizer engine: "heuristic" (owned code, default) or "milp"
+    # (exact solver — requires a solver library that must pass IT review before
+    # adoption; until installed the API falls back to heuristic with a warning).
+    optimizer_engine: str = "heuristic"
+
     # Admin access. Production source of truth is an Azure AD app role (admin_role)
     # carried in the token's "roles" claim. admin_emails is a bootstrap allowlist so
     # the first admins exist before the AD role is configured. Both are comma-separated.

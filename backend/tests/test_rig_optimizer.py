@@ -1,0 +1,244 @@
+"""Rig fleet optimization — engine and API (docs/rig-optimization-spec.md).
+
+The engine tests anchor on the spec's worked example: a 6-well project on one
+rig chains as 2w/2w/4w/2w/2w gaps → 540 days (≈17.8 months).
+"""
+
+import io
+from datetime import date
+
+import pytest
+from httpx import AsyncClient
+
+from app.services.rig_optimizer import (
+    Assumptions,
+    Options,
+    optimize,
+    optimize_terrain,
+)
+
+A = Assumptions()  # spec defaults: 76d well, 14d gap, batch 3, 28d, 45d move
+STRICT = Options()  # finished in-year, no slip, no drill-ahead
+
+
+def _single_project(terrain: str, wells_by_year: dict[int, int]) -> dict:
+    return {"terrain": terrain, "project": "P1", "wells_by_year": wells_by_year}
+
+
+# ---------------------------------------------------------------------------
+# The worked example (spec §3.2)
+# ---------------------------------------------------------------------------
+
+def test_six_well_chain_matches_spec_worked_example() -> None:
+    """6 wells on ONE rig: gaps 2w,2w,4w,2w,2w → 6×76 + 84 = 540 days.
+
+    Spread over two years (3+3) so a single rig is actually sufficient and the
+    full chain is observable.
+    """
+    result = optimize_terrain("Land", {"P1": {2027: 3, 2028: 3}}, A, STRICT)
+    assert result.feasible and result.rig_count == 1
+    wells = result.rigs[0].wells
+    assert [w.gap_kind for w in wells] == [
+        "none", "inter_well", "inter_well", "batch", "inter_well", "inter_well",
+    ]
+    assert [w.gap_before_days for w in wells] == [0, 14, 14, 28, 14, 14]
+    # End-to-end chain: 456 drilling + 84 gap days = 540 (the 4-week batch gap
+    # REPLACES that slot's 2 weeks; it is not additive).
+    span = (wells[-1].end - wells[0].start).days
+    # The batch gap slot straddles the year boundary; the rig waits for 1 Jan
+    # 2028 (drill-ahead off), so the span is >= the pure chain length.
+    assert span >= 540
+    # With drill-ahead allowed the chain is exactly back-to-back: 540 days.
+    relaxed = optimize_terrain(
+        "Land", {"P1": {2027: 3, 2028: 3}}, A, Options(allow_drill_ahead=True)
+    )
+    chain = relaxed.rigs[0].wells
+    assert (chain[-1].end - chain[0].start).days == 540
+
+
+def test_batch_counter_continues_across_years_by_default() -> None:
+    """Wells 3→4 straddle the year boundary; the 4-week batch gap still applies
+    (no reset on 1 January unless the toggle is on)."""
+    result = optimize_terrain("Land", {"P1": {2027: 3, 2028: 3}}, A, STRICT)
+    gaps = [w.gap_kind for w in result.rigs[0].wells]
+    assert gaps[3] == "batch"
+
+    reset = optimize_terrain(
+        "Land", {"P1": {2027: 3, 2028: 3}}, A, Options(batch_reset_on_new_year=True)
+    )
+    gaps = [w.gap_kind for w in reset.rigs[0].wells]
+    assert gaps[3] == "inter_well"  # counter reset on New Year → plain 2-week move
+
+
+def test_project_move_is_45_days() -> None:
+    """One rig serving two projects back-to-back takes the 45-day move."""
+    result = optimize_terrain(
+        "Land", {"P1": {2027: 1}, "P2": {2027: 1}}, A, STRICT
+    )
+    assert result.feasible and result.rig_count == 1
+    wells = result.rigs[0].wells
+    assert wells[1].gap_kind == "project_move"
+    assert wells[1].gap_before_days == 45
+
+
+# ---------------------------------------------------------------------------
+# Fleet sizing + yearly constraint
+# ---------------------------------------------------------------------------
+
+def test_five_wells_one_year_needs_two_rigs() -> None:
+    """5 wells in one year on one rig = 5×76 + 4 gaps > 365 days → 2 rigs
+    (concurrency at a project is allowed, spec §9.1)."""
+    result = optimize_terrain("Swamp", {"P1": {2027: 5}}, A, STRICT)
+    assert result.feasible
+    assert result.rig_count == 2
+    assert result.binding == {"project": "P1", "year": 2027}
+
+
+def test_four_wells_one_year_fits_one_rig() -> None:
+    """4×76 + (14+14+28) = 360 ≤ 365 → a single rig just delivers it."""
+    result = optimize_terrain("Land", {"P1": {2027: 4}}, A, STRICT)
+    assert result.feasible and result.rig_count == 1
+
+
+def test_terrains_are_sealed_fleets() -> None:
+    """Identical demand in two terrains → two independent 1-rig answers, never a
+    shared rig."""
+    results = optimize(
+        [
+            _single_project("Land", {2027: 2}),
+            {"terrain": "Swamp", "project": "P9", "wells_by_year": {2027: 2}},
+        ],
+        A,
+        STRICT,
+    )
+    assert [r.terrain for r in results] == ["Land", "Swamp"]
+    assert all(r.rig_count == 1 for r in results)
+
+
+def test_spudded_delivery_is_more_lenient_than_finished() -> None:
+    """A 5-well chain of 70-day wells starts its last well on day 350: too late
+    to FINISH in-year (needs a 2nd rig), but fine to SPUD in-year (1 rig)."""
+    short = Assumptions(well_duration_days=70)
+    finished = optimize_terrain("Land", {"P1": {2027: 5}}, short, STRICT)
+    assert finished.rig_count == 2
+
+    spudded = optimize_terrain(
+        "Land", {"P1": {2027: 5}}, short, Options(delivery="spudded")
+    )
+    assert spudded.rig_count == 1
+    last = spudded.rigs[0].wells[-1]
+    assert last.start <= date(2027, 12, 31) < last.end  # spudded in-year, finishes later
+
+
+def test_slip_allowance_relaxes_the_deadline() -> None:
+    """One rig finishes the 5th default well on day 450 — a 90-day grace past
+    31 December makes the single-rig chain acceptable."""
+    strict = optimize_terrain("Land", {"P1": {2027: 5}}, A, STRICT)
+    assert strict.rig_count == 2
+    slack = optimize_terrain(
+        "Land", {"P1": {2027: 5}}, A, Options(allow_slip_days=90)
+    )
+    assert slack.rig_count == 1
+
+
+def test_drill_ahead_uses_idle_year() -> None:
+    """1 well in 2027 + 10 in 2028: strict crams all ten inside 2028 (3 rigs);
+    drill-ahead lets rigs start 2028's wells during idle 2027 (fewer rigs)."""
+    demand = {"P1": {2027: 1, 2028: 10}}
+    strict = optimize_terrain("Land", demand, A, STRICT)
+    ahead = optimize_terrain("Land", demand, A, Options(allow_drill_ahead=True))
+    assert ahead.rig_count < strict.rig_count
+
+
+def test_structural_infeasibility_is_reported_not_hidden() -> None:
+    """A well longer than the year window can never finish in-year: the result
+    says infeasible and names the project/year."""
+    long_wells = Assumptions(well_duration_days=400)
+    result = optimize_terrain("Land", {"P1": {2027: 1}}, long_wells, STRICT)
+    assert not result.feasible
+    assert result.infeasible_wells == [{"project": "P1", "year": 2027}]
+
+
+def test_empty_demand_needs_zero_rigs() -> None:
+    result = optimize_terrain("Land", {"P1": {}}, A, STRICT)
+    assert result.feasible and result.rig_count == 0
+
+
+def test_fleet_profile_and_utilization_shape() -> None:
+    result = optimize_terrain("Land", {"P1": {2027: 2, 2028: 2}}, A, STRICT)
+    assert set(result.rigs_active_per_year) == {2027, 2028}
+    assert all(0 < u <= 1 for u in result.utilization_per_rig.values())
+
+
+# ---------------------------------------------------------------------------
+# API — authorization and round trips
+# ---------------------------------------------------------------------------
+
+_REQUEST = {
+    "demand": [
+        {"terrain": "Land", "project": "Alpha", "wells_by_year": {"2027": 2}},
+        {"terrain": "Swamp", "project": "Beta", "wells_by_year": {"2027": 5}},
+    ]
+}
+
+
+@pytest.mark.asyncio
+async def test_optimize_endpoint_planner_allowed(client: AsyncClient) -> None:
+    r = await client.post("/api/optimizer/rig-fleet", json=_REQUEST)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["engine"] == "heuristic"
+    by_terrain = {t["terrain"]: t for t in body["results"]}
+    assert by_terrain["Land"]["rig_count"] == 1
+    assert by_terrain["Swamp"]["rig_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_optimize_endpoint_denied_without_grant(noplan_client: AsyncClient) -> None:
+    r = await noplan_client.post("/api/optimizer/rig-fleet", json=_REQUEST)
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_optimize_endpoint_validates_terrain(client: AsyncClient) -> None:
+    bad = {"demand": [{"terrain": "Desert", "project": "X", "wells_by_year": {"2027": 1}}]}
+    r = await client.post("/api/optimizer/rig-fleet", json=bad)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_parse_schedule_csv_roundtrip(client: AsyncClient) -> None:
+    csv = (
+        "Terrain,Project,2027,2028\n"
+        "Land,Project 1,2,\n"
+        "Swamp,Project 10,1,3\n"
+        "Mars,Project X,1,\n"  # unknown terrain → reported, not silently dropped
+    )
+    r = await client.post(
+        "/api/optimizer/parse-schedule",
+        files={"file": ("schedule.csv", io.BytesIO(csv.encode()), "text/csv")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["years"] == [2027, 2028]
+    assert len(body["demand"]) == 2
+    assert body["demand"][1]["wells_by_year"] == {"2027": 1, "2028": 3}
+    assert any("Mars" in issue for issue in body["issues"])
+
+
+@pytest.mark.asyncio
+async def test_parse_schedule_denied_without_grant(noplan_client: AsyncClient) -> None:
+    r = await noplan_client.post(
+        "/api/optimizer/parse-schedule",
+        files={"file": ("s.csv", io.BytesIO(b"Terrain,Project,2027\n"), "text/csv")},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_parse_schedule_rejects_columnless_file(client: AsyncClient) -> None:
+    r = await client.post(
+        "/api/optimizer/parse-schedule",
+        files={"file": ("s.csv", io.BytesIO(b"a,b\n1,2\n"), "text/csv")},
+    )
+    assert r.status_code == 422
