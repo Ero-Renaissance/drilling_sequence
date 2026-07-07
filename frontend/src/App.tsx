@@ -16,6 +16,7 @@ import {
 import { RevisionDetail } from "@/pages/RevisionDetail";
 import { Presentation } from "@/pages/Presentation";
 import { Admin } from "@/pages/Admin";
+import { RigOptimizer } from "@/pages/RigOptimizer";
 import ChartFixtures from "@/dev/ChartFixtures";
 import { useAuthStore } from "@/store/auth";
 import { Toaster } from "@/components/ui/toaster";
@@ -23,6 +24,15 @@ import { Toaster } from "@/components/ui/toaster";
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   if (!user?.is_admin) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+function PlannerRoute({ children }: { children: React.ReactNode }) {
+  // Planner-only tools (backend enforces regardless; this avoids a dead page).
+  const user = useAuthStore((s) => s.user);
+  if (!user || (!user.is_admin && !user.can_plan)) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -46,6 +56,14 @@ export default function App() {
               <AdminRoute>
                 <Admin />
               </AdminRoute>
+            }
+          />
+          <Route
+            path="/optimizer"
+            element={
+              <PlannerRoute>
+                <RigOptimizer />
+              </PlannerRoute>
             }
           />
           <Route path="/projects/:projectId" element={<ProjectDetail />}>

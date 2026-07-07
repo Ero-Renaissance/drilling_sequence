@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, ShieldCheck } from "lucide-react";
+import { Calculator, LayoutDashboard, FolderKanban, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
@@ -9,6 +9,7 @@ const primaryNav = [
 ];
 
 const adminNav = { to: "/admin", label: "Admin", icon: ShieldCheck };
+const plannerNav = { to: "/optimizer", label: "Rig Optimization", icon: Calculator };
 
 function BrandMark() {
   return (
@@ -72,6 +73,7 @@ function NavItem({ to, label, icon: Icon }: (typeof primaryNav)[number]) {
 
 export function Sidebar() {
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
+  const canPlan = useAuthStore((s) => s.user?.can_plan ?? false);
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border/70 bg-card/80 backdrop-blur-sm">
       <BrandMark />
@@ -82,6 +84,7 @@ export function Sidebar() {
           {primaryNav.map((item) => (
             <NavItem key={item.to} {...item} />
           ))}
+          {(isAdmin || canPlan) && <NavItem {...plannerNav} />}
           {isAdmin && <NavItem {...adminNav} />}
         </div>
       </nav>
