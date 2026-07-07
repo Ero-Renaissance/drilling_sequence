@@ -97,7 +97,11 @@ built-in scenario ("Scenario 1"); planners can adjust values and compare runs.
 
 - **Allow slip:** permit a well to finish up to N weeks past year-end.
 - **Allow drill-ahead:** permit drilling a well earlier than its committed year.
-- **Delivery definition:** "finished in-year" (default) vs "spudded in-year".
+- **Delivery definition:** "finished in-year" (default) vs "spudded in-year"
+  (a spudded-in-year well may start in December and finish in February and still
+  count toward the year it started).
+- **Batch counter at year-end:** "continue across years" (default) vs "reset on
+  1 January".
 
 ## 6. Outputs
 
@@ -132,18 +136,15 @@ Two engines behind one interface, selected by environment variable
 - Not part of the governance/approval trail — it is a planning calculator; no
   governance events are emitted for runs.
 
-## 9. Open questions (to settle before build)
+## 9. Resolved decisions (settled 2026-07-06)
 
-1. **Concurrency at a project:** may two rigs work the same project at the same
-   time (splitting its wells into parallel chains)? If yes, the batch/gap rules
-   apply per rig chain. If no, some yearly targets may be structurally infeasible —
-   the tool will flag them (§6.4), but the rule must be decided.
-2. **Batch counter across years:** a project's chain can span year boundaries —
-   confirm the every-3rd-well counter simply continues (it does not reset on
-   1 January).
-3. **First well of the horizon:** rigs are assumed available on day one of the
-   first year with no mobilization lead time — confirm, or add a per-rig
-   mobilization parameter.
+1. **Concurrency at a project: allowed.** Multiple rigs may work the same project
+   simultaneously, splitting its wells into parallel chains. The inter-well,
+   batch, and inter-project rules apply **per rig chain**.
+2. **Batch counter continues across year boundaries** (no reset on 1 January).
+   A "reset on 1 January" option is available as a configurable toggle (§5).
+3. **Day-one availability.** Rigs are available at the start of the horizon with
+   no mobilization lead time.
 
 ## 10. Not decided / future ideas
 
