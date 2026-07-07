@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useProjectsStore } from "@/store/projects";
 import { useAuthStore } from "@/store/auth";
 import { getLastApprovedDashboard, type LastApprovedDashboard } from "@/api/me";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 type KpiTone = "primary" | "info" | "warning" | "success";
 
@@ -62,12 +62,7 @@ function KpiCard({
 }
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return iso ? formatDate(iso) : "";
 }
 
 // The canonical rev identifier — not the free-text label, which can be anything

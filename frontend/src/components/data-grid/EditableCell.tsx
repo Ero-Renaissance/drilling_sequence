@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Lock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 interface EditableCellProps {
   value: string | null;
@@ -56,6 +56,10 @@ export function EditableCell({
   const baseInput =
     "w-full rounded-md border border-ring/60 bg-background px-2 py-1 text-sm outline-none ring-2 ring-ring/30 focus:ring-ring/50";
 
+  // Display convention: dates render DD-MM-YYYY. The edit state keeps the
+  // native date input (which needs and produces ISO YYYY-MM-DD).
+  const display = value && type === "date" ? formatDate(value) : value;
+
   if (readOnly) {
     return (
       <div
@@ -67,7 +71,7 @@ export function EditableCell({
       >
         <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" />
         <span className={value ? "text-foreground/80" : "italic text-muted-foreground/60"}>
-          {value ?? placeholder}
+          {display ?? placeholder}
         </span>
       </div>
     );
@@ -118,7 +122,7 @@ export function EditableCell({
       )}
       title="Click to edit"
     >
-      {renderValue ? renderValue(value) : (value ?? placeholder)}
+      {renderValue ? renderValue(value) : (display ?? placeholder)}
     </button>
   );
 }

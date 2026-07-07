@@ -72,6 +72,26 @@ export const optimizerApi = {
     options: OptimizerOptions;
   }) => api.post<OptimizationResponse>("/api/optimizer/rig-fleet", payload),
 
+  /** Excel export of a run — same payload as `run`; returns the workbook blob.
+   *  Bypasses the JSON client (binary response) but mirrors its auth + errors. */
+  exportExcel: async (payload: {
+    demand: DemandRow[];
+    assumptions: OptimizerAssumptions;
+    options: OptimizerOptions;
+  }): Promise<Blob> => {
+    const token = await getAccessToken();
+    const resp = await fetch("/api/optimizer/rig-fleet/export", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) await throwApiError(resp, "Excel export failed");
+    return resp.blob();
+  },
+
   /** Multipart upload — bypasses the JSON client but mirrors its auth + error
    *  handling (token header, server detail surfaced via throwApiError). */
   parseSchedule: async (file: File): Promise<ParsedSchedule> => {

@@ -1,6 +1,7 @@
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { getActivityColor } from "./chart-colors";
+import { formatDate } from "./utils";
 import { terrainRank } from "./gantt-rows";
 
 export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }>>;
@@ -129,8 +130,8 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
         rig: a.rig_name,
         hwu: a.hwu_name ?? null,
         project: a.well_project,
-        start: a.start_date,
-        end: a.end_date,
+        start: formatDate(a.start_date),
+        end: formatDate(a.end_date),
         plan: a.plan_type,
         risk: a.risk,
         // Opt-out activities (readiness_required === false) carry no gates, so

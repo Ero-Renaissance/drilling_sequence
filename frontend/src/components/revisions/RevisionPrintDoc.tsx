@@ -17,7 +17,7 @@ import {
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, placeBarLabel } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import type { ContractStatus } from "@/api/contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
@@ -101,9 +101,7 @@ function parse(d: string | null | undefined): Date | null {
 
 function fmt(d: string | null | undefined): string {
   const t = parse(d);
-  return t
-    ? t.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
-    : "—";
+  return t ? formatDate(t.toISOString().slice(0, 10)) : "—";
 }
 
 // Stable 1..N ordering by start date (then well), so a bar's number on the Gantt
@@ -907,7 +905,7 @@ export function RevisionPrintDoc({
         null,
       )
     : null;
-  const generated = `Generated ${new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}`;
+  const generated = `Generated ${formatDate(new Date().toISOString().slice(0, 10))}`;
   const docDate = !isWetInk && approvedAt ? `Approved ${fmt(approvedAt)}` : generated;
 
   return (

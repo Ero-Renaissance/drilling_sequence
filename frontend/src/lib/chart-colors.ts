@@ -27,6 +27,14 @@ const ACTIVITY_COLORS: Record<string, string> = {
   "Abandonment": "#86198f", // deep magenta
 };
 
+// Synthetic display-only types get a reserved neutral hue that no real activity
+// family uses (slate — the palette has no grey). Kept out of ACTIVITY_COLORS so
+// they never surface in the activity-type suggestions for real campaigns.
+// "Well" is the rig optimizer's generic well (could be oil or gas).
+const SYNTHETIC_COLORS: Record<string, string> = {
+  Well: "#64748b", // slate
+};
+
 // Family seeds for auto-generated colors
 const FAMILIES: Record<string, string> = {
   Oil: "#d62728",
@@ -77,6 +85,7 @@ function generateColor(activityType: string): string {
 }
 
 export function getActivityColor(activityType: string): string {
+  if (SYNTHETIC_COLORS[activityType]) return SYNTHETIC_COLORS[activityType];
   if (ACTIVITY_COLORS[activityType]) return ACTIVITY_COLORS[activityType];
   if (!_generated[activityType]) _generated[activityType] = generateColor(activityType);
   return _generated[activityType];

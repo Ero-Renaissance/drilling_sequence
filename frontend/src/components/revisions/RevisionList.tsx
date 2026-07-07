@@ -15,7 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import {
   listRevisions,
   discardRevision,
@@ -30,7 +30,7 @@ function relativeTime(iso: string): string {
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso);
 }
 
 function revLabel(rev: Revision): string {

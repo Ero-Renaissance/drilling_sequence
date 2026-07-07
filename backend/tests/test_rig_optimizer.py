@@ -242,3 +242,32 @@ async def test_parse_schedule_rejects_columnless_file(client: AsyncClient) -> No
         files={"file": ("s.csv", io.BytesIO(b"a,b\n1,2\n"), "text/csv")},
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_export_returns_workbook_with_expected_sheets(client: AsyncClient) -> None:
+    r = await client.post("/api/optimizer/rig-fleet/export", json=_REQUEST)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "rig-optimization.xlsx" in r.headers["content-disposition"]
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Summary", "Rig Schedule", "Demand"]
+    summary = wb["Summary"]
+    assert summary["A1"].value == "Terrain"
+    terrains = {summary.cell(row=i, column=1).value for i in (2, 3)}
+    assert terrains == {"Land", "Swamp"}
+    sched = wb["Rig Schedule"]
+    # 2 Land + 5 Swamp wells scheduled → 7 data rows.
+    assert sched.max_row == 1 + 7
+    assert sched["B2"].value.endswith("Rig 1")
+
+
+@pytest.mark.asyncio
+async def test_export_denied_without_grant(noplan_client: AsyncClient) -> None:
+    r = await noplan_client.post("/api/optimizer/rig-fleet/export", json=_REQUEST)
+    assert r.status_code == 403

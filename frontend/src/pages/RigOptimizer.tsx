@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Calculator, FileUp, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Calculator, FileDown, FileUp, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toaster";
@@ -153,8 +153,8 @@ export function RigOptimizer() {
     }
   }
 
-  async function run() {
-    const demand: DemandRow[] = rows
+  function buildDemand(): DemandRow[] {
+    return rows
       .filter((r) => r.project.trim())
       .map((r) => ({
         terrain: r.terrain,
@@ -166,6 +166,10 @@ export function RigOptimizer() {
         ),
       }))
       .filter((r) => Object.keys(r.wells_by_year).length > 0);
+  }
+
+  async function run() {
+    const demand = buildDemand();
     if (demand.length === 0) {
       toast.error("Add at least one project row with wells in a year");
       return;
@@ -179,6 +183,25 @@ export function RigOptimizer() {
       toast.error(err instanceof Error ? err.message : "Optimization failed");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function downloadExcel() {
+    const demand = buildDemand();
+    if (demand.length === 0) {
+      toast.error("Add at least one project row with wells in a year");
+      return;
+    }
+    try {
+      const blob = await optimizerApi.exportExcel({ demand, assumptions, options });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "rig-optimization.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Excel export failed");
     }
   }
 
@@ -300,6 +323,12 @@ export function RigOptimizer() {
               <FileUp className="h-3.5 w-3.5" />
               Upload CSV / Excel
             </Button>
+            {result && (
+              <Button variant="outline" size="sm" onClick={downloadExcel} title="Download the result as an Excel workbook (summary, rig schedule, demand)">
+                <FileDown className="h-3.5 w-3.5" />
+                Download Excel
+              </Button>
+            )}
             <Button size="sm" onClick={run} disabled={running}>
               {running ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

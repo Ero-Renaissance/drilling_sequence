@@ -30,7 +30,9 @@ export function optimizerResultsToActivities(results: TerrainResult[]): Activity
         activities.push({
           id: `opt-${tr.terrain}-${rig.name}-${i}`,
           project_id: "optimizer",
-          activity_type: "Oil Well Drilling",
+          // Generic type — an optimized well could be oil or gas; renders in
+          // the reserved neutral slate (see chart-colors SYNTHETIC_COLORS).
+          activity_type: "Well",
           start_date: w.start,
           end_date: w.end,
           well_name: `${wellPart} · ${w.year}`,

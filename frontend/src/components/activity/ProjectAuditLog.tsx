@@ -18,14 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
 import { getProjectAudit, type AuditEntry } from "@/api/audit";
+import { formatDateTime } from "@/lib/utils";
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }
 
 function fieldLabel(field: string): string {

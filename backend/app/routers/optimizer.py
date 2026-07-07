@@ -11,6 +11,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.config import settings
 from app.core.auth import get_current_user
@@ -107,6 +108,108 @@ async def optimize_rig_fleet(
             )
             for r in results
         ],
+    )
+
+
+@router.post("/rig-fleet/export")
+async def export_rig_fleet(
+    payload: OptimizationRequest, current_user: CurrentUser
+) -> StreamingResponse:
+    """Run the optimization and return the full result as an Excel workbook:
+    Summary (rigs per terrain), Rig Schedule (every well with dates and gaps),
+    and the input Demand table. Same validation and planner gate as the run."""
+    assert_can_plan(current_user)
+
+    results = optimize(
+        demand_rows=[
+            {
+                "terrain": row.terrain.value,
+                "project": row.project,
+                "wells_by_year": row.wells_by_year,
+            }
+            for row in payload.demand
+        ],
+        assumptions=Assumptions(**payload.assumptions.model_dump()),
+        options=Options(**payload.options.model_dump()),
+    )
+
+    from openpyxl import Workbook  # already a vetted dependency (Excel import)
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    bold = Font(bold=True)
+    date_fmt = "DD-MM-YYYY"  # matches the app-wide date rendition
+
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Terrain", "Feasible", "Rigs required", "Binding project", "Binding year"])
+    for c in ws[1]:
+        c.font = bold
+    for r in results:
+        ws.append(
+            [
+                r.terrain,
+                "Yes" if r.feasible else "No — infeasible",
+                r.rig_count if r.feasible else None,
+                (r.binding or {}).get("project"),
+                (r.binding or {}).get("year"),
+            ]
+        )
+    ws.append([])
+    ws.append(["Terrain", "Year", "Rigs active"])
+    for c in ws[ws.max_row]:
+        c.font = bold
+    for r in results:
+        for year, n in sorted(r.rigs_active_per_year.items()):
+            ws.append([r.terrain, year, n])
+
+    sched = wb.create_sheet("Rig Schedule")
+    sched.append(
+        ["Terrain", "Rig", "Project", "Well", "Committed year",
+         "Start", "End", "Gap before (days)", "Gap type"]
+    )
+    for c in sched[1]:
+        c.font = bold
+    gap_labels = {
+        "none": "", "inter_well": "Rig move (2 wk)",
+        "batch": "Batch gap (4 wk)", "project_move": "Project move (45 d)",
+    }
+    for r in results:
+        for rig in r.rigs:
+            for w in rig.wells:
+                sched.append(
+                    [r.terrain, rig.name, w.project, w.label.split("·")[-1].strip(),
+                     w.year, w.start, w.end, w.gap_before_days or None,
+                     gap_labels.get(w.gap_kind, w.gap_kind)]
+                )
+                sched.cell(row=sched.max_row, column=6).number_format = date_fmt
+                sched.cell(row=sched.max_row, column=7).number_format = date_fmt
+
+    demand_ws = wb.create_sheet("Demand")
+    years = sorted({int(y) for row in payload.demand for y in row.wells_by_year})
+    demand_ws.append(["Terrain", "Project", *[str(y) for y in years]])
+    for c in demand_ws[1]:
+        c.font = bold
+    for row in payload.demand:
+        demand_ws.append(
+            [row.terrain.value, row.project, *[row.wells_by_year.get(y) for y in years]]
+        )
+
+    for sheet in wb.worksheets:
+        for col in sheet.columns:
+            width = max((len(str(c.value)) for c in col if c.value is not None), default=8)
+            sheet.column_dimensions[col[0].column_letter].width = min(width + 2, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    logger.info(
+        "rig optimization export user_id=%s terrains=%d", current_user.id, len(results)
+    )
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="rig-optimization.xlsx"'},
     )
 
 
