@@ -27,7 +27,7 @@ const TERRAIN_COLOR: Record<Terrain, string> = {
 const TERRAIN_LABEL: Record<Terrain, string> = {
   Land: "Land",
   Swamp: "Swamp",
-  SWO: "Shallow Offshore",
+  SWO: "Offshore",
 };
 
 const DEFAULT_ASSUMPTIONS: OptimizerAssumptions = {
@@ -392,7 +392,9 @@ export function RigOptimizer() {
                       className="h-8 rounded-md border border-border bg-background px-1.5 text-sm"
                     >
                       {TERRAINS.map((t) => (
-                        <option key={t}>{t}</option>
+                        <option key={t} value={t}>
+                          {TERRAIN_LABEL[t]}
+                        </option>
                       ))}
                     </select>
                   </td>

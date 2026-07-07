@@ -35,13 +35,16 @@ logger = logging.getLogger(__name__)
 # infeasibility), which is reported explicitly instead.
 _MAX_RIGS_PER_TERRAIN = 500
 
-# Display names for the hypothetical fleet ("SWO" reads as Shallow Offshore in
-# the UI and maps onto the sequence chart's OFFSHORE terrain band).
+# Display names for the hypothetical fleet ("SWO" — shallow water offshore —
+# reads as plain "Offshore" in the UI, matching the sequence chart's band).
 _RIG_NAME_PREFIX = {
     "Land": "Land Rig",
     "Swamp": "Swamp Rig",
-    "SWO": "Shallow Offshore Rig",
+    "SWO": "Offshore Rig",
 }
+
+# Canonical terrain presentation order — matches every Gantt in the app.
+_TERRAIN_ORDER = {"Land": 0, "Swamp": 1, "SWO": 2}
 
 
 @dataclass(frozen=True)
@@ -327,5 +330,7 @@ def optimize(
         }
     return [
         optimize_terrain(terrain, projects, assumptions, options)
-        for terrain, projects in sorted(by_terrain.items())
+        for terrain, projects in sorted(
+            by_terrain.items(), key=lambda kv: (_TERRAIN_ORDER.get(kv[0], 99), kv[0])
+        )
     ]

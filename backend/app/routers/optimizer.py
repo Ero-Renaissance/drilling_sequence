@@ -269,6 +269,9 @@ async def parse_schedule(file: UploadFile, current_user: CurrentUser) -> ParsedS
         )
 
     terrain_alias = {t.value.lower(): t for t in Terrain}
+    # Common spellings for shallow water offshore — all read as SWO.
+    terrain_alias["offshore"] = Terrain.swo
+    terrain_alias["shallow offshore"] = Terrain.swo
     demand: list[DemandRow] = []
     issues: list[str] = []
     for idx, row in df.iterrows():
