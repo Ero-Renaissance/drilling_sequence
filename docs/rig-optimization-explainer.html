@@ -85,6 +85,36 @@
   .formula .n { color: var(--code-amber); }         /* numbers/labels */
   .formula .lbl { color: #fff; font-weight: 600; }
 
+  /* Formal MILP — reads like a paper, not code */
+  .model {
+    background: #fcfdfc; border: 1px solid var(--line); border-left: 3px solid var(--green);
+    border-radius: 10px; padding: 18px 22px 20px; margin: 18px 0;
+    font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+    font-size: 15px; overflow-x: auto;
+  }
+  .model .msec {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; font-size: 10.5px; font-weight: 700;
+    color: var(--green-dark); margin: 14px 0 7px;
+  }
+  .model .msec:first-child { margin-top: 0; }
+  .model .mrow {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 28px;
+    white-space: nowrap; line-height: 1.65;
+  }
+  .model i { font-style: italic; }
+  .model sub { font-size: .68em; vertical-align: -0.25em; }
+  .model sup { font-size: .68em; }
+  .model .mlabel {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 11.5px; color: var(--muted); font-style: normal; flex: none;
+  }
+  .model .op { color: var(--green-dark); font-style: normal; }
+  .model .note {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 12.5px; color: var(--muted); margin-top: 6px; white-space: normal;
+  }
+
   /* Two-column engine comparison */
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
   .col {
@@ -243,6 +273,42 @@
       move per project after the first. Solved single-threaded for determinism, with a 10 s
       guard the tiny instances never approach.
     </p>
+
+    <h3>The formal integer program</h3>
+    <p class="lede">
+      Stated as a pure MILP for one <span class="mono">(terrain, year)</span>. The nonlinear
+      block cost is linearized with a one-hot count selector
+      <i>z</i><sub>p,r,m</sub> — exactly the table the CP-SAT
+      <span class="mono">AddElement</span> encodes.
+    </p>
+    <div class="model">
+      <div class="msec">Sets &amp; parameters</div>
+      <div class="mrow"><span><i>P</i> projects, <i>c<sub>p</sub></i> wells of <i>p</i> this year &nbsp;·&nbsp; <i>R</i> = {1..<span class="op">Σ</span><sub>p</sub> <i>c<sub>p</sub></i>} rigs</span></div>
+      <div class="mrow"><span><i>block<sub>m</sub></i> = rig-days for <i>m</i> consecutive wells (constant) &nbsp;·&nbsp; <i>M</i> move &nbsp;·&nbsp; <i>C</i> year capacity</span></div>
+
+      <div class="msec">Decision variables</div>
+      <div class="mrow"><span><i>z<sub>p,r,m</sub></i> <span class="op">∈</span> {0,1}</span><span class="mlabel">rig r does exactly m wells of project p</span></div>
+      <div class="mrow"><span><i>y<sub>p,r</sub></i> <span class="op">∈</span> {0,1}</span><span class="mlabel">project p present on rig r</span></div>
+      <div class="mrow"><span><i>u<sub>r</sub></i> <span class="op">∈</span> {0,1}</span><span class="mlabel">rig r used</span></div>
+
+      <div class="msec">Objective</div>
+      <div class="mrow"><span><span class="op">minimize</span> &nbsp; <span class="op">Σ</span><sub>r</sub> <i>u<sub>r</sub></i></span></div>
+
+      <div class="msec">Subject to</div>
+      <div class="mrow"><span><span class="op">Σ</span><sub>m</sub> <i>z<sub>p,r,m</sub></i> = 1</span><span class="mlabel">∀ p, r &nbsp;(one count per project·rig)</span></div>
+      <div class="mrow"><span><span class="op">Σ</span><sub>r</sub> <span class="op">Σ</span><sub>m</sub> <i>m·z<sub>p,r,m</sub></i> = <i>c<sub>p</sub></i></span><span class="mlabel">∀ p &nbsp;(place every well)</span></div>
+      <div class="mrow"><span><i>y<sub>p,r</sub></i> = <span class="op">Σ</span><sub>m≥1</sub> <i>z<sub>p,r,m</sub></i></span><span class="mlabel">∀ p, r &nbsp;(presence)</span></div>
+      <div class="mrow"><span><span class="op">Σ</span><sub>p</sub><span class="op">Σ</span><sub>m</sub> <i>block<sub>m</sub>·z<sub>p,r,m</sub></i> + <i>M</i>(<span class="op">Σ</span><sub>p</sub> <i>y<sub>p,r</sub></i> − <i>u<sub>r</sub></i>) <span class="op">≤</span> <i>C</i></span><span class="mlabel">∀ r &nbsp;(rig load ≤ year)</span></div>
+      <div class="mrow"><span><i>y<sub>p,r</sub></i> <span class="op">≤</span> <i>u<sub>r</sub></i> <span class="op">≤</span> <span class="op">Σ</span><sub>p</sub> <i>y<sub>p,r</sub></i></span><span class="mlabel">∀ p, r &nbsp;(rig is “used” iff it carries work)</span></div>
+      <div class="mrow"><span><i>u<sub>r</sub></i> <span class="op">≥</span> <i>u<sub>r+1</sub></i></span><span class="mlabel">∀ r &nbsp;(symmetry breaking)</span></div>
+
+      <div class="msec">Fleet</div>
+      <div class="mrow"><span><i>N</i><sub>terrain</sub> = <span class="op">max</span><sub>y</sub> ( <span class="op">Σ</span><sub>r</sub> <i>u<sub>r</sub></i> solved for year <i>y</i> )</span></div>
+      <div class="note">
+        Years are independent under the strict in-year policy, so the terrain fleet is the
+        peak year's bin count — each year is solved as its own instance of the program above.
+      </div>
+    </div>
   </section>
 
   <section>
