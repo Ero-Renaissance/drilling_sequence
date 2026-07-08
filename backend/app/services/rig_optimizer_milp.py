@@ -161,6 +161,10 @@ def _materialize(
     """Lay a year's per-rig assignment onto real dates and append to the shared
     RigPlan objects (keyed by rig index, so a rig accrues wells across years)."""
     maint = _maintenance_days(a)
+    # A project's wells for a year can split across rigs (concurrency). Number
+    # them with a counter that runs across ALL rigs so the bar labels stay unique
+    # — the per-rig index `k` below drives only the batch-gap logic.
+    label_seq: dict[str, int] = {}
     for r, plan in plans.items():
         cursor = _year_start(year) + timedelta(days=maint)
         first_project = True
@@ -186,11 +190,12 @@ def _materialize(
                     gap_kind, gap_days = "batch", a.batch_gap_days
                 else:
                     gap_kind, gap_days = "inter_well", a.inter_well_gap_days
+                label_seq[project] = label_seq.get(project, 0) + 1
                 plan.wells.append(
                     ScheduledWell(
                         project=project,
                         year=year,
-                        label=f"{project} · {year} · Well {k}",
+                        label=f"{project} · {year} · Well {label_seq[project]}",
                         start=start,
                         end=end,
                         gap_before_days=gap_days,

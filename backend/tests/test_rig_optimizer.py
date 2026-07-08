@@ -297,6 +297,31 @@ def test_milp_engine_matches_or_beats_heuristic() -> None:
     assert beat_at_least_once, "expected the exact engine to beat greedy somewhere"
 
 
+def test_milp_well_labels_unique_when_project_splits_across_rigs() -> None:
+    """A project's wells that split across rigs (concurrency) must each carry a
+    distinct label — the per-rig well counter must not restart at 'Well 1' on
+    every rig (regression: two bars both read 'Well 1')."""
+    pytest.importorskip("ortools")
+    from app.services.rig_optimizer import Assumptions, Options
+    from app.services.rig_optimizer_milp import optimize_milp
+
+    # 5 wells of one project in one year force a split across ≥2 rigs.
+    demand = [
+        {"terrain": "Land", "project": "Project Land 1", "wells_by_year": {"2027": 5}},
+        {"terrain": "Land", "project": "Project Land 2", "wells_by_year": {"2027": 2}},
+    ]
+    result = optimize_milp(demand, Assumptions(), Options())[0]
+    assert result.rig_count >= 2  # the 5-well project can't fit one rig in a year
+
+    labels = [w.label for rig in result.rigs for w in rig.wells]
+    assert len(labels) == len(set(labels)), f"duplicate well labels: {labels}"
+    # And the split project's wells are numbered 1..5 exactly once each.
+    p1 = sorted(
+        w.label for rig in result.rigs for w in rig.wells if w.project == "Project Land 1"
+    )
+    assert p1 == [f"Project Land 1 · 2027 · Well {n}" for n in range(1, 6)]
+
+
 @pytest.mark.asyncio
 async def test_optimize_endpoint_validates_terrain(client: AsyncClient) -> None:
     bad = {"demand": [{"terrain": "Desert", "project": "X", "wells_by_year": {"2027": 1}}]}
