@@ -480,3 +480,57 @@ async def test_import_rejection_does_not_wipe_existing(client: AsyncClient) -> N
     listing = await client.get(f"/api/projects/{project['id']}/activities")
     wells = {a["well_name"] for a in listing.json()}
     assert "Keep Me" in wells
+
+
+# ---------------------------------------------------------------------------
+# Excel export
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_export_activities_workbook(client: AsyncClient) -> None:
+    project = await _create_project(client, name="Bonga Q3")
+    pid = project["id"]
+    await _create_activity(client, pid, well_name="W-OFF", location="OFFSHORE", rig_name="Rig B")
+    await _create_activity(client, pid, well_name="W-LAND", location="LAND", rig_name="Rig A")
+
+    r = await client.get(f"/api/projects/{pid}/activities/export")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "Bonga Q3 - rig sequence.xlsx" in r.headers["content-disposition"]
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(r.content))
+    ws = wb["Rig Sequence"]
+    headers = [c.value for c in ws[1]]
+    assert headers[:6] == [
+        "Location", "Resource Type", "Resource Name", "Well", "Project", "Activity Type"
+    ]
+    # No readiness columns anywhere in the header.
+    assert not any("readiness" in str(h).lower() for h in headers)
+    assert "Duration (days)" in headers
+    # Two activities → two data rows, ordered Land before Offshore (terrain order).
+    assert ws.max_row == 3
+    assert ws.cell(row=2, column=1).value == "LAND"
+    assert ws.cell(row=3, column=1).value == "OFFSHORE"
+
+
+@pytest.mark.asyncio
+async def test_export_activities_any_authenticated_user(
+    client: AsyncClient, noplan_client: AsyncClient
+) -> None:
+    """The sequence is org-wide readable, so a non-planner viewer can export it."""
+    project = await _create_project(client)
+    await _create_activity(client, project["id"])
+    r = await noplan_client.get(f"/api/projects/{project['id']}/activities/export")
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_export_activities_unknown_project_404(client: AsyncClient) -> None:
+    import uuid
+
+    r = await client.get(f"/api/projects/{uuid.uuid4()}/activities/export")
+    assert r.status_code == 404

@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models.activity import Activity
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
-from app.models.project import ProjectRole
+from app.models.project import Project, ProjectRole
 from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ReadinessCheck
 from app.models.rig_contract import RigContract
 from app.models.user import User
@@ -62,6 +62,80 @@ async def list_activities(
         .order_by(Activity.start_date)
     )
     return [ActivityResponse.model_validate(a) for a in result.scalars().all()]
+
+
+# Terrain row order on every Gantt: Land → Swamp → Offshore (unknown sorts last).
+_TERRAIN_ORDER = {"LAND": 0, "SWAMP": 1, "OFFSHORE": 2}
+
+
+@router.get("/export")
+async def export_activities(project_id: uuid.UUID, current_user: CurrentUser, db: DB):
+    """Export the full campaign plan (every activity) as an Excel workbook —
+    the rig sequence as a table, sorted to mirror the chart (terrain → resource
+    → start). Read-only, so any authenticated user may download it. Readiness
+    checks are intentionally excluded."""
+    from fastapi.responses import StreamingResponse
+
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    rows = (
+        await db.execute(select(Activity).where(Activity.project_id == project_id))
+    ).scalars().all()
+
+    def _sort_key(a: Activity) -> tuple:
+        resource = a.hwu_name or a.rig_name or ""
+        return (_TERRAIN_ORDER.get((a.location or "").upper(), 99), resource, a.start_date)
+
+    rows = sorted(rows, key=_sort_key)
+
+    from openpyxl import Workbook  # already a vetted dependency (Excel import)
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Rig Sequence"
+    headers = [
+        "Location", "Resource Type", "Resource Name", "Well", "Project",
+        "Activity Type", "Plan Type", "Risk", "Start", "End",
+        "Duration (days)", "Comment", "Completed",
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    date_fmt = "DD-MM-YYYY"
+    for a in rows:
+        resource_type = "HWU" if a.hwu_name else ("Rig" if a.rig_name else "")
+        duration = (a.end_date - a.start_date).days if a.start_date and a.end_date else None
+        completed = a.completed_at.date() if a.completed_at else None
+        ws.append(
+            [
+                a.location, resource_type, a.hwu_name or a.rig_name, a.well_name,
+                a.well_project, a.activity_type, a.plan_type, a.risk,
+                a.start_date, a.end_date, duration, a.comment, completed,
+            ]
+        )
+        r = ws.max_row
+        ws.cell(row=r, column=9).number_format = date_fmt   # Start
+        ws.cell(row=r, column=10).number_format = date_fmt  # End
+        if completed is not None:
+            ws.cell(row=r, column=13).number_format = date_fmt
+
+    for col in ws.columns:
+        width = max((len(str(c.value)) for c in col if c.value is not None), default=10)
+        ws.column_dimensions[col[0].column_letter].width = min(width + 2, 45)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe = "".join(c for c in project.name if c.isalnum() or c in " -_").strip() or "campaign"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe} - rig sequence.xlsx"'},
+    )
 
 
 @router.post("", response_model=ActivityResponse, status_code=status.HTTP_201_CREATED)

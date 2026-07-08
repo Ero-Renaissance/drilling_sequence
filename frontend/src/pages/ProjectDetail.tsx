@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay } from "lucide-react";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project, ProjectLock } from "@/types";
 import { reopenPlan } from "@/api/revisions";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useProjectsStore } from "@/store/projects";
 import { useAuthStore } from "@/store/auth";
-import { listActivities, type Activity } from "@/api/activities";
+import { listActivities, exportActivities, type Activity } from "@/api/activities";
 import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
@@ -345,6 +345,21 @@ export function ChartTab() {
 
   function handleImported(_count: number) { load(); }
 
+  async function downloadExcel() {
+    if (!projectId) return;
+    try {
+      const blob = await exportActivities(projectId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "rig-sequence.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Excel export failed");
+    }
+  }
+
   return (
     <div className="space-y-3">
       {/* Toolbar */}
@@ -375,6 +390,18 @@ export function ChartTab() {
               <MonitorPlay className="h-4 w-4" />
               <span className="ml-1.5">Present</span>
             </NavLink>
+          </Button>
+        )}
+        {activities && activities.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={downloadExcel}
+            className="text-muted-foreground"
+            title="Download the full plan as an Excel workbook"
+          >
+            <FileDown className="h-4 w-4" />
+            <span className="ml-1.5">Export Excel</span>
           </Button>
         )}
         {activities !== null && (

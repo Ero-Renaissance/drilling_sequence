@@ -66,6 +66,16 @@ export async function listActivities(projectId: string): Promise<Activity[]> {
   return resp.json();
 }
 
+/** Download the full campaign plan as an Excel workbook (the rig sequence as a
+ *  table). Read-only — any authenticated viewer may export. */
+export async function exportActivities(projectId: string): Promise<Blob> {
+  const resp = await fetch(`/api/projects/${projectId}/activities/export`, {
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) await throwApiError(resp, "Excel export failed");
+  return resp.blob();
+}
+
 export async function createActivity(projectId: string, payload: ActivityCreate): Promise<Activity> {
   const resp = await fetch(`/api/projects/${projectId}/activities`, {
     method: "POST",
