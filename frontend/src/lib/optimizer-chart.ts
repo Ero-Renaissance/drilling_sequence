@@ -35,7 +35,9 @@ export function optimizerResultsToActivities(results: TerrainResult[]): Activity
           activity_type: "Well",
           start_date: w.start,
           end_date: w.end,
-          well_name: `${wellPart} · ${w.year}`,
+          // Bar shows just "Well N" — the focus-year control, the time axis, and
+        // the tooltip's start/end dates already convey the year.
+        well_name: wellPart,
           rig_name: rig.name,
           hwu_name: null,
           well_project: w.project,

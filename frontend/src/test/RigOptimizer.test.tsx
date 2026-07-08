@@ -104,11 +104,14 @@ describe("RigOptimizer", () => {
       rig_name: string;
       location: string;
       project_group: string;
+      well_name: string;
     }[];
     expect(activities).toHaveLength(1);
     expect(activities[0].rig_name).toBe("Land Rig 1");
     expect(activities[0].location).toBe("LAND");
     expect(activities[0].project_group).toBe("P1");
+    // Bar label is just the well — no year suffix (the axis + tooltip carry it).
+    expect(activities[0].well_name).toBe("Well 1");
   });
 
   it("shows infeasibility loudly instead of a wrong number", async () => {
