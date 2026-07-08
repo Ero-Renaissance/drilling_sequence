@@ -121,9 +121,21 @@ built-in scenario ("Scenario 1"); planners can adjust values and compare runs.
 Two engines behind one interface, selected by environment variable
 (`OPTIMIZER_ENGINE=heuristic | milp`, default `heuristic`):
 
-- **Heuristic (default):** deterministic greedy/packing scheduler in owned code,
-  plus an analytic lower bound (total required rig-months ÷ available rig-months)
-  so the result is provably optimal or within one rig. No new dependencies.
+- **Heuristic (default):** deterministic greedy/packing scheduler in owned code.
+  Greedy earliest-rig assignment (LPT-ordered) — can over-estimate the true
+  minimum fleet by a rig. No new dependencies.
+  - Implementation: `app/services/rig_optimizer.py`.
+- **Exact — CP-SAT:** `app/services/rig_optimizer_milp.py`. Under the strict
+  in-year policy the problem **decomposes by year** (no rig-time usefully crosses
+  a year boundary), so each year is an independent minimum-rig bin-packing solved
+  to proven optimality by CP-SAT; the terrain fleet is the peak year. Exact for
+  the default policy and never larger than the heuristic — strictly smaller where
+  the greedy over-assigns (e.g. the 30-well Swamp mix: 5 rigs vs the heuristic's
+  6). Supports rig-availability derating and the batch rule; the year-coupling
+  relaxations (spudded delivery, drill-ahead, slip) are out of scope and fall
+  back to the heuristic **with a warning in the response**, so `milp` is always a
+  safe setting. Because years are modelled independently, a project's batch
+  counter restarts each year (consistent with the year-boundary idle break).
 - **MILP (optional):** exact optimization via **Google OR-Tools CP-SAT**
   (`ortools>=9.15`, Apache-2.0). CP-SAT's interval / `AddNoOverlap` /
   `AddCumulative` constraints fit the rig-scheduling shape directly (rigs =

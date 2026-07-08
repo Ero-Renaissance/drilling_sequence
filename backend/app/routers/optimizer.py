@@ -26,7 +26,7 @@ from app.schemas.optimizer import (
     Terrain,
     TerrainResultOut,
 )
-from app.services.rig_optimizer import Assumptions, Options, optimize
+from app.services.rig_optimizer import Assumptions, Options, run
 
 logger = logging.getLogger(__name__)
 
@@ -44,26 +44,7 @@ async def optimize_rig_fleet(
     """Compute the minimum rig fleet per terrain for the given schedule."""
     assert_can_plan(current_user)
 
-    engine = (settings.optimizer_engine or "heuristic").strip().lower()
-    warning = None
-    if engine == "milp":
-        # The exact-solver engine needs a MILP/CP library (e.g. OR-Tools) that
-        # has not been adopted — new dependencies go through IT review first
-        # (CLAUDE.md). Fall back loudly rather than silently.
-        try:
-            import ortools  # type: ignore  # noqa: F401
-        except ImportError:
-            engine = "heuristic"
-            warning = (
-                "MILP engine is configured but its solver library is not "
-                "installed; results computed with the heuristic engine."
-            )
-            logger.warning("optimizer_engine=milp requested but OR-Tools missing")
-        else:  # pragma: no cover — exercised once the dependency is approved
-            engine = "heuristic"
-            warning = "MILP engine not yet implemented; heuristic engine used."
-
-    results = optimize(
+    results, engine, warning = run(
         demand_rows=[
             {
                 "terrain": row.terrain.value,
@@ -74,6 +55,7 @@ async def optimize_rig_fleet(
         ],
         assumptions=Assumptions(**payload.assumptions.model_dump()),
         options=Options(**payload.options.model_dump()),
+        engine=settings.optimizer_engine,
     )
 
     run_id = uuid.uuid4()
@@ -120,7 +102,7 @@ async def export_rig_fleet(
     and the input Demand table. Same validation and planner gate as the run."""
     assert_can_plan(current_user)
 
-    results = optimize(
+    results, _engine, _warning = run(
         demand_rows=[
             {
                 "terrain": row.terrain.value,
@@ -131,6 +113,7 @@ async def export_rig_fleet(
         ],
         assumptions=Assumptions(**payload.assumptions.model_dump()),
         options=Options(**payload.options.model_dump()),
+        engine=settings.optimizer_engine,
     )
 
     from openpyxl import Workbook  # already a vetted dependency (Excel import)

@@ -21,6 +21,15 @@ A = Assumptions()  # spec defaults: 76d well, 14d gap, batch 3, 28d, 45d move
 STRICT = Options()  # finished in-year, no slip, no drill-ahead
 
 
+@pytest.fixture(autouse=True)
+def _default_heuristic_engine(monkeypatch):
+    """Pin the engine to heuristic so these tests don't depend on whatever
+    OPTIMIZER_ENGINE the local .env sets; milp tests opt in by re-patching."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "optimizer_engine", "heuristic")
+
+
 def _single_project(terrain: str, wells_by_year: dict[int, int]) -> dict:
     return {"terrain": terrain, "project": "P1", "wells_by_year": wells_by_year}
 
@@ -203,24 +212,89 @@ async def test_optimize_endpoint_denied_without_grant(noplan_client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_milp_engine_degrades_to_heuristic_when_solver_absent(
+async def test_milp_falls_back_on_unsupported_relaxation(
     client: AsyncClient, monkeypatch
 ) -> None:
-    """OPTIMIZER_ENGINE=milp must degrade to the heuristic (with a warning) when
-    OR-Tools isn't installed — this is what makes the `solver` extra safe to
-    declare on the live IIS deploy without installing it. Results are unaffected."""
+    """The exact engine models only the strict in-year policy; a relaxation that
+    couples years (drill-ahead here) degrades to the heuristic with a warning.
+    Deterministic regardless of whether OR-Tools is installed."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "optimizer_engine", "milp")
-    r = await client.post("/api/optimizer/rig-fleet", json=_REQUEST)
+    req = {**_REQUEST, "options": {"allow_drill_ahead": True}}
+    r = await client.post("/api/optimizer/rig-fleet", json=req)
     assert r.status_code == 200, r.text
     body = r.json()
-    # OR-Tools is not in the test venv, so the engine falls back and says so.
     assert body["engine"] == "heuristic"
-    assert body["warning"] and "heuristic" in body["warning"].lower()
-    # Same answer as the default heuristic run — the fallback is transparent.
-    by_terrain = {t["terrain"]: t["rig_count"] for t in body["results"]}
-    assert by_terrain == {"Land": 1, "Swamp": 2}
+    assert body["warning"] and "drill-ahead" in body["warning"]
+
+
+@pytest.mark.asyncio
+async def test_milp_engine_used_end_to_end(client: AsyncClient, monkeypatch) -> None:
+    """With OR-Tools installed and a strict-policy request, the API reports the
+    milp engine and returns the exact (lower) fleet — 5 rigs where the heuristic
+    would say 6."""
+    pytest.importorskip("ortools")
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "optimizer_engine", "milp")
+    req = {
+        "demand": [
+            {"terrain": "Swamp", "project": "S1",
+             "wells_by_year": {"2027": 5, "2028": 5, "2029": 14, "2030": 6}},
+            {"terrain": "Swamp", "project": "S2",
+             "wells_by_year": {"2029": 4, "2030": 7, "2031": 2}},
+        ]
+    }
+    r = await client.post("/api/optimizer/rig-fleet", json=req)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["engine"] == "milp"
+    assert body["warning"] is None
+    assert body["results"][0]["rig_count"] == 5
+
+
+def test_milp_engine_matches_or_beats_heuristic() -> None:
+    """Engine invariant: the exact fleet is never larger than the heuristic's,
+    and strictly smaller where the greedy over-assigns. Both stay feasible."""
+    ortools = pytest.importorskip("ortools")  # noqa: F841 — skip if solver absent
+    from app.services.rig_optimizer import Assumptions, Options, optimize, run
+
+    cases = [
+        [{"terrain": "Land", "project": "P", "wells_by_year": {"2027": 5}}],
+        [
+            {
+                "terrain": "Swamp",
+                "project": "S1",
+                "wells_by_year": {"2027": 5, "2028": 5, "2029": 14, "2030": 6},
+            },
+            {
+                "terrain": "Swamp",
+                "project": "S2",
+                "wells_by_year": {"2029": 4, "2030": 7, "2031": 2},
+            },
+        ],
+    ]
+    a_, opts_ = Assumptions(), Options()
+    beat_at_least_once = False
+    for demand in cases:
+        h = optimize(demand, a_, opts_)
+        m, engine, warning = run(demand, a_, opts_, "milp")
+        assert engine == "milp" and warning is None
+        for rh, rm in zip(h, m):
+            assert rm.feasible == rh.feasible
+            assert rm.rig_count <= rh.rig_count
+            if rm.rig_count < rh.rig_count:
+                beat_at_least_once = True
+            # Materialized schedule is physically sound: in-year, no overlap.
+            for rig in rm.rigs:
+                for w in rig.wells:
+                    assert date(w.year, 1, 1) <= w.start
+                    assert w.end <= date(w.year, 12, 31)
+                ws = sorted(rig.wells, key=lambda x: x.start)
+                for a, b in zip(ws, ws[1:]):
+                    assert b.start >= a.end
+    assert beat_at_least_once, "expected the exact engine to beat greedy somewhere"
 
 
 @pytest.mark.asyncio

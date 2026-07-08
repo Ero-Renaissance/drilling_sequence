@@ -346,3 +346,42 @@ def optimize(
             by_terrain.items(), key=lambda kv: (_TERRAIN_ORDER.get(kv[0], 99), kv[0])
         )
     ]
+
+
+def run(
+    demand_rows: list[dict],
+    assumptions: Assumptions,
+    options: Options,
+    engine: str = "heuristic",
+) -> tuple[list[TerrainResult], str, str | None]:
+    """Run the requested engine, returning (results, engine_used, warning).
+
+    The heuristic is always available. The exact "milp" engine is used only when
+    OR-Tools is installed AND the selected options are supported; otherwise it
+    degrades to the heuristic and returns a warning explaining why — so setting
+    OPTIMIZER_ENGINE=milp is always safe.
+    """
+    engine = (engine or "heuristic").strip().lower()
+    if engine != "milp":
+        return optimize(demand_rows, assumptions, options), "heuristic", None
+
+    from app.services import rig_optimizer_milp as milp
+
+    ok, unsupported = milp.supports(options)
+    if not ok:
+        return (
+            optimize(demand_rows, assumptions, options),
+            "heuristic",
+            f"The exact engine doesn't model {', '.join(unsupported)}; "
+            "results computed with the heuristic engine.",
+        )
+    try:
+        return milp.optimize_milp(demand_rows, assumptions, options), "milp", None
+    except milp.SolverUnavailable:
+        logger.warning("optimizer_engine=milp requested but OR-Tools missing")
+        return (
+            optimize(demand_rows, assumptions, options),
+            "heuristic",
+            "MILP engine is configured but OR-Tools is not installed; "
+            "results computed with the heuristic engine.",
+        )

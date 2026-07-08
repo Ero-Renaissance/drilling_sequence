@@ -52,8 +52,8 @@ dev = [
 # wanted, after IT review. NEW DEPENDENCY — flagged for IT/supply-chain review:
 #   ortools  9.15  (Apache-2.0) — Google OR-Tools; ships prebuilt win_amd64 +
 #     macOS wheels cp311–cp314 (no build toolchain). Net-new transitive additions
-#     to vet: protobuf + absl-py (numpy is already present via pandas). protobuf
-#     is the one to watch — large, version-sensitive, its own CVE history.
+#     to vet: protobuf, absl-py, immutabledict (numpy already present via pandas).
+#     protobuf is the one to watch — large, version-sensitive, its own CVE history.
 solver = [
     "ortools>=9.15",
 ]
