@@ -74,28 +74,27 @@ export function buildCheckSvgDataUri(code: CheckCode, status: CheckStatus): stri
   return `data:image/svg+xml;utf8,${encodeURIComponent(buildCheckSvg(code, status))}`;
 }
 
-// ── AlarmClock — used as the rig-level contract expiry icon ───────────────────
+// ── Contract-expiry badge — the rig-level contract marker ─────────────────────
+//
+// A SOLID badge, not line art: a white clock face on a filled urgency-colored
+// disc, wrapped in a ring of the chart surface color. The surface ring is what
+// guarantees separation from whatever sits behind it (colored bars, dark or
+// light background) — the same trick that keeps the flood droplet legible on
+// any bar. The previous stroke-only alarm clock disappeared against busy rows.
 
-const ALARM_CLOCK_PATHS = `
-  <circle cx="12" cy="13" r="8"/>
-  <path d="M12 9v4l2 2"/>
-  <path d="M5 3 2 6"/>
-  <path d="m22 6-3-3"/>
-  <path d="M6.38 18.7 4 21"/>
-  <path d="M17.64 18.67 20 21"/>
-`;
-
-export function buildAlarmClockSvg(strokeHex: string): string {
+export function buildContractBadgeSvg(fillHex: string, ringHex: string): string {
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" ` +
-    `stroke="${strokeHex}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">` +
-    ALARM_CLOCK_PATHS +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">` +
+    `<circle cx="12" cy="12" r="11.5" fill="${ringHex}"/>` +
+    `<circle cx="12" cy="12" r="9.5" fill="${fillHex}"/>` +
+    `<path d="M12 7.5v4.5l3 3" stroke="#ffffff" stroke-width="2" ` +
+    `stroke-linecap="round" stroke-linejoin="round" fill="none"/>` +
     `</svg>`
   );
 }
 
-export function buildAlarmClockSvgDataUri(strokeHex: string): string {
-  return `data:image/svg+xml;utf8,${encodeURIComponent(buildAlarmClockSvg(strokeHex))}`;
+export function buildContractBadgeSvgDataUri(fillHex: string, ringHex: string): string {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(buildContractBadgeSvg(fillHex, ringHex))}`;
 }
 
 // ── Droplet — flood-risk marker on a bar ──────────────────────────────────────

@@ -500,10 +500,16 @@ function StaticGantt({
                           style={{ left: `${expiryPct}%`, transform: "translateX(-50%)" }}
                           title={`Contract expired ${fmt(m!.contractEnd)}`}
                         >
-                          <span className="rounded-full bg-white/85 leading-none">
-                            <AlarmClock className="h-2.5 w-2.5" style={{ color: expiryHex }} strokeWidth={2.5} />
+                          {/* Solid urgency-colored badge (white glyph) with a white ring —
+                              the inverse of the old white-circle-red-outline, so it stays
+                              prominent even where it crosses colored bars. */}
+                          <span
+                            className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ring-1 ring-white/80"
+                            style={{ backgroundColor: expiryHex }}
+                          >
+                            <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
                           </span>
-                          <span className="w-px flex-1" style={{ backgroundColor: expiryHex, opacity: 0.5 }} />
+                          <span className="w-px flex-1" style={{ backgroundColor: expiryHex, opacity: 0.7 }} />
                         </span>
                       )}
                     </div>
@@ -567,10 +573,13 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
             <AlarmClock className="h-3 w-3" strokeWidth={2.25} /> Contract Expiration
           </span>
           <span className="inline-flex items-center gap-1">
+            {/* The key IS the mark: the same solid badge drawn on the chart. */}
             <span
-              className="inline-block h-2 w-2 rounded-full"
+              className="inline-flex h-3 w-3 items-center justify-center rounded-full"
               style={{ backgroundColor: URGENCY_VISUAL.expired.hex }}
-            />
+            >
+              <AlarmClock className="h-2 w-2 text-white" strokeWidth={2.5} />
+            </span>
             {URGENCY_VISUAL.expired.label}
           </span>
         </>

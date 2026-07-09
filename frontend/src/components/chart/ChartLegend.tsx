@@ -134,7 +134,8 @@ export function ChartLegend({
               Contract expiry
             </span>
             <p className="text-[10px] text-muted-foreground">
-              A red clock marks a rig or HWU whose contract has already expired.
+              A red clock badge on a rig&apos;s row marks a contract that has already
+              expired, with a line at the expiry date.
             </p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               {EXPIRY_LEGEND_ORDER.map((key) => (
@@ -142,12 +143,13 @@ export function ChartLegend({
                   key={key}
                   className="flex items-center gap-1.5 text-xs text-foreground"
                 >
+                  {/* The key IS the mark: the same solid badge the chart draws. */}
                   <span
-                    className={cn(
-                      "h-2.5 w-2.5 rounded-full",
-                      URGENCY_VISUAL[key].dotClass,
-                    )}
-                  />
+                    className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full"
+                    style={{ backgroundColor: URGENCY_VISUAL[key].hex }}
+                  >
+                    <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
+                  </span>
                   <span className="font-medium">{expiryItems[key].name}</span>
                   <span className="text-muted-foreground">
                     ({expiryItems[key].range})

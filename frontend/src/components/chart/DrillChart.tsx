@@ -16,8 +16,8 @@ import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
 import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
 import { terrainRank } from "@/lib/gantt-rows";
 import {
-  buildAlarmClockSvgDataUri,
   buildCheckSvgDataUri,
+  buildContractBadgeSvgDataUri,
   buildDropletSvgDataUri,
 } from "@/lib/check-icon-svg";
 import { STATUS_LABEL } from "@/components/readiness/check-meta";
@@ -84,6 +84,9 @@ function yearChipClass(active: boolean): string {
 
 interface ChartTheme {
   bg: string;
+  /** The OPAQUE surface the (transparent-bg) chart sits on — the card colour.
+   *  Used where a solid "cutout" is needed, e.g. the contract badge's ring. */
+  surface: string;
   axisLabel: string;
   axisLine: string;
   splitLine: string;
@@ -106,6 +109,7 @@ interface ChartTheme {
 
 const LIGHT_THEME: ChartTheme = {
   bg: "transparent",
+  surface: "#ffffff", // --card (0 0% 100%)
   axisLabel: "#64748b",
   axisLine: "#e2e8f0",
   splitLine: "#f1f5f9",
@@ -127,6 +131,7 @@ const LIGHT_THEME: ChartTheme = {
 
 const DARK_THEME: ChartTheme = {
   bg: "transparent",
+  surface: "#14171f", // --card (222 22% 10%)
   axisLabel: "#94a3b8",
   axisLine: "rgba(255,255,255,0.08)",
   splitLine: "rgba(255,255,255,0.04)",
@@ -736,15 +741,37 @@ export function DrillChart({
     ): CustomSeriesRenderItemReturn {
       const [cx, cy] = api.coord([api.value(0), api.value(1)]);
       const hex = contractMarkers[params.dataIndex]?.hex ?? URGENCY_VISUAL.healthy.hex;
+      // An expiry is a DATE, so mark the position, not just a point: a solid
+      // badge (white clock on an urgency-colored disc with a surface ring, so
+      // it can't vanish against bars or the dark theme) at the TOP of the row
+      // — out of the bar lane — plus a tick through this rig's row only. The
+      // row-scoped tick also keeps it distinct from the full-height dashed
+      // red "today" line.
+      const rowH = (api.size!([0, 1]) as number[])[1];
+      const BADGE = 20;
+      const rowTop = cy - rowH / 2;
+      const rowBot = cy + rowH / 2;
       return {
-        type: "image",
-        style: {
-          image: buildAlarmClockSvgDataUri(hex),
-          x: cx - 8,
-          y: cy - 8,
-          width: 16,
-          height: 16,
-        },
+        type: "group",
+        children: [
+          {
+            type: "line",
+            silent: true,
+            shape: { x1: cx, y1: rowTop + 2, x2: cx, y2: rowBot - 2 },
+            style: { stroke: hex, lineWidth: 2, opacity: 0.4 },
+          },
+          {
+            // Hover target: feeds the contract tooltip (rig, date, days overdue).
+            type: "image",
+            style: {
+              image: buildContractBadgeSvgDataUri(hex, theme.surface),
+              x: cx - BADGE / 2,
+              y: rowTop + 1,
+              width: BADGE,
+              height: BADGE,
+            },
+          },
+        ],
       } as unknown as CustomSeriesRenderItemReturn;
     }
 

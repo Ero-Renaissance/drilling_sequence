@@ -104,6 +104,41 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
     expect(header.className).toContain("uppercase");
   });
 
+  it("draws the expiry marker as a solid badge with a row tick", () => {
+    // The expiry must fall INSIDE the chart's fitted window to render a marker,
+    // and be in the past to classify as expired — so the whole fixture lives in
+    // 2020: the well drills Jan–Apr, the contract lapsed mid-February.
+    const past: PrintRow[] = [
+      {
+        ...rows[0],
+        start_date: "2020-01-05",
+        end_date: "2020-04-01",
+        rig_contract_status: "Completed",
+        rig_contract_end: "2020-02-15",
+      },
+    ];
+
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={past}
+        chart="readiness"
+        includeSchedule={false}
+        signatures="wetink"
+      />,
+    );
+
+    // A SOLID badge (filled urgency circle, white glyph) with a row tick below —
+    // not the old white circle with a thin outline icon.
+    const marker = screen.getByTitle(/^Contract expired /);
+    const badge = marker.firstElementChild as HTMLElement;
+    expect(badge.style.backgroundColor).not.toBe("");
+    expect(badge.className).toContain("rounded-full");
+    const tick = marker.lastElementChild as HTMLElement;
+    expect(tick.style.backgroundColor).not.toBe("");
+  });
+
   it("hides the contract-expiry key for a non-expired contract (#5)", () => {
     // A "Completed" contract with a far-FUTURE end date → "healthy", not expired
     // → the print flags nothing, so the key is absent.
