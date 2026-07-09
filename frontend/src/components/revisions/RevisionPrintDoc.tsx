@@ -15,7 +15,7 @@ import {
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
-import { computeFittedWindows, computeYearSpans, placeBarLabel } from "@/lib/print-gantt";
+import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
 import { cn, formatDate } from "@/lib/utils";
 import type { ContractStatus } from "@/api/contracts";
@@ -50,12 +50,14 @@ const RIG_COL = "11rem"; // "Terrain – Rig" label column width
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // Well-name placement on the readiness chart (all percentages of the page window).
-// A name rides inside a bar at least NAME_INSIDE_MIN_PCT wide; otherwise it spills
-// into the larger adjacent gap, clamped so it never runs into the neighbouring bar.
-// A spill gap smaller than NAME_MIN_SIDE_PCT shows nothing (the schedule table is
-// the fallback cross-reference). Tuned for the 1-year readiness window — adjust
-// here if names spill too eagerly or truncate too soon.
-const NAME_INSIDE_MIN_PCT = 10;
+// A name rides inside its bar whenever the bar fits THIS name (text-aware — see
+// estimateNamePct in print-gantt.ts), so "KOCR 9" stays on a modest bar while a
+// long name spills into the larger adjacent gap, clamped so it never runs into
+// the neighbouring bar. NAME_INSIDE_MIN_PCT is only an absolute floor: a bar
+// narrower than this never carries text, however short its name. A spill gap
+// smaller than NAME_MIN_SIDE_PCT shows nothing (the schedule table is the
+// fallback cross-reference).
+const NAME_INSIDE_MIN_PCT = 3;
 const NAME_MIN_SIDE_PCT = 4;
 const LABEL_GAP_PAD_PCT = 0.5;
 
@@ -368,6 +370,7 @@ function StaticGantt({
                                   rightPct: r,
                                   prevRightPct: prevR,
                                   nextLeftPct: nextL,
+                                  nameLenPct: estimateNamePct(a.well_name),
                                   insideMinPct: NAME_INSIDE_MIN_PCT,
                                   minSidePct: NAME_MIN_SIDE_PCT,
                                   gapPadPct: LABEL_GAP_PAD_PCT,

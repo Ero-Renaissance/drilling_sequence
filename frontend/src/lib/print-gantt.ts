@@ -106,15 +106,32 @@ export interface BarLabelPlacement {
   maxWidthPct: number;
 }
 
+// Estimated rendered width of a well-name label, as a % of the window. The print
+// page always renders at the same physical width no matter how many months the
+// window spans, so %-per-character is a stable constant. Calibrated for the
+// readiness bars' 6px font: ~0.5%/char reads slightly generous, which errs
+// toward spilling a borderline name rather than truncating it inside the bar.
+const NAME_CHAR_PCT = 0.5;
+// Flat allowance for the bar's own padding and the flood droplet.
+const NAME_PAD_PCT = 1;
+
+/** Estimated width (% of window) a well-name label needs to render untruncated. */
+export function estimateNamePct(name: string): number {
+  return name.length * NAME_CHAR_PCT + NAME_PAD_PCT;
+}
+
 /**
  * Decide where a print-Gantt bar's well-name label goes.
  *
- * A bar wide enough keeps the name INSIDE it (white on the bar, as before). When
- * the bar is too narrow to show a useful chunk of its name, the name spills into
- * the empty lane BESIDE the bar — the side with the larger gap — clamped to the
- * distance to the neighbouring bar so it can never overlap it. When neither side
- * has room for even a few characters the label is dropped; the schedule table is
- * the complete cross-reference for those.
+ * The name stays INSIDE the bar (white on the bar, as before) when the bar is
+ * wide enough for THIS name — the test is text-aware, so a short name like
+ * "KOCR 9" rides a modest bar while a long one spills. A fixed-width threshold
+ * here misfires both ways: it evicts short names from bars with plenty of room
+ * and truncates long names that technically pass. When the name doesn't fit, it
+ * spills into the empty lane BESIDE the bar — the side with the larger gap —
+ * clamped to the distance to the neighbouring bar so it can never overlap it.
+ * When neither side has room for even a few characters the label is dropped;
+ * the schedule table is the complete cross-reference for those.
  *
  * Everything is a percentage of the window width (matching how the print Gantt
  * positions bars), so there are no pixels here and it stays unit-testable.
@@ -123,7 +140,9 @@ export interface BarLabelPlacement {
  * @param rightPct     bar's right edge (% of window)
  * @param prevRightPct right edge of the previous bar on the row, or 0 if none
  * @param nextLeftPct  left edge of the next bar on the row, or 100 if none
- * @param insideMinPct bar widths >= this keep the label inside
+ * @param nameLenPct   estimated width of this bar's name (see estimateNamePct)
+ * @param insideMinPct absolute floor: a bar narrower than this never labels
+ *                     inside, however short its name (a sliver can't carry text)
  * @param minSidePct   smallest spill gap worth labelling; below it → "none"
  * @param gapPadPct    padding kept between the label and the neighbouring bar
  */
@@ -132,6 +151,7 @@ export function placeBarLabel({
   rightPct,
   prevRightPct,
   nextLeftPct,
+  nameLenPct,
   insideMinPct,
   minSidePct,
   gapPadPct,
@@ -140,12 +160,13 @@ export function placeBarLabel({
   rightPct: number;
   prevRightPct: number;
   nextLeftPct: number;
+  nameLenPct: number;
   insideMinPct: number;
   minSidePct: number;
   gapPadPct: number;
 }): BarLabelPlacement {
   const barWidth = rightPct - leftPct;
-  if (barWidth >= insideMinPct) {
+  if (barWidth >= Math.max(insideMinPct, nameLenPct)) {
     return { side: "inside", maxWidthPct: barWidth };
   }
   const gapRight = Math.max(0, nextLeftPct - rightPct - gapPadPct);
