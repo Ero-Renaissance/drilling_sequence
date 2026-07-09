@@ -2,7 +2,7 @@ import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CHECK_CODES, type CheckStatus } from "@/api/readiness";
 import { CHECK_META, STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
-import { getActivityColor } from "@/lib/chart-colors";
+import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
 import { URGENCY_VISUAL } from "@/lib/contract-urgency";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
@@ -81,6 +81,12 @@ export function ChartLegend({
                 style={{ backgroundColor: getActivityColor(type) }}
               />
               {type}
+              {/* A type outside the catalogue renders in the reserved neutral
+                  until an admin/developer assigns it a validated color — say so,
+                  so the grey reads as "pending", not broken. */}
+              {!isCataloguedActivityType(type) && (
+                <span className="italic text-muted-foreground">(colour pending)</span>
+              )}
             </span>
           ))
         )}

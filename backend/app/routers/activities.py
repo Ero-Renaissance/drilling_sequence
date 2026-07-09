@@ -32,6 +32,7 @@ from app.services.data_processor import (
     csv_df_to_db_rows,
     is_long_schedule,
     parse_long_schedule,
+    unknown_activity_type_warnings,
     validate_csv_columns,
 )
 
@@ -401,7 +402,11 @@ async def import_activities(
         )
 
     await db.commit()
-    return ImportResponse(imported=len(validated), replaced=replace)
+    return ImportResponse(
+        imported=len(validated),
+        replaced=replace,
+        warnings=unknown_activity_type_warnings([m.activity_type for m in validated])[:200],
+    )
 
 
 async def _import_long_schedule(
@@ -452,6 +457,12 @@ async def _import_long_schedule(
             else:
                 readiness[gate] = gate_status
         validated.append((activity_in, readiness))
+
+    # Non-canonical activity types import fine but chart in neutral grey — tell
+    # the planner so the vocabulary gets fixed (or the catalogue extended).
+    warnings.extend(
+        unknown_activity_type_warnings([a.activity_type for a, _ in validated])
+    )
 
     # Replace only when at least one well is valid — never wipe the schedule to
     # import nothing (e.g. an entirely-bad file in replace mode).

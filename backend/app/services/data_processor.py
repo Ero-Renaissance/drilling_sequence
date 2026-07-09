@@ -10,6 +10,43 @@ import pandas as pd
 
 REQUIRED_COLUMNS = ["Activity Type", "Start Date", "End Date"]
 
+# Canonical activity-type catalogue — MUST stay in sync with the color map in
+# frontend/src/lib/chart-colors.ts (the chart renders any type outside this set
+# in a neutral "colour pending" grey). Activity type stays a free-form string in
+# the schema — an unknown type is imported fine and only WARNED about, so a new
+# vocabulary entry is visible, never blocked.
+CANONICAL_ACTIVITY_TYPES = frozenset(
+    {
+        "Oil Development",
+        "Oil Appraisal",
+        "Oil Workover",
+        "Oil Exploration",
+        "Gas Development",
+        "Gas Appraisal",
+        "Gas Workover",
+        "Gas Exploration (including HPHT)",
+        "Gas Appraisal (including HPHT)",
+        "HPHT (Development)",
+        "Water Injection",
+        "Well Repair/Safety",
+        "Rig Mobilisation and Intake",
+        "Well Testing",
+        "Abandonment",
+    }
+)
+
+
+def unknown_activity_type_warnings(activity_types: "list[str | None]") -> list[str]:
+    """One warning per distinct activity type outside the canonical catalogue.
+    The import still accepts the rows — the warning tells the planner the type
+    will render in neutral grey until it's added to the catalogue."""
+    unknown = sorted({t for t in activity_types if t and t not in CANONICAL_ACTIVITY_TYPES})
+    return [
+        f"Activity type '{t}' is not in the canonical catalogue — it will chart "
+        f"in neutral grey until an admin adds it."
+        for t in unknown
+    ]
+
 # Maps CSV alias column names → DB field names (used at import time)
 CSV_ALIASES: dict[str, str] = {
     # entity aliases

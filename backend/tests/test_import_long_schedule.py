@@ -223,3 +223,31 @@ async def test_long_schedule_rejects_wrong_date_format(client: AsyncClient) -> N
     assert "Start Date" in detail and "DD/MM/YYYY" in detail
     # A rejected upload imports nothing.
     assert (await client.get(f"/api/projects/{pid}/activities")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_long_schedule_warns_on_non_canonical_activity_type(client: AsyncClient) -> None:
+    """An activity type outside the canonical catalogue imports fine (free-form
+    field) but the response WARNS that it will chart in neutral grey — one
+    warning per distinct type, none for canonical types."""
+    pid = (await _create_project(client))["id"]
+    csv = _long_csv(
+        _well_rows(well="WELL_A", project="PX", atype="Gas Development",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="05/01/2026", end="15/07/2026"),
+        _well_rows(well="WELL_B", project="PX", atype="Coiled Tubing Cleanout",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="01/08/2026", end="01/09/2026"),
+        _well_rows(well="WELL_C", project="PX", atype="Coiled Tubing Cleanout",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="10/09/2026", end="10/10/2026"),
+    )
+    resp = await _upload(client, pid, csv)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 3  # the unknown type is imported, not blocked
+
+    type_warnings = [w for w in body["warnings"] if "canonical catalogue" in w]
+    assert len(type_warnings) == 1  # deduped: one warning per distinct type
+    assert "Coiled Tubing Cleanout" in type_warnings[0]
+    assert not any("Gas Development" in w for w in type_warnings)

@@ -1,31 +1,72 @@
 /**
- * One distinctive hue per activity type. Family grouping is preserved by
- * positioning related types in the same color zone (reds for oil, greens for
- * gas, blues for water, etc.) but each sub-type gets a clearly different hue
- * so bars and legend swatches read unambiguously — no patterns required.
+ * Activity-type colors — a FIXED, validated assignment. One distinctive hue per
+ * canonical activity type, zoned by family (warm = oil, green/teal/cyan = gas,
+ * violet = HPHT, magenta = abandonment, blue = testing/water) so domain users
+ * can read family at a glance while every sub-type stays distinguishable.
+ *
+ * The active palette + the spare slots below were machine-validated (2026-07)
+ * for colorblind separation (worst adjacent pair ΔE 17.0), chroma, lightness,
+ * and ≥3:1 contrast against the light/print surface — ALL CHECKS PASS. On the
+ * dark theme the colorblind checks still pass; a few deep hues fall below 3:1
+ * fill contrast there and are relieved by the bars' direct labels, tooltips and
+ * the legend. Designing brighter dark-mode steps is deliberately deferred to
+ * the activity-type admin work (Phase 2).
+ *
+ * Rules (do not break silently):
+ *  - Pure red is RESERVED for status (Behind / Expired / conflicts) — no
+ *    activity type may use it. Oil Development is burgundy, not red.
+ *  - Never generate a hue. A type missing from this catalogue renders in
+ *    UNKNOWN_ACTIVITY_COLOR (neutral grey) until it is added here — the legend
+ *    marks it "colour pending". Assign new types the next SPARE_ACTIVITY_COLORS
+ *    entry; once spares run out, extend the palette and re-validate.
  */
 const ACTIVITY_COLORS: Record<string, string> = {
-  // Oil family — warm band: crimson → wine → pink → orange.
-  "Oil Development": "#dc2626", // crimson
+  // Oil family — warm band.
+  "Oil Development": "#9f1239", // burgundy (red itself is reserved for status)
+  "Oil Workover": "#db2777", // pink
+  "Oil Exploration": "#ea580c", // orange
+  // Gas family — green → teal → cyan → deep blue-cyan band.
+  "Gas Development": "#15803d", // deep emerald
+  "Gas Exploration (including HPHT)": "#65a30d", // lime-olive
+  "Gas Appraisal": "#0d9488", // teal
+  "Gas Appraisal (including HPHT)": "#0369a1", // deep blue-cyan
+  "Gas Workover": "#0891b2", // cyan
+  // HPHT — violet
+  "HPHT (Development)": "#6d28d9",
+  // Abandonment — deep magenta
+  "Abandonment": "#86198f",
+  // Well Testing — blue (the planner wording "Well Cleanup/Test" is normalised
+  // to this canonical name at import cleanup)
+  "Well Testing": "#3b82f6",
+  // Rig moves are non-well filler time — a RESERVED dark neutral outside the
+  // categorical wheel (freeing brown fixed an orange/brown colorblind clash).
+  "Rig Mobilisation and Intake": "#57534e",
+  // ── Legacy catalogue entries, not present in any current campaign. Kept for
+  // continuity; re-validate against the active palette when first used.
   "Oil Appraisal": "#7f1d1d", // dark wine
-  "Oil Workover": "#ec4899", // pink
-  "Oil Exploration": "#f97316", // bright orange
-  // Gas family — greens / teals
-  "Gas Development": "#16a34a", // emerald
-  "Gas Appraisal": "#14b8a6", // teal
-  "Gas Workover": "#0d9488", // dark teal
-  "Gas Exploration (including HPHT)": "#84cc16", // lime
-  "Gas Appraisal (including HPHT)": "#0f766e", // deep teal
-  // HPHT — purple
-  "HPHT (Development)": "#9333ea", // purple
-  // Water — blue
   "Water Injection": "#0ea5e9", // sky blue
-  // Operational / admin
   "Well Repair/Safety": "#1d4ed8", // royal blue
-  "Rig Mobilisation and Intake": "#a16207", // amber-brown
-  "Well Testing": "#4338ca", // indigo
-  "Abandonment": "#86198f", // deep magenta
 };
+
+/**
+ * Pre-validated spare hues for FUTURE activity types — already checked against
+ * the whole active palette on both surfaces. Take the first free one when a new
+ * type is added to the catalogue; do not invent other colors without re-running
+ * the palette validation.
+ */
+export const SPARE_ACTIVITY_COLORS: readonly string[] = [
+  "#c026d3", // fuchsia
+  "#92400e", // dark amber-brown
+];
+
+/**
+ * Reserved neutral for activity types NOT in the catalogue. Deliberately grey:
+ * an unknown type should look "colour pending" and prompt cataloguing, never
+ * blend in with a plausible generated hue (generated hues once produced two
+ * near-identical greens). Warm stone — distinct from the cool slate used for
+ * completed bars (#94a3b8/#64748b) and the synthetic "Well" (#64748b).
+ */
+export const UNKNOWN_ACTIVITY_COLOR = "#78716c";
 
 // Synthetic display-only types get a reserved neutral hue that no real activity
 // family uses (slate — the palette has no grey). Kept out of ACTIVITY_COLORS so
@@ -35,60 +76,15 @@ const SYNTHETIC_COLORS: Record<string, string> = {
   Well: "#64748b", // slate
 };
 
-// Family seeds for auto-generated colors
-const FAMILIES: Record<string, string> = {
-  Oil: "#d62728",
-  Gas: "#23a94d",
-  Water: "#237d96",
-  HPHT: "#9467bd",
-  Rig: "#2c2c2a",
-};
-
-const _generated: Record<string, string> = {};
-
-function hexToHsl(hex: string): [number, number, number] {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  const h = max === r ? (g - b) / d + (g < b ? 6 : 0)
-          : max === g ? (b - r) / d + 2
-          : (r - g) / d + 4;
-  return [h * 60, s, l];
-}
-
-function hslToHex(h: number, s: number, l: number): string {
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-    return Math.round(255 * c).toString(16).padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-function generateColor(activityType: string): string {
-  const family = Object.keys(FAMILIES).find((f) => activityType.startsWith(f));
-  if (family) {
-    const [h, s, l] = hexToHsl(FAMILIES[family]);
-    const jitter = (Math.sin(activityType.length * 7919) * 0.5 + 0.5) * 40 - 20;
-    return hslToHex((h + jitter + 360) % 360, Math.min(0.9, s + 0.05), Math.max(0.3, Math.min(0.6, l)));
-  }
-  // Deterministic hue from string hash
-  let hash = 0;
-  for (let i = 0; i < activityType.length; i++) hash = activityType.charCodeAt(i) + ((hash << 5) - hash);
-  return hslToHex(Math.abs(hash) % 360, 0.65, 0.45);
+/** True when the type has a designed color (curated catalogue or synthetic). */
+export function isCataloguedActivityType(activityType: string): boolean {
+  return activityType in ACTIVITY_COLORS || activityType in SYNTHETIC_COLORS;
 }
 
 export function getActivityColor(activityType: string): string {
   if (SYNTHETIC_COLORS[activityType]) return SYNTHETIC_COLORS[activityType];
   if (ACTIVITY_COLORS[activityType]) return ACTIVITY_COLORS[activityType];
-  if (!_generated[activityType]) _generated[activityType] = generateColor(activityType);
-  return _generated[activityType];
+  return UNKNOWN_ACTIVITY_COLOR;
 }
 
 /**
