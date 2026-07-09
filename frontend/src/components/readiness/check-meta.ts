@@ -1,11 +1,11 @@
 import {
   Banknote,
+  Cylinder,
   DraftingCompass,
   Gavel,
   LandPlot,
   Leaf,
   MapPin,
-  Truck,
   type LucideIcon,
 } from "lucide-react";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
@@ -16,7 +16,9 @@ import type { CheckCode, CheckStatus } from "@/api/readiness";
  */
 export const CHECK_META: Record<CheckCode, { label: string; icon: LucideIcon }> = {
   FDP: { label: "Field Development Plan", icon: LandPlot },
-  LLI: { label: "Long Lead Items", icon: Truck },
+  // Casing joint (cylinder) — the archetypal long-lead material — rather than a
+  // transport truck: the gate is about the tubulars themselves being secured.
+  LLI: { label: "Long Lead Items", icon: Cylinder },
   LOC: { label: "Location", icon: MapPin },
   FE: { label: "Wells Front End", icon: DraftingCompass },
   FID: { label: "Final Inv. Decision", icon: Gavel },

@@ -18,11 +18,8 @@ const LUCIDE_PATHS: Record<CheckCode, string> = {
     <path d="M17.51 12.85 6.5 19.15"/>
   `,
   LLI: `
-    <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
-    <path d="M15 18H9"/>
-    <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
-    <circle cx="17" cy="18" r="2"/>
-    <circle cx="7" cy="18" r="2"/>
+    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+    <path d="M3 5v14a9 3 0 0 0 18 0V5"/>
   `,
   LOC: `
     <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
