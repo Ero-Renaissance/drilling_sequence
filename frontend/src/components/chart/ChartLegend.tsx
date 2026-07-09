@@ -24,7 +24,9 @@ interface ChartLegendProps {
   className?: string;
 }
 
-const EXPIRY_LEGEND_ORDER = ["expired"] as const;
+// Worst first, matching how the chart escalates. "Healthy" is deliberately
+// absent — a marker that appeared on every rig would stop meaning anything.
+const EXPIRY_LEGEND_ORDER = ["expired", "critical", "soon"] as const;
 
 function Section({
   label,
@@ -60,6 +62,8 @@ export function ChartLegend({
     { name: string; range: string }
   > = {
     expired: { name: "Expired", range: "end date passed" },
+    critical: { name: "Critical", range: "< 3 months" },
+    soon: { name: "Expiring soon", range: "3–6 months" },
   };
 
   return (
@@ -134,8 +138,8 @@ export function ChartLegend({
               Contract expiry
             </span>
             <p className="text-[10px] text-muted-foreground">
-              A red clock badge on a rig&apos;s row marks a contract that has already
-              expired, with a line at the expiry date.
+              A clock badge on a rig&apos;s row marks a contract at or past its end
+              date — colour shows urgency — with a line at the expiry date.
             </p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               {EXPIRY_LEGEND_ORDER.map((key) => (

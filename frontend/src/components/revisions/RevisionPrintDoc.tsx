@@ -23,8 +23,10 @@ import type { CheckCode, CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
 import type { Project } from "@/types";
 
-// Contract urgencies that carry an end date. #5 marks only the "expired" state
-// on the Gantt + print; the dashboard keeps the full gradient.
+// Contract urgencies that carry an end date. #5: the formal PRINT marks only
+// the "expired" state — a signed document should record facts, not forecasts.
+// The interactive chart shows the full approaching gradient (soon/critical/
+// expired) for early warning, and the dashboard keeps the complete set.
 type DatedUrgency = "expired" | "critical" | "soon" | "healthy";
 
 /** Urgency of a rig's contract from the snapshot's denormalised fields, or null

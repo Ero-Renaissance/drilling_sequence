@@ -717,9 +717,16 @@ export function DrillChart({
           ? (res.kind === "rig" ? contractsByRig : contractsByHwu)?.get(res.name)
           : undefined;
         const urgency = classifyContract(contract);
-        // #5: the Gantt flags EXPIRED contracts only (the dashboard keeps the
-        // full Healthy → Expired gradient for early-warning planning).
-        if (contract?.contract_end && urgency === "expired") {
+        // The INTERACTIVE chart shows the whole approaching-expiry gradient
+        // (soon 3–6 months amber, critical <3 months orange, expired red — the
+        // tiers are keyed to the quarterly approval cadence, see
+        // contract-urgency.ts) so planners see a lapse coming in time to act.
+        // The formal PRINT stays expired-only (#5) — see expiryUrgency in
+        // RevisionPrintDoc.
+        if (
+          contract?.contract_end &&
+          (urgency === "expired" || urgency === "critical" || urgency === "soon")
+        ) {
           contractMarkers.push({
             value: [new Date(contract.contract_end).getTime(), i],
             hex: URGENCY_VISUAL[urgency].hex,
