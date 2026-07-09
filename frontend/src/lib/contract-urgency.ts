@@ -10,10 +10,16 @@
 
 import type { ContractStatus } from "@/api/contracts";
 
+// Urgency tiers are keyed to the QUARTERLY approval cadence, not calendar
+// gut-feel: "soon" = two approval cycles left (start the renewal/re-tender
+// conversation), "critical" = less than one cycle left (the current sitting is
+// the last formal opportunity to act before lapse). A rig contract cannot be
+// re-tendered in weeks, so a shorter "critical" window would only announce
+// problems after the decision window had already closed.
 export type ContractUrgency =
-  | "healthy" //  Completed contract, > 90 days remaining
-  | "soon" //    Completed contract, 30 – 90 days remaining
-  | "critical" // Completed contract, 0 – 30 days remaining
+  | "healthy" //  Completed contract, > 6 months remaining
+  | "soon" //    Completed contract, 3 – 6 months remaining (two cycles)
+  | "critical" // Completed contract, < 3 months remaining (last cycle)
   | "expired" //  Completed contract, end date is in the past
   | "incomplete" // Completed contract but no end date entered yet
   | "draft" //   Draft contract — not yet in force, dates aren't binding
@@ -42,8 +48,8 @@ export function classifyContract(
       const end = new Date(contract.contract_end);
       const days = Math.floor((end.getTime() - now.getTime()) / 86_400_000);
       if (days < 0) return "expired";
-      if (days < 30) return "critical";
-      if (days < 90) return "soon";
+      if (days < 90) return "critical";
+      if (days < 180) return "soon";
       return "healthy";
     }
   }
@@ -80,7 +86,7 @@ export const URGENCY_VISUAL: Record<
     tintBorder: "border-amber-500/30",
   },
   critical: {
-    label: "Critical (< 30d)",
+    label: "Critical (< 3 months)",
     dotClass: "bg-orange-500",
     hex: "#f97316",
     tintBg: "bg-orange-500/12",

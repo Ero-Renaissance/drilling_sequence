@@ -163,3 +163,32 @@ async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
     assert by_gate["BUD"]["completed"] == 1
     assert by_gate["LLI"]["on_track"] == 1  # unset gate reads as On Track
     assert d["activities"]["by_activity_type"]["Oil Development"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_contract_buckets_use_cadence_thresholds(client: AsyncClient) -> None:
+    """Urgency tiers are keyed to the QUARTERLY approval cadence (kept in sync
+    with frontend/src/lib/contract-urgency.ts): critical < 90 days (less than
+    one approval cycle left), soon 90-179 days (two cycles), healthy >= 180."""
+    pid = await _project(client, "Contracts")
+    ends = {
+        "R_EXPIRED": TODAY - timedelta(days=1),
+        "R_CRITICAL_LOW": TODAY + timedelta(days=45),  # was 'soon' under the old 30/90
+        "R_CRITICAL_HIGH": TODAY + timedelta(days=89),
+        "R_SOON_LOW": TODAY + timedelta(days=90),
+        "R_SOON_HIGH": TODAY + timedelta(days=179),  # was 'healthy' under the old 30/90
+        "R_HEALTHY": TODAY + timedelta(days=180),
+    }
+    for rig, end in ends.items():
+        r = await client.put(
+            f"/api/projects/{pid}/contracts/{rig}",
+            json={"contract_end": _iso(end), "status": "Completed"},
+        )
+        assert r.status_code == 200, r.text
+
+    d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
+    assert d["contracts"]["expired"] == 1
+    assert d["contracts"]["critical"] == 2
+    assert d["contracts"]["soon"] == 2
+    assert d["contracts"]["healthy"] == 1
+    assert d["watchlist"]["contracts_expiring"] == 5

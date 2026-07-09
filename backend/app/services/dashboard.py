@@ -50,8 +50,10 @@ FOCUS_WINDOW_DAYS = 365
 STALE_APPROVAL_DAYS = 7
 
 # Contract urgency thresholds — kept in sync with frontend/src/lib/contract-urgency.ts.
-_CRITICAL_DAYS = 30
-_SOON_DAYS = 90
+# Keyed to the QUARTERLY approval cadence: "soon" = two approval cycles left,
+# "critical" = less than one cycle left (this sitting is the last chance to act).
+_CRITICAL_DAYS = 90
+_SOON_DAYS = 180
 
 
 async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardResponse:
