@@ -238,3 +238,48 @@
     animation: slide-down 140ms ease-out;
   }
 }
+
+/* ── Print is always light ─────────────────────────────────────────────────────
+   Print-outs are formal documents on white paper and must not depend on the
+   on-screen theme. The theme store strips the .dark class on beforeprint (which
+   also disables literal `dark:` utilities); this block is the CSS belt-and-braces
+   for any print path where that event doesn't fire. With "Background graphics"
+   enabled (required for the Gantt's coloured bars), a dark page background would
+   otherwise print as black padding around the sheet.
+   Values mirror the :root (light) block above — keep them in sync. */
+@media print {
+  .dark {
+    --background: 30 14% 97%;
+    --foreground: 222 24% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 24% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 24% 12%;
+    --primary: 134 56% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 95%;
+    --secondary-foreground: 222 24% 16%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 138 45% 95%;
+    --accent-foreground: 136 55% 24%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 60% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 30 30% 12%;
+    --info: 217 91% 55%;
+    --info-foreground: 0 0% 100%;
+    --border: 220 13% 90%;
+    --input: 220 13% 88%;
+    --ring: 134 56% 34%;
+  }
+  body {
+    background: #ffffff !important;
+  }
+  /* The dot-grid app canvas prints as noise — drop it on paper. */
+  .bg-app-canvas {
+    background-image: none;
+  }
+}

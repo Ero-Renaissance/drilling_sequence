@@ -55,6 +55,25 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       }
     };
     media.addEventListener("change", handler);
-    return () => media.removeEventListener("change", handler);
+
+    // Print is ALWAYS light: print-outs are formal documents on white paper and
+    // must not depend on the on-screen theme (a dark background would print as
+    // black padding around the sheet). Removing the class — rather than only
+    // overriding CSS variables — also disables every literal `dark:` utility
+    // for the duration of the print. index.css carries a @media print token
+    // override as CSS-only belt-and-braces.
+    const onBeforePrint = () => {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.style.colorScheme = "light";
+    };
+    const onAfterPrint = () => applyTheme(get().theme);
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+
+    return () => {
+      media.removeEventListener("change", handler);
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
   },
 }));
