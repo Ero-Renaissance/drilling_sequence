@@ -1,7 +1,17 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { classifyContract, daysUntilExpiry, URGENCY_VISUAL } from "@/lib/contract-urgency";
 import {
@@ -61,7 +71,16 @@ interface Props {
   projectId: string;
   resourceName: string;
   kind: "rig" | "hwu";
+  /** The activity's location. Rig identity is (terrain, name) — a LAND and a
+   *  SWAMP rig sharing a name have SEPARATE contracts — so the rig's contract is
+   *  looked up and saved against this terrain. Ignored for HWUs (mobile). */
+  terrain?: string | null;
   locked?: boolean;
+  /** Standalone mode (the Fleet page): the section carries its OWN Save button
+   *  instead of deferring to a parent dialog's Save via the imperative handle. */
+  standalone?: boolean;
+  /** Fired after a standalone save so the parent can refresh its summaries. */
+  onSaved?: () => void;
 }
 
 /**
@@ -72,12 +91,19 @@ interface Props {
  * so there's a single save, not two. Replaces the old per-activity CON readiness dot.
  */
 export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>(
-  function ResourceContractSection({ projectId, resourceName, kind, locked }, ref) {
+  function ResourceContractSection(
+    { projectId, resourceName, kind, terrain, locked, standalone = false, onSaved },
+    ref,
+  ) {
     const isHwu = kind === "hwu";
     const fetchContracts = isHwu ? listHwuContracts : listContracts;
     const saveContract = isHwu ? upsertHwuContract : upsertContract;
+    const rigTerrain = isHwu ? null : (terrain ?? "").trim() || null;
 
     const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    // Mirrors dirtyRef as state so the standalone Save button can enable itself.
+    const [dirtyUi, setDirtyUi] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const [status, setStatus] = useState<ContractStatus>("Draft");
@@ -91,6 +117,7 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     const dirtyRef = useRef(false);
     const markDirty = () => {
       dirtyRef.current = true;
+      setDirtyUi(true);
     };
 
     // Latest field values for the imperative save — avoids a stale closure.
@@ -102,6 +129,7 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     useEffect(() => {
       if (!resourceName) return;
       dirtyRef.current = false; // new resource → fresh, untouched baseline
+      setDirtyUi(false);
       let cancelled = false;
       const t = setTimeout(() => {
         setLoading(true);
@@ -110,8 +138,16 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
           .then((all) => {
             // Don't clobber edits the user made while we were fetching.
             if (cancelled || dirtyRef.current) return;
-            const existing =
-              all.find((c) => ("rig_name" in c ? c.rig_name : c.hwu_name) === resourceName) ?? null;
+            // Rigs match on (terrain, name) — a ""-terrain (legacy/unassigned)
+            // contract is accepted as a fallback; HWUs match on name alone.
+            const matches = all.filter(
+              (c) => ("rig_name" in c ? c.rig_name : c.hwu_name) === resourceName,
+            );
+            const existing = isHwu
+              ? matches[0] ?? null
+              : matches.find((c) => "terrain" in c && c.terrain === (rigTerrain ?? "")) ??
+                matches.find((c) => "terrain" in c && c.terrain === "") ??
+                null;
             setStatus(existing?.status ?? "Draft");
             setStart(existing?.contract_start ?? "");
             setEnd(existing?.contract_end ?? "");
@@ -128,25 +164,41 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
         cancelled = true;
         clearTimeout(t);
       };
-    }, [resourceName, projectId, kind, fetchContracts]);
+    }, [resourceName, projectId, kind, fetchContracts, isHwu, rigTerrain]);
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        async save() {
-          if (!dirtyRef.current) return; // untouched (or not yet loaded) → nothing to persist
-          const v = valuesRef.current;
-          await saveContract(projectId, resourceName, {
-            status: v.status,
-            contract_start: v.start || null,
-            contract_end: v.end || null,
-            notes: v.notes.trim() || null,
-          });
-          dirtyRef.current = false;
-        },
-      }),
-      [projectId, resourceName, saveContract],
-    );
+    const persist = useCallback(async () => {
+      if (!dirtyRef.current) return; // untouched (or not yet loaded) → nothing to persist
+      const v = valuesRef.current;
+      await saveContract(projectId, resourceName, {
+        status: v.status,
+        // Name WHICH physical rig the contract covers (rig identity is
+        // (terrain, name)); the server would 409 a bare name that exists in
+        // several terrains. HWU upserts ignore the field.
+        ...(isHwu ? {} : { terrain: rigTerrain }),
+        contract_start: v.start || null,
+        contract_end: v.end || null,
+        notes: v.notes.trim() || null,
+      });
+      dirtyRef.current = false;
+      setDirtyUi(false);
+    }, [projectId, resourceName, saveContract, isHwu, rigTerrain]);
+
+    useImperativeHandle(ref, () => ({ save: persist }), [persist]);
+
+    // Standalone (Fleet page) save — errors surface here as a toast; the plan
+    // lock (423) and planner gating are enforced server-side either way.
+    async function saveNow() {
+      setSaving(true);
+      try {
+        await persist();
+        toast.success(`${resourceName}'s contract saved.`);
+        onSaved?.();
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to save the contract");
+      } finally {
+        setSaving(false);
+      }
+    }
 
     const draftClass = useMemo(
       () => classifyContract({ status, contract_end: end || null }),
@@ -265,11 +317,19 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
               </div>
             )}
 
-            {!locked && (
-              <p className="text-[11px] text-muted-foreground">
-                Saved together with the activity when you click Save.
-              </p>
-            )}
+            {!locked &&
+              (standalone ? (
+                <div className="flex justify-end">
+                  <Button size="sm" className="h-7 px-3 text-xs" disabled={!dirtyUi || saving} onClick={saveNow}>
+                    {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                    Save contract
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Saved together with the activity when you click Save.
+                </p>
+              ))}
           </>
         )}
       </div>

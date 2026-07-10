@@ -78,6 +78,7 @@ function contract(rig: string, end: string): RigContract {
     id: `c-${rig}`,
     project_id: PROJECT_ID,
     rig_name: rig,
+    terrain: "",
     status: "Completed",
     contract_start: "2025-01-01",
     contract_end: end,

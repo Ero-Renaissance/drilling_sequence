@@ -20,15 +20,18 @@ function resourceOf(
   a: Activity,
 ): { kind: "rig" | "hwu"; name: string; terrain: string | null } | null {
   if (a.rig_name) return { kind: "rig", name: a.rig_name, terrain: a.location ?? null };
-  if (a.hwu_name) return { kind: "hwu", name: a.hwu_name, terrain: a.location ?? null };
+  // HWUs are mobile across terrains (one unit per NAME) — terrain deliberately
+  // excluded from their identity, so a cross-terrain self-overlap still flags.
+  if (a.hwu_name) return { kind: "hwu", name: a.hwu_name, terrain: null };
   return null;
 }
 
 export function detectResourceConflicts(activities: Activity[]): ResourceConflict[] {
-  // Resource identity is (kind, TERRAIN, name) — mirrors the backend
+  // RIG identity is (kind, TERRAIN, name) — mirrors the backend
   // (app/services/conflicts.py): rig classes are terrain-locked and the fleet
   // reuses class-style names per terrain, so a LAND "10K Rig 1" and a SWAMP
   // "10K Rig 1" are two different physical rigs, never a conflict pair.
+  // HWU identity is (kind, name): one mobile unit wherever it works.
   const byResource = new Map<
     string,
     { kind: "rig" | "hwu"; name: string; terrain: string | null; acts: Activity[] }

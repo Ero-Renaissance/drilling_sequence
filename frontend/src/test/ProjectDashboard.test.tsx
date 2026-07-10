@@ -32,6 +32,7 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
     watchlist: {
       near_term_not_ready: 2, overdue: 3, past_contract: 0, contracts_expiring: 1,
       flood_risk_near_term: 1, stale_approval: 1, conflicts: 0, drift_since_approved: 4,
+      unprocured_slots: 2,
     },
     ...overrides,
   };
@@ -63,6 +64,9 @@ describe("ProjectDashboard", () => {
     renderDash();
     const overdue = await screen.findByText(/overdue/i);
     expect(overdue.closest("a")).toHaveAttribute("href", "/projects/p1/data?focus=overdue");
+    // Unprocured slots drill through to the Fleet registry, TBD-filtered.
+    const unprocured = screen.getByText(/no awarded rig/i);
+    expect(unprocured.closest("a")).toHaveAttribute("href", "/projects/p1/fleet?focus=tbd");
   });
 
   it("renders the breakdown panel", async () => {
@@ -80,6 +84,7 @@ describe("ProjectDashboard", () => {
         watchlist: {
           near_term_not_ready: 0, overdue: 0, past_contract: 0, contracts_expiring: 0,
           flood_risk_near_term: 0, stale_approval: 0, conflicts: 0, drift_since_approved: 0,
+          unprocured_slots: 0,
         },
       }),
     );

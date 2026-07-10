@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, NavLink, Outlet, Navigate } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown } from "lucide-react";
+import { useParams, NavLink, Outlet, Navigate, useOutletContext, useSearchParams } from "react-router-dom";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown, Drill } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project, ProjectLock } from "@/types";
 import { reopenPlan } from "@/api/revisions";
@@ -14,6 +14,8 @@ import { listActivities, exportActivities, type Activity } from "@/api/activitie
 import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
+import { listResources, type ResourceRecord } from "@/api/resources";
+import { ResourceRegistryPanel } from "@/components/resources/ResourceRegistryPanel";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
@@ -40,6 +42,7 @@ const tabs = [
   { to: "chart", label: "Sequence", icon: BarChart2 },
   { to: "data", label: "Activities", icon: Table2 },
   { to: "readiness", label: "Readiness", icon: CheckSquare },
+  { to: "fleet", label: "Fleet", icon: Drill },
   { to: "compare", label: "Compare", icon: GitCompare },
   { to: "signatures", label: "Approvals", icon: PenSquare },
   { to: "activity", label: "Activity Log", icon: History },
@@ -284,9 +287,15 @@ export function ChartTab() {
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(
     undefined,
   );
+  // Per-lane rig contracts (`${terrain}|${name}`) — rig identity is (terrain, name),
+  // so a LAND and a SWAMP rig sharing a name each carry their own marker.
+  const [rigContractsByLane, setRigContractsByLane] = useState<
+    Map<string, RigContract> | undefined
+  >(undefined);
   const [contractsByHwu, setContractsByHwu] = useState<Map<string, HwuContract> | undefined>(
     undefined,
   );
+  const [placeholderUnits, setPlaceholderUnits] = useState<ResourceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
@@ -319,20 +328,26 @@ export function ChartTab() {
     setLoading(true);
     setError(null);
     try {
-      const [acts, readiness, contracts, hwuContracts, changeNotes] = await Promise.all([
-        listActivities(projectId),
-        listReadiness(projectId).catch(() => []), // readiness is best-effort
-        listContracts(projectId).catch(() => []), // contracts are best-effort
-        listHwuContracts(projectId).catch(() => []), // HWU contracts are best-effort
-        listChangeNotes(projectId).catch(() => []), // change notes are best-effort
-      ]);
+      const [acts, readiness, contracts, hwuContracts, changeNotes, resources] =
+        await Promise.all([
+          listActivities(projectId),
+          listReadiness(projectId).catch(() => []), // readiness is best-effort
+          listContracts(projectId).catch(() => []), // contracts are best-effort
+          listHwuContracts(projectId).catch(() => []), // HWU contracts are best-effort
+          listChangeNotes(projectId).catch(() => []), // change notes are best-effort
+          listResources(projectId).catch(() => []), // fleet registry is best-effort
+        ]);
       setActivities(acts);
       const map: ReadinessMap = new Map(
         readiness.map((r) => [r.activity_id, r.checks as Record<CheckCode, { status: CheckStatus }>]),
       );
       setReadinessMap(map);
       setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
+      setRigContractsByLane(
+        new Map(contracts.map((c) => [`${c.terrain ?? ""}|${c.rig_name}`, c])),
+      );
       setContractsByHwu(new Map(hwuContracts.map((c) => [c.hwu_name, c])));
+      setPlaceholderUnits(resources.filter((r) => r.is_placeholder));
       setNotes(changeNotes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activities");
@@ -451,8 +466,9 @@ export function ChartTab() {
           <DrillChart
             activities={activities}
             readinessMap={readinessMap}
-            contractsByRig={contractsByRig}
+            rigContractsByLane={rigContractsByLane}
             contractsByHwu={contractsByHwu}
+            placeholderUnits={placeholderUnits}
             conflictIds={conflictIds}
             onActivityClick={setEditActivityId}
             onFiltersChange={setChartFilters}
@@ -537,6 +553,27 @@ export function DataTab() {
         <ActivityGrid projectId={projectId} />
       </ErrorBoundary>
     </div>
+  );
+}
+
+export function FleetTab() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const { canEditPlan } = useOutletContext<CampaignOutletContext>();
+  // Dashboard drill-throughs land here focused: ?focus=tbd pre-filters to the
+  // unprocured placeholder slots, ?focus=contracts to units whose contract is
+  // expired / critical / expiring soon.
+  const [searchParams] = useSearchParams();
+  if (!projectId) return null;
+  const focus = searchParams.get("focus");
+  return (
+    <ErrorBoundary label="fleet registry">
+      <ResourceRegistryPanel
+        projectId={projectId}
+        canEdit={canEditPlan}
+        initialTbdOnly={focus === "tbd"}
+        initialAtRiskOnly={focus === "contracts"}
+      />
+    </ErrorBoundary>
   );
 }
 

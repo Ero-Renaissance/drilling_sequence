@@ -9,6 +9,9 @@ export interface RigContract {
   id: string;
   project_id: string;
   rig_name: string;
+  /** Which physical rig the contract covers — rig identity is (terrain, name);
+   *  "" = unassigned/legacy. */
+  terrain: string;
   status: ContractStatus;
   contract_start: string | null;
   contract_end: string | null;
@@ -18,6 +21,9 @@ export interface RigContract {
 
 export interface RigContractUpsert {
   status: ContractStatus;
+  /** Required only when the rig name exists in more than one terrain — the
+   *  server resolves single-terrain names itself and 409s on ambiguity. */
+  terrain?: string | null;
   contract_start: string | null;
   contract_end: string | null;
   notes: string | null;

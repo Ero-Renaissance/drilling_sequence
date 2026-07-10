@@ -33,6 +33,7 @@ const RIG: RigContract = {
   id: "c1",
   project_id: "p",
   rig_name: "Rig-1",
+  terrain: "",
   status: "Completed",
   contract_start: "2026-01-01",
   contract_end: "2026-12-31",

@@ -10,6 +10,8 @@ export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }
 export interface ChartResource {
   kind: "rig" | "hwu";
   name: string;
+  /** The rig lane's terrain (activity location); null for HWUs (mobile). */
+  terrain?: string | null;
 }
 
 export interface ChartDataItem {
@@ -42,10 +44,11 @@ export interface ChartData {
   categoryToResource: Map<string, ChartResource>;
 }
 
-/** An activity's resource as a (kind, name) pair — its rig or its HWU, or null. */
+/** An activity's resource — rig or HWU — with the rig's terrain (rig identity is
+ *  (terrain, name); HWUs are mobile so their terrain is null). */
 function resourceOf(a: Activity): ChartResource | null {
-  if (a.rig_name) return { kind: "rig", name: a.rig_name };
-  if (a.hwu_name) return { kind: "hwu", name: a.hwu_name };
+  if (a.rig_name) return { kind: "rig", name: a.rig_name, terrain: a.location ?? null };
+  if (a.hwu_name) return { kind: "hwu", name: a.hwu_name, terrain: null };
   return null;
 }
 

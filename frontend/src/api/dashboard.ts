@@ -64,6 +64,9 @@ export interface DashboardResponse {
     stale_approval: number;
     conflicts: number;
     drift_since_approved: number;
+    /** Placeholder units (unprocured slots) with work inside the procurement
+     *  lead-time window — "this rig doesn't exist yet, start tendering". */
+    unprocured_slots: number;
   };
 }
 

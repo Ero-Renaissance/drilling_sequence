@@ -182,6 +182,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
     watchlist.conflicts +
     watchlist.past_contract +
     watchlist.contracts_expiring +
+    watchlist.unprocured_slots +
     watchlist.flood_risk_near_term +
     watchlist.stale_approval +
     watchlist.drift_since_approved;
@@ -276,7 +277,12 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
             <WatchRow
               count={watchlist.contracts_expiring}
               label={`${plural(watchlist.contracts_expiring, "rig contract")} expiring soon`}
-              to={`${base}/chart`}
+              to={`${base}/fleet?focus=contracts`}
+            />
+            <WatchRow
+              count={watchlist.unprocured_slots}
+              label={`${plural(watchlist.unprocured_slots, "planned rig slot")} with work soon but no awarded rig — start tendering`}
+              to={`${base}/fleet?focus=tbd`}
             />
             <WatchRow
               count={watchlist.flood_risk_near_term}

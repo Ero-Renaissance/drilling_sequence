@@ -9,6 +9,7 @@ import {
   ChartTab,
   DataTab,
   ReadinessTab,
+  FleetTab,
   CompareTab,
   SignaturesTab,
   ActivityLogTab,
@@ -72,6 +73,7 @@ export default function App() {
             <Route path="chart" element={<ChartTab />} />
             <Route path="data" element={<DataTab />} />
             <Route path="readiness" element={<ReadinessTab />} />
+            <Route path="fleet" element={<FleetTab />} />
             <Route path="compare" element={<CompareTab />} />
             <Route path="signatures" element={<SignaturesTab />} />
             <Route path="activity" element={<ActivityLogTab />} />

@@ -416,6 +416,7 @@ export function ActivityChartEditDialog({
                 projectId={projectId}
                 resourceName={watchedResourceName}
                 kind={watchedResourceType === "HWU" ? "hwu" : "rig"}
+                terrain={watch("location")}
                 locked={locked}
               />
             )}

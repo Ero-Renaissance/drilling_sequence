@@ -103,4 +103,14 @@ describe("detectResourceConflicts", () => {
     expect(conflicts[0].resource).toBe("SWAMP – 10K Rig 1");
     expect(conflicts[0].terrain).toBe("SWAMP");
   });
+
+  it("DOES flag a cross-terrain overlap on the same HWU — HWUs are one mobile unit", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: null, hwu_name: "HWU-1", location: "LAND", start_date: "2026-01-01", end_date: "2026-02-01" }),
+      act({ id: "b", rig_name: null, hwu_name: "HWU-1", location: "SWAMP", start_date: "2026-01-15", end_date: "2026-03-01" }),
+    ]);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].kind).toBe("hwu");
+    expect(conflicts[0].resource).toBe("HWU-1"); // name-only identity, no terrain prefix
+  });
 });

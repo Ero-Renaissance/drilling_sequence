@@ -260,6 +260,7 @@ export function ActivityFormDialog({
               projectId={projectId}
               resourceName={watchedResourceName.trim()}
               kind={watchedResourceType === "HWU" ? "hwu" : "rig"}
+              terrain={watch("location")}
               locked={locked}
             />
           )}
