@@ -11,6 +11,7 @@ const listResources = vi.fn();
 const updateResource = vi.fn();
 const renameResource = vi.fn();
 const convertResource = vi.fn();
+const removeResource = vi.fn();
 vi.mock("@/api/resources", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/resources")>();
   return {
@@ -19,6 +20,7 @@ vi.mock("@/api/resources", async (importOriginal) => {
     updateResource: (...a: unknown[]) => updateResource(...a),
     renameResource: (...a: unknown[]) => renameResource(...a),
     convertResource: (...a: unknown[]) => convertResource(...a),
+    removeResource: (...a: unknown[]) => removeResource(...a),
   };
 });
 vi.mock("@/api/contracts", async (importOriginal) => {
@@ -93,6 +95,7 @@ describe("ResourceRegistryPanel", () => {
     updateResource.mockReset().mockResolvedValue(UNITS[0]);
     renameResource.mockReset().mockResolvedValue({ ...UNITS[0], name: "T209" });
     convertResource.mockReset().mockResolvedValue({ ...UNITS[0], kind: "hwu", terrain: "" });
+    removeResource.mockReset().mockResolvedValue(undefined);
   });
 
   it("puts terrain twins on their own tabs, with counts in the strip", async () => {
@@ -206,6 +209,19 @@ describe("ResourceRegistryPanel", () => {
     fireEvent.click(tab(/HWUs/));
     expect(screen.getByRole("button", { name: /make rig/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /make hwu/i })).not.toBeInTheDocument();
+  });
+
+  it("removes a unit from the fleet after an inline confirm", async () => {
+    render(<ResourceRegistryPanel projectId="p" canEdit />);
+    await screen.findByText("10K Rig 1"); // Land tab → the LAND twin (r1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(removeResource).not.toHaveBeenCalled(); // guarded by the confirm
+    expect(screen.getByText(/remove from fleet\?/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm removing 10K Rig 1/i }));
+    await waitFor(() => expect(removeResource).toHaveBeenCalledWith("p", "r1"));
+    await waitFor(() => expect(listResources).toHaveBeenCalledTimes(2)); // reloads
   });
 
   it("opens the standalone contract editor from the row", async () => {

@@ -58,7 +58,11 @@ async def list_contracts(
     return list(result.scalars().all())
 
 
-@router.put("/{rig_name}", response_model=RigContractResponse)
+# NOTE: `:path` converter — rig names can contain "/" (e.g. "HL27/Replacement",
+# "Rigless Clean/Well"); a plain segment param can never match those and every
+# save/delete for them 404s. The converter matches across slashes; there are no
+# sub-routes under /contracts/ to shadow.
+@router.put("/{rig_name:path}", response_model=RigContractResponse)
 async def upsert_contract(
     project_id: uuid.UUID,
     rig_name: str,
@@ -124,7 +128,7 @@ async def upsert_contract(
     return contract
 
 
-@router.delete("/{rig_name}", status_code=204)
+@router.delete("/{rig_name:path}", status_code=204)
 async def delete_contract(
     project_id: uuid.UUID,
     rig_name: str,

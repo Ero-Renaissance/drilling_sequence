@@ -64,6 +64,17 @@ export async function renameResource(
   return resp.json();
 }
 
+/** Remove a unit from the fleet roster (audited) — for spreadsheet artifacts
+ *  that were never physical units. The server refuses (409) while any activity
+ *  or a contract still references it, so plan data can never be orphaned. */
+export async function removeResource(projectId: string, resourceId: string): Promise<void> {
+  const resp = await fetch(`/api/projects/${projectId}/resources/${resourceId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) await throwApiError(resp, "Failed to remove the unit");
+}
+
 /** Reclassify a unit rig ↔ HWU (audited) — fixes HWUs that arrived through the
  *  sheet's single Rig column. Moves its activities and contract; converting the
  *  second of two terrain twins merges them into one mobile HWU. */

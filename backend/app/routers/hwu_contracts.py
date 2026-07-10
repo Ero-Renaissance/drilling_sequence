@@ -34,7 +34,8 @@ async def list_hwu_contracts(
     return list(result.scalars().all())
 
 
-@router.put("/{hwu_name}", response_model=HwuContractResponse)
+# `:path` converter — unit names can contain "/" (see contracts.py).
+@router.put("/{hwu_name:path}", response_model=HwuContractResponse)
 async def upsert_hwu_contract(
     project_id: uuid.UUID,
     hwu_name: str,
@@ -97,7 +98,7 @@ async def upsert_hwu_contract(
     return contract
 
 
-@router.delete("/{hwu_name}", status_code=204)
+@router.delete("/{hwu_name:path}", status_code=204)
 async def delete_hwu_contract(
     project_id: uuid.UUID,
     hwu_name: str,

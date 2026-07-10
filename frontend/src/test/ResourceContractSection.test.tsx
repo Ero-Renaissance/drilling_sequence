@@ -102,7 +102,9 @@ describe("ResourceContractSection", () => {
     // Nothing deleted until the confirm click.
     expect(deleteContract).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /confirm remove/i }));
-    await waitFor(() => expect(deleteContract).toHaveBeenCalledWith("p", "Rig-1"));
+    // Terrain rides along (null here — no terrain prop) so the server can tell
+    // WHICH physical rig when twins both carry contracts.
+    await waitFor(() => expect(deleteContract).toHaveBeenCalledWith("p", "Rig-1", null));
     // The row reverts to an honest empty form.
     expect(screen.queryByDisplayValue("2026-12-31")).not.toBeInTheDocument();
   });

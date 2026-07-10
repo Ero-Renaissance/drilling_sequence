@@ -11,6 +11,7 @@ import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import {
   convertResource,
   listResources,
+  removeResource,
   renameResource,
   updateResource,
   type ResourceRecord,
@@ -352,6 +353,7 @@ function UnitRow({
   const [busy, setBusy] = useState(false);
   const [contractOpen, setContractOpen] = useState(false);
   const [convertConfirm, setConvertConfirm] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
 
   const lane = unit.terrain ? `${unit.terrain} – ${unit.name}` : unit.name;
   const urgency = classifyContract(contract);
@@ -394,6 +396,22 @@ function UnitRow({
       onChanged();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Conversion failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doRemove() {
+    setBusy(true);
+    try {
+      await removeResource(projectId, unit.id);
+      toast.success(`${unit.name} removed from the fleet.`);
+      setRemoveConfirm(false);
+      onChanged();
+    } catch (err: unknown) {
+      // The server 409s while activities or a contract still reference the
+      // unit — surface its explanation of what to clear first.
+      toast.error(err instanceof Error ? err.message : "Failed to remove the unit");
     } finally {
       setBusy(false);
     }
@@ -596,6 +614,42 @@ function UnitRow({
               title="Rename-on-award: give the slot the contracted unit's real name — its activities and contract follow (audited)"
             >
               <PencilLine className="h-3 w-3" /> Rename
+            </Button>
+          )}
+          {removeConfirm ? (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              Remove from fleet?
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                disabled={busy}
+                onClick={doRemove}
+                aria-label={`Confirm removing ${unit.name}`}
+              >
+                <Check className="h-3.5 w-3.5 text-emerald-600" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                disabled={busy}
+                onClick={() => setRemoveConfirm(false)}
+                aria-label="Cancel removal"
+              >
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+              disabled={busy}
+              onClick={() => setRemoveConfirm(true)}
+              title="Remove from the fleet roster (audited) — only possible once nothing references the unit: no activities on its lane and no contract on file"
+            >
+              Remove
             </Button>
           )}
         </>

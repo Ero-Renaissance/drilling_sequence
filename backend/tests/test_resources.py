@@ -301,6 +301,126 @@ async def test_contract_is_its_end_date(client: AsyncClient) -> None:
     ).status_code == 422
 
 
+# ── Contract endpoints must accept names containing "/" ──────────────────────
+# The fleet is full of them ("HL27/Replacement", "T209/Replacement", "Rigless
+# Clean/Well") — a plain path segment param can never match a slash, so every
+# contract save/delete for those units 404'd until the routes used `:path`.
+
+
+@pytest.mark.asyncio
+async def test_contract_endpoints_accept_slash_names(client: AsyncClient) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, rig="Rigless Clean/Well", location="LAND")
+
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/Rigless Clean/Well",
+        json={"contract_end": "2027-01-01"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rig_name"] == "Rigless Clean/Well"
+
+    r = await client.delete(f"/api/projects/{pid}/contracts/Rigless Clean/Well")
+    assert r.status_code == 204, r.text
+    assert (await client.get(f"/api/projects/{pid}/contracts")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_hwu_contract_endpoints_accept_slash_names(client: AsyncClient) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, hwu="HL27/Replacement", location="LAND")
+
+    r = await client.put(
+        f"/api/projects/{pid}/hwu-contracts/HL27/Replacement",
+        json={"contract_end": "2027-06-30"},
+    )
+    assert r.status_code == 200, r.text
+    r = await client.delete(f"/api/projects/{pid}/hwu-contracts/HL27/Replacement")
+    assert r.status_code == 204, r.text
+
+
+@pytest.mark.asyncio
+async def test_delete_contract_targets_the_named_terrain(client: AsyncClient) -> None:
+    """With contracts on both terrain twins, a delete must say WHICH physical
+    rig it means (409 bare) and remove only that one."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="HL19", location="LAND")
+    await _activity(client, pid, rig="HL19", location="SWAMP",
+                    start="2026-03-01", end="2026-04-01")
+    for terrain, end in (("LAND", "2027-01-01"), ("SWAMP", "2028-06-30")):
+        r = await client.put(
+            f"/api/projects/{pid}/contracts/HL19",
+            json={"contract_end": end, "terrain": terrain},
+        )
+        assert r.status_code == 200, r.text
+
+    r = await client.delete(f"/api/projects/{pid}/contracts/HL19")
+    assert r.status_code == 409, r.text  # ambiguous — twins both carry contracts
+
+    r = await client.delete(f"/api/projects/{pid}/contracts/HL19", params={"terrain": "LAND"})
+    assert r.status_code == 204, r.text
+    remaining = (await client.get(f"/api/projects/{pid}/contracts")).json()
+    assert [(c["terrain"], c["contract_end"]) for c in remaining] == [("SWAMP", "2028-06-30")]
+
+
+# ── Remove from fleet — spreadsheet artifacts that were never physical units ─
+
+
+@pytest.mark.asyncio
+async def test_remove_unit_blocked_until_lane_is_empty(client: AsyncClient) -> None:
+    pid = await _project(client)
+    act = await _activity(client, pid, rig="Rigless Clean/Well", location="LAND")
+    unit = await _unit(client, pid, "Rigless Clean/Well")
+
+    # Still referenced by an activity → refused, nothing orphaned.
+    r = await client.delete(f"/api/projects/{pid}/resources/{unit['id']}")
+    assert r.status_code == 409, r.text
+    assert "activit" in r.json()["detail"].lower()
+
+    # Lane emptied (the planner made the work resource-free / deleted it).
+    await client.delete(f"/api/projects/{pid}/activities/{act['id']}")
+    r = await client.delete(f"/api/projects/{pid}/resources/{unit['id']}")
+    assert r.status_code == 204, r.text
+    assert all(u["name"] != "Rigless Clean/Well" for u in await _resources(client, pid))
+
+    # Governance trail records the removal.
+    audit = (await client.get(f"/api/projects/{pid}/audit")).json()
+    assert any(
+        e["entity_type"] == "resource" and e["field"] == "resource_removed" for e in audit
+    )
+
+
+@pytest.mark.asyncio
+async def test_remove_unit_blocked_while_contract_on_file(client: AsyncClient) -> None:
+    pid = await _project(client)
+    act = await _activity(client, pid, rig="Ghost Rig", location="LAND")
+    await client.put(
+        f"/api/projects/{pid}/contracts/Ghost Rig", json={"contract_end": "2027-01-01"}
+    )
+    await client.delete(f"/api/projects/{pid}/activities/{act['id']}")
+
+    unit = await _unit(client, pid, "Ghost Rig")
+    r = await client.delete(f"/api/projects/{pid}/resources/{unit['id']}")
+    assert r.status_code == 409, r.text
+    assert "contract" in r.json()["detail"].lower()
+
+    # Contract removed explicitly (audited on its own) → the unit can go.
+    await client.delete(f"/api/projects/{pid}/contracts/Ghost Rig")
+    r = await client.delete(f"/api/projects/{pid}/resources/{unit['id']}")
+    assert r.status_code == 204, r.text
+
+
+@pytest.mark.asyncio
+async def test_remove_unit_denied_for_non_planner(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    pid = await _project(client)
+    act = await _activity(client, pid, rig="Ghost Rig", location="LAND")
+    await client.delete(f"/api/projects/{pid}/activities/{act['id']}")
+    unit = await _unit(client, pid, "Ghost Rig")
+    r = await other_client.delete(f"/api/projects/{pid}/resources/{unit['id']}")
+    assert r.status_code == 403, r.text
+
+
 # ── Convert (rig ↔ HWU) — the fix for HWUs imported through the Rig column ───
 
 

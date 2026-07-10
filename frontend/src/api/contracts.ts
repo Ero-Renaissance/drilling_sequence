@@ -55,9 +55,16 @@ export async function upsertContract(
   return resp.json();
 }
 
-export async function deleteContract(projectId: string, rigName: string): Promise<void> {
+export async function deleteContract(
+  projectId: string,
+  rigName: string,
+  /** Which physical rig (rig identity is (terrain, name)) — without it the
+   *  server 409s when the name exists in more than one terrain. */
+  terrain?: string | null,
+): Promise<void> {
+  const qs = terrain ? `?terrain=${encodeURIComponent(terrain)}` : "";
   const resp = await fetch(
-    `/api/projects/${projectId}/contracts/${encodeURIComponent(rigName)}`,
+    `/api/projects/${projectId}/contracts/${encodeURIComponent(rigName)}${qs}`,
     {
       method: "DELETE",
       headers: await authHeaders(),

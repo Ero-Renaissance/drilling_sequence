@@ -211,6 +211,105 @@ async def rename_resource(
     return record
 
 
+@router.delete("/{resource_id}", status_code=204)
+async def remove_resource(
+    project_id: uuid.UUID,
+    resource_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: DB,
+) -> None:
+    """Remove a unit from the fleet roster (audited) — for spreadsheet
+    artifacts that were never physical units (e.g. a method like "Rigless
+    Clean/Well" written into the Rig column).
+
+    Guarded so it can never orphan plan data: refused (409) while ANY activity
+    — live or completed — still references the unit's lane, or while a contract
+    is on file (remove that first, explicitly). With both guards passing the
+    row is provably outside every plan artifact, so no plan-lock check is
+    needed. Effectively reversible: a future activity or import that uses the
+    name auto-registers the unit again (as a planned slot).
+    """
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    record = await _get_record(project_id, resource_id, db)
+
+    if record.kind == "rig":
+        referenced = (
+            await db.execute(
+                select(func.count())
+                .select_from(Activity)
+                .where(
+                    Activity.project_id == project_id,
+                    func.lower(func.trim(Activity.rig_name)) == record.name_key,
+                    func.coalesce(Activity.location, "") == record.terrain,
+                )
+            )
+        ).scalar_one()
+        contract = (
+            await db.execute(
+                select(RigContract.id).where(
+                    RigContract.project_id == project_id,
+                    func.lower(func.trim(RigContract.rig_name)) == record.name_key,
+                    RigContract.terrain == record.terrain,
+                )
+            )
+        ).scalar_one_or_none()
+    else:
+        referenced = (
+            await db.execute(
+                select(func.count())
+                .select_from(Activity)
+                .where(
+                    Activity.project_id == project_id,
+                    func.lower(func.trim(Activity.hwu_name)) == record.name_key,
+                )
+            )
+        ).scalar_one()
+        contract = (
+            await db.execute(
+                select(HwuContract.id).where(
+                    HwuContract.project_id == project_id,
+                    func.lower(func.trim(HwuContract.hwu_name)) == record.name_key,
+                )
+            )
+        ).scalar_one_or_none()
+
+    if referenced:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"'{record.name}' still has {referenced} "
+                f"{'activity' if referenced == 1 else 'activities'} on its lane — "
+                f"reassign or delete that work first."
+            ),
+        )
+    if contract is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"'{record.name}' has a contract on file — remove the contract "
+                f"first, then remove the unit."
+            ),
+        )
+
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_RESOURCE,
+            entity_id=record.id,
+            action="resource_removed",
+            detail=(
+                f"{record.kind} {_lane(record)} removed from the fleet "
+                f"(class {record.capability_class or '—'}, "
+                f"{'planned slot' if record.is_placeholder else 'procured'})"
+            ),
+            old_value=_lane(record),
+        )
+    )
+    await db.delete(record)
+    await db.commit()
+
+
 @router.post("/{resource_id}/convert", response_model=ResourceResponse)
 async def convert_resource(
     project_id: uuid.UUID,

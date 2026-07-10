@@ -68,7 +68,6 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     const isHwu = kind === "hwu";
     const fetchContracts = isHwu ? listHwuContracts : listContracts;
     const saveContract = isHwu ? upsertHwuContract : upsertContract;
-    const removeContract = isHwu ? deleteHwuContract : deleteContract;
     const rigTerrain = isHwu ? null : (terrain ?? "").trim() || null;
 
     const [loading, setLoading] = useState(false);
@@ -186,7 +185,12 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     async function removeNow() {
       setSaving(true);
       try {
-        await removeContract(projectId, resourceName);
+        // The rig delete names WHICH physical rig (terrain); HWUs are name-only.
+        if (isHwu) {
+          await deleteHwuContract(projectId, resourceName);
+        } else {
+          await deleteContract(projectId, resourceName, rigTerrain);
+        }
         setStart("");
         setEnd("");
         setNotes("");
