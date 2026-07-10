@@ -210,8 +210,11 @@ def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:
         for csv_col, db_field in CSV_ALIASES.items():
             if csv_col in df.columns:
                 val = row.get(csv_col)
-                # pandas NaT / NaN → None
+                # pandas NaT / NaN → None; blank strings too (the import readers
+                # use keep_default_na=False, so an empty cell can arrive as "").
                 if (not isinstance(val, str)) and pd.isna(val):
+                    val = None
+                elif isinstance(val, str) and val.strip() == "":
                     val = None
                 elif db_field in _DATE_DB_FIELDS:
                     val = val.date()  # Timestamp → datetime.date for SQLAlchemy Date column
@@ -251,6 +254,7 @@ READINESS_STATUS_MAP = {
     "not started": "On Track",
     "in progress": "On Track",
     "behind": "Behind",
+    "behind schedule": "Behind",  # the planner's habitual wording
     "n/a": "N/A",
 }
 
@@ -302,14 +306,15 @@ class ParsedActivity:
 
 def parse_long_schedule(
     df: pd.DataFrame,
-) -> tuple[list[ParsedActivity], dict[str, date], dict[str, date]]:
+) -> tuple[list[ParsedActivity], dict[tuple[str, str], date], dict[str, date]]:
     """Collapse the long schedule into (activities, rig_contracts, hwu_contracts).
 
     Rows are grouped by their well-activity identity; each row contributes one
     readiness gate to its activity. A row uses a rig OR an HWU, and the matching
-    contract-expiry date is captured per resource — rigs keyed by "Rig Name"
-    (from "Rig Contract Expiry Date"), HWUs by "HWU Name" (from "HWU Contract
-    Expiry Date") — so both rig and HWU contracts ingest from one sheet.
+    contract-expiry date is captured per PHYSICAL unit: rigs keyed by
+    ("Rig Name", terrain) — rig identity is terrain-qualified, so a LAND and a
+    SWAMP rig sharing a name get separate contracts — and HWUs by "HWU Name"
+    alone (mobile units). Both ingest from one sheet.
     """
     missing = [c for c in LONG_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
@@ -319,7 +324,7 @@ def parse_long_schedule(
     )
 
     activities: dict[tuple, ParsedActivity] = {}
-    rig_contracts: dict[str, date] = {}
+    rig_contracts: dict[tuple[str, str], date] = {}  # (rig name, terrain) → expiry
     hwu_contracts: dict[str, date] = {}
 
     for _, row in df.iterrows():
@@ -357,7 +362,7 @@ def parse_long_schedule(
 
         rig_expiry = _to_date(row.get("Rig Contract Expiry Date"))
         if rig and rig_expiry:
-            rig_contracts[rig] = rig_expiry
+            rig_contracts[(rig, _clean(row.get("Location")) or "")] = rig_expiry
         hwu_expiry = _to_date(row.get("HWU Contract Expiry Date"))
         if hwu and hwu_expiry:
             hwu_contracts[hwu] = hwu_expiry
