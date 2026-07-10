@@ -9,6 +9,7 @@ import { classifyContract, URGENCY_VISUAL } from "@/lib/contract-urgency";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import {
+  convertResource,
   listResources,
   renameResource,
   updateResource,
@@ -43,7 +44,7 @@ function tabOf(u: ResourceRecord): FleetTab {
  *
  * Rig identity is (terrain, name): a LAND "10K Rig 1" and a SWAMP "10K Rig 1"
  * are two different rigs, each on its own terrain tab. HWUs are mobile, one
- * row per name, on their own tab. The search box and the TBD toggle scope
+ * row per name, on their own tab. The search box and the Planned toggle scope
  * across ALL tabs — the per-tab counts in the strip show where matches live,
  * so a match can never hide silently behind an inactive tab.
  */
@@ -58,7 +59,7 @@ export function ResourceRegistryPanel({
 }: {
   projectId: string;
   canEdit: boolean;
-  /** Start with the TBD filter on (dashboard "unprocured slots" drill-through). */
+  /** Start with the Planned filter on (dashboard "planned slots" drill-through). */
   initialTbdOnly?: boolean;
   /** Start with the contracts-at-risk filter on (dashboard "expiring soon" drill-through). */
   initialAtRiskOnly?: boolean;
@@ -176,12 +177,11 @@ export function ResourceRegistryPanel({
       <p className="text-sm text-muted-foreground">
         One row per <span className="font-medium text-foreground">physical unit</span>. Rigs are
         terrain-locked — the same name on land and in swamp is two rigs, each on its own tab.{" "}
-        <span className="font-medium text-foreground">TBD</span> marks a placeholder slot — planned
-        capacity with no awarded rig yet; rename it when the contract lands and its schedule and
-        contract follow.
+        <span className="font-medium text-foreground">Planned</span> marks capacity with no awarded
+        unit behind it yet; rename it when the contract lands and its schedule and contract follow.
       </p>
 
-      {/* Toolbar: search + TBD toggle — both scope across ALL tabs */}
+      {/* Toolbar: search + Planned toggle — both scope across ALL tabs */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -203,7 +203,7 @@ export function ResourceRegistryPanel({
               : "border-border/70 text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
         >
-          TBD only
+          Planned only
         </button>
         <button
           type="button"
@@ -225,7 +225,7 @@ export function ResourceRegistryPanel({
         )}
       </div>
 
-      {/* Terrain tab strip — counts always reflect the current search/TBD scope */}
+      {/* Terrain tab strip — counts always reflect the current search/filter scope */}
       <div className="flex flex-wrap items-center gap-1 border-b border-border/70">
         {tabs.map((t) => {
           const count = filtering ? byTab.get(t)?.length ?? 0 : totalByTab.get(t) ?? 0;
@@ -351,6 +351,7 @@ function UnitRow({
   const [klass, setKlass] = useState(unit.capability_class ?? "");
   const [busy, setBusy] = useState(false);
   const [contractOpen, setContractOpen] = useState(false);
+  const [convertConfirm, setConvertConfirm] = useState(false);
 
   const lane = unit.terrain ? `${unit.terrain} – ${unit.name}` : unit.name;
   const urgency = classifyContract(contract);
@@ -379,6 +380,25 @@ function UnitRow({
     }
   }
 
+  async function doConvert() {
+    const to = unit.kind === "rig" ? "hwu" : "rig";
+    setBusy(true);
+    try {
+      const converted = await convertResource(projectId, unit.id, to);
+      toast.success(
+        to === "hwu"
+          ? `${unit.name} is now an HWU — its activities and contract moved with it.`
+          : `${converted.name} is now a ${converted.terrain || "terrain-unassigned"} rig.`,
+      );
+      setConvertConfirm(false);
+      onChanged();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Conversion failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doRename() {
     const name = newName.trim();
     if (!name || name === unit.name) {
@@ -401,15 +421,15 @@ function UnitRow({
   return (
     <div>
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
-      {/* Unit identity + TBD badge */}
+      {/* Unit identity + Planned badge */}
       <div className="flex min-w-0 flex-1 basis-56 items-center gap-2">
         <span className="truncate text-sm font-medium text-foreground">{unit.name}</span>
         {unit.is_placeholder && (
           <span
             className="inline-flex shrink-0 items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
-            title="Placeholder slot — planned capacity with no awarded rig behind it yet"
+            title="Planned capacity — no awarded unit behind it yet (procurement pending)"
           >
-            TBD
+            Planned
           </span>
         )}
       </div>
@@ -449,8 +469,8 @@ function UnitRow({
             )}
           </span>
         ) : (
-          // No contract is EXPECTED on a TBD slot (nothing to contract yet — the
-          // dashboard's unprocured-slots alert covers those); on a procured unit
+          // No contract is EXPECTED on a planned slot (nothing to contract yet —
+          // the dashboard's planned-slots alert covers those); on a procured unit
           // it's a genuine data gap, so that's the case that gets the amber.
           <span
             className={cn(
@@ -483,6 +503,46 @@ function UnitRow({
         </Button>
       {canEdit && (
         <>
+          {convertConfirm ? (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              {unit.kind === "rig" ? "Move to HWUs?" : "Move to rigs?"}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                disabled={busy}
+                onClick={doConvert}
+                aria-label={`Confirm converting ${unit.name}`}
+              >
+                <Check className="h-3.5 w-3.5 text-emerald-600" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                disabled={busy}
+                onClick={() => setConvertConfirm(false)}
+                aria-label="Cancel conversion"
+              >
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              disabled={busy}
+              onClick={() => setConvertConfirm(true)}
+              title={
+                unit.kind === "rig"
+                  ? "Reclassify as an HWU (audited) — moves its activities and contract; merges with a same-name HWU, whose cross-terrain overlaps then count as conflicts"
+                  : "Reclassify as a rig on its activities' terrain (audited) — moves its activities and contract"
+              }
+            >
+              {unit.kind === "rig" ? "Make HWU" : "Make rig"}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -492,10 +552,10 @@ function UnitRow({
             title={
               unit.is_placeholder
                 ? "Mark as a procured (real) unit without renaming"
-                : "Mark as a placeholder slot (unprocured)"
+                : "Mark as planned capacity (no awarded unit yet)"
             }
           >
-            {unit.is_placeholder ? "Mark procured" : "Mark TBD"}
+            {unit.is_placeholder ? "Mark procured" : "Mark planned"}
           </Button>
           {renaming ? (
             <span className="flex items-center gap-1">

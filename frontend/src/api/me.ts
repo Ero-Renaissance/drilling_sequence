@@ -37,7 +37,12 @@ export interface LastApprovedKPIs {
   schedule_end: string | null;
   readiness_pct: number | null;
   readiness_focus_count: number;
+  /** Fleet split (mirrors the campaign dashboard). Snapshots approved before
+   *  the planned flag was captured report everything under rigs/hwus_in_use. */
   rigs_in_use: number;
+  hwus_in_use: number;
+  planned_rigs: number;
+  planned_hwus: number;
   contracts_at_risk: number;
   by_gate: GateBreakdown[];
 }

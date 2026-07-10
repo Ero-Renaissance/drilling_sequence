@@ -25,7 +25,10 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
         { code: "FID", completed: 0, on_track: 3, behind: 1, na: 0 },
       ],
     },
-    rigs: { in_use: 5, conflicts: 0, total_idle_days: 120, per_rig: [] },
+    rigs: {
+      in_use: 5, hwus_in_use: 2, planned_rigs: 3, planned_hwus: 1,
+      conflicts: 0, total_idle_days: 120, per_rig: [],
+    },
     contracts: { expired: 0, critical: 0, soon: 1, healthy: 3, activities_past_contract: 0 },
     approval: { current_status: "pending_approval", signed: 1, approvers: 3, pending_days: 9, drift_since_approved: 4 },
     risk: { flood: 2, flood_near_term: 1 },
@@ -52,11 +55,21 @@ describe("ProjectDashboard", () => {
   it("renders hero tiles from the dashboard data", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
-    expect(await screen.findByText("Rigs in use")).toBeInTheDocument();
+    expect(await screen.findByText("Fleet in use")).toBeInTheDocument();
     expect(screen.getByText("Completed YTD")).toBeInTheDocument();
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     expect(screen.getByText("62%")).toBeInTheDocument();
     expect(screen.getByText("Pending approval")).toBeInTheDocument();
+  });
+
+  it("splits the fleet tile by kind and procurement", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    await screen.findByText("Fleet in use");
+    // Procured counts headline; planned slots (no awarded unit yet) sit below.
+    expect(screen.getByText("rigs")).toBeInTheDocument(); // 5 rigs
+    expect(screen.getByText("HWUs")).toBeInTheDocument(); // 2 HWUs
+    expect(screen.getByText(/planned: 3 rigs · 1 HWU/)).toBeInTheDocument();
   });
 
   it("shows watchlist rows that drill through to the right tab", async () => {

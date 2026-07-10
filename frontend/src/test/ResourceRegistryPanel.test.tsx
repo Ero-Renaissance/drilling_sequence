@@ -10,6 +10,7 @@ vi.mock("@/lib/auth", () => ({
 const listResources = vi.fn();
 const updateResource = vi.fn();
 const renameResource = vi.fn();
+const convertResource = vi.fn();
 vi.mock("@/api/resources", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/resources")>();
   return {
@@ -17,6 +18,7 @@ vi.mock("@/api/resources", async (importOriginal) => {
     listResources: (...a: unknown[]) => listResources(...a),
     updateResource: (...a: unknown[]) => updateResource(...a),
     renameResource: (...a: unknown[]) => renameResource(...a),
+    convertResource: (...a: unknown[]) => convertResource(...a),
   };
 });
 vi.mock("@/api/contracts", async (importOriginal) => {
@@ -90,14 +92,15 @@ describe("ResourceRegistryPanel", () => {
     listResources.mockReset().mockResolvedValue(UNITS);
     updateResource.mockReset().mockResolvedValue(UNITS[0]);
     renameResource.mockReset().mockResolvedValue({ ...UNITS[0], name: "T209" });
+    convertResource.mockReset().mockResolvedValue({ ...UNITS[0], kind: "hwu", terrain: "" });
   });
 
   it("puts terrain twins on their own tabs, with counts in the strip", async () => {
     render(<ResourceRegistryPanel projectId="p" canEdit />);
-    // Lands on the first tab with units (Land) showing the land twin + TBD badge.
+    // Lands on the first tab with units (Land) showing the land twin + Planned badge.
     expect(await screen.findByText("10K Rig 1")).toBeInTheDocument();
-    expect(screen.getByTitle(/placeholder slot — planned capacity/i)).toHaveTextContent("TBD");
-    // A TBD slot's missing contract is EXPECTED (muted), not an alarm.
+    expect(screen.getByTitle(/planned capacity — no awarded unit/i)).toHaveTextContent("Planned");
+    // A planned slot's missing contract is EXPECTED (muted), not an alarm.
     expect(screen.getByTitle(/expected — the slot isn't procured yet/i)).toHaveTextContent(
       "No contract",
     );
@@ -136,9 +139,9 @@ describe("ResourceRegistryPanel", () => {
     expect(screen.getByText("HWU-1")).toBeInTheDocument();
   });
 
-  it("initialTbdOnly (dashboard drill-through) lands filtered on a TBD tab", async () => {
+  it("initialTbdOnly (dashboard drill-through) lands filtered on a planned tab", async () => {
     render(<ResourceRegistryPanel projectId="p" canEdit initialTbdOnly />);
-    // Only the LAND slot is TBD → lands on Land showing just it.
+    // Only the LAND slot is planned → lands on Land showing just it.
     expect(await screen.findByText("10K Rig 1")).toBeInTheDocument();
     expect(screen.getByText(/1 of 4 units match/)).toBeInTheDocument();
     fireEvent.click(tab(/Swamp/));
@@ -181,6 +184,28 @@ describe("ResourceRegistryPanel", () => {
     await waitFor(() => expect(renameResource).toHaveBeenCalledWith("p", "r1", "T209"));
     // The list reloads so the matured name (and cleared TBD) comes from the server.
     await waitFor(() => expect(listResources).toHaveBeenCalledTimes(2));
+  });
+
+  it("converts a misclassified rig to an HWU after an inline confirm", async () => {
+    render(<ResourceRegistryPanel projectId="p" canEdit />);
+    await screen.findByText("10K Rig 1"); // Land tab → the LAND twin (r1)
+
+    fireEvent.click(screen.getByRole("button", { name: /make hwu/i }));
+    // Nothing posted yet — the inline confirm guards the reclassification.
+    expect(convertResource).not.toHaveBeenCalled();
+    expect(screen.getByText(/move to hwus\?/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm converting 10K Rig 1/i }));
+    await waitFor(() => expect(convertResource).toHaveBeenCalledWith("p", "r1", "hwu"));
+    await waitFor(() => expect(listResources).toHaveBeenCalledTimes(2)); // reloads
+  });
+
+  it("offers the reverse conversion on HWU rows", async () => {
+    render(<ResourceRegistryPanel projectId="p" canEdit />);
+    await screen.findByText("10K Rig 1");
+    fireEvent.click(tab(/HWUs/));
+    expect(screen.getByRole("button", { name: /make rig/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /make hwu/i })).not.toBeInTheDocument();
   });
 
   it("opens the standalone contract editor from the row", async () => {

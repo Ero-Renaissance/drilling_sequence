@@ -35,7 +35,13 @@ export interface DashboardResponse {
     by_gate: GateBreakdown[];
   };
   rigs: {
+    /** Fleet demand over the plan window, kind × procurement — disjoint counts.
+     *  "In use" = procured units with live work; "planned" = registry
+     *  placeholder slots (no awarded unit yet) with live work. */
     in_use: number;
+    hwus_in_use: number;
+    planned_rigs: number;
+    planned_hwus: number;
     conflicts: number;
     total_idle_days: number;
     per_rig: RigDetail[];

@@ -63,3 +63,20 @@ export async function renameResource(
   if (!resp.ok) await throwApiError(resp, "Failed to rename the unit");
   return resp.json();
 }
+
+/** Reclassify a unit rig ↔ HWU (audited) — fixes HWUs that arrived through the
+ *  sheet's single Rig column. Moves its activities and contract; converting the
+ *  second of two terrain twins merges them into one mobile HWU. */
+export async function convertResource(
+  projectId: string,
+  resourceId: string,
+  to: "rig" | "hwu",
+): Promise<ResourceRecord> {
+  const resp = await fetch(`/api/projects/${projectId}/resources/${resourceId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ to }),
+  });
+  if (!resp.ok) await throwApiError(resp, "Failed to convert the unit");
+  return resp.json();
+}

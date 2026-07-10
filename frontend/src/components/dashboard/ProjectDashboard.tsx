@@ -33,6 +33,36 @@ function Tile({
   );
 }
 
+/** Fleet demand over the plan window as a 2×2: kind (rigs / HWUs) ×
+ *  procurement (in use = procured · planned = no awarded unit yet). The four
+ *  are disjoint and sum to the lanes the plan occupies. */
+function FleetTile({ rigs }: { rigs: DashboardResponse["rigs"] }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Fleet in use
+      </p>
+      <div className="mt-1 flex items-baseline gap-4">
+        <p className="text-2xl font-semibold text-foreground">
+          {rigs.in_use}
+          <span className="ml-1 text-xs font-normal text-muted-foreground">rigs</span>
+        </p>
+        <p className="text-2xl font-semibold text-foreground">
+          {rigs.hwus_in_use}
+          <span className="ml-1 text-xs font-normal text-muted-foreground">HWUs</span>
+        </p>
+      </div>
+      <p
+        className="mt-0.5 text-xs text-muted-foreground"
+        title="Planned = capacity in the plan with no awarded unit behind it yet — procurement pending"
+      >
+        planned: {rigs.planned_rigs} {rigs.planned_rigs === 1 ? "rig" : "rigs"} ·{" "}
+        {rigs.planned_hwus} {rigs.planned_hwus === 1 ? "HWU" : "HWUs"}
+      </p>
+    </div>
+  );
+}
+
 function plural(n: number, one: string, many = one + "s"): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -231,11 +261,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
           }
           tone={STATUS_TONE[approval.current_status] ?? "neutral"}
         />
-        <Tile
-          label="Rigs in use"
-          value={String(rigs.in_use)}
-          sub={`${plural(rigs.total_idle_days, "idle rig-day")}`}
-        />
+        <FleetTile rigs={rigs} />
         <Tile
           label="Contracts at risk"
           value={String(contractsAtRisk)}
@@ -281,7 +307,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
             />
             <WatchRow
               count={watchlist.unprocured_slots}
-              label={`${plural(watchlist.unprocured_slots, "planned rig slot")} with work soon but no awarded rig — start tendering`}
+              label={`${plural(watchlist.unprocured_slots, "planned slot")} with work soon but no awarded rig or HWU — start tendering`}
               to={`${base}/fleet?focus=tbd`}
             />
             <WatchRow

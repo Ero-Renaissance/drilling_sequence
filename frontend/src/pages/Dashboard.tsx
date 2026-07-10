@@ -123,7 +123,9 @@ function ApprovedKpis({ d }: { d: LastApprovedDashboard }) {
           title="Rigs in use"
           value={k.rigs_in_use}
           icon={Factory}
-          description="Rigs in the approved plan"
+          description={`Approved plan · ${k.hwus_in_use} ${
+            k.hwus_in_use === 1 ? "HWU" : "HWUs"
+          } · ${k.planned_rigs + k.planned_hwus} planned`}
           tone="info"
         />
         <KpiCard

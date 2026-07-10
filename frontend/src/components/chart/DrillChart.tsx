@@ -58,9 +58,6 @@ interface DrillChartProps {
   /** Map of hwu_name → contract — the HWU parallel to contractsByRig (HWUs are
    *  mobile units, so name-keyed is exact for them). */
   contractsByHwu?: Map<string, HwuContract>;
-  /** Fleet-registry placeholder units (unprocured slots). Their lanes get a
-   *  "TBD" suffix so approvers see which commitments ride on unprocured iron. */
-  placeholderUnits?: { kind: "rig" | "hwu"; terrain: string; name: string }[];
   conflictIds?: Set<string>;
   onActivityClick?: (activityId: string) => void;
   /** Show the multi-select project + location filters (each dims the bars it
@@ -271,7 +268,6 @@ export function DrillChart({
   contractsByRig,
   rigContractsByLane,
   contractsByHwu,
-  placeholderUnits,
   conflictIds,
   onActivityClick,
   enableFilters = false,
@@ -282,27 +278,6 @@ export function DrillChart({
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
-
-  // Placeholder lanes get a "TBD" suffix on the Y-axis label. Rig lanes match on
-  // (terrain, name); HWU placeholders on name alone (mobile units).
-  const placeholderRigLanes = useMemo(
-    () =>
-      new Set(
-        (placeholderUnits ?? [])
-          .filter((u) => u.kind === "rig")
-          .map((u) => `${u.terrain}|${u.name.trim().toLowerCase()}`),
-      ),
-    [placeholderUnits],
-  );
-  const placeholderHwuNames = useMemo(
-    () =>
-      new Set(
-        (placeholderUnits ?? [])
-          .filter((u) => u.kind === "hwu")
-          .map((u) => u.name.trim().toLowerCase()),
-      ),
-    [placeholderUnits],
-  );
 
   const [activeYear, setActiveYear] = useState<number | null>(null);
   // Selected projects to single out — empty Set means "no filter" (all vivid).
@@ -956,19 +931,6 @@ export function DrillChart({
           color: theme.yLabel,
           fontSize: 12,
           fontWeight: "500",
-          // Placeholder units (unprocured slots) are flagged on their lane so
-          // approvers see which commitments ride on iron that isn't contracted.
-          formatter: (label: string) => {
-            const res = categoryToResource.get(label);
-            if (!res) return label;
-            const isPlaceholder =
-              res.kind === "rig"
-                ? placeholderRigLanes.has(
-                    `${res.terrain ?? ""}|${res.name.trim().toLowerCase()}`,
-                  )
-                : placeholderHwuNames.has(res.name.trim().toLowerCase());
-            return isPlaceholder ? `${label} · TBD` : label;
-          },
         },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -1043,7 +1005,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, placeholderRigLanes, placeholderHwuNames, categoryToResource, activeYear, dataMin, dataMax, selectedProjects, enableFilters]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, activeYear, dataMin, dataMax, selectedProjects, enableFilters]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 

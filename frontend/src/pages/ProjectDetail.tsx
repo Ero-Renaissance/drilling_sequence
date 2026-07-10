@@ -14,7 +14,6 @@ import { listActivities, exportActivities, type Activity } from "@/api/activitie
 import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
-import { listResources, type ResourceRecord } from "@/api/resources";
 import { ResourceRegistryPanel } from "@/components/resources/ResourceRegistryPanel";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import type { ReadinessMap } from "@/lib/chart-utils";
@@ -295,7 +294,6 @@ export function ChartTab() {
   const [contractsByHwu, setContractsByHwu] = useState<Map<string, HwuContract> | undefined>(
     undefined,
   );
-  const [placeholderUnits, setPlaceholderUnits] = useState<ResourceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
@@ -328,14 +326,13 @@ export function ChartTab() {
     setLoading(true);
     setError(null);
     try {
-      const [acts, readiness, contracts, hwuContracts, changeNotes, resources] =
+      const [acts, readiness, contracts, hwuContracts, changeNotes] =
         await Promise.all([
           listActivities(projectId),
           listReadiness(projectId).catch(() => []), // readiness is best-effort
           listContracts(projectId).catch(() => []), // contracts are best-effort
           listHwuContracts(projectId).catch(() => []), // HWU contracts are best-effort
           listChangeNotes(projectId).catch(() => []), // change notes are best-effort
-          listResources(projectId).catch(() => []), // fleet registry is best-effort
         ]);
       setActivities(acts);
       const map: ReadinessMap = new Map(
@@ -347,7 +344,6 @@ export function ChartTab() {
         new Map(contracts.map((c) => [`${c.terrain ?? ""}|${c.rig_name}`, c])),
       );
       setContractsByHwu(new Map(hwuContracts.map((c) => [c.hwu_name, c])));
-      setPlaceholderUnits(resources.filter((r) => r.is_placeholder));
       setNotes(changeNotes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activities");
@@ -468,7 +464,6 @@ export function ChartTab() {
             readinessMap={readinessMap}
             rigContractsByLane={rigContractsByLane}
             contractsByHwu={contractsByHwu}
-            placeholderUnits={placeholderUnits}
             conflictIds={conflictIds}
             onActivityClick={setEditActivityId}
             onFiltersChange={setChartFilters}
@@ -560,7 +555,7 @@ export function FleetTab() {
   const { projectId } = useParams<{ projectId: string }>();
   const { canEditPlan } = useOutletContext<CampaignOutletContext>();
   // Dashboard drill-throughs land here focused: ?focus=tbd pre-filters to the
-  // unprocured placeholder slots, ?focus=contracts to units whose contract is
+  // planned (unprocured) slots, ?focus=contracts to units whose contract is
   // expired / critical / expiring soon.
   const [searchParams] = useSearchParams();
   if (!projectId) return null;
