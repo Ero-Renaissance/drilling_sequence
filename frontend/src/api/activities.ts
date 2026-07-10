@@ -76,6 +76,17 @@ export async function exportActivities(projectId: string): Promise<Blob> {
   return resp.blob();
 }
 
+/** The blank, self-documenting import template (.xlsx): sample rows (including
+ *  the terrain-twin rig convention), a Guidance sheet with the canonical
+ *  vocabularies, and dropdowns on every enum column. */
+export async function downloadImportTemplate(projectId: string): Promise<Blob> {
+  const resp = await fetch(`/api/projects/${projectId}/activities/import-template`, {
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) await throwApiError(resp, "Template download failed");
+  return resp.blob();
+}
+
 export async function createActivity(projectId: string, payload: ActivityCreate): Promise<Activity> {
   const resp = await fetch(`/api/projects/${projectId}/activities`, {
     method: "POST",

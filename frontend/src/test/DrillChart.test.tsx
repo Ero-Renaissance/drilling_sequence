@@ -260,7 +260,12 @@ describe("activitiesToChartData", () => {
     const { categories, categoryToResource } = activitiesToChartData([hwu]);
     // The Y-axis label tags the HWU so it reads distinctly from a rig.
     expect(categories.some((c) => c.includes("HWU · Unit-1"))).toBe(true);
-    expect(categoryToResource.get(categories[0])).toEqual({ kind: "hwu", name: "Unit-1" });
+    // HWUs are mobile units — terrain is deliberately not part of their identity.
+    expect(categoryToResource.get(categories[0])).toEqual({
+      kind: "hwu",
+      name: "Unit-1",
+      terrain: null,
+    });
   });
 });
 
@@ -310,7 +315,19 @@ describe("ImportDialog", () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(2));
   });
 
-  it("offers a downloadable CSV template", async () => {
+  it("downloads the server-generated .xlsx template", async () => {
+    // The template comes from the backend (sample rows + Guidance sheet +
+    // dropdowns — things a client-side CSV cannot carry).
+    server.use(
+      http.get("/api/projects/:projectId/activities/import-template", () =>
+        HttpResponse.arrayBuffer(new ArrayBuffer(8), {
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          },
+        }),
+      ),
+    );
     // jsdom doesn't implement these — provide them so the download handler runs.
     const createObjectURL = vi.fn(() => "blob:mock");
     URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
@@ -325,7 +342,7 @@ describe("ImportDialog", () => {
       screen.getByRole("button", { name: /download a blank template/i }),
     );
 
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
     expect(clickSpy).toHaveBeenCalled();
     clickSpy.mockRestore();
   });

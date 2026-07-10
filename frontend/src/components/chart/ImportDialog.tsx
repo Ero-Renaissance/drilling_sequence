@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { importActivities, type ImportResult } from "@/api/activities";
+import { downloadImportTemplate, importActivities, type ImportResult } from "@/api/activities";
 
 interface ImportDialogProps {
   projectId: string;
@@ -23,35 +23,11 @@ interface ImportDialogProps {
 // How many skipped rows to list inline before collapsing to a "+N more" + download.
 const MAX_INLINE_SKIPPED = 10;
 
-// A sample of the long schedule format offered for download — one row per readiness
-// check per well. Shows a rig-based well and an HWU-based well (a row uses a rig OR
-// an HWU). Column names/values mirror the backend importer
-// (backend/app/services/data_processor.py).
-const IMPORT_TEMPLATE_CSV = [
-  "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,Readiness Check,Readiness Check Status,Comment",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,FDP,Completed,First development well",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,LLI,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,LOC,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,FE,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,FID,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,EIA,On track,",
-  "LAND,Rig 1,,Gas Development,In Plan (Firm),Project Alpha,Well-1,15/01/2026,30/06/2026,31/12/2030,,No Flood Risk,BUD,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,FDP,On track,Workover via HWU",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,LLI,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,LOC,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,FE,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,FID,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,EIA,On track,",
-  "SWAMP,,HWU 1,Well Repair/Safety,In Plan (Firm),Project Alpha,Well-2,01/03/2026,31/08/2026,,30/06/2031,No Flood Risk,BUD,On track,",
-  "",
-].join("\n");
-
 function csvCell(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-function downloadCsv(filename: string, content: string) {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -60,6 +36,10 @@ function downloadCsv(filename: string, content: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadCsv(filename: string, content: string) {
+  downloadBlob(filename, new Blob([content], { type: "text/csv;charset=utf-8" }));
 }
 
 export function ImportDialog({ projectId, onImported, locked }: ImportDialogProps) {
@@ -107,6 +87,15 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
     if (!result) return;
     const rows = result.skipped_rows.map((r) => `${csvCell(r.well)},${csvCell(r.reason)}`);
     downloadCsv("skipped-wells.csv", ["Well Name,Reason", ...rows].join("\n"));
+  }
+
+  async function downloadTemplate() {
+    try {
+      const blob = await downloadImportTemplate(projectId);
+      downloadBlob("schedule-import-template.xlsx", blob);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Template download failed");
+    }
   }
 
   return (
@@ -181,11 +170,21 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
               )}
 
               {result.warnings.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {result.warnings.length} readiness{" "}
-                  {result.warnings.length === 1 ? "cell was" : "cells were"} dropped
-                  (non-standard status).
-                </p>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    {result.warnings.length}{" "}
+                    {result.warnings.length === 1 ? "notice" : "notices"} — imported fine,
+                    worth a look:
+                  </p>
+                  <ul className="max-h-32 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+                    {result.warnings.slice(0, 8).map((w, i) => (
+                      <li key={i}>• {w}</li>
+                    ))}
+                    {result.warnings.length > 8 && (
+                      <li>…and {result.warnings.length - 8} more.</li>
+                    )}
+                  </ul>
+                </div>
               )}
             </div>
 
@@ -211,16 +210,20 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
             <div className="space-y-4 py-2">
               <button
                 type="button"
-                onClick={() => downloadCsv("schedule-import-template.csv", IMPORT_TEMPLATE_CSV)}
+                onClick={downloadTemplate}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
               >
                 <Download className="h-3.5 w-3.5" />
-                Download a blank template
+                Download a blank template (.xlsx)
               </button>
 
               <p className="text-xs text-muted-foreground">
-                Dates must be <strong>day-first</strong> — DD/MM/YYYY or DD-MM-YYYY (e.g.
-                31/07/2026). Excel date cells work too.
+                The template's <strong>Guidance</strong> sheet lists the canonical activity
+                types and every rule. Key ones: dates are <strong>day-first</strong>{" "}
+                (DD/MM/YYYY); <strong>one well per block of 7 rows</strong> (one per readiness
+                gate); a rig is identified by <strong>Location + Rig Name</strong> — the same
+                name on land and in swamp is two physical rigs, which the import confirms with
+                a notice.
               </p>
 
               <div
