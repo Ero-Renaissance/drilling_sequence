@@ -9,7 +9,6 @@ describe("classifyContract — cadence-keyed thresholds", () => {
   // a UTC `now` keeps the day arithmetic exact in every timezone the suite runs.
   const now = new Date("2026-01-01T00:00:00Z");
   const endIn = (days: number) => ({
-    status: "Completed" as const,
     contract_end: new Date(Date.UTC(2026, 0, 1 + days)).toISOString().slice(0, 10),
   });
 
@@ -34,12 +33,11 @@ describe("classifyContract — cadence-keyed thresholds", () => {
     expect(classifyContract(endIn(400), now)).toBe("healthy");
   });
 
-  it("non-dated states are unaffected by thresholds", () => {
-    expect(classifyContract({ status: "Draft", contract_end: null }, now)).toBe("draft");
-    expect(
-      classifyContract({ status: "Completed", contract_end: null }, now),
-    ).toBe("incomplete");
+  it("a contract IS its end date — no date means no contract", () => {
+    // Legacy date-less rows (pre-024) classify the same as no record at all.
+    expect(classifyContract({ contract_end: null }, now)).toBeNull();
     expect(classifyContract(null, now)).toBeNull();
+    expect(classifyContract(undefined, now)).toBeNull();
   });
 
   it("labels speak the cadence, not stale day counts", () => {

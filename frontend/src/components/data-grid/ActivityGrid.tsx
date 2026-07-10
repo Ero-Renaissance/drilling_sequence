@@ -220,7 +220,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const contractEndByRig = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of contracts) {
-      if (c.status === "Completed" && c.contract_end) m.set(c.rig_name, c.contract_end);
+      if (c.contract_end) m.set(c.rig_name, c.contract_end);
     }
     return m;
   }, [contracts]);

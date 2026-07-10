@@ -79,7 +79,6 @@ function contract(rig: string, end: string): RigContract {
     project_id: PROJECT_ID,
     rig_name: rig,
     terrain: "",
-    status: "Completed",
     contract_start: "2025-01-01",
     contract_end: end,
     notes: null,
@@ -99,7 +98,6 @@ function hwuContract(hwu: string, end: string): HwuContract {
     id: `hc-${hwu}`,
     project_id: PROJECT_ID,
     hwu_name: hwu,
-    status: "Completed",
     contract_start: "2025-01-01",
     contract_end: end,
     notes: null,
@@ -139,7 +137,6 @@ export const FIXTURE_PRINT_ROWS: PrintRow[] = FIXTURE_ACTIVITIES.map((a) => {
     risk: a.risk,
     readiness,
     readiness_required: a.readiness_required,
-    rig_contract_status: c?.status ?? null,
     rig_contract_end: c?.contract_end ?? null,
   };
 });

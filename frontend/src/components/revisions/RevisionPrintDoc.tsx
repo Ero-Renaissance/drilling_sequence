@@ -18,7 +18,6 @@ import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
 import { cn, formatDate } from "@/lib/utils";
-import type { ContractStatus } from "@/api/contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
 import type { Project } from "@/types";
@@ -29,17 +28,16 @@ import type { Project } from "@/types";
 // expired) for early warning, and the dashboard keeps the complete set.
 type DatedUrgency = "expired" | "critical" | "soon" | "healthy";
 
-/** Urgency of a rig's contract from the snapshot's denormalised fields, or null
- *  unless it's an in-force ("Completed") contract with an end date to mark. */
+/** Urgency of a rig's contract from the snapshot's denormalised fields.
+ *  Historical snapshots may carry the retired workflow status — a "Draft"
+ *  contract's dates were non-binding when that revision was approved, so
+ *  stay faithful to it and suppress the marker. */
 function expiryUrgency(
   status: string | null | undefined,
   end: string | null | undefined,
 ): DatedUrgency | null {
-  if (!end) return null;
-  const u = classifyContract({
-    status: (status ?? undefined) as ContractStatus | undefined,
-    contract_end: end,
-  });
+  if (status === "Draft") return null;
+  const u = classifyContract({ contract_end: end ?? null });
   // #5: flag EXPIRED contracts only.
   return u === "expired" ? "expired" : null;
 }

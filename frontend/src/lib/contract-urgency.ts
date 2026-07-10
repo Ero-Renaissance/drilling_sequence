@@ -2,13 +2,10 @@
  * Contract classification — surfaced as a Y-axis indicator on the chart,
  * a chip in the activity edit dialog, and the Dashboard "Contract Alerts" KPI.
  *
- * The rig contract is a two-state WORKFLOW ITEM. Dates only become binding (and
- * only drive an expiry urgency) when the planner marks the contract "Completed"
- * (signed/in force); a "Draft" contract is still being prepared, so its dates
- * aren't binding.
+ * A contract IS its end date: it exists iff an end date is on file, and the
+ * date drives the urgency directly. (The old Draft/Completed workflow status
+ * is retired — "no contract" is the absence of a record, not a status value.)
  */
-
-import type { ContractStatus } from "@/api/contracts";
 
 // Urgency tiers are keyed to the QUARTERLY approval cadence, not calendar
 // gut-feel: "soon" = two approval cycles left (start the renewal/re-tender
@@ -17,16 +14,13 @@ import type { ContractStatus } from "@/api/contracts";
 // re-tendered in weeks, so a shorter "critical" window would only announce
 // problems after the decision window had already closed.
 export type ContractUrgency =
-  | "healthy" //  Completed contract, > 6 months remaining
-  | "soon" //    Completed contract, 3 – 6 months remaining (two cycles)
-  | "critical" // Completed contract, < 3 months remaining (last cycle)
-  | "expired" //  Completed contract, end date is in the past
-  | "incomplete" // Completed contract but no end date entered yet
-  | "draft" //   Draft contract — not yet in force, dates aren't binding
-  | null; //      No contract record on file
+  | "healthy" //  > 6 months remaining
+  | "soon" //    3 – 6 months remaining (two cycles)
+  | "critical" // < 3 months remaining (last cycle)
+  | "expired" //  end date is in the past
+  | null; //      No contract on file (no record, or a legacy date-less row)
 
 interface ContractLike {
-  status?: ContractStatus;
   contract_end: string | null;
 }
 
@@ -34,26 +28,13 @@ export function classifyContract(
   contract: ContractLike | null | undefined,
   now: Date = new Date(),
 ): ContractUrgency {
-  if (!contract) return null;
-
-  switch (contract.status) {
-    case "Draft":
-      return "draft";
-    case "Completed":
-    case undefined: {
-      // status missing only for very old data — treat as Completed-ish so the
-      // existing date-driven urgency still surfaces. New API responses always
-      // include status.
-      if (!contract.contract_end) return "incomplete";
-      const end = new Date(contract.contract_end);
-      const days = Math.floor((end.getTime() - now.getTime()) / 86_400_000);
-      if (days < 0) return "expired";
-      if (days < 90) return "critical";
-      if (days < 180) return "soon";
-      return "healthy";
-    }
-  }
-  return null;
+  if (!contract?.contract_end) return null;
+  const end = new Date(contract.contract_end);
+  const days = Math.floor((end.getTime() - now.getTime()) / 86_400_000);
+  if (days < 0) return "expired";
+  if (days < 90) return "critical";
+  if (days < 180) return "soon";
+  return "healthy";
 }
 
 interface UrgencyVisual {
@@ -100,22 +81,6 @@ export const URGENCY_VISUAL: Record<
     tintBg: "bg-red-500/15",
     tintText: "text-red-600 dark:text-red-400",
     tintBorder: "border-red-500/35",
-  },
-  incomplete: {
-    label: "Signed — no end date",
-    dotClass: "bg-zinc-400",
-    hex: "#a1a1aa",
-    tintBg: "bg-muted",
-    tintText: "text-muted-foreground",
-    tintBorder: "border-border",
-  },
-  draft: {
-    label: "Draft",
-    dotClass: "bg-zinc-400 dark:bg-zinc-500",
-    hex: "#a1a1aa",
-    tintBg: "bg-muted",
-    tintText: "text-muted-foreground",
-    tintBorder: "border-border",
   },
 };
 

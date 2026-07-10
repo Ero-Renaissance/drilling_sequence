@@ -212,13 +212,10 @@ export function ActivityChartEditDialog({
   );
 
   // ── Derived: contract-impact warning ────────────────────────────────────────
-  // Only flag a coverage problem when the contract is workflow-Completed —
-  // a draft contract's dates aren't binding yet.
   const contractImpactWarning = useMemo(() => {
     if (!watchedResourceName || !watchedEnd) return null;
     const contract = resourceContract;
-    if (!contract || contract.status !== "Completed") return null;
-    if (!contract.contract_end) return null;
+    if (!contract?.contract_end) return null;
     if (watchedEnd <= contract.contract_end) return null;
     return `End date falls past the contract end (${contract.contract_end}). The contract must be extended to cover this activity.`;
   }, [watchedResourceName, watchedEnd, resourceContract]);

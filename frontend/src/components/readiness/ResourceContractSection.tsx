@@ -7,20 +7,19 @@ import {
   useRef,
   useState,
 } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { classifyContract, daysUntilExpiry, URGENCY_VISUAL } from "@/lib/contract-urgency";
+import { deleteContract, listContracts, upsertContract } from "@/api/contracts";
 import {
-  listContracts,
-  upsertContract,
-  CONTRACT_STATUSES,
-  type ContractStatus,
-} from "@/api/contracts";
-import { listHwuContracts, upsertHwuContract } from "@/api/hwu-contracts";
+  deleteHwuContract,
+  listHwuContracts,
+  upsertHwuContract,
+} from "@/api/hwu-contracts";
 
 /** Imperative handle so the parent dialog's main Save persists the contract too. */
 export interface ResourceContractHandle {
@@ -33,40 +32,6 @@ export interface ResourceContractHandle {
   save: () => Promise<void>;
 }
 
-function StatusSegmented({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: ContractStatus;
-  onChange: (v: ContractStatus) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="inline-flex w-full rounded-lg border border-border/70 bg-card/60 p-0.5">
-      {CONTRACT_STATUSES.map((s) => {
-        const selected = s === value;
-        return (
-          <button
-            key={s}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(s)}
-            className={cn(
-              "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-              selected
-                ? "bg-primary text-primary-foreground shadow-soft-sm"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-            )}
-          >
-            {s}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 interface Props {
   projectId: string;
   resourceName: string;
@@ -77,9 +42,10 @@ interface Props {
   terrain?: string | null;
   locked?: boolean;
   /** Standalone mode (the Fleet page): the section carries its OWN Save button
-   *  instead of deferring to a parent dialog's Save via the imperative handle. */
+   *  (plus Remove contract) instead of deferring to a parent dialog's Save via
+   *  the imperative handle. */
   standalone?: boolean;
-  /** Fired after a standalone save so the parent can refresh its summaries. */
+  /** Fired after a standalone save/remove so the parent can refresh its summaries. */
   onSaved?: () => void;
 }
 
@@ -89,6 +55,10 @@ interface Props {
  * on it), so it's keyed by resource name, not the activity — but it saves together
  * with the activity via the dialog's main Save (see {@link ResourceContractHandle}),
  * so there's a single save, not two. Replaces the old per-activity CON readiness dot.
+ *
+ * A contract IS its end date: the end date is required to save, and clearing a
+ * contract is the explicit Remove action (audited server-side) — there is no
+ * draft/completed status and no date-less contract record.
  */
 export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>(
   function ResourceContractSection(
@@ -98,6 +68,7 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     const isHwu = kind === "hwu";
     const fetchContracts = isHwu ? listHwuContracts : listContracts;
     const saveContract = isHwu ? upsertHwuContract : upsertContract;
+    const removeContract = isHwu ? deleteHwuContract : deleteContract;
     const rigTerrain = isHwu ? null : (terrain ?? "").trim() || null;
 
     const [loading, setLoading] = useState(false);
@@ -105,8 +76,10 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     // Mirrors dirtyRef as state so the standalone Save button can enable itself.
     const [dirtyUi, setDirtyUi] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Whether a contract record exists server-side — drives the Remove action.
+    const [onFile, setOnFile] = useState(false);
+    const [confirmRemove, setConfirmRemove] = useState(false);
 
-    const [status, setStatus] = useState<ContractStatus>("Draft");
     const [start, setStart] = useState("");
     const [end, setEnd] = useState("");
     const [notes, setNotes] = useState("");
@@ -121,8 +94,8 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     };
 
     // Latest field values for the imperative save — avoids a stale closure.
-    const valuesRef = useRef({ status, start, end, notes });
-    valuesRef.current = { status, start, end, notes };
+    const valuesRef = useRef({ start, end, notes });
+    valuesRef.current = { start, end, notes };
 
     // Debounced load — the resource name is a free-text field, so wait for it to
     // settle before fetching (and re-fetch when the resource or kind changes).
@@ -130,6 +103,7 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
       if (!resourceName) return;
       dirtyRef.current = false; // new resource → fresh, untouched baseline
       setDirtyUi(false);
+      setConfirmRemove(false);
       let cancelled = false;
       const t = setTimeout(() => {
         setLoading(true);
@@ -148,7 +122,7 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
               : matches.find((c) => "terrain" in c && c.terrain === (rigTerrain ?? "")) ??
                 matches.find((c) => "terrain" in c && c.terrain === "") ??
                 null;
-            setStatus(existing?.status ?? "Draft");
+            setOnFile(existing !== null);
             setStart(existing?.contract_start ?? "");
             setEnd(existing?.contract_end ?? "");
             setNotes(existing?.notes ?? "");
@@ -169,18 +143,24 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
     const persist = useCallback(async () => {
       if (!dirtyRef.current) return; // untouched (or not yet loaded) → nothing to persist
       const v = valuesRef.current;
+      if (!v.end) {
+        // A contract IS its end date — an end-less save can't mean anything.
+        throw new Error(
+          "Enter the contract end date — or use Remove contract to clear the record.",
+        );
+      }
       await saveContract(projectId, resourceName, {
-        status: v.status,
         // Name WHICH physical rig the contract covers (rig identity is
         // (terrain, name)); the server would 409 a bare name that exists in
         // several terrains. HWU upserts ignore the field.
         ...(isHwu ? {} : { terrain: rigTerrain }),
         contract_start: v.start || null,
-        contract_end: v.end || null,
+        contract_end: v.end,
         notes: v.notes.trim() || null,
       });
       dirtyRef.current = false;
       setDirtyUi(false);
+      setOnFile(true);
     }, [projectId, resourceName, saveContract, isHwu, rigTerrain]);
 
     useImperativeHandle(ref, () => ({ save: persist }), [persist]);
@@ -200,12 +180,31 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
       }
     }
 
-    const draftClass = useMemo(
-      () => classifyContract({ status, contract_end: end || null }),
-      [status, end],
-    );
+    // Remove = the audited DELETE. This is the first-class way to correct a
+    // contract entered by mistake (e.g. a fake placeholder date) — the row
+    // reverts to an honest "No contract", not a zombie record.
+    async function removeNow() {
+      setSaving(true);
+      try {
+        await removeContract(projectId, resourceName);
+        setStart("");
+        setEnd("");
+        setNotes("");
+        setOnFile(false);
+        setConfirmRemove(false);
+        dirtyRef.current = false;
+        setDirtyUi(false);
+        toast.success(`${resourceName}'s contract removed.`);
+        onSaved?.();
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to remove the contract");
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    const draftClass = useMemo(() => classifyContract({ contract_end: end || null }), [end]);
     const draftDaysLeft = useMemo(() => daysUntilExpiry({ contract_end: end || null }), [end]);
-    const datesActive = status === "Completed";
 
     return (
       <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
@@ -227,7 +226,7 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
             >
               <span className={cn("h-1.5 w-1.5 rounded-full", URGENCY_VISUAL[draftClass].dotClass)} />
               {URGENCY_VISUAL[draftClass].label}
-              {datesActive && draftDaysLeft !== null && draftClass !== "incomplete" && (
+              {draftDaysLeft !== null && (
                 <span className="font-normal opacity-80">
                   · {draftDaysLeft < 0 ? `${Math.abs(draftDaysLeft)}d ago` : `${draftDaysLeft}d left`}
                 </span>
@@ -242,26 +241,10 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
           </div>
         ) : (
           <>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Status</Label>
-              <StatusSegmented
-                value={status}
-                onChange={(v) => {
-                  markDirty();
-                  setStatus(v);
-                }}
-                disabled={locked}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Dates bind (and drive the expiry marker) only when status is{" "}
-                <span className="font-medium text-foreground">Completed</span>.
-              </p>
-            </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor={`contract-start-${resourceName}`} className="text-xs">
-                  Contract start
+                  Contract start <span className="text-muted-foreground">(optional)</span>
                 </Label>
                 <Input
                   id={`contract-start-${resourceName}`}
@@ -272,7 +255,6 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
                     setStart(e.target.value);
                   }}
                   disabled={locked}
-                  className={cn(!datesActive && "opacity-70")}
                 />
               </div>
               <div className="space-y-1.5">
@@ -288,10 +270,15 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
                     setEnd(e.target.value);
                   }}
                   disabled={locked}
-                  className={cn(!datesActive && "opacity-70")}
                 />
               </div>
             </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              The end date is the contract — it drives the expiry marker and the
+              contract alerts. No contract yet? Leave this section untouched and put
+              tentative terms in the notes once a date exists.
+            </p>
 
             <div className="space-y-1.5">
               <Label htmlFor={`contract-notes-${resourceName}`} className="text-xs">
@@ -319,7 +306,44 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
 
             {!locked &&
               (standalone ? (
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between gap-2">
+                  {onFile ? (
+                    confirmRemove ? (
+                      <span className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">Remove this contract?</span>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 px-2.5 text-xs"
+                          disabled={saving}
+                          onClick={removeNow}
+                        >
+                          Confirm remove
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          disabled={saving}
+                          onClick={() => setConfirmRemove(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(true)}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive hover:underline"
+                        title="Delete the contract record (audited) — the unit reverts to No contract"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove contract
+                      </button>
+                    )
+                  ) : (
+                    <span />
+                  )}
                   <Button size="sm" className="h-7 px-3 text-xs" disabled={!dirtyUi || saving} onClick={saveNow}>
                     {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
                     Save contract

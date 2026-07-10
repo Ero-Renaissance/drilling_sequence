@@ -449,13 +449,22 @@ function UnitRow({
             )}
           </span>
         ) : (
+          // No contract is EXPECTED on a TBD slot (nothing to contract yet — the
+          // dashboard's unprocured-slots alert covers those); on a procured unit
+          // it's a genuine data gap, so that's the case that gets the amber.
           <span
             className={cn(
-              "text-muted-foreground",
-              unit.is_placeholder && "text-amber-600 dark:text-amber-400",
+              unit.is_placeholder
+                ? "text-muted-foreground"
+                : "text-amber-600 dark:text-amber-400",
             )}
+            title={
+              unit.is_placeholder
+                ? "Expected — the slot isn't procured yet"
+                : "Procured unit with no contract on file — enter its end date under Contract"
+            }
           >
-            {unit.is_placeholder ? "No contract — unprocured" : "No contract"}
+            No contract
           </span>
         )}
       </div>

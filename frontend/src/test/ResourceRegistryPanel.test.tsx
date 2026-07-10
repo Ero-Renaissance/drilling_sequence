@@ -64,7 +64,6 @@ const CONTRACTS: RigContract[] = [
     project_id: "p",
     rig_name: "10K Rig 1",
     terrain: "SWAMP",
-    status: "Completed",
     contract_start: null,
     contract_end: "2031-01-01",
     notes: null,
@@ -75,7 +74,6 @@ const CONTRACTS: RigContract[] = [
     project_id: "p",
     rig_name: "15K Jack-up",
     terrain: "OFFSHORE",
-    status: "Completed",
     contract_start: null,
     contract_end: CRITICAL_END,
     notes: null,
@@ -99,13 +97,23 @@ describe("ResourceRegistryPanel", () => {
     // Lands on the first tab with units (Land) showing the land twin + TBD badge.
     expect(await screen.findByText("10K Rig 1")).toBeInTheDocument();
     expect(screen.getByTitle(/placeholder slot — planned capacity/i)).toHaveTextContent("TBD");
-    expect(screen.getByText(/no contract — unprocured/i)).toBeInTheDocument();
+    // A TBD slot's missing contract is EXPECTED (muted), not an alarm.
+    expect(screen.getByTitle(/expected — the slot isn't procured yet/i)).toHaveTextContent(
+      "No contract",
+    );
 
     // The swamp twin lives on its own tab, carrying its own contract.
     fireEvent.click(tab(/Swamp/));
     expect(screen.getByText("10K Rig 1")).toBeInTheDocument();
     expect(screen.getByText(/ends 2031-01-01/)).toBeInTheDocument();
-    expect(screen.queryByText(/unprocured/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("No contract")).not.toBeInTheDocument();
+
+    // A PROCURED unit without a contract is the real data gap — flagged.
+    fireEvent.click(tab(/HWUs/));
+    expect(screen.getByText("HWU-1")).toBeInTheDocument();
+    expect(
+      screen.getByTitle(/procured unit with no contract on file/i),
+    ).toHaveTextContent("No contract");
   });
 
   it("always shows the HWUs tab, with an explanatory empty state", async () => {

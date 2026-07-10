@@ -1,15 +1,10 @@
 import { getAccessToken } from "@/lib/auth";
-import type { ContractStatus } from "@/api/contracts";
 import { throwApiError } from "./http";
-
-// HWU contracts share the rig contract's workflow-status vocabulary.
-export type { ContractStatus };
 
 export interface HwuContract {
   id: string;
   project_id: string;
   hwu_name: string;
-  status: ContractStatus;
   contract_start: string | null;
   contract_end: string | null;
   notes: string | null;
@@ -17,9 +12,10 @@ export interface HwuContract {
 }
 
 export interface HwuContractUpsert {
-  status: ContractStatus;
   contract_start: string | null;
-  contract_end: string | null;
+  /** A contract IS its end date — the server rejects a date-less upsert;
+   *  removing a contract is deleteHwuContract, not a blanked-out save. */
+  contract_end: string;
   notes: string | null;
 }
 
