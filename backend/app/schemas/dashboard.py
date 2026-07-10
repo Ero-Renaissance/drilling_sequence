@@ -80,6 +80,9 @@ class Watchlist(BaseModel):
     stale_approval: int
     conflicts: int
     drift_since_approved: int
+    # Placeholder units (unprocured slots) with work scheduled inside the
+    # procurement lead-time window — "this rig doesn't exist yet, start tendering".
+    unprocured_slots: int = 0
 
 
 class DashboardResponse(BaseModel):

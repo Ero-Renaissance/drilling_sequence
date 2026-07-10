@@ -16,6 +16,7 @@ from app.models.approver import ProjectApprover
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project
 from app.models.readiness import CHECK_CODES, ReadinessCheck
+from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
 from app.schemas.dashboard import (
@@ -55,6 +56,10 @@ STALE_APPROVAL_DAYS = 7
 _CRITICAL_DAYS = 90
 _SOON_DAYS = 180
 
+# How far ahead a placeholder slot with scheduled work counts as a procurement
+# alert — rig tendering realistically takes most of a year.
+_PROCUREMENT_LOOKAHEAD_DAYS = 270
+
 
 async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardResponse:
     today = date.today()
@@ -82,6 +87,14 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     ).scalars().all()
     hwu_contracts = (
         await db.execute(select(HwuContract).where(HwuContract.project_id == project_id))
+    ).scalars().all()
+    placeholder_units = (
+        await db.execute(
+            select(ResourceRecord).where(
+                ResourceRecord.project_id == project_id,
+                ResourceRecord.is_placeholder.is_(True),
+            )
+        )
     ).scalars().all()
 
     revisions = (
@@ -239,7 +252,9 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     contract_end_by_rig: dict[str, date] = {}
     for c in contracts:
         if c.status == "Completed" and c.contract_end is not None:
-            contract_end_by_rig[c.rig_name] = c.contract_end
+            # Rig contracts are per PHYSICAL unit: keyed (name, terrain); "" is
+            # the legacy/unassigned sentinel and matches any terrain (fallback).
+            contract_end_by_rig[(c.rig_name, c.terrain or "")] = c.contract_end
             _bucket_expiry(c.contract_end)
     contract_end_by_hwu: dict[str, date] = {}
     for c in hwu_contracts:
@@ -247,15 +262,19 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
             contract_end_by_hwu[c.hwu_name] = c.contract_end
             _bucket_expiry(c.contract_end)
 
+    def _rig_contract_end(a: Activity) -> date | None:
+        if not a.rig_name:
+            return None
+        return contract_end_by_rig.get(
+            (a.rig_name, (a.location or "").strip())
+        ) or contract_end_by_rig.get((a.rig_name, ""))
+
     activities_past_contract = sum(
         1
         for a in activities
         if not done(a)
         and (
-            (
-                a.rig_name in contract_end_by_rig
-                and a.end_date > contract_end_by_rig[a.rig_name]
-            )
+            (_rig_contract_end(a) is not None and a.end_date > _rig_contract_end(a))
             or (
                 a.hwu_name in contract_end_by_hwu
                 and a.end_date > contract_end_by_hwu[a.hwu_name]
@@ -297,6 +316,30 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     )
 
     # ── watchlist ──────────────────────────────────────────────────────────────
+    # Procurement early warning: a PLACEHOLDER unit (planned slot, no awarded
+    # rig behind it) whose lane has work starting within the procurement
+    # lead-time window. Complements contract expiry: that warns about contracts
+    # ending; this warns about contracts that don't exist yet.
+    procurement_end = today + timedelta(days=_PROCUREMENT_LOOKAHEAD_DAYS)
+    slot_keys = {(u.kind, u.terrain, u.name_key) for u in placeholder_units}
+
+    def _lane_key(a: Activity) -> tuple[str, str, str] | None:
+        if a.rig_name:
+            return ("rig", (a.location or "").strip(), a.rig_name.strip().lower())
+        if a.hwu_name:
+            return ("hwu", "", a.hwu_name.strip().lower())
+        return None
+
+    unprocured_slots = len(
+        {
+            _lane_key(a)
+            for a in activities
+            if not done(a)
+            and today <= a.start_date <= procurement_end
+            and _lane_key(a) in slot_keys
+        }
+    )
+
     watchlist = Watchlist(
         near_term_not_ready=sum(
             1
@@ -310,6 +353,7 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         stale_approval=stale,
         conflicts=len(conflicts),
         drift_since_approved=drift or 0,
+        unprocured_slots=unprocured_slots,
     )
 
     return DashboardResponse(

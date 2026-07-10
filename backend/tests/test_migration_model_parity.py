@@ -18,6 +18,7 @@ the migration omits (the ORM then omits the column from INSERT and expects the D
 it — which only works if the migration created the default), and columns the migrations
 forget entirely.
 """
+from contextlib import contextmanager
 from pathlib import Path
 
 import alembic.op
@@ -46,7 +47,8 @@ class _SchemaRecorder:
 
     Only the operations that affect the net column set are meaningful; constraint/index
     ops are no-ops here because this test checks columns and their server defaults, not
-    constraints (which SQLite couldn't run anyway).
+    constraints. ``batch_alter_table`` (the SQLite-compatible ALTER form) is replayed by
+    routing the batch ops back to this recorder against the batch's table.
     """
 
     def __init__(self) -> None:
@@ -67,6 +69,10 @@ class _SchemaRecorder:
     def get_bind(self):
         return _FakeBind()
 
+    @contextmanager
+    def batch_alter_table(self, table_name, **kw):
+        yield _BatchProxy(self, table_name)
+
     def _noop(self, *args, **kw):
         return None
 
@@ -75,12 +81,32 @@ class _SchemaRecorder:
     drop_constraint = create_unique_constraint = alter_column = execute = _noop
 
 
+class _BatchProxy:
+    """The object yielded by ``with op.batch_alter_table(...)`` — same ops, minus
+    the table argument (the batch already knows its table)."""
+
+    def __init__(self, recorder: _SchemaRecorder, table_name: str) -> None:
+        self._recorder = recorder
+        self._table = table_name
+
+    def add_column(self, column, **kw):
+        self._recorder.add_column(self._table, column, **kw)
+
+    def drop_column(self, column, **kw):
+        self._recorder.drop_column(self._table, column, **kw)
+
+    def _noop(self, *args, **kw):
+        return None
+
+    drop_constraint = create_unique_constraint = alter_column = _noop
+
+
 def test_migrations_declare_what_the_models_require(monkeypatch):
     recorder = _SchemaRecorder()
     for op_name in (
         "create_table", "add_column", "drop_column", "drop_table", "get_bind",
         "create_index", "drop_index", "create_foreign_key", "drop_constraint",
-        "create_unique_constraint", "alter_column", "execute",
+        "create_unique_constraint", "alter_column", "execute", "batch_alter_table",
     ):
         monkeypatch.setattr(alembic.op, op_name, getattr(recorder, op_name))
 

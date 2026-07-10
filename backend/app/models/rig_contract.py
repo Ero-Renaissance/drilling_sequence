@@ -17,7 +17,9 @@ class RigContract(Base):
 
     __tablename__ = "rig_contracts"
     __table_args__ = (
-        UniqueConstraint("project_id", "rig_name", name="uq_rig_contract_project_rig"),
+        UniqueConstraint(
+            "project_id", "rig_name", "terrain", name="uq_rig_contract_project_rig"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -25,6 +27,10 @@ class RigContract(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     rig_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Rig identity is (terrain, name) — see app/models/resource_registry.py. ""
+    # (never NULL — NULLs are distinct in UNIQUE constraints) means "unassigned":
+    # legacy rows and rigs whose terrain the registry can't resolve yet.
+    terrain: Mapped[str] = mapped_column(String(16), nullable=False, server_default="")
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="Draft"
     )

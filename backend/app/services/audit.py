@@ -8,6 +8,7 @@ ENTITY_APPROVER = "approver"
 ENTITY_REVIEWER = "reviewer"
 ENTITY_PROJECT = "project"
 ENTITY_CONTRACT = "contract"
+ENTITY_RESOURCE = "resource"
 
 
 def contract_state(status: str, contract_end: object | None) -> str:

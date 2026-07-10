@@ -29,6 +29,7 @@ from app.routers import (
     optimizer,
     projects,
     readiness,
+    resources,
     reviewers,
     revisions,
     viewers,
@@ -95,6 +96,7 @@ app.include_router(approvers.router)
 app.include_router(reviewers.router)
 app.include_router(contracts.router)
 app.include_router(hwu_contracts.router)
+app.include_router(resources.router)
 app.include_router(dashboard.router)
 app.include_router(change_notes.router)
 app.include_router(client_logs.router)

@@ -14,11 +14,35 @@ from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.rig_contract import RigContractResponse, RigContractUpsert
 from app.services.audit import ENTITY_CONTRACT, contract_state, governance_event
+from app.services.registry import rig_terrains_in_project
 
 router = APIRouter(prefix="/api/projects/{project_id}/contracts", tags=["contracts"])
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+
+async def _resolve_terrain(
+    db: AsyncSession, project_id: uuid.UUID, rig_name: str, requested: str | None
+) -> str:
+    """Which physical rig does a name-only contract call mean?
+
+    An explicit terrain wins. Otherwise the registry decides: one known terrain →
+    that unit (keeps existing clients working); several → 409, the caller must
+    say which; none registered → "" (legacy/unassigned)."""
+    if requested is not None:
+        return requested
+    terrains = await rig_terrains_in_project(db, project_id, rig_name)
+    if len(terrains) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Rig '{rig_name}' exists in multiple terrains "
+                f"({', '.join(t or '—' for t in terrains)}) — specify `terrain` to say "
+                f"which physical rig this contract covers."
+            ),
+        )
+    return terrains[0] if terrains else ""
 
 
 @router.get("", response_model=list[RigContractResponse])
@@ -54,10 +78,12 @@ async def upsert_contract(
             detail="rig_name cannot be empty",
         )
 
+    terrain = await _resolve_terrain(db, project_id, rig_name, payload.terrain)
     result = await db.execute(
         select(RigContract).where(
             RigContract.project_id == project_id,
             RigContract.rig_name == rig_name,
+            RigContract.terrain == terrain,
         )
     )
     contract = result.scalar_one_or_none()
@@ -70,6 +96,7 @@ async def upsert_contract(
         contract = RigContract(
             project_id=project_id,
             rig_name=rig_name,
+            terrain=terrain,
             status=payload.status,
             contract_start=payload.contract_start,
             contract_end=payload.contract_end,
@@ -107,14 +134,17 @@ async def delete_contract(
     rig_name: str,
     current_user: CurrentUser,
     db: DB,
+    terrain: str | None = None,
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
     await assert_project_not_locked(project_id, db)
 
+    resolved = await _resolve_terrain(db, project_id, rig_name, terrain)
     result = await db.execute(
         select(RigContract).where(
             RigContract.project_id == project_id,
             RigContract.rig_name == rig_name,
+            RigContract.terrain == resolved,
         )
     )
     contract = result.scalar_one_or_none()

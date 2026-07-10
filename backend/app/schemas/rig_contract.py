@@ -6,11 +6,20 @@ from pydantic import BaseModel, field_validator
 
 ContractStatus = Literal["Draft", "Completed"]
 
+# Terrain allow-list — rig identity is (terrain, name); see resource_registry.
+ContractTerrain = Literal["LAND", "SWAMP", "OFFSHORE"]
+
 
 class RigContractUpsert(BaseModel):
-    """Create or replace the contract for a rig."""
+    """Create or replace the contract for a rig.
+
+    `terrain` names WHICH physical rig when a name exists in more than one
+    terrain (e.g. a LAND and a SWAMP "10K Rig 1"). Omitted, the server resolves
+    it from the registry when unambiguous and 409s when it isn't — so existing
+    clients keep working for every single-terrain rig."""
 
     status: ContractStatus = "Draft"
+    terrain: ContractTerrain | None = None
     contract_start: date | None = None
     contract_end: date | None = None
     notes: str | None = None
@@ -28,6 +37,7 @@ class RigContractResponse(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     rig_name: str
+    terrain: str  # "" = unassigned/legacy
     status: ContractStatus
     contract_start: date | None
     contract_end: date | None

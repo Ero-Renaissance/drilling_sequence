@@ -118,3 +118,32 @@ async def test_conflict_message_names_the_terrain_qualified_lane(
     assert r.status_code == 409, r.text
     # The 409 names the physical unit unambiguously — terrain-qualified.
     assert "SWAMP – 10K Rig 1" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_hwu_cross_terrain_overlap_IS_a_conflict(client: AsyncClient) -> None:
+    """HWUs are mobile units (spec decision Q1): the same HWU name in LAND and
+    SWAMP is ONE unit, so overlapping work across terrains is a double-booking."""
+    pid = await _project(client)
+    for well, loc, start, end in [
+        ("W-L", "LAND", "2026-01-01", "2026-02-15"),
+        ("W-S", "SWAMP", "2026-02-01", "2026-03-15"),
+    ]:
+        r = await client.post(
+            f"/api/projects/{pid}/activities",
+            json={
+                "activity_type": "Well Repair/Safety",
+                "start_date": start,
+                "end_date": end,
+                "hwu_name": "HWU-1",
+                "well_name": well,
+                "location": loc,
+                "plan_type": "Firm",
+                "risk": "No Flood Risk",
+            },
+        )
+        assert r.status_code == 201, r.text
+
+    r = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert r.status_code == 409, r.text
+    assert "HWU-1" in r.json()["detail"]

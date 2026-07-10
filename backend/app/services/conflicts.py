@@ -6,11 +6,15 @@ physically impossible. This is enforced server-side (see create_revision) to
 hard-block submitting such a plan for approval — the frontend warning alone
 isn't trustworthy.
 
-Resource identity is (kind, TERRAIN, name) — the planner convention: rig classes
-are terrain-locked (a land rig can't float, a swamp barge can't drill on land,
-a jack-up fits neither), and the fleet reuses class-style names per terrain, so
-a LAND "10K Rig 1" and a SWAMP "10K Rig 1" are two different physical rigs.
+RIG identity is (kind, TERRAIN, name) — the planner convention: rig classes are
+terrain-locked (a land rig can't float, a swamp barge can't drill on land, a
+jack-up fits neither), and the fleet reuses class-style names per terrain, so a
+LAND "10K Rig 1" and a SWAMP "10K Rig 1" are two different physical rigs.
 Keying on name alone once produced 74 false conflicts on a real campaign.
+
+HWU identity is (kind, name) WITHOUT terrain — HWUs are modular units that move
+across terrains (spec decision Q1), so the same HWU name in LAND and SWAMP is
+ONE unit and CAN double-book itself across terrains.
 
 A completed activity has already released the resource, so it's excluded.
 """
@@ -24,11 +28,12 @@ def _label(a: Activity) -> str:
 def _resource(a: Activity) -> tuple[str, str | None, str] | None:
     """The activity's resource lane as (kind, terrain, name), or None when it has
     neither a rig nor an HWU. Kind keeps a rig and an HWU that share a name apart;
-    terrain keeps same-named units in different terrains apart (see module doc)."""
+    terrain keeps same-named RIGS in different terrains apart, and is None for
+    HWUs — they are mobile, one lane per name (see module doc)."""
     if a.rig_name:
         return ("rig", a.location, a.rig_name)
     if a.hwu_name:
-        return ("hwu", a.location, a.hwu_name)
+        return ("hwu", None, a.hwu_name)
     return None
 
 
