@@ -234,7 +234,7 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         per_rig=per_rig,
     )
 
-    # ── contracts (binding = status Completed, with an end date) ────────────────
+    # ── contracts (a contract IS its end date) ──────────────────────────────────
     # Rig and HWU contracts are pooled — both are resource contracts at risk.
     buckets = {"expired": 0, "critical": 0, "soon": 0, "healthy": 0}
 
@@ -251,14 +251,14 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
 
     contract_end_by_rig: dict[str, date] = {}
     for c in contracts:
-        if c.status == "Completed" and c.contract_end is not None:
+        if c.contract_end is not None:
             # Rig contracts are per PHYSICAL unit: keyed (name, terrain); "" is
             # the legacy/unassigned sentinel and matches any terrain (fallback).
             contract_end_by_rig[(c.rig_name, c.terrain or "")] = c.contract_end
             _bucket_expiry(c.contract_end)
     contract_end_by_hwu: dict[str, date] = {}
     for c in hwu_contracts:
-        if c.status == "Completed" and c.contract_end is not None:
+        if c.contract_end is not None:
             contract_end_by_hwu[c.hwu_name] = c.contract_end
             _bucket_expiry(c.contract_end)
 
@@ -418,16 +418,21 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
         for c in CHECK_CODES:
             gate_buckets[c][_STATUS_KEY.get(readiness.get(c, "On Track"), "on_track")] += 1
 
-    # Contracts at risk — dedupe the denormalised contract by rig (one row per rig).
-    contract_end_by_rig: dict[str, date] = {}
+    # Contracts at risk — dedupe the denormalised contract per physical rig
+    # (name + location, so terrain twins count separately).
+    contract_end_by_rig: dict[tuple[str, str], date] = {}
     for a in snapshot:
         rig = a.get("rig_name")
-        if not rig or rig in contract_end_by_rig:
+        key = (rig, a.get("location") or "")
+        if not rig or key in contract_end_by_rig:
             continue
-        if a.get("rig_contract_status") == "Completed" and (
+        # Historical snapshots may carry the retired workflow status; a "Draft"
+        # contract's dates weren't binding when that revision was approved, so
+        # stay faithful to it. Post-024 snapshots omit the key (None → binding).
+        if a.get("rig_contract_status") in (None, "Completed") and (
             end := _snap_date(a.get("rig_contract_end"))
         ):
-            contract_end_by_rig[rig] = end
+            contract_end_by_rig[key] = end
     contracts_at_risk = sum(
         1 for end in contract_end_by_rig.values() if (end - today).days < _SOON_DAYS
     )

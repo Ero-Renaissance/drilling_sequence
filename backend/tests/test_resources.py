@@ -119,7 +119,7 @@ async def test_rename_on_award_moves_the_lane_and_only_the_lane(
     # Contract for the LAND unit (terrain-qualified).
     r = await client.put(
         f"/api/projects/{pid}/contracts/10K Rig 1",
-        json={"status": "Completed", "contract_end": "2030-01-01", "terrain": "LAND"},
+        json={"contract_end": "2030-01-01", "terrain": "LAND"},
     )
     assert r.status_code == 200, r.text
 
@@ -196,7 +196,7 @@ async def test_contract_upsert_resolves_terrain_or_asks(client: AsyncClient) -> 
     # Unambiguous name: terrain resolves from the registry — old clients keep working.
     r = await client.put(
         f"/api/projects/{pid}/contracts/Solo Rig",
-        json={"status": "Completed", "contract_end": "2030-06-30"},
+        json={"contract_end": "2030-06-30"},
     )
     assert r.status_code == 200, r.text
     assert r.json()["terrain"] == "OFFSHORE"
@@ -204,7 +204,7 @@ async def test_contract_upsert_resolves_terrain_or_asks(client: AsyncClient) -> 
     # Ambiguous name: the server must not guess which physical rig is meant.
     r = await client.put(
         f"/api/projects/{pid}/contracts/10K Rig 1",
-        json={"status": "Completed", "contract_end": "2030-06-30"},
+        json={"contract_end": "2030-06-30"},
     )
     assert r.status_code == 409, r.text
     assert "terrain" in r.json()["detail"].lower()
@@ -213,7 +213,7 @@ async def test_contract_upsert_resolves_terrain_or_asks(client: AsyncClient) -> 
     for terrain, end in [("LAND", "2030-01-01"), ("SWAMP", "2031-01-01")]:
         r = await client.put(
             f"/api/projects/{pid}/contracts/10K Rig 1",
-            json={"status": "Completed", "contract_end": end, "terrain": terrain},
+            json={"contract_end": end, "terrain": terrain},
         )
         assert r.status_code == 200, r.text
     contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
@@ -256,3 +256,68 @@ async def test_import_registers_units_and_terrain_contracts(client: AsyncClient)
     contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
     pairs = {(c["terrain"], c["contract_end"]) for c in contracts}
     assert pairs == {("LAND", "2030-12-31"), ("SWAMP", "2031-06-30")}
+
+
+@pytest.mark.asyncio
+async def test_contract_is_its_end_date(client: AsyncClient) -> None:
+    """No workflow status: a contract exists iff an end date is on file. A
+    date-less upsert is rejected (422) — removing a contract is DELETE, which is
+    audited — so no zombie "record without a contract" rows can exist."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="Solo Rig", location="LAND")
+
+    # A contract without an end date is not a contract.
+    r = await client.put(f"/api/projects/{pid}/contracts/Solo Rig", json={})
+    assert r.status_code == 422, r.text
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/Solo Rig", json={"notes": "negotiating"}
+    )
+    assert r.status_code == 422, r.text
+    assert (await client.get(f"/api/projects/{pid}/contracts")).json() == []
+
+    # With an end date it binds; the response carries no status field.
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/Solo Rig", json={"contract_end": "2027-03-31"}
+    )
+    assert r.status_code == 200, r.text
+    assert "status" not in r.json()
+
+    # Correcting a fake date = removing the contract, first-class and audited.
+    assert (
+        await client.delete(f"/api/projects/{pid}/contracts/Solo Rig")
+    ).status_code == 204
+    assert (await client.get(f"/api/projects/{pid}/contracts")).json() == []
+    audit = (await client.get(f"/api/projects/{pid}/audit")).json()
+    deleted = next(
+        (e for e in audit if e["entity_type"] == "contract" and e["field"] == "contract_deleted"),
+        None,
+    )
+    assert deleted is not None
+    assert "ends 2027-03-31" in deleted["new_value"]
+
+    # Same rule for HWU contracts.
+    assert (
+        await client.put(f"/api/projects/{pid}/hwu-contracts/HWU-1", json={})
+    ).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_clone_copies_resource_registry(client: AsyncClient) -> None:
+    """The clone carries the fleet: identity, capability class and the
+    placeholder flag — otherwise next quarter's Fleet view starts empty."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="10K Rig 1", location="SWAMP")
+    rid = (await _resources(client, pid))[0]["id"]
+    r = await client.patch(
+        f"/api/projects/{pid}/resources/{rid}",
+        json={"capability_class": "10K", "is_placeholder": False},
+    )
+    assert r.status_code == 200, r.text
+
+    clone = await client.post(f"/api/projects/{pid}/clone", json={"name": "Q2"})
+    assert clone.status_code == 201, clone.text
+    rows = await _resources(client, clone.json()["id"])
+    assert [
+        (x["kind"], x["terrain"], x["name"], x["capability_class"], x["is_placeholder"])
+        for x in rows
+    ] == [("rig", "SWAMP", "10K Rig 1", "10K", False)]

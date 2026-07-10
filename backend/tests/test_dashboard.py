@@ -182,7 +182,7 @@ async def test_dashboard_contract_buckets_use_cadence_thresholds(client: AsyncCl
     for rig, end in ends.items():
         r = await client.put(
             f"/api/projects/{pid}/contracts/{rig}",
-            json={"contract_end": _iso(end), "status": "Completed"},
+            json={"contract_end": _iso(end)},
         )
         assert r.status_code == 200, r.text
 

@@ -88,16 +88,13 @@ async def upsert_contract(
     )
     contract = result.scalar_one_or_none()
     existed = contract is not None
-    old_summary = (
-        contract_state(contract.status, contract.contract_end) if existed else None
-    )
+    old_summary = contract_state(contract.contract_end) if existed else None
 
     if not existed:
         contract = RigContract(
             project_id=project_id,
             rig_name=rig_name,
             terrain=terrain,
-            status=payload.status,
             contract_start=payload.contract_start,
             contract_end=payload.contract_end,
             notes=payload.notes,
@@ -105,7 +102,6 @@ async def upsert_contract(
         )
         db.add(contract)
     else:
-        contract.status = payload.status
         contract.contract_start = payload.contract_start
         contract.contract_end = payload.contract_end
         contract.notes = payload.notes
@@ -119,7 +115,7 @@ async def upsert_contract(
             entity_type=ENTITY_CONTRACT,
             entity_id=contract.id,
             action="contract_updated" if existed else "contract_created",
-            detail=f"Rig {rig_name}: {contract_state(contract.status, contract.contract_end)}",
+            detail=f"Rig {rig_name}: {contract_state(contract.contract_end)}",
             old_value=old_summary,
         )
     )
@@ -157,7 +153,7 @@ async def delete_contract(
             entity_type=ENTITY_CONTRACT,
             entity_id=contract.id,
             action="contract_deleted",
-            detail=f"Rig {rig_name}: {contract_state(contract.status, contract.contract_end)}",
+            detail=f"Rig {rig_name}: {contract_state(contract.contract_end)}",
         )
     )
     await db.delete(contract)

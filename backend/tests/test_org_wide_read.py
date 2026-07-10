@@ -82,7 +82,8 @@ async def test_writes_stay_denied_for_plain_users(
     ).status_code == 403
     assert (
         await noplan_client.put(
-            f"/api/projects/{pid}/contracts/Rig%20Alpha", json={"status": "Completed"}
+            f"/api/projects/{pid}/contracts/Rig%20Alpha",
+            json={"contract_end": "2027-01-01"},
         )
     ).status_code == 403
     assert (

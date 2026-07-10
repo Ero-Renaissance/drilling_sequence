@@ -10,9 +10,8 @@ from app.database import Base
 class HwuContract(Base):
     """A Hydraulic Workover Unit contract — the HWU parallel to RigContract.
 
-    Same shape and semantics: a workflow item whose dates become binding (driving
-    the contract-expiry marker) only once the status is "Completed". Shares the
-    CONTRACT_STATUSES vocabulary defined on the rig contract.
+    Same shape and semantics: a contract exists iff an end date is on file;
+    there is no draft/completed workflow state (see RigContract).
     """
 
     __tablename__ = "hwu_contracts"
@@ -25,10 +24,9 @@ class HwuContract(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     hwu_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="Draft"
-    )
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Always set on rows written through the API (the upsert schema requires it);
+    # nullable only so the column predates migration 024's purge gracefully.
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 

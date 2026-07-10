@@ -62,64 +62,63 @@ def test_diff_unchanged_not_listed() -> None:
 # ── Rig-level contract diff ─────────────────────────────────────────────────
 
 
-def _rig_act(aid: str, rig: str, status: str, end: str | None) -> dict:
+def _rig_act(aid: str, rig: str, end: str | None, **extra) -> dict:
     return _act(
         aid, "Drilling", "2026-01-01", "2026-01-31",
-        rig_name=rig, rig_contract_status=status, rig_contract_end=end,
+        rig_name=rig, rig_contract_end=end, **extra,
     )
 
 
 def test_diff_reports_rig_contract_change() -> None:
-    base = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
-    target = [_rig_act("a", "Rig Alpha", "Draft", "2026-06-30")]
+    base = [_rig_act("a", "Rig Alpha", "2026-06-30")]
+    target = [_rig_act("a", "Rig Alpha", "2026-09-30")]
     diff = diff_snapshots(base, target)
 
     assert len(diff["contracts"]) == 1
     c = diff["contracts"][0]
     assert c["resource"] == "Rig Alpha"
     assert any(
-        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "Draft"
+        f["field"] == "Contract end" and f["old"] == "2026-06-30" and f["new"] == "2026-09-30"
         for f in c["fields"]
     )
     # Contract changes are resource-level, never per-activity.
     assert all(
-        f["field"] not in {"Status", "Contract start", "Contract end"}
+        f["field"] not in {"Contract start", "Contract end"}
         for a in diff["activities"]
         for f in a.get("fields", [])
     )
 
 
-def _hwu_act(aid: str, hwu: str, status: str, end: str | None) -> dict:
+def _hwu_act(aid: str, hwu: str, end: str | None) -> dict:
     return _act(
         aid, "Workover", "2026-01-01", "2026-01-31",
-        rig_name=None, hwu_name=hwu, rig_contract_status=status, rig_contract_end=end,
+        rig_name=None, hwu_name=hwu, rig_contract_end=end,
     )
 
 
 def test_diff_reports_hwu_contract_change() -> None:
     # The HWU contract is captured generically (rig_contract_* keys); the diff
     # groups it under the HWU resource, tagged "HWU · <name>".
-    base = [_hwu_act("h", "Unit-9", "Completed", "2026-06-30")]
-    target = [_hwu_act("h", "Unit-9", "Draft", "2026-06-30")]
+    base = [_hwu_act("h", "Unit-9", "2026-06-30")]
+    target = [_hwu_act("h", "Unit-9", "2026-09-30")]
     diff = diff_snapshots(base, target)
 
     assert len(diff["contracts"]) == 1
     c = diff["contracts"][0]
     assert c["resource"] == "HWU · Unit-9"
     assert any(
-        f["field"] == "Status" and f["old"] == "Completed" and f["new"] == "Draft"
-        for f in c["fields"]
+        f["field"] == "Contract end" and f["new"] == "2026-09-30" for f in c["fields"]
     )
 
 
 def test_diff_dedupes_contract_to_rig_level() -> None:
     base = [
-        _rig_act("a", "Rig Alpha", "Completed", "2026-06-30"),
-        _rig_act("b", "Rig Alpha", "Completed", "2026-06-30"),
+        _rig_act("a", "Rig Alpha", "2026-06-30"),
+        _rig_act("b", "Rig Alpha", "2026-06-30"),
     ]
     target = [
-        _rig_act("a", "Rig Alpha", "Completed", "2026-04-30"),
-        _rig_act("b", "Rig Alpha", "Completed", "2026-04-30"),
+        _rig_act("a", "Rig Alpha", "2026-04-30"),
+        _rig_act("b", "Rig Alpha", "2026-04-30"),
     ]
     diff = diff_snapshots(base, target)
     assert len(diff["contracts"]) == 1  # one rig, not two activities
@@ -128,13 +127,21 @@ def test_diff_dedupes_contract_to_rig_level() -> None:
 
 def test_diff_skips_contracts_when_a_side_predates_capture() -> None:
     base = [_act("a", "Drilling", "2026-01-01", "2026-01-31", rig_name="Rig Alpha")]
-    target = [_rig_act("a", "Rig Alpha", "Completed", None)]
+    target = [_rig_act("a", "Rig Alpha", None)]
     assert diff_snapshots(base, target)["contracts"] == []
 
 
 def test_diff_no_contract_change_when_equal() -> None:
-    base = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
-    target = [_rig_act("a", "Rig Alpha", "Completed", "2026-06-30")]
+    base = [_rig_act("a", "Rig Alpha", "2026-06-30")]
+    target = [_rig_act("a", "Rig Alpha", "2026-06-30")]
+    assert diff_snapshots(base, target)["contracts"] == []
+
+
+def test_diff_ignores_retired_workflow_status_in_old_snapshots() -> None:
+    # Older stored snapshots carry rig_contract_status; the workflow concept is
+    # retired, so a status-only difference must NOT surface as a contract change.
+    base = [_rig_act("a", "Rig Alpha", "2026-06-30", rig_contract_status="Completed")]
+    target = [_rig_act("a", "Rig Alpha", "2026-06-30", rig_contract_status="Draft")]
     assert diff_snapshots(base, target)["contracts"] == []
 
 
@@ -362,12 +369,16 @@ async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None
             "risk": "No Flood Risk",
         },
     )
-    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Draft"})
+    await client.put(
+        f"/api/projects/{pid}/contracts/RigAlpha", json={"contract_end": "2026-06-30"}
+    )
 
     rev1 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
     # Discard to unlock, change the contract, then snapshot again.
     await client.delete(f"/api/projects/{pid}/revisions/{rev1['id']}")
-    await client.put(f"/api/projects/{pid}/contracts/RigAlpha", json={"status": "Completed"})
+    await client.put(
+        f"/api/projects/{pid}/contracts/RigAlpha", json={"contract_end": "2026-09-30"}
+    )
     rev2 = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
 
     diff = (
@@ -379,5 +390,6 @@ async def test_compare_surfaces_rig_contract_change(client: AsyncClient) -> None
     contract = diff["contracts"][0]
     assert contract["resource"] == "RigAlpha"
     assert any(
-        f["field"] == "Status" and f["new"] == "Completed" for f in contract["fields"]
+        f["field"] == "Contract end" and f["new"] == "2026-09-30"
+        for f in contract["fields"]
     )

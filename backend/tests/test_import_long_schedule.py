@@ -84,11 +84,10 @@ async def test_long_schedule_collapses_rows_and_maps_values(client: AsyncClient)
     assert checks["WELL_B"]["BUD"]["status"] == "Completed"
     assert checks["WELL_B"]["FDP"]["status"] == "On Track"
 
-    # Rig contract upserted with its expiry, marked binding (Completed).
+    # Rig contract upserted with its expiry (a contract IS its end date).
     contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
     rig1 = next(c for c in contracts if c["rig_name"] == "RIG_1")
     assert rig1["contract_end"] == "2030-12-31"
-    assert rig1["status"] == "Completed"
 
 
 @pytest.mark.asyncio
@@ -112,11 +111,10 @@ async def test_long_schedule_imports_hwu_contract(client: AsyncClient) -> None:
     assert acts["WELL_H"]["hwu_name"] == "HWU_9"
     assert acts["WELL_H"]["rig_name"] is None
 
-    # The HWU contract was upserted from its expiry column, marked binding.
+    # The HWU contract was upserted from its expiry column.
     hwu_contracts = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
     h9 = next(c for c in hwu_contracts if c["hwu_name"] == "HWU_9")
     assert h9["contract_end"] == "2031-06-30"
-    assert h9["status"] == "Completed"
 
     # The rig contract still imports alongside it.
     rigs = (await client.get(f"/api/projects/{pid}/contracts")).json()

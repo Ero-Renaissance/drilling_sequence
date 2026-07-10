@@ -11,9 +11,10 @@ ENTITY_CONTRACT = "contract"
 ENTITY_RESOURCE = "resource"
 
 
-def contract_state(status: str, contract_end: object | None) -> str:
-    """One-line contract summary (status + end date) for the audit trail."""
-    return f"{status} · ends {contract_end}" if contract_end else status
+def contract_state(contract_end: object | None) -> str:
+    """One-line contract summary for the audit trail. A contract is its end
+    date; "no end date" only ever describes legacy rows predating migration 024."""
+    return f"ends {contract_end}" if contract_end else "no end date"
 
 
 def governance_event(

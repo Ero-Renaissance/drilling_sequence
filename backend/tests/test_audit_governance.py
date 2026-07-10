@@ -134,18 +134,18 @@ async def test_rig_contract_changes_are_audited(client: AsyncClient) -> None:
     # Create
     r = await client.put(
         f"/api/projects/{project_id}/contracts/Rig-3",
-        json={"status": "Completed", "contract_end": "2026-12-01"},
+        json={"contract_end": "2026-12-01"},
     )
     assert r.status_code == 200, r.text
     created = _find(await _audit(client, project_id), "contract", "contract_created")
     assert created is not None
     assert created["entity_id"] == r.json()["id"]
-    assert "Rig-3" in created["new_value"] and "Completed" in created["new_value"]
+    assert "Rig-3" in created["new_value"] and "ends 2026-12-01" in created["new_value"]
 
     # Update — the prior state is captured in old_value
     r2 = await client.put(
         f"/api/projects/{project_id}/contracts/Rig-3",
-        json={"status": "Completed", "contract_end": "2027-03-01"},
+        json={"contract_end": "2027-03-01"},
     )
     assert r2.status_code == 200, r2.text
     updated = _find(await _audit(client, project_id), "contract", "contract_updated")
@@ -167,7 +167,7 @@ async def test_hwu_contract_change_is_audited(client: AsyncClient) -> None:
     project_id = await _project_with_activity(client)
     r = await client.put(
         f"/api/projects/{project_id}/hwu-contracts/Unit-9",
-        json={"status": "Completed", "contract_end": "2026-12-01"},
+        json={"contract_end": "2026-12-01"},
     )
     assert r.status_code == 200, r.text
     created = _find(await _audit(client, project_id), "contract", "contract_created")

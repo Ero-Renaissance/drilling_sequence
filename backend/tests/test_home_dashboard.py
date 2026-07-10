@@ -32,10 +32,10 @@ async def _approved_project(
     await client.put(
         f"/api/projects/{pid}/activities/{a['id']}/readiness/BUD", json={"status": "Completed"}
     )
-    # A Completed contract that ends well out → not "at risk".
+    # A contract that ends well out → not "at risk".
     await client.put(
         f"/api/projects/{pid}/contracts/R",
-        json={"status": "Completed", "contract_end": (TODAY + timedelta(days=200)).isoformat()},
+        json={"contract_end": (TODAY + timedelta(days=200)).isoformat()},
     )
     await client.post(
         f"/api/projects/{pid}/approvers", json={"email": "other@company.com", "role_label": "GM"}
@@ -108,7 +108,7 @@ async def test_contracts_at_risk_counted(client: AsyncClient, other_client: Asyn
     assert a  # created
     await client.put(
         f"/api/projects/{pid}/contracts/R",
-        json={"status": "Completed", "contract_end": (TODAY + timedelta(days=40)).isoformat()},
+        json={"contract_end": (TODAY + timedelta(days=40)).isoformat()},
     )
     await client.post(
         f"/api/projects/{pid}/approvers", json={"email": "other@company.com", "role_label": "GM"}

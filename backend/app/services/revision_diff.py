@@ -22,8 +22,9 @@ _SCALAR_FIELDS: list[tuple[str, str]] = [
 
 
 # Resource (rig/HWU) contract fields, compared resource-level (deduped), not per activity.
+# The retired workflow status (rig_contract_status, present in older stored
+# snapshots) is deliberately not compared — the concept no longer exists.
 _CONTRACT_FIELDS: list[tuple[str, str]] = [
-    ("rig_contract_status", "Status"),
     ("rig_contract_start", "Contract start"),
     ("rig_contract_end", "Contract end"),
 ]
@@ -97,7 +98,7 @@ def _has_contract_info(snapshot: list[dict]) -> bool:
     """True once a snapshot was built with contract capture. Old stored revisions
     lack the key entirely — we skip contract diffing for them rather than report a
     spurious "None → X" for every rig."""
-    return any("rig_contract_status" in a for a in snapshot)
+    return any("rig_contract_end" in a for a in snapshot)
 
 
 def _resource_label(activity: dict) -> str | None:

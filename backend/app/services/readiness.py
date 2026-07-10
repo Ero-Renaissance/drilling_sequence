@@ -11,20 +11,24 @@ from app.models.hwu_contract import HwuContract
 from app.models.rig_contract import RigContract
 
 # A rig contract, or — for an HWU activity — an HWU contract. The two are
-# duck-typed for this (both expose .status / .contract_end).
+# duck-typed for this (both expose .contract_start / .contract_end).
 ResourceContract = RigContract | HwuContract
 
 
 def resolve_activity_contract(
     activity: Activity,
-    contracts_by_rig: dict[str, RigContract],
+    contracts_by_rig: dict[tuple[str, str], RigContract],
     contracts_by_hwu: dict[str, HwuContract],
 ) -> ResourceContract | None:
     """The contract that gates an activity — its rig's, or (for an HWU activity)
-    its HWU's. None when the activity has neither resource, or no matching contract
-    is on file."""
+    its HWU's. Rig contracts are per PHYSICAL unit — keyed (name, terrain), with
+    a ""-terrain (legacy/unassigned) contract accepted as a fallback — while HWUs
+    are mobile and match on name alone. None when the activity has neither
+    resource, or no matching contract is on file."""
     if activity.rig_name:
-        return contracts_by_rig.get(activity.rig_name)
+        return contracts_by_rig.get(
+            (activity.rig_name, activity.location or "")
+        ) or contracts_by_rig.get((activity.rig_name, ""))
     if activity.hwu_name:
         return contracts_by_hwu.get(activity.hwu_name)
     return None

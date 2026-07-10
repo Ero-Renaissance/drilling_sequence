@@ -6,14 +6,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-# Two-state workflow the planner sets explicitly: a contract is either a "Draft"
-# (being prepared — dates are tentative) or "Completed" (signed/in force). Dates
-# only become binding (i.e. drive the rig-level expiry alarm) once "Completed".
-CONTRACT_STATUSES = ("Draft", "Completed")
-
 
 class RigContract(Base):
-    """A drilling rig contract — a workflow item with dates that become binding once Completed."""
+    """A drilling rig contract.
+
+    A contract exists iff an end date is on file — the end date IS the record
+    (it drives the expiry urgency everywhere). There is no draft/completed
+    workflow state: tentative terms belong in ``notes``, and "no contract yet"
+    is the absence of a row, not a status value.
+    """
 
     __tablename__ = "rig_contracts"
     __table_args__ = (
@@ -31,10 +32,9 @@ class RigContract(Base):
     # (never NULL — NULLs are distinct in UNIQUE constraints) means "unassigned":
     # legacy rows and rigs whose terrain the registry can't resolve yet.
     terrain: Mapped[str] = mapped_column(String(16), nullable=False, server_default="")
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="Draft"
-    )
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Always set on rows written through the API (the upsert schema requires it);
+    # nullable only so the column predates migration 024's purge gracefully.
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 

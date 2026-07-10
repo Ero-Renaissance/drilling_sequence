@@ -700,10 +700,10 @@ async def _import_long_schedule(
         db, project_id, _resource_triples([a for a, _ in validated]), current_user.id
     )
 
-    # Resource contract expiry — upsert each rig / HWU with a binding (Completed)
-    # end date, so an imported sheet sets the contract exactly like the editor (it
-    # drives the contract-expiry marker). Rig contracts are per PHYSICAL unit:
-    # keyed (name, terrain), so a LAND and SWAMP rig sharing a name stay separate.
+    # Resource contract expiry — upsert each rig / HWU end date, so an imported
+    # sheet sets the contract exactly like the editor (it drives the
+    # contract-expiry marker). Rig contracts are per PHYSICAL unit: keyed
+    # (name, terrain), so a LAND and SWAMP rig sharing a name stay separate.
     for (rig_name, terrain), expiry in rig_contracts.items():
         existing = (
             await db.execute(
@@ -716,7 +716,6 @@ async def _import_long_schedule(
         ).scalar_one_or_none()
         if existing is not None:
             existing.contract_end = expiry
-            existing.status = "Completed"
             existing.updated_by = current_user.id
         else:
             db.add(
@@ -725,7 +724,6 @@ async def _import_long_schedule(
                     rig_name=rig_name,
                     terrain=terrain,
                     contract_end=expiry,
-                    status="Completed",
                     updated_by=current_user.id,
                 )
             )
@@ -741,7 +739,6 @@ async def _import_long_schedule(
         ).scalar_one_or_none()
         if existing_hwu is not None:
             existing_hwu.contract_end = expiry
-            existing_hwu.status = "Completed"
             existing_hwu.updated_by = current_user.id
         else:
             db.add(
@@ -749,7 +746,6 @@ async def _import_long_schedule(
                     project_id=project_id,
                     hwu_name=hwu_name,
                     contract_end=expiry,
-                    status="Completed",
                     updated_by=current_user.id,
                 )
             )

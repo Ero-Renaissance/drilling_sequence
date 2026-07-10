@@ -15,6 +15,7 @@ from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
 from app.models.readiness import ReadinessCheck
+from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision
 from app.models.rig_contract import RigContract
 from app.models.user import User
@@ -236,7 +237,10 @@ async def clone_project(
             RigContract(
                 project_id=clone.id,
                 rig_name=contract.rig_name,
-                status=contract.status,
+                # Rig identity is (terrain, name) — without this, cloning a
+                # campaign with terrain-twin rigs would collapse both contracts
+                # onto terrain "" and violate the unique constraint.
+                terrain=contract.terrain,
                 contract_start=contract.contract_start,
                 contract_end=contract.contract_end,
                 notes=contract.notes,
@@ -255,10 +259,32 @@ async def clone_project(
             HwuContract(
                 project_id=clone.id,
                 hwu_name=contract.hwu_name,
-                status=contract.status,
                 contract_start=contract.contract_start,
                 contract_end=contract.contract_end,
                 notes=contract.notes,
+                updated_by=current_user.id,
+            )
+        )
+
+    # Carry the resource registry (the campaign's fleet) over — it holds unit
+    # identity (kind, terrain, name), capability class and the placeholder flag.
+    # Without it the clone's Fleet view starts empty and terrain resolution for
+    # its contracts breaks.
+    source_resources = (
+        await db.execute(
+            select(ResourceRecord).where(ResourceRecord.project_id == project_id)
+        )
+    ).scalars().all()
+    for resource in source_resources:
+        db.add(
+            ResourceRecord(
+                project_id=clone.id,
+                kind=resource.kind,
+                terrain=resource.terrain,
+                name=resource.name,
+                name_key=resource.name_key,
+                capability_class=resource.capability_class,
+                is_placeholder=resource.is_placeholder,
                 updated_by=current_user.id,
             )
         )

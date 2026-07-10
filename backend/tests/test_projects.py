@@ -265,8 +265,25 @@ async def test_clone_inherits_review_policy(client: AsyncClient, db: AsyncSessio
 @pytest.mark.asyncio
 async def test_clone_copies_rig_contracts(client: AsyncClient) -> None:
     source = await _create_project(client, name="Q1")
+    # A SWAMP activity registers the rig, so the contract resolves its terrain —
+    # the clone must carry that physical identity, not collapse it to "".
+    r = await client.post(
+        f"/api/projects/{source['id']}/activities",
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+            "rig_name": "RigAlpha",
+            "well_name": "Well-1",
+            "location": "SWAMP",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
+    )
+    assert r.status_code == 201, r.text
     await client.put(
-        f"/api/projects/{source['id']}/contracts/RigAlpha", json={"status": "Draft"}
+        f"/api/projects/{source['id']}/contracts/RigAlpha",
+        json={"contract_end": "2027-06-30"},
     )
 
     clone = (
@@ -274,7 +291,10 @@ async def test_clone_copies_rig_contracts(client: AsyncClient) -> None:
     ).json()
     contracts = (await client.get(f"/api/projects/{clone['id']}/contracts")).json()
     assert any(
-        c["rig_name"] == "RigAlpha" and c["status"] == "Draft" for c in contracts
+        c["rig_name"] == "RigAlpha"
+        and c["terrain"] == "SWAMP"
+        and c["contract_end"] == "2027-06-30"
+        for c in contracts
     )
 
 

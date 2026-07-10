@@ -65,11 +65,11 @@ async def test_hwu_contract_crud(client: AsyncClient) -> None:
     pid = await _project(client)
     r = await client.put(
         f"/api/projects/{pid}/hwu-contracts/HWU-1",
-        json={"status": "Completed", "contract_end": "2027-01-01"},
+        json={"contract_end": "2027-01-01"},
     )
     assert r.status_code == 200, r.text
     assert r.json()["hwu_name"] == "HWU-1"
-    assert r.json()["status"] == "Completed"
+    assert r.json()["contract_end"] == "2027-01-01"
 
     listing = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
     assert [c["hwu_name"] for c in listing] == ["HWU-1"]
@@ -87,7 +87,8 @@ async def test_hwu_contract_denied_for_non_member(
     assert (await other_client.get(f"/api/projects/{pid}/hwu-contracts")).status_code == 200
     assert (
         await other_client.put(
-            f"/api/projects/{pid}/hwu-contracts/HWU-1", json={"status": "Completed"}
+            f"/api/projects/{pid}/hwu-contracts/HWU-1",
+            json={"contract_end": "2027-01-01"},
         )
     ).status_code == 403
 
@@ -108,7 +109,7 @@ async def test_clone_copies_hwu_contracts(client: AsyncClient) -> None:
     pid = await _project(client)
     await client.put(
         f"/api/projects/{pid}/hwu-contracts/HWU-1",
-        json={"status": "Completed", "contract_end": "2027-01-01"},
+        json={"contract_end": "2027-01-01"},
     )
     clone = await client.post(f"/api/projects/{pid}/clone", json={"name": "Clone"})
     assert clone.status_code == 201, clone.text
