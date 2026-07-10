@@ -43,8 +43,18 @@ class RigDetail(BaseModel):
 
 
 class RigStats(BaseModel):
-    in_use: int
-    conflicts: int
+    """Fleet demand over the plan window, split kind × procurement status.
+
+    A unit counts when it has ≥1 live (not completed) activity anywhere in the
+    plan. "In use" = procured units; "planned" = registry placeholder slots
+    (capacity with no awarded unit yet). The four are disjoint and sum to the
+    lanes the plan occupies."""
+
+    in_use: int  # procured rigs with live work
+    hwus_in_use: int = 0  # procured HWUs with live work
+    planned_rigs: int = 0  # placeholder rig slots with live work
+    planned_hwus: int = 0  # placeholder HWU slots with live work
+    conflicts: int  # rig AND HWU double-bookings (whole fleet)
     total_idle_days: int
     per_rig: list[RigDetail]
 
@@ -112,7 +122,13 @@ class LastApprovedKPIs(BaseModel):
     schedule_end: str | None = None
     readiness_pct: int | None = None  # Completed / applicable cells over the focus window
     readiness_focus_count: int = 0
+    # Fleet demand split (mirrors RigStats): units with live work in the approved
+    # plan, per physical unit. Snapshots approved before the planned flag was
+    # captured report every unit under "in use" and 0 planned.
     rigs_in_use: int = 0
+    hwus_in_use: int = 0
+    planned_rigs: int = 0
+    planned_hwus: int = 0
     contracts_at_risk: int = 0  # rigs whose contract is expired or expiring < 90 days
     by_gate: list[GateBreakdown] = []
 

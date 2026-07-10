@@ -173,3 +173,29 @@ org-wide read; deny by default; generic error messages.
 | Q1 | Are HWUs terrain-locked like rigs, or mobile across terrains? | Planner said rigs are strict; HWUs are modular and often cross terrains. Recommend: HWUs registered per terrain like rigs for now (consistent, matches current data), revisit if a real HWU needs two terrains |
 | Q2 | Who may rename — planner or admin-only? | **Planner** (it's a planning act; audited + lock-guarded), admin bypass as usual |
 | Q3 | Contract backfill for the 7 cross-terrain names (all carrying placeholder 2035-01-01) | Treat as **placeholder slots: drop the placeholder contract rows** during migration; the procurement watchlist (§4.6) takes over. No real contract data is lost — 2035-01-01 was never a contract |
+
+## 11. Post-launch amendments (July 2026)
+
+- **Q1 resolved: HWUs are MOBILE** — identity is (kind, name) with terrain ""
+  (the empty sentinel). One HWU can double-book itself across terrains, and
+  that IS a conflict.
+- **Kind conversion (rig ↔ HWU)** — planner sheets carry one "Rig" column, so
+  real HWUs (Eloho 103, HL19, HL27/Replacement, Rigless Clean/Well) arrive
+  classified as rigs: terrain-locked, inflating rig KPIs, and invisible to
+  cross-terrain double-booking checks. `POST /resources/{id}/convert`
+  (planner-gated, lock-guarded, audited `resource_converted`) moves the unit's
+  activities and contract and re-keys identity. Converting the second of two
+  terrain twins MERGES it into the existing mobile HWU — overlaps then surface
+  as real conflicts. HWU → rig requires the unit's work to sit on one terrain
+  (409 otherwise); differing contract end dates on the two sides are never
+  merged silently (409 — the planner resolves first).
+- **Vocabulary: "Planned" replaces "TBD"** as the product's word for an
+  unprocured slot (badge, Mark planned, filters, template guidance). The
+  sequence chart carries NO planned marker on its lanes (planner decision —
+  keep lane labels clean; the Fleet page and KPIs carry the split). Code keeps
+  `is_placeholder` / `?focus=tbd` — labels changed, not identifiers.
+- **Fleet KPIs split kind × procurement** — the campaign tile and the home
+  dashboard KPI report rigs in use / HWUs in use / planned rigs / planned HWUs
+  as disjoint counts (units with live work in the plan window). Snapshots now
+  carry `resource_planned` per activity; revisions approved before that flag
+  report everything as in-use rather than guessing.

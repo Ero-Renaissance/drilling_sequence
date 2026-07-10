@@ -239,8 +239,8 @@ async def test_import_registers_units_and_terrain_contracts(client: AsyncClient)
         "Readiness Check,Readiness Check Status,Comment"
     )
     rows = [
-        f"LAND,10K Rig 1,,Oil Development,In Plan (Firm),PX,W-L,05/01/2026,15/03/2026,31/12/2030,,No Flood Risk,BUD,On track,",
-        f"SWAMP,10K Rig 1,,Oil Development,In Plan (Firm),PX,W-S,01/04/2026,30/06/2026,30/06/2031,,Flood Risk,BUD,On track,",
+        "LAND,10K Rig 1,,Oil Development,In Plan (Firm),PX,W-L,05/01/2026,15/03/2026,31/12/2030,,No Flood Risk,BUD,On track,",
+        "SWAMP,10K Rig 1,,Oil Development,In Plan (Firm),PX,W-S,01/04/2026,30/06/2026,30/06/2031,,Flood Risk,BUD,On track,",
     ]
     content = ("\n".join([header, *rows]) + "\n").encode()
     r = await client.post(
@@ -299,6 +299,172 @@ async def test_contract_is_its_end_date(client: AsyncClient) -> None:
     assert (
         await client.put(f"/api/projects/{pid}/hwu-contracts/HWU-1", json={})
     ).status_code == 422
+
+
+# ── Convert (rig ↔ HWU) — the fix for HWUs imported through the Rig column ───
+
+
+async def _unit(client: AsyncClient, pid: str, name: str, kind: str = "rig") -> dict:
+    return next(
+        u for u in await _resources(client, pid) if u["name"] == name and u["kind"] == kind
+    )
+
+
+@pytest.mark.asyncio
+async def test_convert_rig_to_hwu_moves_lane_contract_and_identity(
+    client: AsyncClient,
+) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, rig="HL19", location="LAND", well="W-1")
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/HL19", json={"contract_end": "2027-01-01"}
+    )
+    assert r.status_code == 200, r.text
+
+    unit = await _unit(client, pid, "HL19")
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{unit['id']}/convert", json={"to": "hwu"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "hwu"
+    assert r.json()["terrain"] == ""  # mobile — never terrain-bound
+
+    # The lane's activities moved; the location stays (it's the WELL's terrain).
+    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
+    assert acts[0]["rig_name"] is None
+    assert acts[0]["hwu_name"] == "HL19"
+    assert acts[0]["location"] == "LAND"
+
+    # The contract followed into the HWU table.
+    assert (await client.get(f"/api/projects/{pid}/contracts")).json() == []
+    hwu_contracts = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
+    assert [(c["hwu_name"], c["contract_end"]) for c in hwu_contracts] == [
+        ("HL19", "2027-01-01")
+    ]
+
+    # Governance trail records the reclassification.
+    audit = (await client.get(f"/api/projects/{pid}/audit")).json()
+    entry = next(
+        (e for e in audit if e["entity_type"] == "resource" and e["field"] == "resource_converted"),
+        None,
+    )
+    assert entry is not None
+    assert "HWU" in entry["new_value"]
+
+
+@pytest.mark.asyncio
+async def test_convert_merges_terrain_twins_and_surfaces_conflicts(
+    client: AsyncClient,
+) -> None:
+    """Converting both terrain 'twins' of a misclassified HWU merges them into
+    ONE mobile unit — and their overlapping work then reads as a real conflict
+    (exactly what rig classification was hiding)."""
+    pid = await _project(client)
+    # Overlapping windows on the two terrains.
+    await _activity(client, pid, rig="HL19", location="LAND", well="W-L",
+                    start="2026-01-01", end="2026-03-01")
+    await _activity(client, pid, rig="HL19", location="SWAMP", well="W-S",
+                    start="2026-02-01", end="2026-04-01")
+    assert (await client.get(f"/api/projects/{pid}/dashboard")).json()["rigs"]["conflicts"] == 0
+
+    for terrain in ("LAND", "SWAMP"):
+        unit = next(
+            u for u in await _resources(client, pid)
+            if u["kind"] == "rig" and u["terrain"] == terrain
+        )
+        r = await client.post(
+            f"/api/projects/{pid}/resources/{unit['id']}/convert", json={"to": "hwu"}
+        )
+        assert r.status_code == 200, r.text
+
+    rows = await _resources(client, pid)
+    assert [(u["kind"], u["terrain"], u["name"]) for u in rows] == [("hwu", "", "HL19")]
+    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
+    assert all(a["hwu_name"] == "HL19" and a["rig_name"] is None for a in acts)
+    # The merged unit is double-booked across terrains — now visible.
+    assert (await client.get(f"/api/projects/{pid}/dashboard")).json()["rigs"]["conflicts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_convert_refuses_to_guess_between_differing_contracts(
+    client: AsyncClient,
+) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, rig="HL19", location="LAND", well="W-L")
+    await _activity(client, pid, rig="HL19", location="SWAMP", well="W-S",
+                    start="2026-03-01", end="2026-04-01")
+    for terrain, end in (("LAND", "2027-01-01"), ("SWAMP", "2028-06-30")):
+        await client.put(
+            f"/api/projects/{pid}/contracts/HL19",
+            json={"contract_end": end, "terrain": terrain},
+        )
+
+    land = next(
+        u for u in await _resources(client, pid) if u["kind"] == "rig" and u["terrain"] == "LAND"
+    )
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{land['id']}/convert", json={"to": "hwu"}
+    )
+    assert r.status_code == 200, r.text
+
+    # The second twin carries a DIFFERENT contract end — the server must not guess.
+    swamp = next(
+        u for u in await _resources(client, pid) if u["kind"] == "rig" and u["terrain"] == "SWAMP"
+    )
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{swamp['id']}/convert", json={"to": "hwu"}
+    )
+    assert r.status_code == 409, r.text
+    assert "contract" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_convert_hwu_to_rig_needs_a_single_terrain(client: AsyncClient) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, hwu="HWU-1", location="SWAMP", well="W-1")
+    unit = await _unit(client, pid, "HWU-1", kind="hwu")
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{unit['id']}/convert", json={"to": "rig"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "rig"
+    assert r.json()["terrain"] == "SWAMP"  # inherited from its activities
+    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
+    assert acts[0]["rig_name"] == "HWU-1" and acts[0]["hwu_name"] is None
+
+    # A unit whose work spans terrains cannot become a terrain-locked rig.
+    await _activity(client, pid, hwu="HWU-2", location="LAND", well="W-2",
+                    start="2026-03-01", end="2026-04-01")
+    await _activity(client, pid, hwu="HWU-2", location="SWAMP", well="W-3",
+                    start="2026-05-01", end="2026-06-01")
+    unit2 = await _unit(client, pid, "HWU-2", kind="hwu")
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{unit2['id']}/convert", json={"to": "rig"}
+    )
+    assert r.status_code == 409, r.text
+    assert "terrain" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_convert_denied_for_non_planner_and_locked_plan(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, rig="HL19", location="LAND")
+    unit = await _unit(client, pid, "HL19")
+
+    r = await other_client.post(
+        f"/api/projects/{pid}/resources/{unit['id']}/convert", json={"to": "hwu"}
+    )
+    assert r.status_code == 403, r.text
+
+    # A pending revision freezes the plan — conversion moves plan data.
+    r = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert r.status_code in (200, 201), r.text
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{unit['id']}/convert", json={"to": "hwu"}
+    )
+    assert r.status_code == 423, r.text
 
 
 @pytest.mark.asyncio

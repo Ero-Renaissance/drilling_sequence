@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.hwu_contract import HwuContract
 from app.models.readiness import CHECK_CODES, ReadinessCheck
+from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.rig_contract import RigContract
 from app.services.readiness import resolve_activity_contract
 
@@ -60,6 +61,28 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
         ).scalars().all()
     }
 
+    # Whether each activity's unit is a PLANNED (placeholder) slot at snapshot
+    # time — captured so the approved record can split fleet demand into
+    # procured vs planned. Older stored revisions lack the key; readers treat
+    # that as "not planned".
+    registry = (
+        await db.execute(
+            select(ResourceRecord).where(ResourceRecord.project_id == project_id)
+        )
+    ).scalars().all()
+    planned_rig_keys = {
+        (r.terrain, r.name_key) for r in registry if r.kind == "rig" and r.is_placeholder
+    }
+    planned_hwu_keys = {r.name_key for r in registry if r.kind == "hwu" and r.is_placeholder}
+
+    def resource_planned(activity: Activity) -> bool:
+        if activity.rig_name:
+            key = ((activity.location or "").strip(), normalize_resource_name(activity.rig_name))
+            return key in planned_rig_keys
+        if activity.hwu_name:
+            return normalize_resource_name(activity.hwu_name) in planned_hwu_keys
+        return False
+
     def contract_fields(activity: Activity) -> dict:
         # The activity's resource contract — its rig's or its HWU's. Kept under the
         # rig_contract_* keys so the print-out, KPIs and diff read one set of fields
@@ -105,6 +128,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
                 code: checks_by_activity.get(a.id, {}).get(code, "On Track")
                 for code in CHECK_CODES
             },
+            "resource_planned": resource_planned(a),
             **contract_fields(a),
         }
         for a in activities

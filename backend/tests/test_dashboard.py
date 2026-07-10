@@ -51,6 +51,48 @@ async def test_dashboard_open_to_any_authenticated_user(
 
 
 @pytest.mark.asyncio
+async def test_fleet_kpis_split_kind_and_planned(client: AsyncClient) -> None:
+    """Fleet demand splits kind × procurement: procured rigs, procured HWUs and
+    planned (placeholder) slots are disjoint counts; case variants of a name
+    collapse to one physical unit."""
+    pid = await _project(client, "Fleet")
+    start, end = TODAY + timedelta(days=5), TODAY + timedelta(days=25)
+    await _activity(client, pid, rig="Thomas 01", start=start, end=end)
+    # Case variant of the same physical rig — must not count twice.
+    await _activity(client, pid, rig="thomas 01", start=end + timedelta(days=14),
+                    end=end + timedelta(days=30))
+    await _activity(client, pid, rig="10K Rig 3", start=start, end=end)
+    r = await client.post(
+        f"/api/projects/{pid}/activities",
+        json={
+            "activity_type": "Well Repair/Safety",
+            "start_date": _iso(start),
+            "end_date": _iso(end),
+            "hwu_name": "HL19",
+            "well_name": "W-H",
+            "location": "SWAMP",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    # New units auto-register as planned; award Thomas 01 and HL19.
+    units = {u["name"]: u for u in (await client.get(f"/api/projects/{pid}/resources")).json()}
+    for name in ("Thomas 01", "HL19"):
+        await client.patch(
+            f"/api/projects/{pid}/resources/{units[name]['id']}",
+            json={"is_placeholder": False},
+        )
+
+    d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
+    assert d["rigs"]["in_use"] == 1  # Thomas 01 (both casings = one unit)
+    assert d["rigs"]["hwus_in_use"] == 1  # HL19
+    assert d["rigs"]["planned_rigs"] == 1  # the 10K Rig 3 slot
+    assert d["rigs"]["planned_hwus"] == 0
+
+
+@pytest.mark.asyncio
 async def test_dashboard_empty_project(client: AsyncClient) -> None:
     pid = await _project(client, "Empty")
     r = await client.get(f"/api/projects/{pid}/dashboard")

@@ -236,9 +236,10 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
          "locations is TWO physical rigs (e.g. a land 10K and a swamp 10K barge) — the import "
          "confirms this with an informational notice. Two rigs of the same class in the SAME "
          "location must be numbered (10K Rig 1, 10K Rig 2)."),
-        ("Placeholder rigs", "Don't know the awarded rig yet? Use a class-style slot name "
-         "(e.g. '10K Rig 3'). It registers as a TBD placeholder; rename it from the Fleet page "
-         "when the contract is awarded — its schedule and contract follow automatically."),
+        ("Planned rigs", "Don't know the awarded rig yet? Use a class-style slot name "
+         "(e.g. '10K Rig 3'). It registers as a PLANNED unit (no awarded rig behind it); rename "
+         "it from the Fleet page when the contract is awarded — its schedule and contract "
+         "follow automatically."),
         ("HWUs", "HWUs are mobile units: the same HWU Name anywhere is ONE unit, whatever "
          "the location."),
         ("Dates", "Day-first — DD/MM/YYYY or DD-MM-YYYY (e.g. 31/07/2026). Real Excel date "
@@ -249,8 +250,8 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
          "mapped: 'Behind Schedule' → Behind; 'Not Started' / 'In Progress' → On Track."),
         ("Rig Contract Expiry Date", "ONE date per physical rig, repeated identically on its "
          "rows (the last row wins). Terrain twins may each carry their own date. Leave blank "
-         "when there is no contract yet — correct for TBD slots; the dashboard then raises a "
-         "procurement alert. Never a computed date (e.g. end + 24 months)."),
+         "when there is no contract yet — correct for planned units; the dashboard then raises "
+         "a procurement alert. Never a computed date (e.g. end + 24 months)."),
         ("Plan Type", "In Plan (Firm), In Plan (Option) or Out of Plan."),
         ("Risk", "Flood Risk or No Flood Risk."),
     ]

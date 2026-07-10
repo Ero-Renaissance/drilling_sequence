@@ -32,6 +32,11 @@ async def _approved_project(
     await client.put(
         f"/api/projects/{pid}/activities/{a['id']}/readiness/BUD", json={"status": "Completed"}
     )
+    # New units auto-register as PLANNED slots; this rig is a real, procured one.
+    unit = (await client.get(f"/api/projects/{pid}/resources")).json()[0]
+    await client.patch(
+        f"/api/projects/{pid}/resources/{unit['id']}", json={"is_placeholder": False}
+    )
     # A contract that ends well out → not "at risk".
     await client.put(
         f"/api/projects/{pid}/contracts/R",
@@ -77,6 +82,9 @@ async def test_last_approved_kpis(client: AsyncClient, other_client: AsyncClient
     k = d["kpis"]
     assert k["activities_total"] == 1
     assert k["rigs_in_use"] == 1
+    assert k["hwus_in_use"] == 0
+    assert k["planned_rigs"] == 0  # the unit was marked procured before approval
+    assert k["planned_hwus"] == 0
     assert k["contracts_at_risk"] == 0  # contract ends +200d → healthy
     # The snapshot materialises all 7 gates (unset → On Track), so BUD Completed
     # out of 7 applicable = 14%.
@@ -141,3 +149,49 @@ async def test_membership_scoped(client: AsyncClient, other_client: AsyncClient)
     await _approved_project(client, other_client)
     d = (await other_client.get("/api/me/last-approved-dashboard")).json()
     assert d["available"] is True
+
+
+# ── compute_snapshot_kpis (pure) — fleet split semantics ─────────────────────
+
+
+def _snap_act(**over) -> dict:
+    return {
+        "start_date": "2026-01-05",
+        "end_date": "2026-02-05",
+        "completed_at": None,
+        **over,
+    }
+
+
+def test_snapshot_kpis_split_fleet_by_kind_and_planned() -> None:
+    from datetime import date as _date
+
+    from app.services.dashboard import compute_snapshot_kpis
+
+    snapshot = [
+        # Terrain twins are two physical rigs — one planned, one procured.
+        _snap_act(rig_name="10K Rig 1", location="LAND", resource_planned=True),
+        _snap_act(rig_name="10K Rig 1", location="SWAMP", resource_planned=False),
+        # A procured HWU (mobile — no terrain in its identity).
+        _snap_act(hwu_name="HL19", resource_planned=False),
+        # Completed work no longer holds its unit "in use".
+        _snap_act(rig_name="Done Rig", location="LAND", completed_at="2026-01-20T00:00:00Z"),
+    ]
+    k = compute_snapshot_kpis(snapshot, _date(2026, 1, 1))
+    assert k.rigs_in_use == 1  # the SWAMP twin
+    assert k.planned_rigs == 1  # the LAND twin
+    assert k.hwus_in_use == 1
+    assert k.planned_hwus == 0
+
+
+def test_snapshot_kpis_legacy_snapshot_counts_everything_in_use() -> None:
+    """Snapshots approved before the planned flag was captured lack the key —
+    every unit reads as procured rather than guessing."""
+    from datetime import date as _date
+
+    from app.services.dashboard import compute_snapshot_kpis
+
+    snapshot = [_snap_act(rig_name="R", location="LAND")]
+    k = compute_snapshot_kpis(snapshot, _date(2026, 1, 1))
+    assert k.rigs_in_use == 1
+    assert k.planned_rigs == 0

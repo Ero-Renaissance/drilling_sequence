@@ -16,7 +16,7 @@ from app.models.approver import ProjectApprover
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project
 from app.models.readiness import CHECK_CODES, ReadinessCheck
-from app.models.resource_registry import ResourceRecord
+from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
 from app.schemas.dashboard import (
@@ -227,8 +227,35 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
             RigDetail(rig=f"{loc} – {rig}" if loc else rig, busy_days=busy, idle_days=idle)
         )
     per_rig.sort(key=lambda r: r.idle_days, reverse=True)
+
+    # Fleet demand split kind × procurement: units with live work, keyed like
+    # the registry ((terrain, name_key) for rigs; name_key for mobile HWUs) so
+    # casing variants collapse to one physical unit. A unit the registry marks
+    # as a placeholder is "planned" capacity; anything else (including a unit
+    # somehow unregistered) counts as procured.
+    registry = (
+        await db.execute(
+            select(ResourceRecord).where(ResourceRecord.project_id == project_id)
+        )
+    ).scalars().all()
+    planned_rig_keys = {
+        (r.terrain, r.name_key) for r in registry if r.kind == "rig" and r.is_placeholder
+    }
+    planned_hwu_keys = {r.name_key for r in registry if r.kind == "hwu" and r.is_placeholder}
+    live_rig_keys = {
+        ((a.location or "").strip(), normalize_resource_name(a.rig_name))
+        for a in activities
+        if a.rig_name and not done(a)
+    }
+    live_hwu_keys = {
+        normalize_resource_name(a.hwu_name) for a in activities if a.hwu_name and not done(a)
+    }
+
     rig_stats = RigStats(
-        in_use=len({(a.location, a.rig_name) for a in activities if a.rig_name and not done(a)}),
+        in_use=len(live_rig_keys - planned_rig_keys),
+        hwus_in_use=len(live_hwu_keys - planned_hwu_keys),
+        planned_rigs=len(live_rig_keys & planned_rig_keys),
+        planned_hwus=len(live_hwu_keys & planned_hwu_keys),
         conflicts=len(conflicts),
         total_idle_days=total_idle,
         per_rig=per_rig,
@@ -437,15 +464,36 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
         1 for end in contract_end_by_rig.values() if (end - today).days < _SOON_DAYS
     )
 
+    # Fleet demand split (mirrors RigStats): per PHYSICAL unit — rigs keyed
+    # (terrain, name) so terrain twins count separately, HWUs by name. The
+    # snapshot's resource_planned flag splits procured vs planned; snapshots
+    # predating the flag report everything as in use.
+    live = [a for a in snapshot if not is_done(a)]
+
+    def _rig_key(a: dict) -> tuple[str, str]:
+        return ((a.get("location") or "").strip(), (a.get("rig_name") or "").strip().lower())
+
+    rig_keys = {_rig_key(a) for a in live if a.get("rig_name")}
+    planned_rig_keys = {
+        _rig_key(a) for a in live if a.get("rig_name") and a.get("resource_planned")
+    }
+    hwu_keys = {(a.get("hwu_name") or "").strip().lower() for a in live if a.get("hwu_name")}
+    planned_hwu_keys = {
+        (a.get("hwu_name") or "").strip().lower()
+        for a in live
+        if a.get("hwu_name") and a.get("resource_planned")
+    }
+
     return LastApprovedKPIs(
         activities_total=len(snapshot),
         schedule_start=min(starts).isoformat() if starts else None,
         schedule_end=max(ends).isoformat() if ends else None,
         readiness_pct=round(100 * completed / applicable) if applicable else None,
         readiness_focus_count=len(focus),
-        rigs_in_use=len(
-            {a.get("rig_name") for a in snapshot if a.get("rig_name") and not is_done(a)}
-        ),
+        rigs_in_use=len(rig_keys - planned_rig_keys),
+        hwus_in_use=len(hwu_keys - planned_hwu_keys),
+        planned_rigs=len(planned_rig_keys),
+        planned_hwus=len(planned_hwu_keys),
         contracts_at_risk=contracts_at_risk,
         by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in CHECK_CODES],
     )
