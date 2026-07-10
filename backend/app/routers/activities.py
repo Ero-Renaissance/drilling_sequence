@@ -29,6 +29,7 @@ from app.schemas.activity import (
 )
 from app.schemas.audit import AuditEntryResponse
 from app.services.data_processor import (
+    cross_terrain_resource_warnings,
     csv_df_to_db_rows,
     is_long_schedule,
     parse_long_schedule,
@@ -462,6 +463,14 @@ async def _import_long_schedule(
     # the planner so the vocabulary gets fixed (or the catalogue extended).
     warnings.extend(
         unknown_activity_type_warnings([a.activity_type for a, _ in validated])
+    )
+    # A rig/HWU name spanning terrains is legal (two physical units under the
+    # planner's naming convention) but can also hide a location typo — warn.
+    warnings.extend(
+        cross_terrain_resource_warnings([(a.rig_name, a.location) for a, _ in validated], "Rig")
+    )
+    warnings.extend(
+        cross_terrain_resource_warnings([(a.hwu_name, a.location) for a, _ in validated], "HWU")
     )
 
     # Replace only when at least one well is valid — never wipe the schedule to

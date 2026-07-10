@@ -25,11 +25,11 @@ async def _create_project(client: AsyncClient, name: str = "Schedule") -> dict:
 
 
 def _well_rows(*, well, project, atype, plan, risk, start, end, expiry="", statuses=None,
-               rig="RIG_1", hwu="", hwu_expiry=""):
+               rig="RIG_1", hwu="", hwu_expiry="", loc="LAND"):
     """One well-activity expanded into its 7 readiness rows (the long format)."""
     statuses = statuses or {}
     return [
-        f"LAND,{rig},{hwu},{atype},{plan},{project},{well},{start},{end},"
+        f"{loc},{rig},{hwu},{atype},{plan},{project},{well},{start},{end},"
         f"{expiry},{hwu_expiry},{risk},{g},{statuses.get(g, 'On track')},note"
         for g in GATES
     ]
@@ -251,3 +251,32 @@ async def test_long_schedule_warns_on_non_canonical_activity_type(client: AsyncC
     assert len(type_warnings) == 1  # deduped: one warning per distinct type
     assert "Coiled Tubing Cleanout" in type_warnings[0]
     assert not any("Gas Development" in w for w in type_warnings)
+
+
+@pytest.mark.asyncio
+async def test_long_schedule_warns_when_a_rig_name_spans_terrains(client: AsyncClient) -> None:
+    """Rig identity is (terrain, name): the same name in two terrains is two
+    physical rigs, which is legal — but it can also hide a location typo, so
+    the import WARNS (never blocks). A single-terrain rig draws no warning."""
+    pid = (await _create_project(client))["id"]
+    csv = _long_csv(
+        _well_rows(well="W_LAND", project="PX", atype="Oil Development",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="05/01/2026", end="15/03/2026", rig="10K Rig 1", loc="LAND"),
+        _well_rows(well="W_SWAMP", project="PX", atype="Oil Development",
+                   plan="In Plan (Firm)", risk="Flood Risk",
+                   start="20/01/2026", end="30/03/2026", rig="10K Rig 1", loc="SWAMP"),
+        _well_rows(well="W_OTHER", project="PX", atype="Oil Development",
+                   plan="In Plan (Firm)", risk="No Flood Risk",
+                   start="01/04/2026", end="01/06/2026", rig="RIG_SOLO", loc="LAND"),
+    )
+    resp = await _upload(client, pid, csv)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 3  # cross-terrain overlap imports fine (two rigs)
+
+    terrain_warnings = [w for w in body["warnings"] if "multiple terrains" in w]
+    assert len(terrain_warnings) == 1
+    assert "10K Rig 1" in terrain_warnings[0]
+    assert "LAND" in terrain_warnings[0] and "SWAMP" in terrain_warnings[0]
+    assert not any("RIG_SOLO" in w for w in terrain_warnings)

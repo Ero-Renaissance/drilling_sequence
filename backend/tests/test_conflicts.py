@@ -9,7 +9,14 @@ async def _project(client: AsyncClient, name: str = "Conflict") -> str:
 
 
 async def _activity(
-    client: AsyncClient, pid: str, *, rig: str, start: str, end: str, well: str = "W"
+    client: AsyncClient,
+    pid: str,
+    *,
+    rig: str,
+    start: str,
+    end: str,
+    well: str = "W",
+    location: str = "OFFSHORE",
 ) -> dict:
     r = await client.post(
         f"/api/projects/{pid}/activities",
@@ -19,7 +26,7 @@ async def _activity(
             "end_date": end,
             "rig_name": rig,
             "well_name": well,
-            "location": "OFFSHORE",
+            "location": location,
             "plan_type": "Firm",
             "risk": "No Flood Risk",
         },
@@ -70,3 +77,44 @@ async def test_create_revision_allowed_for_different_rigs(client: AsyncClient) -
 
     r = await client.post(f"/api/projects/{pid}/revisions", json={})
     assert r.status_code in (200, 201), r.text
+
+
+@pytest.mark.asyncio
+async def test_same_rig_name_in_different_terrains_is_not_a_conflict(
+    client: AsyncClient,
+) -> None:
+    """Planner convention: rig identity is (terrain, name). A LAND '10K Rig 1'
+    and a SWAMP '10K Rig 1' are two different physical, terrain-locked units —
+    overlapping in parallel is a legitimate plan, not a double-booking."""
+    pid = await _project(client)
+    await _activity(
+        client, pid, rig="10K Rig 1", location="LAND",
+        start="2026-01-01", end="2026-03-01", well="W-LAND",
+    )
+    await _activity(
+        client, pid, rig="10K Rig 1", location="SWAMP",
+        start="2026-01-15", end="2026-04-01", well="W-SWAMP",
+    )
+
+    r = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert r.status_code in (200, 201), r.text
+
+
+@pytest.mark.asyncio
+async def test_conflict_message_names_the_terrain_qualified_lane(
+    client: AsyncClient,
+) -> None:
+    pid = await _project(client)
+    await _activity(
+        client, pid, rig="10K Rig 1", location="SWAMP",
+        start="2026-01-01", end="2026-03-01", well="W-A",
+    )
+    await _activity(
+        client, pid, rig="10K Rig 1", location="SWAMP",
+        start="2026-02-01", end="2026-04-01", well="W-B",
+    )
+
+    r = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert r.status_code == 409, r.text
+    # The 409 names the physical unit unambiguously — terrain-qualified.
+    assert "SWAMP – 10K Rig 1" in r.json()["detail"]

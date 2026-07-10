@@ -83,4 +83,24 @@ describe("detectResourceConflicts", () => {
     ]);
     expect(conflicts).toHaveLength(0);
   });
+
+  it("does NOT conflate same-named rigs in different terrains (two physical rigs)", () => {
+    // Planner convention: a LAND "10K Rig 1" and a SWAMP "10K Rig 1" are two
+    // different terrain-locked units — overlapping in parallel is legitimate.
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: "10K Rig 1", location: "LAND", start_date: "2026-01-01", end_date: "2026-03-01" }),
+      act({ id: "b", rig_name: "10K Rig 1", location: "SWAMP", start_date: "2026-01-15", end_date: "2026-04-01" }),
+    ]);
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it("flags a same-terrain overlap with the terrain-qualified lane label", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: "10K Rig 1", location: "SWAMP", start_date: "2026-01-01", end_date: "2026-03-01" }),
+      act({ id: "b", rig_name: "10K Rig 1", location: "SWAMP", start_date: "2026-01-15", end_date: "2026-04-01" }),
+    ]);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].resource).toBe("SWAMP – 10K Rig 1");
+    expect(conflicts[0].terrain).toBe("SWAMP");
+  });
 });

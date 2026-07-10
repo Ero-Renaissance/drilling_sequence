@@ -47,6 +47,30 @@ def unknown_activity_type_warnings(activity_types: "list[str | None]") -> list[s
         for t in unknown
     ]
 
+
+def cross_terrain_resource_warnings(
+    pairs: "list[tuple[str | None, str | None]]", kind: str = "Rig"
+) -> list[str]:
+    """One SOFT warning per resource name appearing in more than one terrain.
+
+    Rig identity is (terrain, name) — the planner convention where a LAND
+    "10K Rig 1" and a SWAMP "10K Rig 1" are two different physical rigs — so a
+    cross-terrain name is perfectly legal and is NOT blocked. But a real unit
+    name (e.g. "T209") lives in exactly one terrain, so the reuse can also be a
+    location typo; the warning surfaces it for a human to confirm.
+    """
+    terrains: dict[str, set[str]] = {}
+    for name, terrain in pairs:
+        if name and terrain:
+            terrains.setdefault(name, set()).add(terrain)
+    return [
+        f"{kind} '{name}' appears in multiple terrains ({', '.join(sorted(ts))}) — "
+        f"treated as {len(ts)} different physical units. If it is ONE unit, one of "
+        f"the locations is a typo."
+        for name, ts in sorted(terrains.items())
+        if len(ts) > 1
+    ]
+
 # Maps CSV alias column names → DB field names (used at import time)
 CSV_ALIASES: dict[str, str] = {
     # entity aliases

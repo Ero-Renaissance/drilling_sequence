@@ -193,24 +193,29 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     )
 
     # ── rigs ───────────────────────────────────────────────────────────────────
+    # Rig identity is (terrain, name) — the same name in two terrains is two
+    # physical rigs (see app/services/conflicts.py), so utilisation/idle stats
+    # are computed per lane and labelled "TERRAIN – Rig".
     conflicts = detect_resource_conflicts(activities)
-    by_rig: dict[str, list[Activity]] = {}
+    by_rig: dict[tuple[str | None, str], list[Activity]] = {}
     for a in activities:
         if a.rig_name:
-            by_rig.setdefault(a.rig_name, []).append(a)
+            by_rig.setdefault((a.location, a.rig_name), []).append(a)
     per_rig: list[RigDetail] = []
     total_idle = 0
-    for rig, acts in by_rig.items():
+    for (loc, rig), acts in by_rig.items():
         seq = sorted(acts, key=lambda x: x.start_date)
         busy = sum((x.end_date - x.start_date).days for x in seq)
         idle = sum(
             max(0, (nxt.start_date - prev.end_date).days) for prev, nxt in zip(seq, seq[1:])
         )
         total_idle += idle
-        per_rig.append(RigDetail(rig=rig, busy_days=busy, idle_days=idle))
+        per_rig.append(
+            RigDetail(rig=f"{loc} – {rig}" if loc else rig, busy_days=busy, idle_days=idle)
+        )
     per_rig.sort(key=lambda r: r.idle_days, reverse=True)
     rig_stats = RigStats(
-        in_use=len({a.rig_name for a in activities if a.rig_name and not done(a)}),
+        in_use=len({(a.location, a.rig_name) for a in activities if a.rig_name and not done(a)}),
         conflicts=len(conflicts),
         total_idle_days=total_idle,
         per_rig=per_rig,
