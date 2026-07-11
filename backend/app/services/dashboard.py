@@ -92,7 +92,11 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         await db.execute(
             select(ResourceRecord).where(
                 ResourceRecord.project_id == project_id,
-                ResourceRecord.is_placeholder.is_(True),
+                # Bare boolean column, NOT `.is_(True)`: SQL Server allows IS
+                # only with NULL, so `IS 1` is a syntax error there (SQLite/PG
+                # accept it, which is why tests didn't catch it). SQLAlchemy
+                # compiles the bare column to `is_placeholder = 1` on MSSQL.
+                ResourceRecord.is_placeholder,
             )
         )
     ).scalars().all()

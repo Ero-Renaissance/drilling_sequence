@@ -234,3 +234,23 @@ async def test_dashboard_contract_buckets_use_cadence_thresholds(client: AsyncCl
     assert d["contracts"]["soon"] == 2
     assert d["contracts"]["healthy"] == 1
     assert d["watchlist"]["contracts_expiring"] == 5
+
+
+def test_placeholder_filter_compiles_on_sql_server() -> None:
+    """SQL Server allows IS only with NULL — a `.is_(True)` filter compiles to
+    `is_placeholder IS 1`, a syntax error that 500'd the live dashboard.
+    SQLite and PostgreSQL both accept `IS <bool>`, so the async test suite
+    can't catch it at runtime; compile against the MSSQL dialect instead.
+    Boolean columns must be used bare (or compared with ==), never `.is_()`."""
+    from sqlalchemy import select
+    from sqlalchemy.dialects import mssql
+
+    from app.models.resource_registry import ResourceRecord
+
+    sql = str(
+        select(ResourceRecord)
+        .where(ResourceRecord.is_placeholder)
+        .compile(dialect=mssql.dialect())
+    )
+    assert " IS 1" not in sql
+    assert "is_placeholder = 1" in sql
