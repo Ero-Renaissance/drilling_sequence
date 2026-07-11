@@ -45,10 +45,15 @@ def upgrade() -> None:
 
     # Batch mode so this ALSO runs on the SQLite dev database (a table rebuild
     # there; a plain ALTER passthrough on PostgreSQL / SQL Server).
+    # mssql_drop_default: SQL Server materializes the column's server_default
+    # ("Draft") as a separate auto-named DEFAULT constraint (DF__...), and
+    # refuses DROP COLUMN while it exists (error 5074). The flag makes Alembic
+    # look the constraint up in sys.default_constraints and drop it first; the
+    # other backends ignore it.
     with op.batch_alter_table("rig_contracts") as batch:
-        batch.drop_column("status")
+        batch.drop_column("status", mssql_drop_default=True)
     with op.batch_alter_table("hwu_contracts") as batch:
-        batch.drop_column("status")
+        batch.drop_column("status", mssql_drop_default=True)
 
 
 def downgrade() -> None:
