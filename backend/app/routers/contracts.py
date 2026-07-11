@@ -12,9 +12,13 @@ from app.database import get_db
 from app.models.project import ProjectRole
 from app.models.rig_contract import RigContract
 from app.models.user import User
-from app.schemas.rig_contract import RigContractResponse, RigContractUpsert
+from app.schemas.rig_contract import ContractTerrain, RigContractResponse, RigContractUpsert
 from app.services.audit import ENTITY_CONTRACT, contract_state, governance_event
-from app.services.registry import rig_terrains_in_project
+from app.services.registry import (
+    lane_contract_rows,
+    rig_terrains_in_project,
+    sole_lane_contract,
+)
 
 router = APIRouter(prefix="/api/projects/{project_id}/contracts", tags=["contracts"])
 
@@ -83,14 +87,24 @@ async def upsert_contract(
         )
 
     terrain = await _resolve_terrain(db, project_id, rig_name, payload.terrain)
-    result = await db.execute(
-        select(RigContract).where(
-            RigContract.project_id == project_id,
-            RigContract.rig_name == rig_name,
-            RigContract.terrain == terrain,
-        )
+    # Matched like the registry — trimmed, case-insensitively — so "10K RIG 1"
+    # from a sheet and "10K Rig 1" from the grid can never split one physical
+    # unit's contract into two rows (case-variant duplicates 409 with a
+    # remove-and-recreate instruction).
+    contract = await sole_lane_contract(
+        db, project_id, kind="rig", name=rig_name, terrain=terrain
     )
-    contract = result.scalar_one_or_none()
+    if contract is None and terrain != "":
+        # A ""-terrain row is the legacy/unassigned sentinel for the same
+        # physical unit (it predates terrain resolution, or the rig had no
+        # activities when it was saved). Adopt and upgrade it in place rather
+        # than shadowing it with a second row it would then fall back for.
+        legacy = await sole_lane_contract(
+            db, project_id, kind="rig", name=rig_name, terrain=""
+        )
+        if legacy is not None:
+            legacy.terrain = terrain
+            contract = legacy
     existed = contract is not None
     old_summary = contract_state(contract.contract_end) if existed else None
 
@@ -134,31 +148,37 @@ async def delete_contract(
     rig_name: str,
     current_user: CurrentUser,
     db: DB,
-    terrain: str | None = None,
+    # Same allow-list as the upsert payload; legacy ""-terrain rows are reached
+    # by omitting the param (registry resolution + the "" fallback below).
+    terrain: ContractTerrain | None = None,
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
     await assert_project_not_locked(project_id, db)
 
     resolved = await _resolve_terrain(db, project_id, rig_name, terrain)
-    result = await db.execute(
-        select(RigContract).where(
-            RigContract.project_id == project_id,
-            RigContract.rig_name == rig_name,
-            RigContract.terrain == resolved,
-        )
+    # Case-insensitive match, and delete EVERY variant row: they all describe
+    # the same physical unit, and this is the healing path for case-variant
+    # duplicates predating the normalized upsert.
+    rows = await lane_contract_rows(
+        db, project_id, kind="rig", name=rig_name, terrain=resolved
     )
-    contract = result.scalar_one_or_none()
-    if contract is None:
+    if not rows and resolved != "":
+        # Legacy/unassigned sentinel row for the same unit (see upsert).
+        rows = await lane_contract_rows(
+            db, project_id, kind="rig", name=rig_name, terrain=""
+        )
+    if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contract not found")
-    db.add(
-        governance_event(
-            project_id=project_id,
-            user_id=current_user.id,
-            entity_type=ENTITY_CONTRACT,
-            entity_id=contract.id,
-            action="contract_deleted",
-            detail=f"Rig {rig_name}: {contract_state(contract.contract_end)}",
+    for contract in rows:
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_CONTRACT,
+                entity_id=contract.id,
+                action="contract_deleted",
+                detail=f"Rig {rig_name}: {contract_state(contract.contract_end)}",
+            )
         )
-    )
-    await db.delete(contract)
+        await db.delete(contract)
     await db.commit()

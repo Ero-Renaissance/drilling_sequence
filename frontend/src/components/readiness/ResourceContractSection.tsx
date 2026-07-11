@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { classifyContract, daysUntilExpiry, URGENCY_VISUAL } from "@/lib/contract-urgency";
+import { normalizeResourceName } from "@/lib/resource-identity";
 import { deleteContract, listContracts, upsertContract } from "@/api/contracts";
 import {
   deleteHwuContract,
@@ -113,8 +114,13 @@ export const ResourceContractSection = forwardRef<ResourceContractHandle, Props>
             if (cancelled || dirtyRef.current) return;
             // Rigs match on (terrain, name) — a ""-terrain (legacy/unassigned)
             // contract is accepted as a fallback; HWUs match on name alone.
+            // Names compare normalized (registry identity is case-insensitive),
+            // so a contract saved under a casing variant still shows up here
+            // instead of reading as a false "No contract".
+            const nameKey = normalizeResourceName(resourceName);
             const matches = all.filter(
-              (c) => ("rig_name" in c ? c.rig_name : c.hwu_name) === resourceName,
+              (c) =>
+                normalizeResourceName("rig_name" in c ? c.rig_name : c.hwu_name) === nameKey,
             );
             const existing = isHwu
               ? matches[0] ?? null

@@ -210,19 +210,24 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     # physical rigs (see app/services/conflicts.py), so utilisation/idle stats
     # are computed per lane and labelled "TERRAIN – Rig".
     conflicts = detect_resource_conflicts(activities)
-    by_rig: dict[tuple[str | None, str], list[Activity]] = {}
+    # Lanes keyed like the registry (stripped terrain, normalized name) so casing
+    # variants of one physical rig share one utilisation lane; the label keeps
+    # the first casing the schedule uses.
+    by_rig: dict[tuple[str, str], list[Activity]] = {}
     for a in activities:
         if a.rig_name:
-            by_rig.setdefault((a.location, a.rig_name), []).append(a)
+            key = ((a.location or "").strip(), normalize_resource_name(a.rig_name))
+            by_rig.setdefault(key, []).append(a)
     per_rig: list[RigDetail] = []
     total_idle = 0
-    for (loc, rig), acts in by_rig.items():
+    for (loc, _name_key), acts in by_rig.items():
         seq = sorted(acts, key=lambda x: x.start_date)
         busy = sum((x.end_date - x.start_date).days for x in seq)
         idle = sum(
             max(0, (nxt.start_date - prev.end_date).days) for prev, nxt in zip(seq, seq[1:])
         )
         total_idle += idle
+        rig = (seq[0].rig_name or "").strip()
         per_rig.append(
             RigDetail(rig=f"{loc} – {rig}" if loc else rig, busy_days=busy, idle_days=idle)
         )
@@ -276,36 +281,42 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         else:
             buckets["healthy"] += 1
 
-    contract_end_by_rig: dict[str, date] = {}
+    # Keyed like the registry (normalized name; stripped terrain for rigs) so a
+    # contract saved as "10K Rig 1" still matches an activity typed "10k rig 1".
+    contract_end_by_rig: dict[tuple[str, str], date] = {}
     for c in contracts:
         if c.contract_end is not None:
             # Rig contracts are per PHYSICAL unit: keyed (name, terrain); "" is
             # the legacy/unassigned sentinel and matches any terrain (fallback).
-            contract_end_by_rig[(c.rig_name, c.terrain or "")] = c.contract_end
+            key = (normalize_resource_name(c.rig_name), (c.terrain or "").strip())
+            contract_end_by_rig[key] = c.contract_end
             _bucket_expiry(c.contract_end)
     contract_end_by_hwu: dict[str, date] = {}
     for c in hwu_contracts:
         if c.contract_end is not None:
-            contract_end_by_hwu[c.hwu_name] = c.contract_end
+            contract_end_by_hwu[normalize_resource_name(c.hwu_name)] = c.contract_end
             _bucket_expiry(c.contract_end)
 
     def _rig_contract_end(a: Activity) -> date | None:
         if not a.rig_name:
             return None
+        name_key = normalize_resource_name(a.rig_name)
         return contract_end_by_rig.get(
-            (a.rig_name, (a.location or "").strip())
-        ) or contract_end_by_rig.get((a.rig_name, ""))
+            (name_key, (a.location or "").strip())
+        ) or contract_end_by_rig.get((name_key, ""))
+
+    def _hwu_contract_end(a: Activity) -> date | None:
+        if not a.hwu_name:
+            return None
+        return contract_end_by_hwu.get(normalize_resource_name(a.hwu_name))
 
     activities_past_contract = sum(
         1
         for a in activities
         if not done(a)
         and (
-            (_rig_contract_end(a) is not None and a.end_date > _rig_contract_end(a))
-            or (
-                a.hwu_name in contract_end_by_hwu
-                and a.end_date > contract_end_by_hwu[a.hwu_name]
-            )
+            ((rig_end := _rig_contract_end(a)) is not None and a.end_date > rig_end)
+            or ((hwu_end := _hwu_contract_end(a)) is not None and a.end_date > hwu_end)
         )
     )
     contract_stats = ContractStats(**buckets, activities_past_contract=activities_past_contract)
@@ -450,7 +461,9 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
     contract_end_by_rig: dict[tuple[str, str], date] = {}
     for a in snapshot:
         rig = a.get("rig_name")
-        key = (rig, a.get("location") or "")
+        # Normalized like the registry, so casing variants of one physical rig
+        # dedupe to one contract (matching how the snapshot resolved them).
+        key = ((rig or "").strip().lower(), (a.get("location") or "").strip())
         if not rig or key in contract_end_by_rig:
             continue
         # Historical snapshots may carry the retired workflow status; a "Draft"

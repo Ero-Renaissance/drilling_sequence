@@ -147,3 +147,17 @@ async def test_hwu_cross_terrain_overlap_IS_a_conflict(client: AsyncClient) -> N
     r = await client.post(f"/api/projects/{pid}/revisions", json={})
     assert r.status_code == 409, r.text
     assert "HWU-1" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_case_variants_of_one_rig_are_one_conflict_lane(client: AsyncClient) -> None:
+    """Registry identity is case-insensitive — "Rig Alpha" and "rig ALPHA" on
+    one terrain are ONE physical rig, so their overlap is a real double-booking
+    and must hard-block submission (lanes keyed byte-for-byte would miss it)."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="Rig Alpha", start="2026-01-01", end="2026-03-01", well="W-A")
+    await _activity(client, pid, rig="rig ALPHA ", start="2026-02-01", end="2026-04-01", well="W-B")
+
+    r = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert r.status_code == 409, r.text
+    assert "alpha" in r.json()["detail"].lower()

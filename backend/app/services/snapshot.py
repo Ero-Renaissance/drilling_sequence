@@ -42,10 +42,12 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     # state.
     # Denormalised onto the activity (rather than a separate block) so the snapshot
     # stays a flat list and older stored revisions keep parsing.
-    # Rig contracts are per PHYSICAL unit — keyed (name, terrain) so a LAND and
-    # a SWAMP rig sharing a name resolve to their own contracts ("" = legacy).
+    # Rig contracts are per PHYSICAL unit — keyed (normalized name, terrain), the
+    # registry's case-insensitive identity, so a LAND and a SWAMP rig sharing a
+    # name resolve to their own contracts ("" = legacy) and a casing variant of
+    # one unit still finds its row (keys must match resolve_activity_contract).
     contracts_by_rig = {
-        (c.rig_name, c.terrain or ""): c
+        (normalize_resource_name(c.rig_name), (c.terrain or "").strip()): c
         for c in (
             await db.execute(
                 select(RigContract).where(RigContract.project_id == project_id)
@@ -53,7 +55,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
         ).scalars().all()
     }
     contracts_by_hwu = {
-        c.hwu_name: c
+        normalize_resource_name(c.hwu_name): c
         for c in (
             await db.execute(
                 select(HwuContract).where(HwuContract.project_id == project_id)

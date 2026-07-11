@@ -1,4 +1,5 @@
 import type { Activity } from "@/api/activities";
+import { normalizeResourceName } from "@/lib/resource-identity";
 
 export interface ResourceConflict {
   /** Terrain-qualified lane label (e.g. "SWAMP – 10K Rig 1") — names the
@@ -43,7 +44,11 @@ export function detectResourceConflicts(activities: Activity[]): ResourceConflic
     if (act.completed_at) continue;
     const r = resourceOf(act);
     if (!r) continue;
-    const key = `${r.kind}:${r.terrain ?? ""}:${r.name}`;
+    // Lanes are keyed like the backend registry — name trimmed + case-folded,
+    // terrain stripped — so casing/whitespace variants of ONE physical unit
+    // can never split into two lanes and hide a real double-booking. The
+    // bucket keeps the first-seen casing for display.
+    const key = `${r.kind}:${(r.terrain ?? "").trim()}:${normalizeResourceName(r.name)}`;
     const bucket = byResource.get(key) ?? { ...r, acts: [] };
     bucket.acts.push(act);
     byResource.set(key, bucket);

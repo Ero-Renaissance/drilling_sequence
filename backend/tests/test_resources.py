@@ -1,9 +1,14 @@
 """Resource registry: auto-registration, attribute edits, rename-on-award,
 terrain-qualified contracts (docs/rig-registry-spec.md)."""
 import io
+import uuid
+from datetime import date
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.rig_contract import RigContract
 
 
 async def _project(client: AsyncClient, name: str = "Registry") -> str:
@@ -607,3 +612,243 @@ async def test_clone_copies_resource_registry(client: AsyncClient) -> None:
         (x["kind"], x["terrain"], x["name"], x["capability_class"], x["is_placeholder"])
         for x in rows
     ] == [("rig", "SWAMP", "10K Rig 1", "10K", False)]
+
+
+# ── Contract identity matches the registry: trimmed, case-insensitive ─────────
+# The registry treats "10k rig 1" and "10K Rig 1" as ONE physical unit; the
+# contract endpoints must too, or one unit's contract splits into case-variant
+# rows that dashboards double-count and renames trip over.
+
+
+@pytest.mark.asyncio
+async def test_contract_upsert_matches_names_case_insensitively(
+    client: AsyncClient,
+) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, rig="10K Rig 1", location="LAND")
+
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/10K Rig 1", json={"contract_end": "2030-01-01"}
+    )
+    assert r.status_code == 200, r.text
+    # A casing variant of the same physical unit updates the SAME row.
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/10k RIG 1", json={"contract_end": "2031-06-30"}
+    )
+    assert r.status_code == 200, r.text
+
+    contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
+    assert [(c["rig_name"], c["terrain"], c["contract_end"]) for c in contracts] == [
+        ("10K Rig 1", "LAND", "2031-06-30")  # display keeps the first casing
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hwu_contract_upsert_matches_names_case_insensitively(
+    client: AsyncClient,
+) -> None:
+    pid = await _project(client)
+    await _activity(client, pid, hwu="HWU-1", location="SWAMP")
+
+    r = await client.put(
+        f"/api/projects/{pid}/hwu-contracts/HWU-1", json={"contract_end": "2030-01-01"}
+    )
+    assert r.status_code == 200, r.text
+    r = await client.put(
+        f"/api/projects/{pid}/hwu-contracts/hwu-1", json={"contract_end": "2031-06-30"}
+    )
+    assert r.status_code == 200, r.text
+
+    contracts = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
+    assert [(c["hwu_name"], c["contract_end"]) for c in contracts] == [
+        ("HWU-1", "2031-06-30")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_clears_case_variant_duplicate_contracts(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Legacy state: the old byte-for-byte upsert could split one physical
+    unit's contract into case-variant rows. Writes through that state 409 with
+    an actionable message; DELETE is the healing path — one audited sweep
+    removes every variant."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="HL19", location="LAND")
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="HL19", terrain="LAND",
+                       contract_end=date(2027, 1, 1)))
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="hl19", terrain="LAND",
+                       contract_end=date(2028, 1, 1)))
+    await db.commit()
+
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/HL19", json={"contract_end": "2030-01-01"}
+    )
+    assert r.status_code == 409, r.text
+    assert "casing" in r.json()["detail"]
+
+    assert (await client.delete(f"/api/projects/{pid}/contracts/HL19")).status_code == 204
+    assert (await client.get(f"/api/projects/{pid}/contracts")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_rename_refuses_case_variant_duplicate_contracts(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Bulk-renaming case-variant duplicate contract rows would collapse them
+    onto one name and trip the unique constraint mid-flight (a raw 500) —
+    refuse with an actionable 409 and change nothing."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="10K Rig 1", location="LAND")
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="10K Rig 1", terrain="LAND",
+                       contract_end=date(2027, 1, 1)))
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="10k rig 1", terrain="LAND",
+                       contract_end=date(2028, 1, 1)))
+    await db.commit()
+    rid = (await _resources(client, pid))[0]["id"]
+
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{rid}/rename", json={"new_name": "T209"}
+    )
+    assert r.status_code == 409, r.text
+    assert "casing" in r.json()["detail"]
+    # Nothing was half-renamed.
+    names = {c["rig_name"] for c in (await client.get(f"/api/projects/{pid}/contracts")).json()}
+    assert names == {"10K Rig 1", "10k rig 1"}
+    assert (await _resources(client, pid))[0]["name"] == "10K Rig 1"
+
+
+@pytest.mark.asyncio
+async def test_rename_refuses_target_with_contract_on_file(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The registry clash check can't see a contract for a name with no
+    activities (no registry row) — without a contract-level guard the rename
+    would collide two rows on the unique constraint (a raw 500)."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="10K Rig 3", location="LAND")
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/10K Rig 3", json={"contract_end": "2027-01-01"}
+    )
+    assert r.status_code == 200, r.text
+    # A contract already on file under the TARGET name, with no activities.
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="T209", terrain="LAND",
+                       contract_end=date(2030, 1, 1)))
+    await db.commit()
+    rid = (await _resources(client, pid))[0]["id"]
+
+    r = await client.post(
+        f"/api/projects/{pid}/resources/{rid}/rename", json={"new_name": "T209"}
+    )
+    assert r.status_code == 409, r.text
+    assert "contract" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_upsert_adopts_legacy_unassigned_contract_row(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """A ""-terrain row (legacy/unassigned) describes the same physical unit —
+    a save that resolves a real terrain upgrades that row in place instead of
+    shadowing it with a second one."""
+    pid = await _project(client)
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="HL27", terrain="",
+                       contract_end=date(2027, 1, 1)))
+    await db.commit()
+    await _activity(client, pid, rig="HL27", location="SWAMP")
+
+    r = await client.put(
+        f"/api/projects/{pid}/contracts/HL27", json={"contract_end": "2029-12-31"}
+    )
+    assert r.status_code == 200, r.text
+    contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
+    assert [(c["rig_name"], c["terrain"], c["contract_end"]) for c in contracts] == [
+        ("HL27", "SWAMP", "2029-12-31")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_reaches_legacy_unassigned_contract_row(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    pid = await _project(client)
+    db.add(RigContract(project_id=uuid.UUID(pid), rig_name="HL27", terrain="",
+                       contract_end=date(2027, 1, 1)))
+    await db.commit()
+    await _activity(client, pid, rig="HL27", location="SWAMP")
+
+    # Terrain resolves to SWAMP; the row sits at "" — the fallback reaches it.
+    assert (await client.delete(f"/api/projects/{pid}/contracts/HL27")).status_code == 204
+    assert (await client.get(f"/api/projects/{pid}/contracts")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_import_updates_contract_across_case_variants(client: AsyncClient) -> None:
+    """A re-imported sheet whose rig casing drifted from an earlier save must
+    update the SAME physical unit's contract row, not split it in two."""
+    pid = await _project(client, "ImportCase")
+    header = (
+        "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,"
+        "Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,"
+        "Readiness Check,Readiness Check Status,Comment"
+    )
+
+    def sheet(rig: str, expiry: str) -> bytes:
+        row = (
+            f"LAND,{rig},,Oil Development,In Plan (Firm),PX,W-L,"
+            f"05/01/2026,15/03/2026,{expiry},,No Flood Risk,BUD,On track,"
+        )
+        return ("\n".join([header, row]) + "\n").encode()
+
+    for rig, expiry in (("10K Rig 1", "31/12/2030"), ("10K RIG 1", "30/06/2031")):
+        r = await client.post(
+            f"/api/projects/{pid}/activities/import?replace=true",
+            files={"file": ("schedule.csv", io.BytesIO(sheet(rig, expiry)), "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+
+    contracts = (await client.get(f"/api/projects/{pid}/contracts")).json()
+    assert [(c["rig_name"], c["terrain"], c["contract_end"]) for c in contracts] == [
+        ("10K Rig 1", "LAND", "2031-06-30")
+    ]
+
+
+def test_contract_resolution_matches_registry_identity() -> None:
+    """The snapshot/dashboard contract maps are keyed by normalized identity —
+    an activity typed "10k RIG 1" must resolve the contract saved as
+    "10K Rig 1" (and fall back to a ""-terrain legacy row)."""
+    from app.models.activity import Activity
+    from app.services.readiness import resolve_activity_contract
+
+    contract = RigContract(rig_name="10K Rig 1", terrain="LAND")
+    a = Activity(rig_name="  10k RIG 1 ", location="LAND")
+    assert resolve_activity_contract(a, {("10k rig 1", "LAND"): contract}, {}) is contract
+    assert resolve_activity_contract(a, {("10k rig 1", ""): contract}, {}) is contract
+
+
+# ── Plan lock covers snapshot-relevant registry attributes ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_placeholder_flip_blocked_while_plan_locked(client: AsyncClient) -> None:
+    """is_placeholder is captured into every snapshot (resource_planned) and
+    splits the approved record's fleet KPIs — plan data, frozen under a pending
+    revision exactly like readiness and contracts. capability_class is fleet
+    metadata outside the snapshot and stays editable under lock."""
+    pid = await _project(client)
+    await _activity(client, pid, rig="10K Rig 1", location="LAND")
+    rid = (await _resources(client, pid))[0]["id"]
+
+    r = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert r.status_code in (200, 201), r.text
+
+    r = await client.patch(
+        f"/api/projects/{pid}/resources/{rid}", json={"is_placeholder": False}
+    )
+    assert r.status_code == 423, r.text
+
+    r = await client.patch(
+        f"/api/projects/{pid}/resources/{rid}", json={"capability_class": "10K"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["is_placeholder"] is True  # untouched by the metadata edit

@@ -9,11 +9,14 @@ marks them real or renames them on award.
 """
 import uuid
 
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.hwu_contract import HwuContract
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
+from app.models.rig_contract import RigContract
 
 
 def rig_terrain_key(location: str | None) -> str:
@@ -90,6 +93,63 @@ async def ensure_activity_resources_registered(
         await ensure_registered(
             db, project_id, kind=kind, name=name, location=location, user_id=user_id
         )
+
+
+async def lane_contract_rows(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    kind: str,
+    name: str,
+    terrain: str = "",
+) -> list[RigContract | HwuContract]:
+    """All contract rows for a physical unit's lane, matched like the registry —
+    trimmed, case-insensitively — so "10K RIG 1" from a sheet and "10K Rig 1"
+    from the grid resolve to the same unit. Rigs filter on terrain (identity is
+    (terrain, name)); HWUs are mobile and match on name alone.
+
+    More than one row means case-variant duplicates predating the normalized
+    contract endpoints (the upsert once matched names byte-for-byte).
+    """
+    name_key = normalize_resource_name(name)
+    if kind == "rig":
+        stmt = select(RigContract).where(
+            RigContract.project_id == project_id,
+            func.lower(func.trim(RigContract.rig_name)) == name_key,
+            RigContract.terrain == terrain,
+        )
+    else:
+        stmt = select(HwuContract).where(
+            HwuContract.project_id == project_id,
+            func.lower(func.trim(HwuContract.hwu_name)) == name_key,
+        )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def sole_lane_contract(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    kind: str,
+    name: str,
+    terrain: str = "",
+) -> RigContract | HwuContract | None:
+    """The lane's single contract row, or None. Case-variant duplicates are an
+    ambiguous state no write should guess through — mutating them in bulk would
+    collapse both rows onto one name and trip the unique constraint mid-flight —
+    so they are refused with an actionable 409: deleting the contract clears
+    every variant, after which the planner can re-create it and retry."""
+    rows = await lane_contract_rows(db, project_id, kind=kind, name=name, terrain=terrain)
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"'{name.strip()}' has {len(rows)} contract rows differing only in "
+                f"name casing — remove the contract (which clears every variant), "
+                f"re-create it, then retry."
+            ),
+        )
+    return rows[0] if rows else None
 
 
 async def rig_terrains_in_project(

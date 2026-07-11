@@ -114,3 +114,31 @@ describe("detectResourceConflicts", () => {
     expect(conflicts[0].resource).toBe("HWU-1"); // name-only identity, no terrain prefix
   });
 });
+
+describe("lane identity is normalized like the registry", () => {
+  it("treats casing/whitespace variants of one rig as ONE lane (conflict found)", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: "Rig Alpha", location: "LAND", start_date: "2026-01-01", end_date: "2026-02-01" }),
+      act({ id: "b", rig_name: "  rig ALPHA ", location: "LAND", start_date: "2026-01-15", end_date: "2026-03-01" }),
+    ]);
+    expect(conflicts).toHaveLength(1);
+    // Display keeps the first casing the schedule uses.
+    expect(conflicts[0].resource).toBe("LAND – Rig Alpha");
+  });
+
+  it("still keeps same-named rigs on different terrains apart", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: "10K Rig 1", location: "LAND", start_date: "2026-01-01", end_date: "2026-02-01" }),
+      act({ id: "b", rig_name: "10k rig 1", location: "SWAMP", start_date: "2026-01-15", end_date: "2026-03-01" }),
+    ]);
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it("treats casing variants of one HWU as ONE mobile lane across terrains", () => {
+    const conflicts = detectResourceConflicts([
+      act({ id: "a", rig_name: null, hwu_name: "HWU-1", location: "LAND", start_date: "2026-01-01", end_date: "2026-02-01" }),
+      act({ id: "b", rig_name: null, hwu_name: "hwu-1", location: "SWAMP", start_date: "2026-01-15", end_date: "2026-03-01" }),
+    ]);
+    expect(conflicts).toHaveLength(1);
+  });
+});

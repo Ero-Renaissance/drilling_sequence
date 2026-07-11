@@ -15,6 +15,7 @@ import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
 import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
 import { terrainRank } from "@/lib/gantt-rows";
+import { rigLaneKey } from "@/lib/resource-identity";
 import {
   buildCheckSvgDataUri,
   buildContractBadgeSvgDataUri,
@@ -727,8 +728,8 @@ export function DrillChart({
           ? undefined
           : res.kind === "hwu"
             ? contractsByHwu?.get(res.name)
-            : rigContractsByLane?.get(`${res.terrain ?? ""}|${res.name}`) ??
-              rigContractsByLane?.get(`|${res.name}`) ??
+            : rigContractsByLane?.get(rigLaneKey(res.terrain, res.name)) ??
+              rigContractsByLane?.get(rigLaneKey("", res.name)) ??
               contractsByRig?.get(res.name);
         const urgency = classifyContract(contract);
         // The INTERACTIVE chart shows the whole approaching-expiry gradient

@@ -24,6 +24,7 @@ import { ImportDialog } from "@/components/chart/ImportDialog";
 import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDialog";
 import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
 import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
+import { rigLaneKey } from "@/lib/resource-identity";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { PlannersPanel } from "@/components/projects/PlannersPanel";
@@ -340,8 +341,11 @@ export function ChartTab() {
       );
       setReadinessMap(map);
       setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
+      // Lane keys are normalized (rigLaneKey) so an activity typed "10k rig 1"
+      // still finds the contract saved as "10K Rig 1" — registry identity is
+      // case-insensitive; DrillChart looks up with the same helper.
       setRigContractsByLane(
-        new Map(contracts.map((c) => [`${c.terrain ?? ""}|${c.rig_name}`, c])),
+        new Map(contracts.map((c) => [rigLaneKey(c.terrain, c.rig_name), c])),
       );
       setContractsByHwu(new Map(hwuContracts.map((c) => [c.hwu_name, c])));
       setNotes(changeNotes);

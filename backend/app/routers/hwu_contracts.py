@@ -14,6 +14,7 @@ from app.models.project import ProjectRole
 from app.models.user import User
 from app.schemas.hwu_contract import HwuContractResponse, HwuContractUpsert
 from app.services.audit import ENTITY_CONTRACT, contract_state, governance_event
+from app.services.registry import lane_contract_rows, sole_lane_contract
 
 router = APIRouter(prefix="/api/projects/{project_id}/hwu-contracts", tags=["hwu-contracts"])
 
@@ -55,13 +56,9 @@ async def upsert_hwu_contract(
             detail="hwu_name cannot be empty",
         )
 
-    result = await db.execute(
-        select(HwuContract).where(
-            HwuContract.project_id == project_id,
-            HwuContract.hwu_name == hwu_name,
-        )
-    )
-    contract = result.scalar_one_or_none()
+    # Matched like the registry — trimmed, case-insensitively — so one physical
+    # unit's contract can never split into case-variant rows (duplicates 409).
+    contract = await sole_lane_contract(db, project_id, kind="hwu", name=hwu_name)
     existed = contract is not None
     old_summary = contract_state(contract.contract_end) if existed else None
 
@@ -108,24 +105,22 @@ async def delete_hwu_contract(
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
     await assert_project_not_locked(project_id, db)
 
-    result = await db.execute(
-        select(HwuContract).where(
-            HwuContract.project_id == project_id,
-            HwuContract.hwu_name == hwu_name,
-        )
-    )
-    contract = result.scalar_one_or_none()
-    if contract is None:
+    # Case-insensitive match; delete EVERY variant row — they all describe the
+    # same physical unit, and this is the healing path for case-variant
+    # duplicates predating the normalized upsert.
+    rows = await lane_contract_rows(db, project_id, kind="hwu", name=hwu_name)
+    if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contract not found")
-    db.add(
-        governance_event(
-            project_id=project_id,
-            user_id=current_user.id,
-            entity_type=ENTITY_CONTRACT,
-            entity_id=contract.id,
-            action="contract_deleted",
-            detail=f"HWU {hwu_name}: {contract_state(contract.contract_end)}",
+    for contract in rows:
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_CONTRACT,
+                entity_id=contract.id,
+                action="contract_deleted",
+                detail=f"HWU {hwu_name}: {contract_state(contract.contract_end)}",
+            )
         )
-    )
-    await db.delete(contract)
+        await db.delete(contract)
     await db.commit()

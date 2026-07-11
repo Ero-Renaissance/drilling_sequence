@@ -29,6 +29,7 @@ from app.schemas.resource import (
     ResourceUpdate,
 )
 from app.services.audit import ENTITY_RESOURCE, governance_event
+from app.services.registry import sole_lane_contract
 
 router = APIRouter(prefix="/api/projects/{project_id}/resources", tags=["resources"])
 
@@ -80,6 +81,13 @@ async def update_resource(
 ) -> ResourceRecord:
     """Edit unit attributes (capability class, placeholder flag) — never identity."""
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # is_placeholder is snapshot-relevant plan data: it is captured into every
+    # revision as `resource_planned` and splits the approved record's fleet
+    # KPIs (procured vs planned) — so, like readiness and contracts, it is
+    # frozen while a revision is pending/approved. capability_class is fleet
+    # metadata outside the snapshot and stays editable under lock.
+    if "is_placeholder" in payload.model_fields_set:
+        await assert_project_not_locked(project_id, db)
     record = await _get_record(project_id, resource_id, db)
 
     for field in ("capability_class", "is_placeholder"):
@@ -147,6 +155,29 @@ async def rename_resource(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"A {record.kind} named '{new_name}' already exists on this lane's terrain",
             )
+
+    # Contract rows are matched like the registry (case-insensitively). Resolve
+    # ambiguity up front so the bulk rename below can never collapse case-variant
+    # rows onto one name and trip the unique constraint mid-flight (a raw 500):
+    # ≥2 source variants → 409 (sole_lane_contract), and a contract already on
+    # file under the TARGET name (possible without a registry clash when the
+    # target has a contract but no activities) → 409.
+    await sole_lane_contract(
+        db, project_id, kind=record.kind, name=old_name, terrain=record.terrain
+    )
+    if new_key != old_key and (
+        await sole_lane_contract(
+            db, project_id, kind=record.kind, name=new_name, terrain=record.terrain
+        )
+        is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"'{new_name}' already has a contract on file — remove one of the "
+                f"two contracts first."
+            ),
+        )
 
     # The lane's activities. Rigs are terrain-scoped (COALESCE('') matches the
     # registry sentinel); HWUs are name-only — they are mobile across terrains.
@@ -244,6 +275,8 @@ async def remove_resource(
                 )
             )
         ).scalar_one()
+        # .first(): case-variant duplicate rows (legacy state) still mean
+        # "a contract is on file" — they must block removal, not crash it.
         contract = (
             await db.execute(
                 select(RigContract.id).where(
@@ -252,7 +285,7 @@ async def remove_resource(
                     RigContract.terrain == record.terrain,
                 )
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
     else:
         referenced = (
             await db.execute(
@@ -271,7 +304,7 @@ async def remove_resource(
                     func.lower(func.trim(HwuContract.hwu_name)) == record.name_key,
                 )
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
 
     if referenced:
         raise HTTPException(
@@ -366,24 +399,12 @@ async def _convert_rig_to_hwu(
 
     # Contracts: the rig's (terrain-scoped) row moves to the HWU table. If an
     # HWU contract already exists with a DIFFERENT end date, the server must
-    # not guess which one is real — the planner resolves it first.
-    rig_contract = (
-        await db.execute(
-            select(RigContract).where(
-                RigContract.project_id == project_id,
-                func.lower(func.trim(RigContract.rig_name)) == record.name_key,
-                RigContract.terrain == record.terrain,
-            )
-        )
-    ).scalar_one_or_none()
-    hwu_contract = (
-        await db.execute(
-            select(HwuContract).where(
-                HwuContract.project_id == project_id,
-                func.lower(func.trim(HwuContract.hwu_name)) == record.name_key,
-            )
-        )
-    ).scalar_one_or_none()
+    # not guess which one is real — the planner resolves it first. Case-variant
+    # duplicate rows (legacy state) also 409 via sole_lane_contract.
+    rig_contract = await sole_lane_contract(
+        db, project_id, kind="rig", name=record.name, terrain=record.terrain
+    )
+    hwu_contract = await sole_lane_contract(db, project_id, kind="hwu", name=record.name)
     if (
         rig_contract is not None
         and hwu_contract is not None
@@ -495,23 +516,11 @@ async def _convert_hwu_to_rig(
     ).scalar_one_or_none()
     target_name = existing.name if existing is not None else record.name
 
-    hwu_contract = (
-        await db.execute(
-            select(HwuContract).where(
-                HwuContract.project_id == project_id,
-                func.lower(func.trim(HwuContract.hwu_name)) == record.name_key,
-            )
-        )
-    ).scalar_one_or_none()
-    rig_contract = (
-        await db.execute(
-            select(RigContract).where(
-                RigContract.project_id == project_id,
-                func.lower(func.trim(RigContract.rig_name)) == record.name_key,
-                RigContract.terrain == target_terrain,
-            )
-        )
-    ).scalar_one_or_none()
+    # Case-variant duplicate contract rows (legacy state) 409 via sole_lane_contract.
+    hwu_contract = await sole_lane_contract(db, project_id, kind="hwu", name=record.name)
+    rig_contract = await sole_lane_contract(
+        db, project_id, kind="rig", name=record.name, terrain=target_terrain
+    )
     if (
         hwu_contract is not None
         and rig_contract is not None

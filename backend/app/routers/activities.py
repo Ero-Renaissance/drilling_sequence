@@ -37,7 +37,11 @@ from app.services.data_processor import (
     unknown_activity_type_warnings,
     validate_csv_columns,
 )
-from app.services.registry import ensure_activity_resources_registered, ensure_registered
+from app.services.registry import (
+    ensure_activity_resources_registered,
+    ensure_registered,
+    lane_contract_rows,
+)
 
 router = APIRouter(prefix="/api/projects/{project_id}/activities", tags=["activities"])
 
@@ -705,19 +709,18 @@ async def _import_long_schedule(
     # sheet sets the contract exactly like the editor (it drives the
     # contract-expiry marker). Rig contracts are per PHYSICAL unit: keyed
     # (name, terrain), so a LAND and SWAMP rig sharing a name stay separate.
+    # Rows are matched like the registry — trimmed, case-insensitively — so a
+    # sheet whose casing drifted from an earlier save updates the SAME unit's
+    # row instead of splitting it; legacy case-variant duplicates all get the
+    # new expiry (kept consistent, never guessed between).
     for (rig_name, terrain), expiry in rig_contracts.items():
-        existing = (
-            await db.execute(
-                select(RigContract).where(
-                    RigContract.project_id == project_id,
-                    RigContract.rig_name == rig_name,
-                    RigContract.terrain == terrain,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            existing.contract_end = expiry
-            existing.updated_by = current_user.id
+        existing_rows = await lane_contract_rows(
+            db, project_id, kind="rig", name=rig_name, terrain=terrain
+        )
+        if existing_rows:
+            for existing in existing_rows:
+                existing.contract_end = expiry
+                existing.updated_by = current_user.id
         else:
             db.add(
                 RigContract(
@@ -730,17 +733,13 @@ async def _import_long_schedule(
             )
 
     for hwu_name, expiry in hwu_contracts.items():
-        existing_hwu = (
-            await db.execute(
-                select(HwuContract).where(
-                    HwuContract.project_id == project_id,
-                    HwuContract.hwu_name == hwu_name,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing_hwu is not None:
-            existing_hwu.contract_end = expiry
-            existing_hwu.updated_by = current_user.id
+        existing_hwu_rows = await lane_contract_rows(
+            db, project_id, kind="hwu", name=hwu_name
+        )
+        if existing_hwu_rows:
+            for existing_hwu in existing_hwu_rows:
+                existing_hwu.contract_end = expiry
+                existing_hwu.updated_by = current_user.id
         else:
             db.add(
                 HwuContract(

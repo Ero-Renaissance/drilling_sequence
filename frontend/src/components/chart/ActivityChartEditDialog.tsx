@@ -32,6 +32,7 @@ import {
   type ResourceContractHandle,
 } from "@/components/readiness/ResourceContractSection";
 import { detectResourceConflicts } from "@/lib/conflicts";
+import { normalizeResourceName } from "@/lib/resource-identity";
 
 /** Per-activity readiness gates the user can edit. */
 const EDITABLE_CODES = CHECK_CODES;
@@ -194,12 +195,20 @@ export function ActivityChartEditDialog({
     return Array.from(set).sort();
   }, [allActivities, contractsByRig, contractsByHwu, watchedResourceType]);
 
-  // The contract for the currently-chosen resource (rig or HWU).
+  // The contract for the currently-chosen resource (rig or HWU). The maps are
+  // display-keyed (their keys feed the suggestion list), so scan with the
+  // registry's case-insensitive identity — a typed "10k rig 1" must still
+  // preview the contract saved as "10K Rig 1".
   const resourceContract = useMemo<RigContract | HwuContract | undefined>(() => {
     if (noResource || !watchedResourceName) return undefined;
-    return watchedResourceType === "HWU"
-      ? contractsByHwu?.get(watchedResourceName)
-      : contractsByRig?.get(watchedResourceName);
+    const source = watchedResourceType === "HWU" ? contractsByHwu : contractsByRig;
+    const exact = source?.get(watchedResourceName);
+    if (exact) return exact;
+    const nameKey = normalizeResourceName(watchedResourceName);
+    for (const [name, contract] of source ?? []) {
+      if (normalizeResourceName(name) === nameKey) return contract;
+    }
+    return undefined;
   }, [noResource, watchedResourceType, watchedResourceName, contractsByRig, contractsByHwu]);
 
   // ── Derived: activity type suggestion list (project + predefined) ───────────

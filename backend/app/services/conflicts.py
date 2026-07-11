@@ -19,21 +19,26 @@ ONE unit and CAN double-book itself across terrains.
 A completed activity has already released the resource, so it's excluded.
 """
 from app.models.activity import Activity
+from app.models.resource_registry import normalize_resource_name
 
 
 def _label(a: Activity) -> str:
     return a.well_name or a.activity_type
 
 
-def _resource(a: Activity) -> tuple[str, str | None, str] | None:
-    """The activity's resource lane as (kind, terrain, name), or None when it has
-    neither a rig nor an HWU. Kind keeps a rig and an HWU that share a name apart;
-    terrain keeps same-named RIGS in different terrains apart, and is None for
-    HWUs — they are mobile, one lane per name (see module doc)."""
+def _resource(a: Activity) -> tuple[str, str, str] | None:
+    """The activity's resource lane as (kind, terrain, name_key), or None when it
+    has neither a rig nor an HWU. Kind keeps a rig and an HWU that share a name
+    apart; terrain keeps same-named RIGS in different terrains apart and is ""
+    for HWUs — they are mobile, one lane per name (see module doc).
+
+    Keyed like the registry — name trimmed + case-folded, terrain stripped ("" =
+    unset) — so casing/whitespace variants of ONE physical unit can never split
+    into two lanes and hide a real double-booking from this check."""
     if a.rig_name:
-        return ("rig", a.location, a.rig_name)
+        return ("rig", (a.location or "").strip(), normalize_resource_name(a.rig_name))
     if a.hwu_name:
-        return ("hwu", None, a.hwu_name)
+        return ("hwu", "", normalize_resource_name(a.hwu_name))
     return None
 
 
@@ -42,9 +47,10 @@ def detect_resource_conflicts(activities: list[Activity]) -> list[dict]:
 
     Each conflict: {resource, kind, terrain, a, b, overlap_days} — `resource` is
     the terrain-qualified lane label (e.g. "SWAMP – 10K Rig 1") so messages name
-    the physical unit unambiguously.
+    the physical unit unambiguously; the display name keeps the first casing the
+    schedule uses. `terrain` is None when the lane isn't terrain-bound.
     """
-    by_resource: dict[tuple[str, str | None, str], list[Activity]] = {}
+    by_resource: dict[tuple[str, str, str], list[Activity]] = {}
     for a in activities:
         if a.completed_at is not None:
             continue
@@ -54,7 +60,8 @@ def detect_resource_conflicts(activities: list[Activity]) -> list[dict]:
         by_resource.setdefault(key, []).append(a)
 
     conflicts: list[dict] = []
-    for (kind, terrain, name), acts in by_resource.items():
+    for (kind, terrain, _name_key), acts in by_resource.items():
+        name = ((acts[0].rig_name if kind == "rig" else acts[0].hwu_name) or "").strip()
         for i in range(len(acts)):
             for j in range(i + 1, len(acts)):
                 a, b = acts[i], acts[j]
@@ -65,7 +72,7 @@ def detect_resource_conflicts(activities: list[Activity]) -> list[dict]:
                         {
                             "resource": f"{terrain} – {name}" if terrain else name,
                             "kind": kind,
-                            "terrain": terrain,
+                            "terrain": terrain or None,
                             "a": _label(a),
                             "b": _label(b),
                             "overlap_days": (overlap_end - overlap_start).days,
