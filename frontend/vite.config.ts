@@ -8,7 +8,10 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "./src") },
   },
   server: {
-    port: 5173,
+    // PORT lets a second instance (e.g. a tooling preview) run beside the
+    // dev server without fighting over 5173. Dev-mode auth doesn't pin the
+    // port (MSAL redirect URIs only matter outside VITE_DEV_MODE).
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       "/api": { target: "http://localhost:8000", changeOrigin: true },
       "/ws": { target: "ws://localhost:8000", ws: true },

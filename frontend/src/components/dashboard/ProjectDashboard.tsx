@@ -37,28 +37,40 @@ function Tile({
  *  procurement (in use = procured · planned = no awarded unit yet). The four
  *  are disjoint and sum to the lanes the plan occupies. */
 function FleetTile({ rigs }: { rigs: DashboardResponse["rigs"] }) {
+  const plannedHint =
+    "Planned = capacity in the plan with no awarded unit behind it yet — procurement pending";
+  // Rendered as a literal 2×2 (see docstring): one column per kind, each with
+  // its in-use count on the shared baseline and its planned count beneath —
+  // the columns keep both numbers and both sublines on the same grid tracks.
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Fleet in use
       </p>
-      <div className="mt-1 flex items-baseline gap-4">
-        <p className="text-2xl font-semibold text-foreground">
-          {rigs.in_use}
-          <span className="ml-1 text-xs font-normal text-muted-foreground">rigs</span>
-        </p>
-        <p className="text-2xl font-semibold text-foreground">
-          {rigs.hwus_in_use}
-          <span className="ml-1 text-xs font-normal text-muted-foreground">HWUs</span>
-        </p>
+      <div className="mt-1 grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-2xl font-semibold text-foreground">
+            {rigs.in_use}
+            <span className="ml-1 text-xs font-normal text-muted-foreground">
+              {rigs.in_use === 1 ? "rig" : "rigs"}
+            </span>
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground" title={plannedHint}>
+            {rigs.planned_rigs} planned
+          </p>
+        </div>
+        <div>
+          <p className="text-2xl font-semibold text-foreground">
+            {rigs.hwus_in_use}
+            <span className="ml-1 text-xs font-normal text-muted-foreground">
+              {rigs.hwus_in_use === 1 ? "HWU" : "HWUs"}
+            </span>
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground" title={plannedHint}>
+            {rigs.planned_hwus} planned
+          </p>
+        </div>
       </div>
-      <p
-        className="mt-0.5 text-xs text-muted-foreground"
-        title="Planned = capacity in the plan with no awarded unit behind it yet — procurement pending"
-      >
-        planned: {rigs.planned_rigs} {rigs.planned_rigs === 1 ? "rig" : "rigs"} ·{" "}
-        {rigs.planned_hwus} {rigs.planned_hwus === 1 ? "HWU" : "HWUs"}
-      </p>
     </div>
   );
 }

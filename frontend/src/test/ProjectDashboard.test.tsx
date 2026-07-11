@@ -66,10 +66,12 @@ describe("ProjectDashboard", () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
     await screen.findByText("Fleet in use");
-    // Procured counts headline; planned slots (no awarded unit yet) sit below.
+    // A 2×2: one column per kind — procured count headlines, that kind's
+    // planned (no awarded unit yet) count sits beneath it.
     expect(screen.getByText("rigs")).toBeInTheDocument(); // 5 rigs
     expect(screen.getByText("HWUs")).toBeInTheDocument(); // 2 HWUs
-    expect(screen.getByText(/planned: 3 rigs · 1 HWU/)).toBeInTheDocument();
+    expect(screen.getByText("3 planned")).toBeInTheDocument(); // rig column
+    expect(screen.getByText("1 planned")).toBeInTheDocument(); // HWU column
   });
 
   it("shows watchlist rows that drill through to the right tab", async () => {
