@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate, useOutletContext, useSearchParams } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown, Drill } from "lucide-react";
+import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown, Drill, Settings2 } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project, ProjectLock } from "@/types";
 import { listRevisions, reopenPlan } from "@/api/revisions";
+import { listApprovers } from "@/api/approvers";
 import { toast } from "@/components/ui/toaster";
 // PenSquare kept for the tab icon
 import { Button } from "@/components/ui/button";
@@ -608,12 +609,52 @@ export function SignaturesTab() {
       )
       .catch(() => {}); // hint only — the server still enforces the freeze
   }, [projectId]);
+  // Governance settings (policy + signer matrices) are set-once-a-quarter;
+  // the revision history is what people return for. Collapse the settings
+  // behind one row — but auto-open on an unconfigured campaign, where adding
+  // approvers IS the next action (nothing can be approved without them).
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    if (!projectId) return;
+    listApprovers(projectId)
+      .then((approvers) => setSettingsOpen(approvers.length === 0))
+      .catch(() => {}); // stay collapsed — the panels themselves guide on open
+  }, [projectId]);
   if (!projectId) return null;
   return (
     <div className="space-y-6">
-      <ReviewSettings projectId={projectId} frozen={signersFrozen} />
-      <ApproverSettings projectId={projectId} frozen={signersFrozen} />
       <RevisionList projectId={projectId} />
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((v) => !v)}
+          className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card px-4 py-3 text-left shadow-soft-sm transition-colors hover:bg-accent/30"
+          data-testid="governance-settings-toggle"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Settings2 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-foreground">Governance settings</h2>
+            <p className="text-xs text-muted-foreground">
+              Review policy · reviewers · required approvers
+              {signersFrozen && " — signer lists frozen while a revision is open"}
+            </p>
+          </div>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              settingsOpen && "rotate-180",
+            )}
+          />
+        </button>
+        {settingsOpen && (
+          <>
+            <ReviewSettings projectId={projectId} frozen={signersFrozen} />
+            <ApproverSettings projectId={projectId} frozen={signersFrozen} />
+          </>
+        )}
+      </div>
     </div>
   );
 }

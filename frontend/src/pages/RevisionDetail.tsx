@@ -3,6 +3,7 @@ import { useParams, NavLink } from "react-router-dom";
 import {
   ArrowLeft,
   Ban,
+  CalendarRange,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -524,6 +525,9 @@ export function RevisionDetail() {
   // Review stage (separate from the approval-stage decision dialog).
   const [reviewSigning, setReviewSigning] = useState(false);
   const [reviewChangesOpen, setReviewChangesOpen] = useState(false);
+  // The frozen schedule exhibit is collapsed by default — the diff above it is
+  // the review artifact; expanding mounts the (heavy) Gantt only on demand.
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [reviewDeciding, setReviewDeciding] = useState(false);
   const user = useAuthStore((s) => s.user);
 
@@ -669,6 +673,8 @@ export function RevisionDetail() {
     : false;
   const canSign = revision.status === "pending_approval" && !alreadySigned;
   const canReview = revision.status === "pending_review";
+  const isPending =
+    revision.status === "pending_review" || revision.status === "pending_approval";
 
   const statusLabel =
     revision.status === "approved"
@@ -925,21 +931,8 @@ export function RevisionDetail() {
           </div>
         )}
 
-      {/* Review + signatures — interactive panels on screen */}
-      <div className="space-y-5 print:hidden">
-        <ReviewerPanel revision={revision} />
-        <SignaturesPanel revision={revision} />
-        {/* Deliberation thread — comment without ending the pending state;
-            org-wide visible and kept with the record after resolution. */}
-        <RevisionDiscussion
-          projectId={projectId!}
-          revisionId={revision.id}
-          open={revision.status === "pending_review" || revision.status === "pending_approval"}
-        />
-        <DocumentAuthenticity revision={revision} />
-      </div>
-
-      {/* What changed — diff against a prior revision (or the live plan) */}
+      {/* Decision flow, top-down: what changed (the review artifact) → the
+          deliberation → who has signed → the collapsed frozen exhibit. */}
       <div className="print:hidden">
         <RevisionDiff
           projectId={projectId!}
@@ -950,23 +943,69 @@ export function RevisionDetail() {
         />
       </div>
 
-      {/* Schedule — interactive Gantt on screen (the print doc renders its own
-          static version). */}
-      <div className="space-y-3 print:hidden">
-        <h2 className="text-sm font-semibold text-foreground">Schedule snapshot</h2>
-        {snapshotActivities.length > 0 ? (
-          <ErrorBoundary label="chart">
-            <DrillChart
-              activities={snapshotActivities}
-              readinessMap={snapshotReadinessMap}
-            />
-          </ErrorBoundary>
-        ) : (
-          <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
-            No activities in this snapshot.
+      {/* Deliberation thread — comment without ending the pending state;
+          org-wide visible and kept with the record after resolution. */}
+      <div className="print:hidden">
+        <RevisionDiscussion
+          projectId={projectId!}
+          revisionId={revision.id}
+          open={isPending}
+        />
+      </div>
+
+      {/* Review + signatures — interactive panels on screen */}
+      <div className="space-y-5 print:hidden">
+        <ReviewerPanel revision={revision} />
+        <SignaturesPanel revision={revision} />
+        <DocumentAuthenticity revision={revision} />
+      </div>
+
+      {/* Schedule — the full frozen exhibit, collapsed by default: the diff
+          above is what a signer reviews; this is the archive record (the print
+          doc renders its own static version). While the revision is pending,
+          the plan lock guarantees the live tabs show this same data. */}
+      <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm print:hidden">
+        <button
+          type="button"
+          onClick={() => setSnapshotOpen((v) => !v)}
+          className="flex w-full items-center gap-3 rounded-t-xl px-4 py-3 text-left transition-colors hover:bg-accent/30"
+          data-testid="snapshot-toggle"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <CalendarRange className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-foreground">Schedule snapshot</h2>
+            <p className="text-xs text-muted-foreground">
+              {snapshotActivities.length} activities frozen with this revision
+              {isPending &&
+                " — the plan is locked, so the Sequence and Activities tabs show this same data"}
+            </p>
+          </div>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              snapshotOpen && "rotate-180",
+            )}
+          />
+        </button>
+        {snapshotOpen && (
+          <div className="space-y-3 border-t border-border/70 px-4 py-3">
+            {snapshotActivities.length > 0 ? (
+              <ErrorBoundary label="chart">
+                <DrillChart
+                  activities={snapshotActivities}
+                  readinessMap={snapshotReadinessMap}
+                />
+              </ErrorBoundary>
+            ) : (
+              <div className="flex h-32 items-center justify-center rounded-xl border border-dashed text-muted-foreground">
+                No activities in this snapshot.
+              </div>
+            )}
+            {snapshotActivities.length > 0 && <TabularDetail rows={snapshot} />}
           </div>
         )}
-        {snapshotActivities.length > 0 && <TabularDetail rows={snapshot} />}
       </div>
 
       <DecisionDialog
