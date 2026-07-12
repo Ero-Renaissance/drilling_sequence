@@ -2,11 +2,12 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.core.auth import get_current_user
 from app.core.logging_config import RequestIdMiddleware, configure_logging
 from app.database import Base, _is_sqlite, engine
 from app.models import approver as _approver_models  # noqa: F401
@@ -84,23 +85,32 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         content={"detail": "Internal server error"},
     )
 
-app.include_router(auth.router)
-app.include_router(me.router)
-app.include_router(admin.router)
-app.include_router(projects.router)
-app.include_router(activities.router)
-app.include_router(readiness.router)
-app.include_router(viewers.router)
-app.include_router(revisions.router)
-app.include_router(approvers.router)
-app.include_router(reviewers.router)
-app.include_router(contracts.router)
-app.include_router(hwu_contracts.router)
-app.include_router(resources.router)
-app.include_router(dashboard.router)
-app.include_router(change_notes.router)
-app.include_router(client_logs.router)
-app.include_router(optimizer.router)
+# Defense-in-depth: every router is included with a router-level authentication
+# dependency, so a future endpoint that forgets its get_current_user parameter
+# is still never reachable unauthenticated. FastAPI caches dependency results
+# per request, so endpoints that also declare the user pay nothing extra.
+# Authorization (assert_member / assert_can_sign / admin) stays per-endpoint.
+# GET /api/health below is deliberately public — defined on the app, not a router.
+for _router in (
+    auth.router,
+    me.router,
+    admin.router,
+    projects.router,
+    activities.router,
+    readiness.router,
+    viewers.router,
+    revisions.router,
+    approvers.router,
+    reviewers.router,
+    contracts.router,
+    hwu_contracts.router,
+    resources.router,
+    dashboard.router,
+    change_notes.router,
+    client_logs.router,
+    optimizer.router,
+):
+    app.include_router(_router, dependencies=[Depends(get_current_user)])
 
 
 @app.get("/api/health")

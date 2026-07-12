@@ -55,3 +55,19 @@ async def test_rejects_nested_context_value(client):
         json={"message": "x", "context": {"k": {"nested": "obj"}}},
     )
     assert resp.status_code == 422
+
+
+async def test_rate_limited_per_user(client, monkeypatch):
+    """Each entry is bounded, but the COUNT must be too — a looping client must
+    not be able to flood the operator stream (or alert dashboards) unthrottled."""
+    from app.routers import client_logs as client_logs_router
+
+    monkeypatch.setattr(client_logs_router, "_RATE_MAX_PER_WINDOW", 3)
+    monkeypatch.setattr(client_logs_router, "_rate_by_user", {})
+
+    for _ in range(3):
+        resp = await client.post("/api/client-logs", json={"message": "spam"})
+        assert resp.status_code == 204
+    resp = await client.post("/api/client-logs", json={"message": "spam"})
+    assert resp.status_code == 429
+    assert "slow down" in resp.json()["detail"].lower()

@@ -3,7 +3,7 @@ import { useParams, NavLink, Outlet, Navigate, useOutletContext, useSearchParams
 import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown, Drill } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project, ProjectLock } from "@/types";
-import { reopenPlan } from "@/api/revisions";
+import { listRevisions, reopenPlan } from "@/api/revisions";
 import { toast } from "@/components/ui/toaster";
 // PenSquare kept for the tab icon
 import { Button } from "@/components/ui/button";
@@ -594,11 +594,25 @@ export function CompareTab() {
 
 export function SignaturesTab() {
   const { projectId } = useParams<{ projectId: string }>();
+  // Signer lists are frozen server-side (423) while a revision is open —
+  // reflect it up front so the add/remove affordances read as disabled with a
+  // hint, mirroring the plan-lock banner pattern, instead of a surprise toast.
+  const [signersFrozen, setSignersFrozen] = useState(false);
+  useEffect(() => {
+    if (!projectId) return;
+    listRevisions(projectId)
+      .then((revs) =>
+        setSignersFrozen(
+          revs.some((r) => r.status === "pending_review" || r.status === "pending_approval"),
+        ),
+      )
+      .catch(() => {}); // hint only — the server still enforces the freeze
+  }, [projectId]);
   if (!projectId) return null;
   return (
     <div className="space-y-6">
-      <ReviewSettings projectId={projectId} />
-      <ApproverSettings projectId={projectId} />
+      <ReviewSettings projectId={projectId} frozen={signersFrozen} />
+      <ApproverSettings projectId={projectId} frozen={signersFrozen} />
       <RevisionList projectId={projectId} />
     </div>
   );

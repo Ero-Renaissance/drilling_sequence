@@ -55,7 +55,7 @@ dev = [
 #     to vet: protobuf, absl-py, immutabledict (numpy already present via pandas).
 #     protobuf is the one to watch — large, version-sensitive, its own CVE history.
 solver = [
-    "ortools>=9.15",
+    "ortools==9.15.6755",
 ]
 
 [tool.pytest.ini_options]

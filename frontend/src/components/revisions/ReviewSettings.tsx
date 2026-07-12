@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, Plus, RefreshCw, SlidersHorizontal, Trash2, UserSearch } from "lucide-react";
+import { ChevronDown, Lock, Plus, RefreshCw, SlidersHorizontal, Trash2, UserSearch } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +87,7 @@ function ReviewPolicyCard({ projectId }: { projectId: string }) {
 
 // ── Reviewer matrix (mirrors ApproverSettings) ────────────────────────────────
 
-function ReviewerList({ projectId }: { projectId: string }) {
+function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen?: boolean }) {
   const [reviewers, setReviewers] = useState<Reviewer[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,21 +199,32 @@ function ReviewerList({ projectId }: { projectId: string }) {
                   <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                     {r.role_label}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(r)}
-                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                    title="Remove reviewer"
-                    data-testid="remove-reviewer"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {!frozen && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(r)}
+                      className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                      title="Remove reviewer"
+                      data-testid="remove-reviewer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
 
-          {showForm ? (
+          {frozen ? (
+            <p
+              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              data-testid="signers-frozen-hint"
+            >
+              <Lock className="h-3 w-3 shrink-0" />
+              Reviewer list is frozen while a revision is in review or awaiting
+              approval — resolve it to make changes.
+            </p>
+          ) : showForm ? (
             <form
               onSubmit={handleAdd}
               className="space-y-2 rounded-lg border border-sky-500/25 bg-sky-500/[0.04] p-3"
@@ -274,11 +285,19 @@ function ReviewerList({ projectId }: { projectId: string }) {
   );
 }
 
-export function ReviewSettings({ projectId }: { projectId: string }) {
+export function ReviewSettings({
+  projectId,
+  frozen = false,
+}: {
+  projectId: string;
+  /** True while a revision is open — reviewer add/remove is locked (423). The
+   *  review POLICY stays editable: it only routes FUTURE submissions. */
+  frozen?: boolean;
+}) {
   return (
     <div className="space-y-4">
       <ReviewPolicyCard projectId={projectId} />
-      <ReviewerList projectId={projectId} />
+      <ReviewerList projectId={projectId} frozen={frozen} />
     </div>
   );
 }

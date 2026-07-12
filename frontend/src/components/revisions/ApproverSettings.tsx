@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
+  Lock,
   Plus,
   RefreshCw,
   Trash2,
@@ -29,9 +30,13 @@ function initials(value: string): string {
 
 interface ApproverSettingsProps {
   projectId: string;
+  /** True while a revision is in review / awaiting approval — the backend
+   *  refuses matrix edits with 423 then (the required-signature set must not
+   *  change under the signers), so the affordances read as locked up front. */
+  frozen?: boolean;
 }
 
-export function ApproverSettings({ projectId }: ApproverSettingsProps) {
+export function ApproverSettings({ projectId, frozen = false }: ApproverSettingsProps) {
   const [approvers, setApprovers] = useState<Approver[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,22 +159,33 @@ export function ApproverSettings({ projectId }: ApproverSettingsProps) {
                   <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                     {a.role_label}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(a)}
-                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                    title="Remove approver"
-                    data-testid="remove-approver"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {!frozen && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(a)}
+                      className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                      title="Remove approver"
+                      data-testid="remove-approver"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
 
-          {/* Add form / trigger */}
-          {showForm ? (
+          {/* Add form / trigger — locked while a revision is in flight */}
+          {frozen ? (
+            <p
+              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              data-testid="signers-frozen-hint"
+            >
+              <Lock className="h-3 w-3 shrink-0" />
+              Approver list is frozen while a revision is in review or awaiting
+              approval — resolve it to make changes.
+            </p>
+          ) : showForm ? (
             <form
               onSubmit={handleAdd}
               className="space-y-2 rounded-lg border border-primary/25 bg-primary/[0.04] p-3"
