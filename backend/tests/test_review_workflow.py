@@ -200,7 +200,7 @@ async def test_full_review_then_approval(
 
     # Reviewer signs → all reviewers signed → advances to approval.
     r = await other_client.put(
-        f"/api/projects/{pid}/revisions/{rid}/sign-review", json={"role_label": "Subsurface"}
+        f"/api/projects/{pid}/revisions/{rid}/sign-review", json={"role_label": "Subsurface", "attested": True}
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -209,7 +209,7 @@ async def test_full_review_then_approval(
 
     # Approver signs → approved.
     r = await third_client.put(
-        f"/api/projects/{pid}/revisions/{rid}/sign", json={"role_label": "GM"}
+        f"/api/projects/{pid}/revisions/{rid}/sign", json={"role_label": "GM", "attested": True}
     )
     assert r.json()["status"] == "approved"
 
@@ -228,7 +228,7 @@ async def test_partial_review_stays_pending_review(
 
     r = await other_client.put(
         f"/api/projects/{pid}/revisions/{rev['id']}/sign-review",
-        json={"role_label": "Reviewer"},
+        json={"role_label": "Reviewer", "attested": True},
     )
     # third@ hasn't reviewed yet → still in review.
     assert r.json()["status"] == "pending_review"
@@ -270,7 +270,7 @@ async def test_non_reviewer_cannot_sign_review(
     # third@ is neither a reviewer nor an admin → forbidden.
     r = await third_client.put(
         f"/api/projects/{pid}/revisions/{rev['id']}/sign-review",
-        json={"role_label": "Nope"},
+        json={"role_label": "Nope", "attested": True},
     )
     assert r.status_code == 403
 
@@ -288,7 +288,7 @@ async def test_creator_cannot_sign_review_own(
     ).json()
     r = await client.put(
         f"/api/projects/{pid}/revisions/{rev['id']}/sign-review",
-        json={"role_label": "Self"},
+        json={"role_label": "Self", "attested": True},
     )
     assert r.status_code == 403
 
@@ -316,11 +316,11 @@ async def test_reviewer_cannot_reject_or_sign_approval(
 
     # Advance to approval, then the reviewer still can't cast an approval signature.
     await other_client.put(
-        f"/api/projects/{pid}/revisions/{rid}/sign-review", json={"role_label": "Rev"}
+        f"/api/projects/{pid}/revisions/{rid}/sign-review", json={"role_label": "Rev", "attested": True}
     )
     assert (
         await other_client.put(
-            f"/api/projects/{pid}/revisions/{rid}/sign", json={"role_label": "x"}
+            f"/api/projects/{pid}/revisions/{rid}/sign", json={"role_label": "x", "attested": True}
         )
     ).status_code == 403
 
@@ -337,6 +337,6 @@ async def test_sign_review_rejected_when_not_in_review(
     # A reviewer trying to sign-review a non-review revision → 400.
     r = await other_client.put(
         f"/api/projects/{pid}/revisions/{rev['id']}/sign-review",
-        json={"role_label": "Rev"},
+        json={"role_label": "Rev", "attested": True},
     )
     assert r.status_code == 400

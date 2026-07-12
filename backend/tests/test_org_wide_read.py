@@ -102,5 +102,5 @@ async def test_writes_stay_denied_for_plain_users(
     revs = await client.post(f"/api/projects/{pid}/revisions", json={})
     rev_id = revs.json()["id"]
     assert (
-        await noplan_client.put(f"/api/projects/{pid}/revisions/{rev_id}/sign", json={})
+        await noplan_client.put(f"/api/projects/{pid}/revisions/{rev_id}/sign", json={"attested": True})
     ).status_code in (403, 409)

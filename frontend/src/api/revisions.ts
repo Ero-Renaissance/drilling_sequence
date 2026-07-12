@@ -101,6 +101,7 @@ export async function getRevision(
 export async function signRevision(
   projectId: string,
   revisionId: string,
+  attested: boolean,
   roleLabel = "Approver",
 ): Promise<Revision> {
   const resp = await fetch(
@@ -108,7 +109,9 @@ export async function signRevision(
     {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-      body: JSON.stringify({ role_label: roleLabel }),
+      // attested: the signer's explicit declaration (the dialog checkbox); the
+      // server refuses without it and records its own canonical wording.
+      body: JSON.stringify({ role_label: roleLabel, attested }),
     },
   );
   if (!resp.ok) await throwApiError(resp, "Failed to sign revision");
@@ -118,6 +121,7 @@ export async function signRevision(
 export async function signReview(
   projectId: string,
   revisionId: string,
+  attested: boolean,
   roleLabel = "Reviewer",
 ): Promise<Revision> {
   const resp = await fetch(
@@ -125,7 +129,7 @@ export async function signReview(
     {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-      body: JSON.stringify({ role_label: roleLabel }),
+      body: JSON.stringify({ role_label: roleLabel, attested }),
     },
   );
   if (!resp.ok) await throwApiError(resp, "Failed to sign off review");

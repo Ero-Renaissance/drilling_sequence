@@ -216,6 +216,42 @@ def _all_required_signed(
     return required_emails.issubset(signed_emails)
 
 
+async def _attestation_text(revision: Revision, stage: str, db: AsyncSession) -> str:
+    """The canonical declaration recorded with a signature.
+
+    Server-owned so a client can never weaken the recorded wording, and it
+    names the RESOLVED baseline — the record states what was attested to
+    ("...against the last approved plan (Rev. 02)..."), not merely that a box
+    was ticked. Stage picks the approval vs technical-review phrasing.
+    """
+    prior = (
+        await db.execute(
+            select(Revision)
+            .where(
+                Revision.project_id == revision.project_id,
+                Revision.status == "approved",
+                Revision.rev_number < revision.rev_number,
+            )
+            .order_by(Revision.rev_number.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    scope = (
+        f"the changes against the last approved plan (Rev. {prior.rev_number:02d})"
+        if prior
+        else "the full plan (first submission — no prior approved baseline)"
+    )
+    if stage == "review":
+        return (
+            f"I confirm I have reviewed {scope} and the discussion thread for "
+            f"Rev. {revision.rev_number:02d} as its technical review."
+        )
+    return (
+        f"I confirm I have reviewed {scope} and the discussion thread for "
+        f"Rev. {revision.rev_number:02d} before approving."
+    )
+
+
 async def _unlock_activities(revision: Revision, db: AsyncSession) -> None:
     locked = await db.execute(
         select(Activity).where(Activity.locked_by_revision_id == revision.id)
@@ -665,11 +701,20 @@ async def sign_revision(
                 status_code=409, detail="You have already signed this revision"
             )
 
+    # A signature is a declaration, not a click: refuse it without the explicit
+    # attestation, and record the server-owned wording with the signature.
+    if not payload.attested:
+        raise HTTPException(
+            status_code=422,
+            detail="Confirm you have reviewed this revision before signing.",
+        )
+
     sig = Signature(
         revision_id=revision.id,
         user_id=current_user.id,
         role_label=payload.role_label,
         stage="approval",
+        attestation=await _attestation_text(revision, "approval", db),
         signed_at=datetime.now(timezone.utc),
     )
     db.add(sig)
@@ -748,12 +793,19 @@ async def sign_review(
                 status_code=409, detail="You have already reviewed this revision"
             )
 
+    if not payload.attested:
+        raise HTTPException(
+            status_code=422,
+            detail="Confirm you have reviewed this revision before signing off.",
+        )
+
     db.add(
         Signature(
             revision_id=revision.id,
             user_id=current_user.id,
             role_label=payload.role_label,
             stage="review",
+            attestation=await _attestation_text(revision, "review", db),
             signed_at=datetime.now(timezone.utc),
         )
     )

@@ -151,6 +151,10 @@ class Signature(Base):
     stage: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="approval", default="approval"
     )
+    # The canonical attestation recorded at signing — the server-owned sentence
+    # stating WHAT the signer declared they reviewed (stage wording + resolved
+    # baseline). NULL only on signatures predating migration 027.
+    attestation: Mapped[str | None] = mapped_column(String(512), nullable=True)
     signed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     revision: Mapped["Revision"] = relationship(back_populates="signatures")

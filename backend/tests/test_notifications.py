@@ -66,7 +66,7 @@ async def test_pending_approvals_excludes_signed_revisions(
     # Once other@ signs, it should drop off other@'s pending list.
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Approver"},
+        json={"role_label": "Approver", "attested": True},
     )
 
     r = await other_client.get("/api/me/pending-approvals")

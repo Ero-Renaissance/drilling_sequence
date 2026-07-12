@@ -146,7 +146,7 @@ async def test_sign_revision_approves_and_keeps_plan_locked(
 
     r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Project Manager"},
+        json={"role_label": "Project Manager", "attested": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -174,12 +174,12 @@ async def test_sign_revision_twice_returns_409(
 
     first = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     assert first.json()["status"] == "pending_approval"
     r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     assert r.status_code == 409
 
@@ -208,7 +208,7 @@ async def test_discard_approved_revision_fails(
 
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     r = await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
     assert r.status_code == 400
@@ -225,7 +225,7 @@ async def test_rev_number_increments(
     rev1_id = r1.json()["id"]
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{rev1_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
 
     r2 = await client.post(f"/api/projects/{project_id}/revisions", json={})
@@ -408,7 +408,7 @@ async def test_creator_cannot_sign_own_revision(
 
     r = await client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Approver"},
+        json={"role_label": "Approver", "attested": True},
     )
     assert r.status_code == 403
 
@@ -454,7 +454,7 @@ async def test_non_approver_member_cannot_sign(
 
     r = await third_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Planner"},
+        json={"role_label": "Planner", "attested": True},
     )
     assert r.status_code == 403
 
@@ -511,7 +511,7 @@ async def test_integrity_digest_changes_when_signed(
 
     signed = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Approver"},
+        json={"role_label": "Approver", "attested": True},
     )
     assert signed.status_code == 200, signed.text
     assert signed.json()["integrity_digest"] != before

@@ -92,7 +92,7 @@ async def test_thread_closes_on_resolution_but_stays_visible(
     # Both approvers sign → approved.
     for signer in (other_client, third_client):
         r = await signer.put(
-            f"/api/projects/{project_id}/revisions/{revision_id}/sign", json={}
+            f"/api/projects/{project_id}/revisions/{revision_id}/sign", json={"attested": True}
         )
         assert r.status_code == 200, r.text
 

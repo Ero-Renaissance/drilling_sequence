@@ -49,6 +49,7 @@ import { RevisionDiff } from "@/components/revisions/RevisionDiff";
 import { RevisionDiscussion } from "@/components/revisions/RevisionDiscussion";
 import { RevisionPrintDoc } from "@/components/revisions/RevisionPrintDoc";
 import { DecisionDialog, type DecisionAction } from "@/components/revisions/DecisionDialog";
+import { SignAttestationDialog } from "@/components/revisions/SignAttestationDialog";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 import type { Activity } from "@/api/activities";
@@ -604,6 +605,9 @@ export function RevisionDetail() {
   // the review artifact; expanding mounts the (heavy) Gantt only on demand.
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [reviewDeciding, setReviewDeciding] = useState(false);
+  // Which sign-attestation dialog is open — signing is a declaration, so both
+  // stages confirm through the attestation checkbox instead of one bare click.
+  const [signStage, setSignStage] = useState<"approval" | "review" | null>(null);
   const user = useAuthStore((s) => s.user);
 
   // The print is three independent choices — chart (standard vs readiness),
@@ -671,10 +675,12 @@ export function RevisionDetail() {
     setSigning(true);
     setError(null);
     try {
-      const updated = await signRevision(projectId, revisionId);
+      const updated = await signRevision(projectId, revisionId, true);
       setRevision((prev) => (prev ? { ...prev, ...updated } : null));
+      setSignStage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign revision");
+      setSignStage(null);
     } finally {
       setSigning(false);
     }
@@ -685,10 +691,12 @@ export function RevisionDetail() {
     setReviewSigning(true);
     setError(null);
     try {
-      const updated = await signReview(projectId, revisionId);
+      const updated = await signReview(projectId, revisionId, true);
       setRevision((prev) => (prev ? { ...prev, ...updated } : null));
+      setSignStage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to sign off review");
+      setSignStage(null);
     } finally {
       setReviewSigning(false);
     }
@@ -825,7 +833,7 @@ export function RevisionDetail() {
         <div className="ml-auto flex items-center gap-2">
           {canReview && (
             <>
-              <Button onClick={handleSignReview} disabled={reviewSigning} data-testid="sign-review">
+              <Button onClick={() => setSignStage("review")} disabled={reviewSigning} data-testid="sign-review">
                 <PenLine className="h-4 w-4" />
                 {reviewSigning ? "Signing…" : "Sign off review"}
               </Button>
@@ -842,7 +850,7 @@ export function RevisionDetail() {
             </>
           )}
           {canSign && (
-            <Button onClick={handleSign} disabled={signing}>
+            <Button onClick={() => setSignStage("approval")} disabled={signing} data-testid="sign-approve">
               <PenLine className="h-4 w-4" />
               {signing ? "Signing…" : "Sign & Approve"}
             </Button>
@@ -1082,6 +1090,17 @@ export function RevisionDetail() {
           </div>
         )}
       </div>
+
+      <SignAttestationDialog
+        open={signStage !== null}
+        stage={signStage ?? "approval"}
+        revLabel={revLabel(revision)}
+        loading={signing || reviewSigning}
+        onOpenChange={(o) => {
+          if (!o) setSignStage(null);
+        }}
+        onConfirm={() => (signStage === "review" ? handleSignReview() : handleSign())}
+      />
 
       <DecisionDialog
         open={decision !== null}

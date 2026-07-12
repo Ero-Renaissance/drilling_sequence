@@ -47,7 +47,7 @@ async def _approved_project(
     )
     rev = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
     signed = await other_client.put(
-        f"/api/projects/{pid}/revisions/{rev['id']}/sign", json={"role_label": "GM"}
+        f"/api/projects/{pid}/revisions/{rev['id']}/sign", json={"role_label": "GM", "attested": True}
     )
     assert signed.json()["status"] == "approved", signed.text
     return pid, rev
@@ -123,7 +123,7 @@ async def test_contracts_at_risk_counted(client: AsyncClient, other_client: Asyn
     )
     rev = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
     await other_client.put(
-        f"/api/projects/{pid}/revisions/{rev['id']}/sign", json={"role_label": "GM"}
+        f"/api/projects/{pid}/revisions/{rev['id']}/sign", json={"role_label": "GM", "attested": True}
     )
 
     d = (await client.get("/api/me/last-approved-dashboard")).json()

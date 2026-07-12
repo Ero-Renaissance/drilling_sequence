@@ -101,7 +101,7 @@ async def test_sign_and_approve_are_audited(
     # Sole required approver signs → revision both signs and approves
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Project Manager"},
+        json={"role_label": "Project Manager", "attested": True},
     )
 
     entries = await _audit(client, project_id)

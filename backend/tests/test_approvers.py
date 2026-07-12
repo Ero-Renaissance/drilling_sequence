@@ -173,7 +173,7 @@ async def test_partial_sign_does_not_approve(
     # other@company.com signs — but third@company.com hasn't yet
     r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Project Manager"},
+        json={"role_label": "Project Manager", "attested": True},
     )
     assert r.status_code == 200
     data = r.json()
@@ -194,13 +194,13 @@ async def test_all_approvers_signed_triggers_approval(
     # First approver (other@company.com) signs
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Project Manager"},
+        json={"role_label": "Project Manager", "attested": True},
     )
 
     # Second approver (third@company.com) signs
     r = await third_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "HSE Manager"},
+        json={"role_label": "HSE Manager", "attested": True},
     )
     assert r.status_code == 200
     data = r.json()
@@ -246,7 +246,7 @@ async def test_no_approvers_configured_cannot_approve(
 
     r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     assert r.status_code == 200
     assert r.json()["status"] == "pending_approval"
@@ -294,7 +294,7 @@ async def test_admin_signature_does_not_trigger_approval(
 
     r = await third_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Observer"},
+        json={"role_label": "Observer", "attested": True},
     )
     assert r.status_code == 200
     # Not approved yet — required other@company.com hasn't signed
@@ -303,7 +303,7 @@ async def test_admin_signature_does_not_trigger_approval(
     # Now the required approver signs → approved
     r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "PM"},
+        json={"role_label": "PM", "attested": True},
     )
     assert r.status_code == 200
     assert r.json()["status"] == "approved"
@@ -332,7 +332,7 @@ async def test_outsider_cannot_sign(client: AsyncClient, other_client: AsyncClie
     # Other User has no relationship to the project → forbidden
     r = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Observer"},
+        json={"role_label": "Observer", "attested": True},
     )
     assert r.status_code == 403
 
@@ -381,7 +381,7 @@ async def test_signer_lists_unfreeze_after_approval(
     project_id, revision_id = await _setup(client)
     for signer in (other_client, third_client):
         r = await signer.put(
-            f"/api/projects/{project_id}/revisions/{revision_id}/sign", json={}
+            f"/api/projects/{project_id}/revisions/{revision_id}/sign", json={"attested": True}
         )
         assert r.status_code == 200, r.text
     # All approvers signed → approved; the plan stays locked, the matrices don't.
@@ -435,3 +435,130 @@ async def test_rev_number_uniqueness_enforced_by_schema(
     with pytest.raises(IntegrityError):
         await db.commit()
     await db.rollback()
+
+
+# ── Signature attestation: a signature is a declaration, not a click ─────────
+
+
+@pytest.mark.asyncio
+async def test_sign_refused_without_attestation(client: AsyncClient, other_client: AsyncClient) -> None:
+    project_id, revision_id = await _setup(client)
+
+    r = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign", json={}
+    )
+    assert r.status_code == 422, r.text
+    assert "reviewed" in r.json()["detail"].lower()
+    # Nothing was recorded.
+    revs = (await client.get(f"/api/projects/{project_id}/revisions")).json()
+    assert revs[0]["signatures"] == []
+
+
+@pytest.mark.asyncio
+async def test_signature_records_first_submission_attestation(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    project_id, revision_id = await _setup(client)
+
+    r = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"attested": True},
+    )
+    assert r.status_code == 200, r.text
+    sig = r.json()["signatures"][0]
+    # Server-owned wording: names the resolved baseline (none here) and the rev.
+    assert "first submission" in sig["attestation"]
+    assert "Rev. 01" in sig["attestation"]
+    assert "before approving" in sig["attestation"]
+
+
+@pytest.mark.asyncio
+async def test_attestation_names_the_prior_approved_baseline(
+    client: AsyncClient, other_client: AsyncClient, third_client: AsyncClient
+) -> None:
+    """Second cycle: the attestation must state WHAT was reviewed — the changes
+    against the plan of record (Rev. 01), not a vague confirmation."""
+    project_id, revision_id = await _setup(client)
+    for signer in (other_client, third_client):
+        r = await signer.put(
+            f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+            json={"attested": True},
+        )
+        assert r.status_code == 200, r.text
+
+    # Rev. 01 approved → reopen (Revise Plan) → next cycle's revision.
+    assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 204
+    r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    assert r.status_code == 201, r.text
+    rev2_id = r.json()["id"]
+
+    r = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{rev2_id}/sign", json={"attested": True}
+    )
+    assert r.status_code == 200, r.text
+    attestation = r.json()["signatures"][0]["attestation"]
+    assert "against the last approved plan (Rev. 01)" in attestation
+    assert "Rev. 02" in attestation
+
+
+@pytest.mark.asyncio
+async def test_review_signoff_records_review_attestation(
+    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+) -> None:
+    r = await client.post("/api/projects", json={"name": "Attest Review"})
+    project_id = r.json()["id"]
+    await client.post(
+        f"/api/projects/{project_id}/activities",
+        json={
+            "activity_type": "Oil Development",
+            "start_date": "2026-01-01",
+            "end_date": "2026-03-01",
+            "well_name": "W-1",
+            "location": "LAND",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
+    )
+    await client.post(
+        f"/api/projects/{project_id}/reviewers", json={"email": "other@company.com"}
+    )
+    await client.post(
+        f"/api/projects/{project_id}/approvers", json={"email": "third@company.com"}
+    )
+    r = await client.post(
+        f"/api/projects/{project_id}/revisions", json={"request_review": True}
+    )
+    assert r.status_code == 201, r.text
+    revision_id = r.json()["id"]
+
+    # Unattested review sign-off refused; attested records review wording.
+    r = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign-review", json={}
+    )
+    assert r.status_code == 422, r.text
+    r = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign-review",
+        json={"attested": True},
+    )
+    assert r.status_code == 200, r.text
+    reviewer_sig = r.json()["reviewer_status"][0]
+    assert reviewer_sig["signed"] is True
+    # Review signatures aren't in the binding (approval-only) flat list — read
+    # the row itself for the technical-review wording.
+    import uuid as _uuid
+
+    from app.models.revision import Signature
+
+    row = (
+        await db.execute(
+            select(Signature).where(
+                Signature.revision_id == _uuid.UUID(revision_id),
+                Signature.stage == "review",
+            )
+        )
+    ).scalar_one()
+    assert "as its technical review" in (row.attestation or "")
+    assert "first submission" in (row.attestation or "")
+    # And the stage advanced: all required reviewers have signed.
+    revs = (await client.get(f"/api/projects/{project_id}/revisions")).json()
+    assert revs[0]["status"] == "pending_approval"

@@ -170,7 +170,7 @@ async def test_approved_plan_frozen_until_revised(
 
     signed = await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     assert signed.status_code == 200
     assert signed.json()["status"] == "approved"
@@ -210,7 +210,7 @@ async def test_reopen_denied_for_non_planner(
     revision_id = await _create_revision(client, project_id)
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     # other@ approved it but is not a member → cannot reopen the plan.
     assert (
@@ -241,7 +241,7 @@ async def test_project_lock_summary_tracks_lifecycle(
 
     await other_client.put(
         f"/api/projects/{project_id}/revisions/{revision_id}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     approved = await lock()
     assert approved["locked"] and approved["reason"] == "approved"

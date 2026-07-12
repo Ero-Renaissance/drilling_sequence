@@ -20,6 +20,10 @@ class SignRequest(BaseModel):
     # Bounded to the Signature.role_label column width; the label is also woven
     # into audit details and the printed sign-off block.
     role_label: str = Field(default="Approver", min_length=1, max_length=128)
+    # The signer's explicit declaration that they reviewed the revision. Must be
+    # true — the server refuses an unattested signature (422) and records its
+    # own canonical attestation text, so a client can't weaken the wording.
+    attested: bool = False
 
 
 class DecisionRequest(BaseModel):
@@ -31,6 +35,8 @@ class SignatureResponse(BaseModel):
     user_id: uuid.UUID | None
     user_name: str | None
     role_label: str
+    # What the signer declared they reviewed (None on pre-attestation rows).
+    attestation: str | None = None
     signed_at: datetime
 
     model_config = {"from_attributes": True}

@@ -39,7 +39,7 @@ async def _approved_project(
     rev = (await client.post(f"/api/projects/{pid}/revisions", json={})).json()
     signed = await other_client.put(
         f"/api/projects/{pid}/revisions/{rev['id']}/sign",
-        json={"role_label": "Manager"},
+        json={"role_label": "Manager", "attested": True},
     )
     assert signed.json()["status"] == "approved"
     return pid, rev["id"], activity["id"]
@@ -144,7 +144,7 @@ async def test_baseline_parent_forces_previous_quarter(
     # sign Q2's own first revision (test@ is the creator and can't approve it).
     rev = (await client.post(f"/api/projects/{q2id}/revisions", json={})).json()
     signed = await other_client.put(
-        f"/api/projects/{q2id}/revisions/{rev['id']}/sign", json={"role_label": "Manager"}
+        f"/api/projects/{q2id}/revisions/{rev['id']}/sign", json={"role_label": "Manager", "attested": True}
     )
     assert signed.json()["status"] == "approved", signed.text
 
