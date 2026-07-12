@@ -1,5 +1,10 @@
 import { cn } from "@/lib/utils";
-import type { RevisionDiff as RevisionDiffData } from "@/api/compare";
+import type {
+  ActivityDiff,
+  ChangeKind,
+  ContractDiff,
+  RevisionDiff as RevisionDiffData,
+} from "@/api/compare";
 import type { Revision } from "@/api/revisions";
 
 export const LIVE_REF = "live";
@@ -34,16 +39,73 @@ function shiftTone(n: number | null): string {
   return n > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400";
 }
 
+// ── Diff triage filtering (shared by the Compare card + the Compare tab) ─────
+// Filtering narrows what is EXPANDED, never what is counted: the summary tiles
+// always show the full change set, and an explicit "showing X of Y" line
+// appears while a filter is active — a filtered view must never be able to
+// masquerade as the whole picture on an approval surface.
+
+export type ChangeKindFilter = ChangeKind;
+
+export function matchesDiffFilter(
+  a: ActivityDiff,
+  changeFilter: ChangeKindFilter | null,
+  search: string,
+): boolean {
+  if (changeFilter && a.change !== changeFilter) return false;
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  return [a.rig_name, a.hwu_name, a.well_name, a.well_project, a.activity_type].some(
+    (v) => v?.toLowerCase().includes(q),
+  );
+}
+
+export function matchesContractFilter(
+  c: ContractDiff,
+  changeFilter: ChangeKindFilter | null,
+  search: string,
+): boolean {
+  // A contract change is not an added/modified/removed ACTIVITY row — under a
+  // change-type filter it would surface as an unrelated-looking group, so it
+  // only shows when no type filter is active (and its resource matches search).
+  if (changeFilter) return false;
+  const q = search.trim().toLowerCase();
+  return !q || c.resource.toLowerCase().includes(q);
+}
+
 // ── Headline summary ──────────────────────────────────────────────────────────
 
-export function SummaryBar({ diff }: { diff: RevisionDiffData }) {
+export function SummaryBar({
+  diff,
+  filter = null,
+  onFilterChange,
+  shownCount,
+  onClearFilters,
+}: {
+  diff: RevisionDiffData;
+  /** Active change-type filter — the matching tile reads as pressed. */
+  filter?: ChangeKindFilter | null;
+  /** When given, the Added/Modified/Removed tiles become toggle filters. */
+  onFilterChange?: (f: ChangeKindFilter | null) => void;
+  /** Changed activities currently displayed (post filter + search). */
+  shownCount?: number;
+  /** Clears the type filter AND the search box together. */
+  onClearFilters?: () => void;
+}) {
   const s = diff.summary;
-  const stats = [
-    { label: "Added", value: s.added, tone: "text-emerald-600 dark:text-emerald-400" },
-    { label: "Modified", value: s.modified, tone: "text-amber-600 dark:text-amber-400" },
-    { label: "Removed", value: s.removed, tone: "text-red-600 dark:text-red-400" },
-    { label: "Unchanged", value: s.unchanged, tone: "text-muted-foreground" },
+  const stats: {
+    label: string;
+    value: number;
+    tone: string;
+    kind: ChangeKindFilter | null;
+  }[] = [
+    { label: "Added", value: s.added, tone: "text-emerald-600 dark:text-emerald-400", kind: "added" },
+    { label: "Modified", value: s.modified, tone: "text-amber-600 dark:text-amber-400", kind: "modified" },
+    { label: "Removed", value: s.removed, tone: "text-red-600 dark:text-red-400", kind: "removed" },
+    { label: "Unchanged", value: s.unchanged, tone: "text-muted-foreground", kind: null },
   ];
+  const changedTotal = s.added + s.modified + s.removed;
+  const filtered = shownCount !== undefined && shownCount !== changedTotal;
   const countDelta = s.target_count - s.base_count;
   const readinessDelta =
     s.base_readiness_pct !== null && s.target_readiness_pct !== null
@@ -52,20 +114,57 @@ export function SummaryBar({ diff }: { diff: RevisionDiffData }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-lg border border-border/70 bg-card px-3 py-2 text-center"
-          >
-            <div className={cn("text-lg font-semibold tabular-nums", stat.tone)}>
-              {stat.value}
-            </div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {stat.label}
-            </div>
-          </div>
-        ))}
+        {stats.map((stat) => {
+          const clickable = !!onFilterChange && stat.kind !== null;
+          const active = filter !== null && stat.kind === filter;
+          const Tag = clickable ? "button" : "div";
+          return (
+            <Tag
+              key={stat.label}
+              {...(clickable
+                ? {
+                    type: "button" as const,
+                    onClick: () => onFilterChange?.(active ? null : stat.kind),
+                    title: active
+                      ? "Clear this filter"
+                      : `Show only ${stat.label.toLowerCase()} activities`,
+                    "data-testid": `diff-chip-${stat.kind}`,
+                  }
+                : {})}
+              className={cn(
+                "rounded-lg border border-border/70 bg-card px-3 py-2 text-center",
+                clickable && "transition-colors hover:border-primary/40",
+                active && "border-primary/60 ring-1 ring-primary/40",
+              )}
+            >
+              <div className={cn("text-lg font-semibold tabular-nums", stat.tone)}>
+                {stat.value}
+              </div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {stat.label}
+              </div>
+            </Tag>
+          );
+        })}
       </div>
+      {filtered && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="diff-shown-count">
+          Showing{" "}
+          <span className="font-medium text-foreground">
+            {shownCount} of {changedTotal}
+          </span>{" "}
+          changed activities
+          {onClearFilters && (
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="rounded-md border border-border px-2 py-0.5 text-xs transition-colors hover:border-primary/40 hover:text-foreground"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
           Start{" "}

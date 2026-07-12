@@ -6,7 +6,16 @@ import {
   type RevisionDiff as RevisionDiffData,
 } from "@/api/compare";
 import type { Revision } from "@/api/revisions";
-import { LIVE_REF, optionLabel, sideLabel, SummaryBar } from "./diff-shared";
+import { SearchInput } from "@/components/ui/search-input";
+import {
+  LIVE_REF,
+  matchesContractFilter,
+  matchesDiffFilter,
+  optionLabel,
+  sideLabel,
+  SummaryBar,
+  type ChangeKindFilter,
+} from "./diff-shared";
 import { ChangeNotesEditor } from "./ChangeNotesEditor";
 import type { ChangeNote } from "@/api/change-notes";
 
@@ -55,10 +64,31 @@ export function RevisionDiff({
   const [diff, setDiff] = useState<RevisionDiffData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Triage controls: narrow what's EXPANDED, never what's counted (the
+  // SummaryBar keeps full totals and shows "X of Y" while these are active).
+  const [changeFilter, setChangeFilter] = useState<ChangeKindFilter | null>(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     setBaseRef(APPROVED_REF);
   }, [target.id]);
+
+  // A different comparison is a different change set — stale filters would
+  // silently empty it.
+  useEffect(() => {
+    setChangeFilter(null);
+    setSearch("");
+  }, [target.id, baseRef]);
+
+  const filterActive = changeFilter !== null || search.trim() !== "";
+  const filteredActivities = useMemo(
+    () => (diff?.activities ?? []).filter((a) => matchesDiffFilter(a, changeFilter, search)),
+    [diff, changeFilter, search],
+  );
+  const filteredContracts = useMemo(
+    () => (diff?.contracts ?? []).filter((c) => matchesContractFilter(c, changeFilter, search)),
+    [diff, changeFilter, search],
+  );
 
   useEffect(() => {
     if (!baseRef) {
@@ -112,6 +142,14 @@ export function RevisionDiff({
           changes from the selected version into{" "}
           <span className="font-medium text-foreground">{sideLabel(target)}</span>
         </span>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Filter by rig, well, project…"
+          ariaLabel="Filter changes"
+          testId="diff-search"
+          className="ml-auto"
+        />
       </div>
 
       {error && (
@@ -129,22 +167,38 @@ export function RevisionDiff({
               No prior approved revision — showing the full plan as new.
             </p>
           )}
-          <SummaryBar diff={diff} />
+          <SummaryBar
+            diff={diff}
+            filter={changeFilter}
+            onFilterChange={setChangeFilter}
+            shownCount={filteredActivities.length}
+            onClearFilters={() => {
+              setChangeFilter(null);
+              setSearch("");
+            }}
+          />
           {diff.activities.length === 0 &&
           diff.contracts.length === 0 &&
           (changeNotes?.length ?? 0) === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
               No activity changes between these versions.
             </p>
+          ) : filterActive &&
+            filteredActivities.length === 0 &&
+            filteredContracts.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
+              No changes match the current filter.
+            </p>
           ) : (
             <ChangeNotesEditor
               projectId={projectId}
-              activities={diff.activities}
-              contracts={diff.contracts}
+              activities={filteredActivities}
+              contracts={filteredContracts}
               notes={changeNotes ?? []}
               canEdit={false}
               locked={false}
               readOnly
+              filterActive={filterActive}
             />
           )}
         </>

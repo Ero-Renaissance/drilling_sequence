@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { upsertChangeNote, type ChangeNote, type ChangeNoteKind } from "@/api/change-notes";
 import type { ActivityDiff, ContractDiff } from "@/api/compare";
@@ -109,6 +110,7 @@ export function ChangeNotesEditor({
   canEdit,
   locked,
   readOnly = false,
+  filterActive = false,
 }: {
   projectId: string;
   activities: ActivityDiff[];
@@ -119,6 +121,9 @@ export function ChangeNotesEditor({
   /** Read-only display (revision detail): drop the authoring chrome and render
    *  each note as plain text instead of an editable box. */
   readOnly?: boolean;
+  /** True while the caller is filtering/searching the diff — matched groups
+   *  auto-expand, and stale note-only groups are skipped as noise. */
+  filterActive?: boolean;
 }) {
   // Group by resource: changed activities, then fold in resources that only have a
   // contract change or a (stale) note, so nothing relevant is hidden.
@@ -135,18 +140,27 @@ export function ChangeNotesEditor({
     const k = groupKey(kind, name);
     if (!groups.has(k)) groups.set(k, { kind, resourceName: name, label: c.resource, activities: [] });
   }
-  for (const n of notes) {
-    const k = groupKey(n.kind, n.resource_name);
-    if (!groups.has(k))
-      groups.set(k, {
-        kind: n.kind,
-        resourceName: n.resource_name,
-        label: labelFor(n.kind, n.resource_name),
-        activities: [],
-      });
+  if (!filterActive) {
+    // Fold in resources that only carry a (possibly stale) note — but not
+    // while filtering, where a row-less group would read as a false match.
+    for (const n of notes) {
+      const k = groupKey(n.kind, n.resource_name);
+      if (!groups.has(k))
+        groups.set(k, {
+          kind: n.kind,
+          resourceName: n.resource_name,
+          label: labelFor(n.kind, n.resource_name),
+          activities: [],
+        });
+    }
   }
   const ordered = [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
   if (ordered.length === 0) return null;
+
+  // Progressive disclosure, not pagination: with a big fleet the per-rig groups
+  // collapse to headers-with-counts (nothing is ever hidden from the tally);
+  // small diffs and filtered views stay fully expanded.
+  const defaultOpen = filterActive || ordered.length <= 8;
 
   const noteFor = (g: ResourceGroup) =>
     notes.find((n) => n.kind === g.kind && (n.resource_name ?? null) === g.resourceName)?.body ?? "";
@@ -163,6 +177,7 @@ export function ChangeNotesEditor({
       canEdit={canEdit}
       locked={locked}
       readOnly={readOnly}
+      defaultOpen={defaultOpen}
     />
   ));
 
@@ -201,6 +216,7 @@ function ResourceBlock({
   canEdit,
   locked,
   readOnly,
+  defaultOpen,
 }: {
   projectId: string;
   group: ResourceGroup;
@@ -209,12 +225,17 @@ function ResourceBlock({
   canEdit: boolean;
   locked: boolean;
   readOnly: boolean;
+  defaultOpen: boolean;
 }) {
   const [body, setBody] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [open, setOpen] = useState(defaultOpen);
+  // Follow the caller's disclosure default when it changes (a filter was
+  // applied/cleared, or the group count crossed the threshold).
+  useEffect(() => setOpen(defaultOpen), [defaultOpen]);
 
   const pageCount = Math.max(1, Math.ceil(group.activities.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -241,16 +262,32 @@ function ResourceBlock({
 
   return (
     <div className="rounded-md border border-border/60 bg-background/50 p-2.5">
-      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 text-left"
+        data-testid="diff-group-toggle"
+      >
         <span className="text-xs font-semibold text-foreground">{group.label}</span>
+        {group.activities.length > 0 && (
+          <span className="rounded-full border border-border bg-muted/40 px-1.5 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
+            {group.activities.length} change{group.activities.length === 1 ? "" : "s"}
+          </span>
+        )}
         {contract && (
           <span className="text-[11px] text-muted-foreground">
             · contract {contract.fields.map((f) => `${f.field} ${f.old ?? "—"} → ${f.new ?? "—"}`).join(", ")}
           </span>
         )}
-      </div>
+        <ChevronDown
+          className={cn(
+            "ml-auto h-3.5 w-3.5 shrink-0 self-center text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
 
-      {group.activities.length > 0 && (
+      {open && group.activities.length > 0 && (
         <div className="mb-1.5 overflow-x-auto">
           <table className="w-full min-w-[680px] text-left text-[11px]">
             <thead className="text-muted-foreground">
@@ -306,7 +343,7 @@ function ResourceBlock({
         </div>
       )}
 
-      {readOnly ? (
+      {open && (readOnly ? (
         initial.trim() ? (
           <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1.5 text-sm text-foreground/90">
             {initial}
@@ -326,7 +363,7 @@ function ResourceBlock({
           }
           className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring read-only:opacity-70 disabled:opacity-60"
         />
-      )}
+      ))}
     </div>
   );
 }

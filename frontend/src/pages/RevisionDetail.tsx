@@ -32,6 +32,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { buildDocRef, docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
 import { cn, formatDate } from "@/lib/utils";
+import { PaginationFooter } from "@/components/ui/pagination-footer";
+import { SearchInput } from "@/components/ui/search-input";
 import {
   getRevision,
   listRevisions,
@@ -243,8 +245,93 @@ function snapshotToReadinessMap(rows: SnapshotRow[]): ReadinessMap {
 
 // ── Tabular detail (collapsible) ──────────────────────────────────────────────
 
-function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
+function SnapshotTable({ rows }: { rows: SnapshotRow[] }) {
+  return (
+    <table className="w-full min-w-max border-collapse text-sm">
+      <thead>
+        <tr className="border-b border-border/70 bg-muted/30">
+          {[
+            "Activity Type",
+            "Start",
+            "End",
+            "Well",
+            "Project",
+            "Rig",
+            "Location",
+            "Plan Type",
+            "Readiness",
+            "Risk",
+            "Comment",
+          ].map((h) => (
+            <th
+              key={h}
+              className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr
+            key={row.id}
+            className={cn(
+              "border-b border-border/40",
+              i % 2 === 1 && "bg-muted/15",
+            )}
+          >
+            <td className="px-3 py-2 font-medium text-foreground">{row.activity_type}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.start_date}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.end_date}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.well_name ?? "—"}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.well_project ?? "—"}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.rig_name ?? "—"}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.location ?? "—"}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.plan_type ?? "—"}</td>
+            <td className="px-3 py-2 tabular-nums text-muted-foreground">{readinessSummary(row)}</td>
+            <td className="px-3 py-2 text-muted-foreground">{row.risk ?? "—"}</td>
+            <td className="max-w-xs px-3 py-2 text-muted-foreground/80">
+              {row.comment ?? ""}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** The snapshot's row-by-row table: reference material, so classic search +
+ *  pagination is appropriate here (unlike the diff, which is the accountable
+ *  decision artifact and only ever filters what's EXPANDED). Print ignores
+ *  both and always renders every row — the paper record stays complete.
+ *  Exported for tests. */
+export function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter((row) =>
+        [
+          row.well_name,
+          row.well_project,
+          row.rig_name,
+          row.hwu_name,
+          row.activity_type,
+          row.location,
+          row.plan_type,
+          row.comment,
+        ].some((v) => v?.toLowerCase().includes(q)),
+      )
+    : rows;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safeIndex = Math.min(pageIndex, pageCount - 1);
+  const paged = filtered.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
+  useEffect(() => setPageIndex(0), [q]);
+
   return (
     <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm">
       <button
@@ -266,60 +353,48 @@ function TabularDetail({ rows }: { rows: SnapshotRow[] }) {
         />
       </button>
 
-      {/* Always render in print mode regardless of open state */}
-      <div className={cn(!open && "hidden print:block")}>
-        <div className="overflow-x-auto border-t border-border/70 print:border-0">
-          <table className="w-full min-w-max border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border/70 bg-muted/30">
-                {[
-                  "Activity Type",
-                  "Start",
-                  "End",
-                  "Well",
-                  "Project",
-                  "Rig",
-                  "Location",
-                  "Plan Type",
-                  "Readiness",
-                  "Risk",
-                  "Comment",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "border-b border-border/40",
-                    i % 2 === 1 && "bg-muted/15",
-                  )}
-                >
-                  <td className="px-3 py-2 font-medium text-foreground">{row.activity_type}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.start_date}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.end_date}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.well_name ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.well_project ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.rig_name ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.location ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.plan_type ?? "—"}</td>
-                  <td className="px-3 py-2 tabular-nums text-muted-foreground">{readinessSummary(row)}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.risk ?? "—"}</td>
-                  <td className="max-w-xs px-3 py-2 text-muted-foreground/80">
-                    {row.comment ?? ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {open && (
+        <div className="space-y-3 border-t border-border/70 px-4 py-3 print:hidden">
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search well, rig, project…"
+              ariaLabel="Search snapshot rows"
+              testId="snapshot-search"
+            />
+            <span className="text-xs text-muted-foreground" data-testid="snapshot-count">
+              {filtered.length === rows.length
+                ? `${rows.length} activities`
+                : `${filtered.length} of ${rows.length} activities`}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            {paged.length > 0 ? (
+              <SnapshotTable rows={paged} />
+            ) : (
+              <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
+                No rows match the search.
+              </p>
+            )}
+          </div>
+          <PaginationFooter
+            pageIndex={safeIndex}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            onPageChange={setPageIndex}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPageIndex(0);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Print: always the COMPLETE table, untouched by search/page state. */}
+      <div className="hidden print:block">
+        <div className="overflow-x-auto">
+          <SnapshotTable rows={rows} />
         </div>
       </div>
     </div>

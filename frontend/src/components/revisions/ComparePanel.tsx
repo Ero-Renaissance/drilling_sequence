@@ -4,7 +4,15 @@ import { crossCompareProjects, type RevisionDiff as RevisionDiffData } from "@/a
 import { listRevisions, type Revision } from "@/api/revisions";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
-import { LIVE_REF, optionLabel, SummaryBar } from "./diff-shared";
+import {
+  LIVE_REF,
+  matchesContractFilter,
+  matchesDiffFilter,
+  optionLabel,
+  SummaryBar,
+  type ChangeKindFilter,
+} from "./diff-shared";
+import { SearchInput } from "@/components/ui/search-input";
 import { useOutletContext } from "react-router-dom";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import { ChangeNotesEditor } from "./ChangeNotesEditor";
@@ -30,6 +38,9 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
   const [baseRef, setBaseRef] = useState<string>("");
   const [targetRef, setTargetRef] = useState<string>(LIVE_REF);
   const [diff, setDiff] = useState<RevisionDiffData | null>(null);
+  // Triage controls (mirror RevisionDiff): narrow what's expanded, never the totals.
+  const [changeFilter, setChangeFilter] = useState<ChangeKindFilter | null>(null);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<ChangeNote[]>([]);
@@ -100,6 +111,23 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
     };
   }, [projectId, baseProjectId, baseRef, targetRef]);
 
+  // A different comparison is a different change set — stale filters would
+  // silently empty it.
+  useEffect(() => {
+    setChangeFilter(null);
+    setSearch("");
+  }, [projectId, baseProjectId, baseRef, targetRef]);
+
+  const filterActive = changeFilter !== null || search.trim() !== "";
+  const filteredActivities = useMemo(
+    () => (diff?.activities ?? []).filter((a) => matchesDiffFilter(a, changeFilter, search)),
+    [diff, changeFilter, search],
+  );
+  const filteredContracts = useMemo(
+    () => (diff?.contracts ?? []).filter((c) => matchesContractFilter(c, changeFilter, search)),
+    [diff, changeFilter, search],
+  );
+
   const baseOrdered = useMemo(() => ordered(baseRevisions), [baseRevisions]);
   const targetOrdered = useMemo(() => ordered(targetRevisions), [targetRevisions]);
 
@@ -158,21 +186,46 @@ export function ComparePanel({ projectId }: ComparePanelProps) {
 
           {diff && !loading && (
             <>
-              <SummaryBar diff={diff} />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <SearchInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Filter by rig, well, project…"
+                  ariaLabel="Filter changes"
+                  testId="compare-search"
+                />
+              </div>
+              <SummaryBar
+                diff={diff}
+                filter={changeFilter}
+                onFilterChange={setChangeFilter}
+                shownCount={filteredActivities.length}
+                onClearFilters={() => {
+                  setChangeFilter(null);
+                  setSearch("");
+                }}
+              />
               {diff.activities.length === 0 &&
               diff.contracts.length === 0 &&
               notes.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
                   No activity changes between these schedules.
                 </p>
+              ) : filterActive &&
+                filteredActivities.length === 0 &&
+                filteredContracts.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">
+                  No changes match the current filter.
+                </p>
               ) : (
                 <ChangeNotesEditor
                   projectId={projectId}
-                  activities={diff.activities}
-                  contracts={diff.contracts}
+                  activities={filteredActivities}
+                  contracts={filteredContracts}
                   notes={notes}
                   canEdit={canEditNotes}
                   locked={!!ctx?.locked}
+                  filterActive={filterActive}
                 />
               )}
             </>
