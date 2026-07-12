@@ -32,6 +32,7 @@ from app.routers import (
     readiness,
     resources,
     reviewers,
+    revision_comments,
     revisions,
     viewers,
 )
@@ -100,6 +101,7 @@ for _router in (
     readiness.router,
     viewers.router,
     revisions.router,
+    revision_comments.router,
     approvers.router,
     reviewers.router,
     contracts.router,

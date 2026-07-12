@@ -21,7 +21,7 @@ from app.models.project import (
 )
 from app.models.readiness import ReadinessCheck
 from app.models.resource_registry import ResourceRecord
-from app.models.revision import Revision, Signature
+from app.models.revision import Revision, RevisionComment, Signature
 from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.models.viewer import ProjectViewer
@@ -40,6 +40,7 @@ __all__ = [
     "ResourceRecord",
     "ReviewPolicy",
     "Revision",
+    "RevisionComment",
     "RigContract",
     "Signature",
     "User",

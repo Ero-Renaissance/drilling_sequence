@@ -43,6 +43,7 @@ import {
   type RevisionDetail as RevisionDetailType,
 } from "@/api/revisions";
 import { RevisionDiff } from "@/components/revisions/RevisionDiff";
+import { RevisionDiscussion } from "@/components/revisions/RevisionDiscussion";
 import { RevisionPrintDoc } from "@/components/revisions/RevisionPrintDoc";
 import { DecisionDialog, type DecisionAction } from "@/components/revisions/DecisionDialog";
 import { projectsApi } from "@/api/projects";
@@ -928,6 +929,13 @@ export function RevisionDetail() {
       <div className="space-y-5 print:hidden">
         <ReviewerPanel revision={revision} />
         <SignaturesPanel revision={revision} />
+        {/* Deliberation thread — comment without ending the pending state;
+            org-wide visible and kept with the record after resolution. */}
+        <RevisionDiscussion
+          projectId={projectId!}
+          revisionId={revision.id}
+          open={revision.status === "pending_review" || revision.status === "pending_approval"}
+        />
         <DocumentAuthenticity revision={revision} />
       </div>
 

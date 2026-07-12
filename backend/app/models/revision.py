@@ -85,6 +85,45 @@ class Revision(Base):
         return self.decider.name if self.decider else None
 
 
+class RevisionComment(Base):
+    """One entry in a revision's deliberation thread.
+
+    Lets a designated reviewer/approver (or the planner, or an admin) record
+    context WITHOUT ending the pending state — signing carries no text and the
+    decision reason only exists on reject/request-changes. Append-only (no
+    update/delete anywhere), keyed to the revision so the discussion stays
+    part of the approval record after resolution. Visible org-wide, like every
+    other read in the app.
+    """
+
+    __tablename__ = "revision_comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    revision_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("revisions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # The capacity the author held WHEN POSTING ("Admin" / "Approver" /
+    # "Reviewer" / "Planner") — matrices can change between cycles, so the
+    # record keeps what was true at the time.
+    author_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The revision's stage at post time ("review" | "approval") — reads
+    # differently in the record ("raised during review" vs "at approval").
+    stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    user: Mapped["User | None"] = relationship(lazy="selectin")  # type: ignore[name-defined]
+
+    @property
+    def user_name(self) -> str | None:
+        return self.user.name if self.user else None
+
+
 class Signature(Base):
     __tablename__ = "signatures"
     __table_args__ = (
