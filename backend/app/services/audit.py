@@ -9,6 +9,7 @@ ENTITY_REVIEWER = "reviewer"
 ENTITY_PROJECT = "project"
 ENTITY_CONTRACT = "contract"
 ENTITY_RESOURCE = "resource"
+ENTITY_USER = "user"  # global privilege grants — recorded with project_id NULL
 
 
 def contract_state(contract_end: object | None) -> str:
@@ -19,7 +20,7 @@ def contract_state(contract_end: object | None) -> str:
 
 def governance_event(
     *,
-    project_id: uuid.UUID,
+    project_id: uuid.UUID | None,
     user_id: uuid.UUID | None,
     entity_type: str,
     entity_id: uuid.UUID,
@@ -30,6 +31,7 @@ def governance_event(
     """Build an AuditLog row for a governance event (sign, discard, approver
     add/remove, project create/clone). Unlike activity field edits, the `field`
     column holds an action verb and `new_value` holds a human-readable detail.
+    `project_id=None` records a GLOBAL event (admin / planner-grant changes).
 
     The caller is responsible for adding the returned row to the session.
     """

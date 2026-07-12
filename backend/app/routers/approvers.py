@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.locks import assert_signer_lists_not_frozen
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.approver import ProjectApprover
@@ -45,6 +46,9 @@ async def add_approver(
     current_user: User = Depends(get_current_user),
 ) -> ProjectApprover:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # The required-approver set must not change while a revision is in flight —
+    # signatures are counted against this list at every signing event.
+    await assert_signer_lists_not_frozen(project_id, db)
     # Check for a duplicate approver email in this project (the same email may
     # separately be a reviewer — they're independent kinds).
     existing = await db.execute(
@@ -89,6 +93,9 @@ async def remove_approver(
     current_user: User = Depends(get_current_user),
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # Removing an approver mid-flight shrinks the approval bar — and removing
+    # the last UNSIGNED one would strand the revision pending forever.
+    await assert_signer_lists_not_frozen(project_id, db)
     approver = await db.get(ProjectApprover, approver_id)
     if not approver or approver.project_id != project_id or approver.kind != "approver":
         raise HTTPException(status_code=404, detail="Approver not found")

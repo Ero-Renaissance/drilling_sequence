@@ -7,7 +7,9 @@ from app.schemas.approver import ApproverSignStatus
 
 
 class RevisionCreate(BaseModel):
-    label: str | None = None
+    # Bounded to the Revision.label column width — an overlong value must 422
+    # here, not 500 at the database.
+    label: str | None = Field(default=None, max_length=256)
     # Planner's route choice when the project's review_policy is "optional":
     # True → review first, False → straight to approval. Ignored (forced)
     # when the policy is "required" or "off".
@@ -15,7 +17,9 @@ class RevisionCreate(BaseModel):
 
 
 class SignRequest(BaseModel):
-    role_label: str = "Approver"
+    # Bounded to the Signature.role_label column width; the label is also woven
+    # into audit details and the printed sign-off block.
+    role_label: str = Field(default="Approver", min_length=1, max_length=128)
 
 
 class DecisionRequest(BaseModel):

@@ -1,13 +1,15 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class ApproverCreate(BaseModel):
+    # Bounds mirror the ProjectApprover column widths — overlong values must
+    # 422 at validation, not 500 at the database.
     email: EmailStr
-    name: str | None = None
-    role_label: str = "Approver"
+    name: str | None = Field(default=None, max_length=256)
+    role_label: str = Field(default="Approver", min_length=1, max_length=128)
 
 
 class ApproverResponse(BaseModel):

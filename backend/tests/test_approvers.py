@@ -335,3 +335,103 @@ async def test_outsider_cannot_sign(client: AsyncClient, other_client: AsyncClie
         json={"role_label": "Observer"},
     )
     assert r.status_code == 403
+
+
+# ── Signer matrices freeze while a revision is open ───────────────────────────
+# The required-signature sets are recomputed from the matrices at every signing
+# event, so editing them mid-flight would move the approval bar under the
+# signers — and removing the last unsigned approver would strand the revision
+# pending forever.
+
+
+@pytest.mark.asyncio
+async def test_signer_lists_freeze_while_revision_open(client: AsyncClient) -> None:
+    project_id, revision_id = await _setup(client)  # leaves a pending revision
+
+    r = await client.post(
+        f"/api/projects/{project_id}/approvers", json={"email": "late@company.com"}
+    )
+    assert r.status_code == 423, r.text
+
+    approvers = (await client.get(f"/api/projects/{project_id}/approvers")).json()
+    r = await client.delete(f"/api/projects/{project_id}/approvers/{approvers[0]['id']}")
+    assert r.status_code == 423, r.text
+
+    r = await client.post(
+        f"/api/projects/{project_id}/reviewers", json={"email": "late-rev@company.com"}
+    )
+    assert r.status_code == 423, r.text
+
+    # Resolving the revision (discard) unfreezes the lists.
+    assert (
+        await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
+    ).status_code == 204
+    r = await client.post(
+        f"/api/projects/{project_id}/approvers", json={"email": "late@company.com"}
+    )
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_signer_lists_unfreeze_after_approval(
+    client: AsyncClient, other_client: AsyncClient, third_client: AsyncClient
+) -> None:
+    """An APPROVED (frozen) plan does NOT freeze the matrices — edits then only
+    shape the next cycle's required set, never a revision in flight."""
+    project_id, revision_id = await _setup(client)
+    for signer in (other_client, third_client):
+        r = await signer.put(
+            f"/api/projects/{project_id}/revisions/{revision_id}/sign", json={}
+        )
+        assert r.status_code == 200, r.text
+    # All approvers signed → approved; the plan stays locked, the matrices don't.
+    r = await client.post(
+        f"/api/projects/{project_id}/approvers", json={"email": "next-quarter@company.com"}
+    )
+    assert r.status_code == 201, r.text
+
+
+# ── The DB, not the app, is the authority on signing invariants ───────────────
+
+
+@pytest.mark.asyncio
+async def test_signature_uniqueness_enforced_by_schema(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """One signature per (revision, user, stage): the endpoint's read-then-insert
+    check alone is racy; the unique constraint is the real guarantee."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.revision import Signature
+
+    _, revision_id = await _setup(client)
+    rid = _uuid.UUID(revision_id)
+    db.add(Signature(revision_id=rid, user_id=OTHER_USER_ID, role_label="A",
+                     stage="approval", signed_at=datetime.now(timezone.utc)))
+    await db.commit()
+    db.add(Signature(revision_id=rid, user_id=OTHER_USER_ID, role_label="B",
+                     stage="approval", signed_at=datetime.now(timezone.utc)))
+    with pytest.raises(IntegrityError):
+        await db.commit()
+    await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_rev_number_uniqueness_enforced_by_schema(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    import uuid as _uuid
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.revision import Revision
+
+    project_id, _ = await _setup(client)  # created Rev 1
+    db.add(Revision(project_id=_uuid.UUID(project_id), rev_number=1,
+                    snapshot_json="[]", status="discarded"))
+    with pytest.raises(IntegrityError):
+        await db.commit()
+    await db.rollback()

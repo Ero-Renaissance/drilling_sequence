@@ -27,7 +27,8 @@ def send_email(to: list[str], subject: str, body: str) -> None:
     if not recipients:
         return
     if not settings.email_enabled:
-        logger.info("Email disabled; skipping %r to %s", subject, recipients)
+        # Log counts, not addresses — recipient emails are PII (no PII in logs).
+        logger.info("Email disabled; skipping %r to %d recipient(s)", subject, len(recipients))
         return
 
     msg = EmailMessage()
@@ -43,9 +44,9 @@ def send_email(to: list[str], subject: str, body: str) -> None:
             if settings.smtp_username:
                 smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(msg)
-        logger.info("Sent %r to %s", subject, recipients)
+        logger.info("Sent %r to %d recipient(s)", subject, len(recipients))
     except Exception:  # noqa: BLE001 — notifications must never break the caller
-        logger.exception("Failed to send email %r to %s", subject, recipients)
+        logger.exception("Failed to send email %r to %d recipient(s)", subject, len(recipients))
 
 
 def notify_revision_pending(

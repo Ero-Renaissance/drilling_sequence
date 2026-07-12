@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.locks import assert_signer_lists_not_frozen
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.approver import ProjectApprover
@@ -51,6 +52,9 @@ async def add_reviewer(
     current_user: User = Depends(get_current_user),
 ) -> ProjectApprover:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # The required-reviewer set must not change while a revision is in flight —
+    # review signatures are counted against this list at every signing event.
+    await assert_signer_lists_not_frozen(project_id, db)
     # Duplicate check is scoped to the reviewer kind (the same email may also be
     # an approver — they're independent lists).
     existing = await db.execute(
@@ -95,6 +99,9 @@ async def remove_reviewer(
     current_user: User = Depends(get_current_user),
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # Removing a reviewer mid-flight shrinks the review bar — and removing the
+    # last UNSIGNED one would strand the revision in review forever.
+    await assert_signer_lists_not_frozen(project_id, db)
     reviewer = await db.get(ProjectApprover, reviewer_id)
     if not reviewer or reviewer.project_id != project_id or reviewer.kind != "reviewer":
         raise HTTPException(status_code=404, detail="Reviewer not found")

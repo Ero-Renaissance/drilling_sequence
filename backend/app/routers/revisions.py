@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -394,7 +395,17 @@ async def create_revision(
         )
     )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # uq_revision_project_number: a concurrent submit won the same rev
+        # number — same outcome as the open-revision pre-check above, surfaced
+        # as the DB constraint because both requests passed the pre-check.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A revision is already open. Resolve or discard it first.",
+        )
     await db.refresh(revision)
 
     required_approvers = await _get_required_approvers(project_id, db)
@@ -692,7 +703,13 @@ async def sign_revision(
             )
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # uq_signature_revision_user_stage: a concurrent double-click raced
+        # past the read-then-insert duplicate check above.
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="You have already signed this revision")
     await db.refresh(revision)
 
     return RevisionResponse.model_validate(
@@ -768,7 +785,12 @@ async def sign_review(
             )
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # uq_signature_revision_user_stage (see sign_revision).
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="You have already reviewed this revision")
     await db.refresh(revision)
 
     # Once review completes, nudge the approvers (fire-and-forget).

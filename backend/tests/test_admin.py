@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.audit import AuditLog
 from app.models.user import User
 
 
@@ -49,9 +50,23 @@ async def test_grant_admin_records_audit_log(
 
     logged = " ".join(r.getMessage() for r in caplog.records)
     assert "admin_privilege_change" in logged
-    assert "other@company.com" in logged  # target of the grant
-    assert "test@company.com" in logged   # acting admin
     assert "is_admin=False->True" in logged
+    # Emails are PII and stay OUT of process logs (ids only) — the durable,
+    # human-readable record lives in the append-only audit table instead.
+    assert "other@company.com" not in logged
+    assert "test@company.com" not in logged
+
+    row = (
+        await db.execute(
+            select(AuditLog).where(
+                AuditLog.entity_type == "user",
+                AuditLog.entity_id == target.id,
+                AuditLog.field == "admin_granted",
+            )
+        )
+    ).scalar_one()
+    assert row.project_id is None  # global governance event
+    assert "other@company.com" in (row.new_value or "")
 
 
 @pytest.mark.asyncio
@@ -97,3 +112,33 @@ async def test_cannot_revoke_an_allowlist_admin(
     keep = await client.patch(f"/api/admin/users/{target.id}", json={"is_admin": True})
     assert keep.status_code == 200
     assert keep.json()["admin_via_allowlist"] is True
+
+
+@pytest.mark.asyncio
+async def test_planner_grant_records_governance_event(
+    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+) -> None:
+    """can_plan gates campaign creation and every planner power — granting or
+    revoking it must land in the append-only audit table (project_id NULL =
+    global event), not only in transient process logs."""
+    await _promote_self_to_admin(client, db)
+    target = await _materialize_other_user(other_client, db)
+
+    # The conftest workhorse users already hold can_plan, so revoke FIRST
+    # (True->False emits an event), then grant it back.
+    r = await client.patch(f"/api/admin/users/{target.id}", json={"can_plan": False})
+    assert r.status_code == 200, r.text
+    r = await client.patch(f"/api/admin/users/{target.id}", json={"can_plan": True})
+    assert r.status_code == 200, r.text
+
+    rows = (
+        await db.execute(
+            select(AuditLog)
+            .where(AuditLog.entity_type == "user", AuditLog.entity_id == target.id)
+            .order_by(AuditLog.timestamp)
+        )
+    ).scalars().all()
+    actions = [row.field for row in rows]
+    assert "can_plan_granted" in actions
+    assert "can_plan_revoked" in actions
+    assert all(row.project_id is None for row in rows)

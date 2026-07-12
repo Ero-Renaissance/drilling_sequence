@@ -534,3 +534,35 @@ async def test_export_activities_unknown_project_404(client: AsyncClient) -> Non
 
     r = await client.get(f"/api/projects/{uuid.uuid4()}/activities/export")
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_import_rejects_oversize_file(client: AsyncClient, monkeypatch) -> None:
+    """The import materializes at most MAX_IMPORT_BYTES — a huge upload 413s
+    before any parsing instead of exhausting memory."""
+    from app.routers import activities as activities_router
+
+    monkeypatch.setattr(activities_router, "MAX_IMPORT_BYTES", 64)
+    project = await _create_project(client)
+    big = ("Activity Type,Start Date,End Date\n" + "x" * 200).encode()
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities/import",
+        files={"file": ("big.csv", io.BytesIO(big), "text/csv")},
+    )
+    assert response.status_code == 413, response.text
+    assert "limit" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_import_rejects_too_many_rows(client: AsyncClient, monkeypatch) -> None:
+    """The byte cap alone can't bound a compressed .xlsx — the row ceiling can."""
+    from app.routers import activities as activities_router
+
+    monkeypatch.setattr(activities_router, "MAX_IMPORT_ROWS", 1)
+    project = await _create_project(client)
+    response = await client.post(
+        f"/api/projects/{project['id']}/activities/import",
+        files={"file": ("activities.csv", io.BytesIO(CSV_VALID.encode()), "text/csv")},
+    )
+    assert response.status_code == 413, response.text
+    assert "rows" in response.json()["detail"]

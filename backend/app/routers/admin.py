@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.project import ProjectMember
 from app.models.user import User
 from app.schemas.admin import AdminUserResponse, AdminUserUpdate
+from app.services.audit import ENTITY_USER, governance_event
 
 logger = logging.getLogger(__name__)
 
@@ -88,27 +89,57 @@ async def update_user(
         user.is_admin = payload.is_admin
     if payload.can_plan is not None:
         user.can_plan = payload.can_plan
+
+    # Privilege changes are governance events: record them in the append-only
+    # audit table (project_id NULL = global event) IN the same transaction as
+    # the grant, so the durable trail can never miss a change that committed.
+    # The audit detail carries the emails; the process log below sticks to ids
+    # (no PII in logs).
+    if previous_admin != user.is_admin:
+        db.add(
+            governance_event(
+                project_id=None,
+                user_id=admin.id,
+                entity_type=ENTITY_USER,
+                entity_id=user.id,
+                action="admin_granted" if user.is_admin else "admin_revoked",
+                detail=(
+                    f"{'Granted' if user.is_admin else 'Revoked'} global admin "
+                    f"for {user.email} (by {admin.email})"
+                ),
+                old_value=str(previous_admin),
+            )
+        )
+    if previous_plan != user.can_plan:
+        db.add(
+            governance_event(
+                project_id=None,
+                user_id=admin.id,
+                entity_type=ENTITY_USER,
+                entity_id=user.id,
+                action="can_plan_granted" if user.can_plan else "can_plan_revoked",
+                detail=(
+                    f"{'Granted' if user.can_plan else 'Revoked'} the planning "
+                    f"grant for {user.email} (by {admin.email})"
+                ),
+                old_value=str(previous_plan),
+            )
+        )
     await db.commit()
     await db.refresh(user)
 
-    # Global privilege changes are high-privilege and rare; record a defensible,
-    # server-side trail (the project-scoped audit log can't hold a global event).
     if previous_admin != user.is_admin:
         logger.info(
-            "admin_privilege_change actor=%s actor_id=%s target=%s target_id=%s is_admin=%s->%s",
-            admin.email,
+            "admin_privilege_change actor_id=%s target_id=%s is_admin=%s->%s",
             admin.id,
-            user.email,
             user.id,
             previous_admin,
             user.is_admin,
         )
     if previous_plan != user.can_plan:
         logger.info(
-            "planner_grant_change actor=%s actor_id=%s target=%s target_id=%s can_plan=%s->%s",
-            admin.email,
+            "planner_grant_change actor_id=%s target_id=%s can_plan=%s->%s",
             admin.id,
-            user.email,
             user.id,
             previous_plan,
             user.can_plan,

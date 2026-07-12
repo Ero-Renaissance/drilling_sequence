@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -9,6 +18,12 @@ from app.database import Base
 
 class Revision(Base):
     __tablename__ = "revisions"
+    __table_args__ = (
+        # The rev-number sequence is the approval record's spine; assigning it is
+        # a read-max-then-insert, so the DB — not the app — must be the authority
+        # that two concurrent submits can't mint the same number.
+        UniqueConstraint("project_id", "rev_number", name="uq_revision_project_number"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
@@ -72,6 +87,16 @@ class Revision(Base):
 
 class Signature(Base):
     __tablename__ = "signatures"
+    __table_args__ = (
+        # One signature per user per stage per revision — the endpoint's
+        # read-then-insert duplicate check alone is racy, and duplicate rows
+        # would pollute the signature record and its integrity digest. NULL
+        # user_id can't collide in practice: users are never hard-deleted
+        # (Azure AD sourced), so SET NULL never fires.
+        UniqueConstraint(
+            "revision_id", "user_id", "stage", name="uq_signature_revision_user_stage"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     revision_id: Mapped[uuid.UUID] = mapped_column(

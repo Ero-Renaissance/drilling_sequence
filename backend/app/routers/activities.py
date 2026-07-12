@@ -45,6 +45,13 @@ from app.services.registry import (
 
 router = APIRouter(prefix="/api/projects/{project_id}/activities", tags=["activities"])
 
+# Import upload bounds. Real campaign sheets are a few hundred KB / a few
+# thousand rows (7 rows per well); the caps only exist to stop a huge or
+# decompression-bomb upload from exhausting memory. Mirrors the optimizer's
+# _MAX_UPLOAD_BYTES pattern (app/routers/optimizer.py).
+MAX_IMPORT_BYTES = 5 * 1024 * 1024
+MAX_IMPORT_ROWS = 20_000
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
 
@@ -523,7 +530,19 @@ async def import_activities(
     # pending revision — refuse while any are locked.
     await assert_project_not_locked(project_id, db)
 
-    content = await file.read()
+    # Cap what we materialize BEFORE parsing (read one byte past the limit so
+    # an at-limit file passes and an over-limit one is detected without
+    # buffering the rest). Real schedules are well under 1 MB; the cap exists
+    # so a huge or decompression-bomb upload can't exhaust server memory.
+    content = await file.read(MAX_IMPORT_BYTES + 1)
+    if len(content) > MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"File is larger than the {MAX_IMPORT_BYTES // (1024 * 1024)} MB "
+                f"import limit. Split the schedule or remove unrelated sheets."
+            ),
+        )
     filename = file.filename or ""
 
     # keep_default_na=False + na_values=[""]: only genuinely EMPTY cells read as
@@ -542,6 +561,17 @@ async def import_activities(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Could not parse the uploaded file. Provide a valid CSV or Excel file.",
         ) from exc
+
+    # Row ceiling: the byte cap alone can't bound a compressed .xlsx, which can
+    # expand far past its file size when parsed.
+    if len(df) > MAX_IMPORT_ROWS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"The sheet has {len(df)} rows — more than the {MAX_IMPORT_ROWS} "
+                f"the import accepts. Split the schedule into smaller files."
+            ),
+        )
 
     # The new schedule export is long-format (one row per readiness gate, with
     # embedded readiness statuses + per-rig contract expiry). It has its own

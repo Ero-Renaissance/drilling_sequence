@@ -23,8 +23,13 @@ interface ImportDialogProps {
 // How many skipped rows to list inline before collapsing to a "+N more" + download.
 const MAX_INLINE_SKIPPED = 10;
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+// Exported for tests. Beyond RFC-4180 quoting, a leading = + - @ (or tab/CR)
+// is prefixed with ' so a cell like "=cmd|..." arriving from an imported sheet
+// re-exports as inert text instead of executing as a formula when the CSV is
+// opened in Excel (CSV/formula injection).
+export function csvCell(value: string): string {
+  const deFormula = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n]/.test(deFormula) ? `"${deFormula.replace(/"/g, '""')}"` : deFormula;
 }
 
 function downloadBlob(filename: string, blob: Blob) {
