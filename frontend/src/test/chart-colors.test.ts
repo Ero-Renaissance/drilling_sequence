@@ -57,11 +57,11 @@ describe("chart-colors — default activity catalogue", () => {
     }
   });
 
-  it("keeps the retired 'Well Testing' label rendering (immutable snapshots) but hides it from suggestions", () => {
-    // Approved snapshots still store the old name — it must keep its hue…
-    expect(getActivityColor("Well Testing")).toBe(getActivityColor("Well Cleanup/Test"));
-    expect(isCataloguedActivityType("Well Testing")).toBe(true);
-    // …but new data normalises to the canonical name, so it's not suggested.
+  it("treats the retired 'Well Testing' label as an unknown type (clean rename, no compat)", () => {
+    // Not deployed → no old-name data to bridge, so the compat alias was dropped.
+    // "Well Testing" is now just an uncatalogued type: grey, not suggested.
+    expect(getActivityColor("Well Testing")).toBe(UNKNOWN_ACTIVITY_COLOR);
+    expect(isCataloguedActivityType("Well Testing")).toBe(false);
     expect(suggestedActivityTypes([])).not.toContain("Well Testing");
   });
 

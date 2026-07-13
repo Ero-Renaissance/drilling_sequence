@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, StringConstraints, field_validator, model_validator
 
+from app.services.activity_types import canonicalize_activity_type
+
 # Canonical oil & gas domain enums. Kept in sync with the frontend selects
 # (LOCATIONS / PLAN_TYPES / RISKS) so writes can't introduce free-form variants.
 # Responses stay free-form `str` so legacy rows predating these allow-lists still read.
@@ -29,6 +31,16 @@ class ActivityCreate(BaseModel):
     comment: str | None = None
     plan_type: PlanType | None = None
     readiness_required: bool = True
+
+    # Normalize the type to its canonical spelling on EVERY write path (this is
+    # the base for manual create and the import's ActivityCreate), so a hand-typed
+    # "gas development" or "Gas Exploration(Including HPHT)" stores canonically
+    # just like an import — no path re-introduces a formatting variant. Idempotent
+    # on already-resolved values; an unknown type passes through verbatim.
+    @field_validator("activity_type")
+    @classmethod
+    def _canonicalize_type(cls, v: str) -> str:
+        return canonicalize_activity_type(v) or v
 
     @field_validator("end_date")
     @classmethod
@@ -62,6 +74,13 @@ class ActivityCreateStrict(ActivityCreate):
 class ActivityUpdate(BaseModel):
     activity_type: str | None = None
     start_date: date | None = None
+
+    # Canonicalize a manual edit's type exactly like create/import (idempotent;
+    # None/unknown pass through). See ActivityCreate._canonicalize_type.
+    @field_validator("activity_type")
+    @classmethod
+    def _canonicalize_type(cls, v: str | None) -> str | None:
+        return canonicalize_activity_type(v)
     end_date: date | None = None
     well_name: str | None = None
     rig_name: str | None = None

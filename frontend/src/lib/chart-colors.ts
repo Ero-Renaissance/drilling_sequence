@@ -75,15 +75,6 @@ const SYNTHETIC_COLORS: Record<string, string> = {
   Well: "#64748b", // slate
 };
 
-// Retired catalogue labels → their canonical replacement's color. Approved
-// snapshots are immutable, so a five-year-old revision still stores the old
-// name; it must render in the SAME hue, never grey. Import normalises new data
-// to the canonical name (backend BUILTIN_ACTIVITY_TYPE_ALIASES), so these only
-// ever appear in frozen historical snapshots — hence excluded from suggestions.
-const LEGACY_ACTIVITY_ALIASES: Record<string, string> = {
-  "Well Testing": "Well Cleanup/Test",
-};
-
 /** The canonical activity-type catalogue (sorted) — the allow-list the import
  *  mapping dialog maps unknown sheet values onto. Mirrors the backend's
  *  CANONICAL_ACTIVITY_TYPES; retired aliases and synthetics are excluded. */
@@ -93,18 +84,12 @@ export const CATALOGUE_ACTIVITY_TYPES: readonly string[] = Object.keys(
 
 /** True when the type has a designed color (curated catalogue or synthetic). */
 export function isCataloguedActivityType(activityType: string): boolean {
-  return (
-    activityType in ACTIVITY_COLORS ||
-    activityType in SYNTHETIC_COLORS ||
-    activityType in LEGACY_ACTIVITY_ALIASES
-  );
+  return activityType in ACTIVITY_COLORS || activityType in SYNTHETIC_COLORS;
 }
 
 export function getActivityColor(activityType: string): string {
   if (SYNTHETIC_COLORS[activityType]) return SYNTHETIC_COLORS[activityType];
   if (ACTIVITY_COLORS[activityType]) return ACTIVITY_COLORS[activityType];
-  const canonical = LEGACY_ACTIVITY_ALIASES[activityType];
-  if (canonical) return ACTIVITY_COLORS[canonical];
   return UNKNOWN_ACTIVITY_COLOR;
 }
 

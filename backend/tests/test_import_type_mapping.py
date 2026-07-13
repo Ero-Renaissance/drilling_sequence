@@ -53,10 +53,11 @@ def test_resolver_layers() -> None:
         "formatting",
     )
     assert resolve_activity_type("  gas development ") == ("Gas Development", "formatting")
-    # builtin alias: the Well Testing rename keeps old sheets importing clean
-    assert resolve_activity_type("Well Testing") == ("Well Cleanup/Test", "alias")
     # remembered alias (db layer, passed in by the endpoint)
     assert resolve_activity_type("W/O", {"w/o": "Oil Workover"}) == ("Oil Workover", "alias")
+    # No builtin aliases: the retired "Well Testing" label is just an unknown now
+    # (a fresh deploy has no old-name data to bridge). It maps via the dialog.
+    assert resolve_activity_type("Well Testing") == ("Well Testing", "unknown")
     # manual mapping for this upload only
     assert resolve_activity_type("Gas Dvelopment", None, {"gas dvelopment": "Gas Development"}) == (
         "Gas Development",
@@ -112,16 +113,32 @@ async def test_formatting_variants_resolve_silently(client: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
-async def test_builtin_alias_applies_and_is_reported(client: AsyncClient) -> None:
+async def test_manual_entry_canonicalizes_formatting_variant(client: AsyncClient) -> None:
+    """Resolution isn't import-only: a hand-typed formatting variant is
+    canonicalized by the schema validator on create AND update, so no write path
+    reintroduces a variant of a catalogue type."""
     pid = await _project(client)
-    r = await _import(client, pid, _sheet("Well Testing"))
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["applied_mappings"] == [
-        {"source": "Well Testing", "target": "Well Cleanup/Test", "rows": 1}
-    ]
-    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
-    assert acts[0]["activity_type"] == "Well Cleanup/Test"
+    r = await client.post(
+        f"/api/projects/{pid}/activities",
+        json={
+            "activity_type": "gas exploration(including hpht)",
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+            "well_name": "W-1",
+            "location": "LAND",
+            "plan_type": "Firm",
+            "risk": "No Flood Risk",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["activity_type"] == "Gas Exploration (including HPHT)"
+
+    r2 = await client.patch(
+        f"/api/projects/{pid}/activities/{r.json()['id']}",
+        json={"activity_type": "  oil development "},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["activity_type"] == "Oil Development"
 
 
 @pytest.mark.asyncio
@@ -194,3 +211,75 @@ async def test_dry_run_never_remembers(client: AsyncClient, db) -> None:
     assert r.status_code == 200, r.text
     aliases = (await db.execute(select(ActivityTypeAlias))).scalars().all()
     assert aliases == []
+
+
+@pytest.mark.asyncio
+async def test_mapping_source_rejected_when_normalized_key_too_long(
+    client: AsyncClient,
+) -> None:
+    """The source passes the raw <=128 check but normalisation lengthens it
+    (a space before every '('), which would overflow alias_key VARCHAR(128)."""
+    pid = await _project(client)
+    long_source = "(" * 128  # 128 raw chars; normalises to ~256 (" (" per paren)
+    r = await _import(
+        client, pid, _sheet("Gas Dvelopment"),
+        mappings=json.dumps({long_source: "Gas Development"}),
+    )
+    assert r.status_code == 422, r.text
+    assert "too long" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_whitespace_variant_sources_cannot_map_to_different_types(
+    client: AsyncClient,
+) -> None:
+    """'Foo bar' and 'Foo  bar' normalise to one key — mapping them to different
+    types must 422, not silently let the last one win."""
+    pid = await _project(client)
+    r = await _import(
+        client, pid, _sheet("Gas Dvelopment"),
+        mappings=json.dumps({"Foo bar": "Oil Workover", "Foo  bar": "Gas Workover"}),
+    )
+    assert r.status_code == 422, r.text
+    assert "conflict" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_remember_array_is_bounded(client: AsyncClient) -> None:
+    pid = await _project(client)
+    r = await _import(
+        client, pid, _sheet("Gas Dvelopment"),
+        mappings=json.dumps({"Gas Dvelopment": "Gas Development"}),
+        remember=json.dumps(["Gas Dvelopment"] * 1000),
+    )
+    assert r.status_code == 422, r.text
+    assert "remember" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_long_path_counts_only_imported_rows(client: AsyncClient) -> None:
+    """Unknown-type counts must reflect what was actually imported: a well with
+    an unknown type that ALSO fails validation is skipped and must NOT inflate
+    the unknown tally."""
+    pid = await _project(client, "LongCount")
+    header = (
+        "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,"
+        "Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,"
+        "Readiness Check,Readiness Check Status,Comment"
+    )
+    rows = [
+        # valid well, unknown type → counts as 1 unknown row
+        "LAND,RIG_1,,Foobar Type,In Plan (Firm),PX,W-OK,05/01/2026,15/03/2026,,,No Flood Risk,BUD,On track,",
+        # same unknown type but end-before-start → skipped, must NOT be counted
+        "LAND,RIG_1,,Foobar Type,In Plan (Firm),PX,W-BAD,15/03/2026,05/01/2026,,,No Flood Risk,BUD,On track,",
+    ]
+    content = ("\n".join([header, *rows]) + "\n").encode()
+    r = await client.post(
+        f"/api/projects/{pid}/activities/import?replace=true",
+        files={"file": ("s.csv", io.BytesIO(content), "text/csv")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["imported"] == 1
+    assert body["skipped"] == 1
+    assert body["unknown_types"] == [{"value": "Foobar Type", "rows": 1}]  # not 2
