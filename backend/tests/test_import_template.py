@@ -32,7 +32,7 @@ async def test_template_downloads_with_schedule_and_guidance(client: AsyncClient
     # The guidance sheet carries the canonical activity types (dropdown source).
     gd = wb["Guidance"]
     col_d = [gd.cell(row=i, column=4).value for i in range(2, 20)]
-    assert "Well Testing" in col_d
+    assert "Well Cleanup/Test" in col_d
     assert "Rig Mobilisation and Intake" in col_d
 
 

@@ -8,6 +8,7 @@ metadata: cross-table foreign keys fail to resolve (e.g. ``activities`` ->
 Keep this list complete whenever a new model module is added.
 """
 from app.models.activity import Activity
+from app.models.activity_type_alias import ActivityTypeAlias
 from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.change_note import ChangeNote
@@ -28,6 +29,7 @@ from app.models.viewer import ProjectViewer
 
 __all__ = [
     "Activity",
+    "ActivityTypeAlias",
     "AuditLog",
     "ChangeNote",
     "HwuContract",

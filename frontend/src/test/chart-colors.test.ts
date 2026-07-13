@@ -23,7 +23,7 @@ const DEFAULT_ACTIVITIES = [
   "Water Injection",
   "Well Repair/Safety",
   "Rig Mobilisation and Intake",
-  "Well Testing",
+  "Well Cleanup/Test",
   "Abandonment",
 ];
 
@@ -55,6 +55,14 @@ describe("chart-colors — default activity catalogue", () => {
     ]) {
       expect(out).not.toContain(gone);
     }
+  });
+
+  it("keeps the retired 'Well Testing' label rendering (immutable snapshots) but hides it from suggestions", () => {
+    // Approved snapshots still store the old name — it must keep its hue…
+    expect(getActivityColor("Well Testing")).toBe(getActivityColor("Well Cleanup/Test"));
+    expect(isCataloguedActivityType("Well Testing")).toBe(true);
+    // …but new data normalises to the canonical name, so it's not suggested.
+    expect(suggestedActivityTypes([])).not.toContain("Well Testing");
   });
 
   it("merges project-specific types with the catalogue, deduped and sorted", () => {

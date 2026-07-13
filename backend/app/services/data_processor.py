@@ -30,10 +30,70 @@ CANONICAL_ACTIVITY_TYPES = frozenset(
         "Water Injection",
         "Well Repair/Safety",
         "Rig Mobilisation and Intake",
-        "Well Testing",
+        "Well Cleanup/Test",
         "Abandonment",
     }
 )
+
+
+def normalize_activity_type_key(value: str) -> str:
+    """Formatting-insensitive lookup key for an activity type: case-folded,
+    whitespace collapsed, parenthesis spacing normalised — so
+    "Gas Exploration(Including HPHT)" and "Gas Exploration (including HPHT)"
+    share a key. Formatting-level matches resolve silently; they are the same
+    words, differently typed."""
+    key = value.strip().lower()
+    key = re.sub(r"\s*\(\s*", " (", key)
+    key = re.sub(r"\s*\)", ")", key)
+    return re.sub(r"\s+", " ", key)
+
+
+_CANONICAL_BY_KEY = {normalize_activity_type_key(t): t for t in CANONICAL_ACTIVITY_TYPES}
+
+# Curated synonyms (normalized key → canonical), applied at import. Code-level
+# entries need no database row; planner-remembered mappings from the import
+# dialog live in the activity_type_aliases table and are merged in by the
+# import endpoint. NEVER fuzzy — every entry here was a deliberate decision.
+BUILTIN_ACTIVITY_TYPE_ALIASES: dict[str, str] = {
+    # 2026-07 rename: the catalogue label moved to the field wording
+    # "Well Cleanup/Test"; the old label keeps importing cleanly forever.
+    "well testing": "Well Cleanup/Test",
+}
+
+
+def resolve_activity_type(
+    raw: str | None,
+    extra_aliases: "dict[str, str] | None" = None,
+    user_mappings: "dict[str, str] | None" = None,
+) -> "tuple[str | None, str]":
+    """Resolve a sheet's activity type against the canonical catalogue.
+
+    Returns (stored_value, how):
+      canonical  — exact catalogue entry, stored as-is
+      formatting — same words modulo case/whitespace/parenthesis → canonical
+                   spelling (silent: nothing semantically changed)
+      alias      — a curated synonym (builtin or remembered) → its canonical
+      mapped     — resolved by THIS upload's manual mapping step
+      unknown    — none of the above; stored verbatim and warned about
+    Alias/mapped rewrites are word-level changes and must be reported in the
+    import summary — the record never rewrites a sheet silently.
+    """
+    if raw is None or not raw.strip():
+        return raw, "unknown"
+    value = raw.strip()
+    if value in CANONICAL_ACTIVITY_TYPES:
+        return value, "canonical"
+    key = normalize_activity_type_key(value)
+    canonical = _CANONICAL_BY_KEY.get(key)
+    if canonical:
+        return canonical, "formatting"
+    target = (extra_aliases or {}).get(key) or BUILTIN_ACTIVITY_TYPE_ALIASES.get(key)
+    if target:
+        return target, "alias"
+    mapped = (user_mappings or {}).get(key)
+    if mapped:
+        return mapped, "mapped"
+    return value, "unknown"
 
 
 def unknown_activity_type_warnings(activity_types: "list[str | None]") -> list[str]:

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Upload, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,7 +10,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { downloadImportTemplate, importActivities, type ImportResult } from "@/api/activities";
+import {
+  downloadImportTemplate,
+  importActivities,
+  type ImportResult,
+  type TypeMappingChoice,
+  type UnknownActivityType,
+} from "@/api/activities";
+import { CATALOGUE_ACTIVITY_TYPES } from "@/lib/chart-colors";
+
+const KEEP_AS_IS = ""; // sentinel: leave the value verbatim (charts grey, warned)
+
+/** The manual-mapping step: shown only when a dry-run finds sheet activity
+ *  types outside the catalogue. Maps values (not rows), offers "keep as-is",
+ *  and a per-mapping "remember" so next quarter's upload resolves it silently. */
+interface MappingState {
+  file: File;
+  unknowns: UnknownActivityType[];
+  choices: Record<string, string>; // value → canonical, or KEEP_AS_IS
+  remember: Record<string, boolean>;
+}
 
 interface ImportDialogProps {
   projectId: string;
@@ -54,12 +73,14 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [mapping, setMapping] = useState<MappingState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function resetState() {
     setFile(null);
     setError(null);
     setResult(null);
+    setMapping(null);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -67,20 +88,61 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
     setError(null);
   }
 
-  async function handleSubmit() {
-    if (!file) return;
+  /** Commit the import (optionally with the resolved mapping) and show results. */
+  async function commit(f: File, choice?: TypeMappingChoice) {
     setLoading(true);
     setError(null);
     try {
-      const r = await importActivities(projectId, file, replace);
+      const r = await importActivities(projectId, f, replace, { mapping: choice });
       onImported(r.imported); // refresh the sequence behind the dialog
-      setResult(r); // flip to the results view (success + any skipped rows)
+      setResult(r); // flip to the results view
+      setMapping(null);
       setFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmit() {
+    if (!file) return;
+    setLoading(true);
+    setError(null);
+    try {
+      // Dry run first: validate + resolve types, write NOTHING. Only if the
+      // sheet carries unrecognised types do we interrupt with the mapping step;
+      // a clean sheet commits straight through with no extra clicks.
+      const preview = await importActivities(projectId, file, replace, { dryRun: true });
+      if (preview.unknown_types.length > 0) {
+        setMapping({
+          file,
+          unknowns: preview.unknown_types,
+          choices: Object.fromEntries(preview.unknown_types.map((u) => [u.value, KEEP_AS_IS])),
+          remember: {},
+        });
+        setLoading(false);
+        return;
+      }
+      await commit(file); // nothing to map — go straight to the real import
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+      setLoading(false);
+    }
+  }
+
+  function confirmMapping() {
+    if (!mapping) return;
+    const mappings: Record<string, string> = {};
+    const remember: string[] = [];
+    for (const u of mapping.unknowns) {
+      const target = mapping.choices[u.value];
+      if (target && target !== KEEP_AS_IS) {
+        mappings[u.value] = target;
+        if (mapping.remember[u.value]) remember.push(u.value);
+      }
+    }
+    void commit(mapping.file, { mappings, remember });
   }
 
   function handleOpenChange(val: boolean) {
@@ -118,7 +180,90 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
       </DialogTrigger>
 
       <DialogContent className="sm:max-w-md">
-        {result ? (
+        {mapping ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Wand2 className="h-4 w-4 text-primary" />
+                Map unrecognised activity types
+              </DialogTitle>
+              <DialogDescription>
+                {mapping.unknowns.length}{" "}
+                {mapping.unknowns.length === 1 ? "value isn't" : "values aren't"} in the
+                catalogue. Map each to a canonical type, or keep it as-is (it imports and
+                charts grey until an admin adds it). Nothing has been imported yet.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="max-h-[22rem] space-y-3 overflow-y-auto py-2">
+              {mapping.unknowns.map((u) => {
+                const choice = mapping.choices[u.value] ?? KEEP_AS_IS;
+                return (
+                  <div key={u.value} className="rounded-md border border-border px-3 py-2.5">
+                    <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                      <span className="font-mono text-[13px] font-medium text-foreground">
+                        {u.value}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {u.rows} {u.rows === 1 ? "row" : "rows"}
+                      </span>
+                    </div>
+                    <select
+                      value={choice}
+                      onChange={(e) =>
+                        setMapping((m) =>
+                          m ? { ...m, choices: { ...m.choices, [u.value]: e.target.value } } : m,
+                        )
+                      }
+                      aria-label={`Map ${u.value}`}
+                      data-testid={`map-select-${u.value}`}
+                      className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value={KEEP_AS_IS}>Keep as-is (charts grey)</option>
+                      {CATALOGUE_ACTIVITY_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                    {choice !== KEEP_AS_IS && (
+                      <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={!!mapping.remember[u.value]}
+                          onChange={(e) =>
+                            setMapping((m) =>
+                              m
+                                ? { ...m, remember: { ...m.remember, [u.value]: e.target.checked } }
+                                : m,
+                            )
+                          }
+                          data-testid={`remember-${u.value}`}
+                        />
+                        Remember this mapping for future imports
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {error && (
+              <p className="whitespace-pre-line text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setMapping(null)} disabled={loading}>
+                Back
+              </Button>
+              <Button onClick={confirmMapping} disabled={loading} data-testid="confirm-mapping">
+                {loading ? "Importing…" : "Apply & import"}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : result ? (
           <>
             <DialogHeader>
               <DialogTitle>Import results</DialogTitle>
@@ -135,6 +280,26 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
                   {result.imported} {result.imported === 1 ? "well" : "wells"} imported
                 </p>
               </div>
+
+              {result.applied_mappings.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                    <Wand2 className="h-3.5 w-3.5 text-primary" />
+                    Activity types mapped:
+                  </p>
+                  <ul className="space-y-1 text-xs text-muted-foreground">
+                    {result.applied_mappings.map((m, i) => (
+                      <li key={i}>
+                        <span className="font-mono">{m.source}</span> →{" "}
+                        <span className="font-medium text-foreground">{m.target}</span>{" "}
+                        <span className="text-muted-foreground/70">
+                          ({m.rows} {m.rows === 1 ? "row" : "rows"})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {result.skipped > 0 && (
                 <div className="space-y-2">

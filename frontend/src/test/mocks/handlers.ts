@@ -158,8 +158,20 @@ export const handlers = [
     new HttpResponse(null, { status: 204 }),
   ),
 
-  http.post("/api/projects/:projectId/activities/import", () => {
-    const result: ImportResult = { imported: 2, replaced: true, skipped: 0, skipped_rows: [], warnings: [] };
+  http.post("/api/projects/:projectId/activities/import", ({ request }) => {
+    // The dialog does a dry_run pass first, then commits; both hit this route.
+    // With no unknown types either way, the dry run flows straight to commit.
+    const dryRun = new URL(request.url).searchParams.get("dry_run") === "true";
+    const result: ImportResult = {
+      imported: 2,
+      replaced: !dryRun,
+      skipped: 0,
+      skipped_rows: [],
+      warnings: [],
+      dry_run: dryRun,
+      unknown_types: [],
+      applied_mappings: [],
+    };
     return HttpResponse.json(result);
   }),
 

@@ -1,10 +1,11 @@
 import io
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.core.locks import assert_project_not_locked, ensure_activity_unlocked
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
+from app.models.activity_type_alias import ActivityTypeAlias
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectRole
@@ -28,12 +30,15 @@ from app.schemas.activity import (
     ImportResponse,
 )
 from app.schemas.audit import AuditEntryResponse
+from app.services.audit import ENTITY_VOCABULARY, governance_event
 from app.services.data_processor import (
     CANONICAL_ACTIVITY_TYPES,
     cross_terrain_resource_warnings,
     csv_df_to_db_rows,
     is_long_schedule,
+    normalize_activity_type_key,
     parse_long_schedule,
+    resolve_activity_type,
     unknown_activity_type_warnings,
     validate_csv_columns,
 )
@@ -508,6 +513,160 @@ async def get_activity_history(
     return [AuditEntryResponse.model_validate(e) for e in result.scalars().all()]
 
 
+
+
+# ── Activity-type resolution at import (see services/data_processor.py) ───────
+# Layer order: canonical → formatting (silent) → curated alias → this upload's
+# manual mapping → unknown (imported verbatim, warned). Word-level rewrites are
+# reported in the response; the dry run feeds the mapping dialog.
+
+_MAX_TYPE_MAPPINGS = 50
+
+
+def _parse_type_mappings(
+    mappings_raw: str | None, remember_raw: str | None
+) -> tuple[dict[str, str], dict[str, str], list[str]]:
+    """Validate the mapping form fields (allow-list: targets must be canonical).
+
+    Returns (mappings_by_key, display_by_key, remember_keys): resolution wants
+    normalized keys; the remember step wants the sheet's original wording too.
+    """
+    if not mappings_raw:
+        return {}, {}, []
+    try:
+        parsed = json.loads(mappings_raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="mappings must be a JSON object")
+    if not isinstance(parsed, dict) or len(parsed) > _MAX_TYPE_MAPPINGS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"mappings must be a JSON object with at most {_MAX_TYPE_MAPPINGS} entries",
+        )
+    by_key: dict[str, str] = {}
+    display_by_key: dict[str, str] = {}
+    for source, target in parsed.items():
+        if not isinstance(source, str) or not isinstance(target, str):
+            raise HTTPException(status_code=422, detail="mappings entries must be strings")
+        source = source.strip()
+        if not source or len(source) > 128:
+            raise HTTPException(status_code=422, detail="mapping sources must be 1-128 characters")
+        if target not in CANONICAL_ACTIVITY_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{target}' is not a canonical activity type",
+            )
+        key = normalize_activity_type_key(source)
+        by_key[key] = target
+        display_by_key[key] = source
+
+    remember_keys: list[str] = []
+    if remember_raw:
+        try:
+            remember_list = json.loads(remember_raw)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=422, detail="remember must be a JSON array")
+        if not isinstance(remember_list, list):
+            raise HTTPException(status_code=422, detail="remember must be a JSON array")
+        for source in remember_list:
+            key = normalize_activity_type_key(str(source))
+            if key not in by_key:
+                raise HTTPException(
+                    status_code=422,
+                    detail="remember entries must be sources present in mappings",
+                )
+            remember_keys.append(key)
+    return by_key, display_by_key, remember_keys
+
+
+async def _load_type_aliases(db: AsyncSession) -> dict[str, str]:
+    rows = (await db.execute(select(ActivityTypeAlias))).scalars().all()
+    return {row.alias_key: row.canonical for row in rows}
+
+
+def _resolve_types_in_place(
+    field_dicts: "list[dict]",
+    db_aliases: dict[str, str],
+    user_mappings: dict[str, str],
+) -> tuple[dict[str, int], dict[tuple[str, str], int]]:
+    """Resolve every dict's activity_type. Returns (unknown_counts, applied):
+    applied counts word-level rewrites only — formatting fixes are the same
+    words and stay silent."""
+    unknown: dict[str, int] = {}
+    applied: dict[tuple[str, str], int] = {}
+    for fields in field_dicts:
+        raw = fields.get("activity_type")
+        resolved, how = resolve_activity_type(raw, db_aliases, user_mappings)
+        if how in ("formatting", "alias", "mapped"):
+            fields["activity_type"] = resolved
+        if how in ("alias", "mapped") and raw:
+            pair = (raw.strip(), resolved)
+            applied[pair] = applied.get(pair, 0) + 1
+        elif how == "unknown" and raw and str(raw).strip():
+            value = str(raw).strip()
+            unknown[value] = unknown.get(value, 0) + 1
+    return unknown, applied
+
+
+def _preview_payload(unknown: dict[str, int], applied: dict[tuple[str, str], int]) -> dict:
+    return {
+        "unknown_types": [
+            {"value": value, "rows": rows} for value, rows in sorted(unknown.items())
+        ],
+        "applied_mappings": [
+            {"source": source, "target": target, "rows": rows}
+            for (source, target), rows in sorted(applied.items())
+        ],
+    }
+
+
+async def _remember_type_aliases(
+    db: AsyncSession,
+    remember_keys: list[str],
+    mappings_by_key: dict[str, str],
+    display_by_key: dict[str, str],
+    current_user: User,
+) -> None:
+    """Persist "remember this mapping" choices so future uploads resolve them
+    automatically. Added to the import's session — committed atomically with
+    the import itself; each is a GLOBAL governance event (it changes how every
+    future upload is read)."""
+    for key in dict.fromkeys(remember_keys):  # dedupe, keep order
+        canonical = mappings_by_key[key]
+        display = display_by_key[key]
+        existing = (
+            await db.execute(
+                select(ActivityTypeAlias).where(ActivityTypeAlias.alias_key == key)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.canonical == canonical:
+                continue
+            existing.canonical = canonical
+            existing.alias_display = display
+            action = "activity_type_alias_updated"
+            alias = existing
+        else:
+            alias = ActivityTypeAlias(
+                alias_key=key,
+                alias_display=display,
+                canonical=canonical,
+                created_by=current_user.id,
+            )
+            db.add(alias)
+            action = "activity_type_alias_added"
+        await db.flush()
+        db.add(
+            governance_event(
+                project_id=None,
+                user_id=current_user.id,
+                entity_type=ENTITY_VOCABULARY,
+                entity_id=alias.id,
+                action=action,
+                detail=f"Import mapping remembered: '{display}' → '{canonical}'",
+            )
+        )
+
+
 @router.post("/import", response_model=ImportResponse)
 async def import_activities(
     project_id: uuid.UUID,
@@ -515,6 +674,16 @@ async def import_activities(
     db: DB,
     file: UploadFile = File(...),
     replace: bool = Query(default=True, description="Replace all existing activities"),
+    dry_run: bool = Query(
+        default=False,
+        description="Preview: validate and resolve activity types, write NOTHING; "
+        "returns unknown_types for the mapping dialog.",
+    ),
+    # Multipart form fields (they ride alongside the file):
+    # mappings — JSON object {sheet value → canonical type} from the mapping step;
+    # remember — JSON array of mapping sources to persist as aliases.
+    mappings: str | None = Form(default=None),
+    remember: str | None = Form(default=None),
 ) -> ImportResponse:
     """Upload a CSV or Excel file and bulk-insert activities into the project.
 
@@ -529,6 +698,9 @@ async def import_activities(
     # A bulk import would delete/replace activities that may be frozen under a
     # pending revision — refuse while any are locked.
     await assert_project_not_locked(project_id, db)
+
+    mappings_by_key, display_by_key, remember_keys = _parse_type_mappings(mappings, remember)
+    db_aliases = await _load_type_aliases(db)
 
     # Cap what we materialize BEFORE parsing (read one byte past the limit so
     # an at-limit file passes and an over-limit one is detected without
@@ -577,7 +749,18 @@ async def import_activities(
     # embedded readiness statuses + per-rig contract expiry). It has its own
     # ingestion path; the legacy wide CSV path continues below.
     if is_long_schedule(df):
-        return await _import_long_schedule(df, project_id, current_user, db, replace)
+        return await _import_long_schedule(
+            df,
+            project_id,
+            current_user,
+            db,
+            replace,
+            dry_run=dry_run,
+            db_aliases=db_aliases,
+            user_mappings=mappings_by_key,
+            remember_keys=remember_keys,
+            display_by_key=display_by_key,
+        )
 
     try:
         validate_csv_columns(df)
@@ -587,6 +770,7 @@ async def import_activities(
         ) from exc
 
     rows = csv_df_to_db_rows(df, str(project_id))
+    unknown_types, applied = _resolve_types_in_place(rows, db_aliases, mappings_by_key)
 
     # Validate every row against the schema before touching the database.
     validated: list[ActivityCreate] = []
@@ -608,6 +792,16 @@ async def import_activities(
             },
         )
 
+    if dry_run:
+        # Preview: nothing written, nothing deleted, nothing remembered.
+        return ImportResponse(
+            imported=len(validated),
+            replaced=False,
+            dry_run=True,
+            warnings=unknown_activity_type_warnings([m.activity_type for m in validated])[:200],
+            **_preview_payload(unknown_types, applied),
+        )
+
     if replace:
         await db.execute(delete(Activity).where(Activity.project_id == project_id))
 
@@ -623,11 +817,13 @@ async def import_activities(
     await ensure_activity_resources_registered(
         db, project_id, _resource_triples(validated), current_user.id
     )
+    await _remember_type_aliases(db, remember_keys, mappings_by_key, display_by_key, current_user)
     await db.commit()
     return ImportResponse(
         imported=len(validated),
         replaced=replace,
         warnings=unknown_activity_type_warnings([m.activity_type for m in validated])[:200],
+        **_preview_payload(unknown_types, applied),
     )
 
 
@@ -649,6 +845,12 @@ async def _import_long_schedule(
     current_user: User,
     db: AsyncSession,
     replace: bool,
+    *,
+    dry_run: bool = False,
+    db_aliases: dict[str, str] | None = None,
+    user_mappings: dict[str, str] | None = None,
+    remember_keys: list[str] | None = None,
+    display_by_key: dict[str, str] | None = None,
 ) -> ImportResponse:
     """Ingest the long-format schedule: collapse the per-gate rows into one activity
     each, import every well's readiness gates, and upsert per-rig contract expiry.
@@ -663,6 +865,12 @@ async def _import_long_schedule(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+    # Resolve activity types (canonical → formatting → alias → manual mapping)
+    # BEFORE validation, so what gets stored is the resolved vocabulary.
+    unknown_types, applied = _resolve_types_in_place(
+        [pa.fields for pa in parsed], db_aliases or {}, user_mappings or {}
+    )
 
     # Validate each collapsed activity (same ActivityCreate gate the JSON API uses)
     # and its readiness gates/statuses. An invalid well is skipped (not imported) and
@@ -703,6 +911,18 @@ async def _import_long_schedule(
     warnings.extend(
         cross_terrain_resource_warnings([(a.rig_name, a.location) for a, _ in validated], "Rig")
     )
+
+    if dry_run:
+        # Preview: nothing written, nothing deleted, nothing remembered.
+        return ImportResponse(
+            imported=len(validated),
+            replaced=False,
+            skipped=len(skipped_rows),
+            skipped_rows=skipped_rows[:200],
+            warnings=warnings[:200],
+            dry_run=True,
+            **_preview_payload(unknown_types, applied),
+        )
 
     # Replace only when at least one well is valid — never wipe the schedule to
     # import nothing (e.g. an entirely-bad file in replace mode).
@@ -780,6 +1000,9 @@ async def _import_long_schedule(
                 )
             )
 
+    await _remember_type_aliases(
+        db, remember_keys or [], user_mappings or {}, display_by_key or {}, current_user
+    )
     await db.commit()
     return ImportResponse(
         imported=len(validated),
@@ -787,4 +1010,5 @@ async def _import_long_schedule(
         skipped=len(skipped_rows),
         skipped_rows=skipped_rows[:200],
         warnings=warnings[:200],
+        **_preview_payload(unknown_types, applied),
     )

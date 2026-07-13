@@ -29,12 +29,38 @@ export interface SkippedRow {
   reason: string;
 }
 
+/** A distinct sheet activity-type value the resolver couldn't place — the
+ *  mapping dialog offers these to map (or keep as-is). */
+export interface UnknownActivityType {
+  value: string;
+  rows: number;
+}
+
+/** A word-level rewrite applied at import (curated alias or manual mapping) —
+ *  reported so an import never silently rewrites the sheet. */
+export interface AppliedTypeMapping {
+  source: string;
+  target: string;
+  rows: number;
+}
+
 export interface ImportResult {
   imported: number;
   replaced: boolean;
   skipped: number;
   skipped_rows: SkippedRow[];
   warnings: string[];
+  /** True = preview (dry run): nothing was written. */
+  dry_run: boolean;
+  unknown_types: UnknownActivityType[];
+  applied_mappings: AppliedTypeMapping[];
+}
+
+/** Manual activity-type mappings from the dialog: {sheet value → canonical
+ *  type}, plus which of those sources to remember as a persistent alias. */
+export interface TypeMappingChoice {
+  mappings: Record<string, string>;
+  remember: string[];
 }
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -157,11 +183,16 @@ export async function importActivities(
   projectId: string,
   file: File,
   replace = true,
+  opts: { dryRun?: boolean; mapping?: TypeMappingChoice } = {},
 ): Promise<ImportResult> {
   const form = new FormData();
   form.append("file", file);
+  if (opts.mapping) {
+    form.append("mappings", JSON.stringify(opts.mapping.mappings));
+    form.append("remember", JSON.stringify(opts.mapping.remember));
+  }
   const resp = await fetch(
-    `/api/projects/${projectId}/activities/import?replace=${replace}`,
+    `/api/projects/${projectId}/activities/import?replace=${replace}&dry_run=${!!opts.dryRun}`,
     { method: "POST", headers: await authHeaders(), body: form },
   );
   if (!resp.ok) {

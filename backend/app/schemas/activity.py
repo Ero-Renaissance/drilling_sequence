@@ -127,9 +127,32 @@ class SkippedRow(BaseModel):
     reason: str
 
 
+class UnknownActivityType(BaseModel):
+    """A distinct sheet value the resolution pipeline could not place — the
+    manual mapping step offers these for the planner to map (or keep as-is)."""
+
+    value: str
+    rows: int
+
+
+class AppliedTypeMapping(BaseModel):
+    """A word-level rewrite applied at import (curated alias or this upload's
+    manual mapping) — reported so an import never silently rewrites the sheet.
+    Formatting-only fixes (case/spacing) are not reported; nothing changed."""
+
+    source: str
+    target: str
+    rows: int
+
+
 class ImportResponse(BaseModel):
     imported: int
     replaced: bool
     skipped: int = 0
     skipped_rows: list[SkippedRow] = []
     warnings: list[str] = []
+    # True = preview (dry run): NOTHING was written; `imported` is the count
+    # that would import, and unknown_types feeds the mapping dialog.
+    dry_run: bool = False
+    unknown_types: list[UnknownActivityType] = []
+    applied_mappings: list[AppliedTypeMapping] = []

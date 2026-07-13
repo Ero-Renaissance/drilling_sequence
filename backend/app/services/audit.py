@@ -10,6 +10,7 @@ ENTITY_PROJECT = "project"
 ENTITY_CONTRACT = "contract"
 ENTITY_RESOURCE = "resource"
 ENTITY_USER = "user"  # global privilege grants — recorded with project_id NULL
+ENTITY_VOCABULARY = "vocabulary"  # activity-type aliases — global (project_id NULL)
 
 
 def contract_state(contract_end: object | None) -> str:

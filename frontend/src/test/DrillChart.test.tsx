@@ -349,15 +349,19 @@ describe("ImportDialog", () => {
 
   it("shows a results summary listing skipped wells on a partial import", async () => {
     server.use(
-      http.post("/api/projects/:projectId/activities/import", () =>
-        HttpResponse.json({
+      http.post("/api/projects/:projectId/activities/import", ({ request }) => {
+        const dryRun = new URL(request.url).searchParams.get("dry_run") === "true";
+        return HttpResponse.json({
           imported: 1,
-          replaced: true,
+          replaced: !dryRun,
           skipped: 1,
           skipped_rows: [{ well: "WELL_BAD", reason: "end date is before start date" }],
           warnings: [],
-        }),
-      ),
+          dry_run: dryRun,
+          unknown_types: [],
+          applied_mappings: [],
+        });
+      }),
     );
     const onImported = vi.fn();
     renderDialog(onImported);
