@@ -160,3 +160,73 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
     expect(screen.queryByText("Contract Expiration")).not.toBeInTheDocument();
   });
 });
+
+// ── Readiness strips: one per PROJECT per PAGE (anchor-only print) ────────────
+
+function projRow(id: string, project: string | null, start: string, end: string): PrintRow {
+  return {
+    id,
+    activity_type: "Drilling",
+    start_date: start,
+    end_date: end,
+    well_name: `W-${id}`,
+    well_project: project,
+    rig_name: "RIG1",
+    location: "LAND",
+    plan_type: null,
+    risk: null,
+    readiness: { FDP: "On Track" },
+  };
+}
+
+function renderReadiness(rows: PrintRow[]) {
+  return render(
+    <RevisionPrintDoc
+      revision={revision}
+      project={null}
+      rows={rows}
+      chart="readiness"
+      includeSchedule={false}
+      signatures="wetink"
+    />,
+  );
+}
+
+describe("RevisionPrintDoc — page-local readiness anchors", () => {
+  it("renders ONE strip per project per page, under its first bar in the window", () => {
+    renderReadiness([
+      projRow("late", "Bonga Phase 3", "2033-05-01", "2033-07-01"),
+      projRow("first", "Bonga Phase 3", "2033-01-05", "2033-02-20"),
+      projRow("other", "Egina North", "2033-03-01", "2033-04-01"),
+    ]);
+    // Same window/page: Bonga's two bars share ONE strip; Egina gets its own.
+    expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(2);
+  });
+
+  it("re-anchors on every page: a project spanning two windows gets a strip on each", () => {
+    // windowYears=1 on the readiness chart → 2033 and 2034 are separate pages.
+    renderReadiness([
+      projRow("y1", "Bonga Phase 3", "2033-02-01", "2033-06-01"),
+      projRow("y2", "Bonga Phase 3", "2034-02-01", "2034-06-01"),
+    ]);
+    expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(2);
+  });
+
+  it("keeps per-bar strips for legacy rows with no field project", () => {
+    renderReadiness([
+      projRow("a", null, "2033-01-05", "2033-02-20"),
+      projRow("b", null, "2033-05-01", "2033-07-01"),
+    ]);
+    // Old per-activity snapshots: readers stay faithful — a strip per bar.
+    expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(2);
+  });
+
+  it("never anchors on an opt-out bar", () => {
+    renderReadiness([
+      { ...projRow("opt", "Bonga Phase 3", "2033-01-05", "2033-02-20"), readiness_required: false },
+      projRow("real", "Bonga Phase 3", "2033-05-01", "2033-07-01"),
+    ]);
+    const strips = screen.getAllByTestId("gantt-readiness-strip");
+    expect(strips).toHaveLength(1);
+  });
+});

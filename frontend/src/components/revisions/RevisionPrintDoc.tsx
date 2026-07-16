@@ -221,6 +221,37 @@ function StaticGantt({
         const w = pg.w;
         const winStart = w.from.getTime();
         const winSpan = w.to.getTime() - winStart;
+        // Readiness anchors, PAGE-LOCAL: gates are per FIELD PROJECT, so each
+        // project's strip renders ONCE per page — under its first bar in this
+        // page's window — instead of under every bar. Every page stays
+        // self-contained (no flipping back to find a project's gates); within
+        // a page nothing repeats. "First" = earliest start among the page's
+        // gate-carrying bars; the snapshot is frozen, so the anchor is an
+        // address, not a liveness judgement like the on-screen chart's.
+        // Legacy snapshots (per-activity readiness, no well_project) keep
+        // their per-bar strips — readers stay faithful to old revisions.
+        const readinessAnchors = new Map<string, string>(); // well_project → row id
+        if (showReadiness) {
+          for (const a of acts) {
+            if (
+              a.readiness_required === false ||
+              !a.well_project ||
+              !pg.keys.includes(rowLabel(a.location, printResource(a) ?? a.activity_type)) ||
+              a.e.getTime() <= winStart ||
+              a.s.getTime() >= w.to.getTime()
+            )
+              continue;
+            const cur = readinessAnchors.get(a.well_project);
+            const curAct = cur ? acts.find((x) => x.id === cur) : undefined;
+            if (
+              !curAct ||
+              a.s.getTime() < curAct.s.getTime() ||
+              (a.s.getTime() === curAct.s.getTime() && a.id < curAct.id)
+            ) {
+              readinessAnchors.set(a.well_project, a.id);
+            }
+          }
+        }
         // Year axis slices (centred labels + internal gridlines); `yb` = the
         // window's last visible year, used for the "2026–2027" page heading.
         const yb = new Date(w.to.getTime() - 1).getFullYear();
@@ -444,20 +475,24 @@ function StaticGantt({
                                         {a.well_name}
                                       </span>
                                     )}
-                                  {/* Readiness strip beneath the bar — scaled to the bar
-                                      width (capped) and centred, so the 8 gates never spill
-                                      past the bar into a neighbour's strip. Narrow bars get
-                                      smaller icons; the schedule table keeps them full size. */}
-                                  <span
-                                    className="pointer-events-none absolute top-[1.75rem] flex justify-center"
-                                    style={{ left: `${l}%`, width: `${wpct}%` }}
-                                  >
-                                    <span className="w-full max-w-[6rem]">
-                                      {a.readiness_required !== false && (
-                                        <ReadinessIcons readiness={a.readiness} fill />
-                                      )}
-                                    </span>
-                                  </span>
+                                  {/* Readiness strip — ONE per project per page, under the
+                                      project's first bar in this window (see readinessAnchors
+                                      above). Scaled to the bar width (capped) and centred so
+                                      the 7 gates never spill into a neighbour. Legacy rows
+                                      with no well_project keep the old per-bar strip. */}
+                                  {a.readiness_required !== false &&
+                                    (!a.well_project ||
+                                      readinessAnchors.get(a.well_project) === a.id) && (
+                                      <span
+                                        data-testid="gantt-readiness-strip"
+                                        className="pointer-events-none absolute top-[1.75rem] flex justify-center"
+                                        style={{ left: `${l}%`, width: `${wpct}%` }}
+                                      >
+                                        <span className="w-full max-w-[6rem]">
+                                          <ReadinessIcons readiness={a.readiness} fill />
+                                        </span>
+                                      </span>
+                                    )}
                                 </>
                               ) : (
                                 <>
