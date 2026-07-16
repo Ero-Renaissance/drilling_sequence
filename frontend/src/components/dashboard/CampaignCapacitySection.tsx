@@ -12,11 +12,12 @@ import { SpudTypeEditor } from "./SpudTypeEditor";
 /**
  * Overview section comparing rigs (stacked by location) and oil/gas well spuds
  * between this campaign and an optional second one — the Excel one-sheet, one combo
- * chart per campaign. Data + the campaign list load lazily on first open so the
- * overview's first paint stays cheap.
+ * chart per campaign. Open by default — planners treat it as part of the
+ * overview; collapsing it is the exception. Data + the campaign list still
+ * load only while the section is open.
  */
 export function CampaignCapacitySection({ projectId }: { projectId: string }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [editorOpen, setEditorOpen] = useState(false);
   const [campaigns, setCampaigns] = useState<Project[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);

@@ -128,12 +128,6 @@ const GATE_COLORS = {
   na: "#cbd5e1",
 } as const;
 
-const PLAN_COLORS: Record<string, string> = {
-  Firm: "#16a34a",
-  Option: "#f59e0b",
-  "Out of Plan": "#94a3b8",
-};
-
 function BreakdownCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
@@ -229,22 +223,15 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
     watchlist.stale_approval +
     watchlist.drift_since_approved;
 
-  // Breakdown data.
-  const planItems = Object.entries(activities.by_plan_type)
-    .map(([label, value]) => ({ label, value, color: PLAN_COLORS[label] ?? "#cbd5e1" }))
-    .sort((a, b) => b.value - a.value);
+  // Breakdown data. (Plan firmness and rig idle gaps were retired from this
+  // page 2026-07 — plan type reads off the grid/chart, idle gaps off the
+  // sequence itself; the by_plan_type / per_rig API fields still feed the
+  // fleet tile and other consumers.)
   const typeItems = Object.entries(activities.by_activity_type)
     .map(([label, value]) => ({ label, value, color: getActivityColor(label) }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
-  const idleItems = rigs.per_rig
-    .filter((r) => r.idle_days > 0)
-    .sort((a, b) => b.idle_days - a.idle_days)
-    .slice(0, 8)
-    .map((r) => ({ label: r.rig, value: r.idle_days, color: "#f59e0b" }));
-  const planMax = Math.max(1, ...planItems.map((i) => i.value));
   const typeMax = Math.max(1, ...typeItems.map((i) => i.value));
-  const idleMax = Math.max(1, ...idleItems.map((i) => i.value));
 
   return (
     <div className="space-y-6">
@@ -362,16 +349,8 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
             )}
           </BreakdownCard>
 
-          <BreakdownCard title="Plan firmness">
-            <BarList items={planItems} max={planMax} />
-          </BreakdownCard>
-
           <BreakdownCard title="Activity-type mix">
             <BarList items={typeItems} max={typeMax} />
-          </BreakdownCard>
-
-          <BreakdownCard title="Rig idle gaps (days)">
-            <BarList items={idleItems} max={idleMax} />
           </BreakdownCard>
         </div>
       </div>

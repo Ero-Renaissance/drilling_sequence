@@ -84,13 +84,14 @@ describe("ProjectDashboard", () => {
     expect(unprocured.closest("a")).toHaveAttribute("href", "/projects/p1/fleet?focus=tbd");
   });
 
-  it("renders the breakdown panel", async () => {
+  it("renders the breakdown panel (plan firmness and idle gaps retired)", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
-    expect(await screen.findByText("Plan firmness")).toBeInTheDocument();
-    expect(screen.getByText("Activity-type mix")).toBeInTheDocument();
+    expect(await screen.findByText("Activity-type mix")).toBeInTheDocument();
     expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
     expect(screen.getByText("Oil Development")).toBeInTheDocument();
+    expect(screen.queryByText("Plan firmness")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Rig idle gaps/i)).not.toBeInTheDocument();
   });
 
   it("shows an all-clear when the watchlist is empty", async () => {
