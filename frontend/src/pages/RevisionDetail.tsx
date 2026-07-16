@@ -31,7 +31,7 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { buildDocRef, docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
-import { readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
+import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
 import { cn, formatDate } from "@/lib/utils";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
@@ -802,8 +802,8 @@ export function RevisionDetail() {
       <style>{`
         @media print {
           @page { size: ${
-            printChart === "readiness" ? readinessPaperSize(printYears) : "A4"
-          } landscape; margin: 14mm 12mm; }
+            printChart === "readiness" ? readinessPageCss(printYears) : "A4 landscape"
+          }; margin: 14mm 12mm; }
           /* Force light document tokens so a dark-mode user still gets a clean,
              readable PDF (dark text on white), not light text on white. */
           :root, .dark {

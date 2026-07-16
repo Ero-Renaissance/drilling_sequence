@@ -186,22 +186,33 @@ export function placeBarLabel({
 export type PrintYears = 1 | 2 | 3;
 
 /**
- * Paper size for the readiness print, matched to years-per-page so the month
- * density (and with it the gate-icon legibility) stays near the 1-year-on-A4
- * baseline: each A-series step up doubles the landscape width, absorbing the
- * extra months. The standard (JV record) chart is NOT covered here — it stays
- * a fixed A4 2-year document; changing the formal record's format is a
- * separate decision.
+ * Paper size for the readiness print, matched to years-per-page: 1yr on A4
+ * (office printer), 2yr on A3, and 3yr jumps to A0 — the plotter poster the
+ * planning wall uses. A0 is 4× the width of A4, so 36 months across it are
+ * MORE legible than 12 on A4, not less. This is the display label; the CSS
+ * value the browser needs is `readinessPageCss` (A0 is not a CSS keyword).
+ * The standard (JV record) chart is NOT covered here — it stays a fixed A4
+ * 2-year document; changing the formal record's format is a separate decision.
  */
-export function readinessPaperSize(years: PrintYears): "A4" | "A3" | "A2" {
-  return years === 1 ? "A4" : years === 2 ? "A3" : "A2";
+export function readinessPaperSize(years: PrintYears): "A4" | "A3" | "A0" {
+  return years === 1 ? "A4" : years === 2 ? "A3" : "A0";
 }
 
 /**
- * Rig rows per readiness page, scaled with the paper's landscape HEIGHT
- * (A4 210mm → 6 rows fits today's row pitch; A3 297mm and A2 420mm grow
- * proportionally after the fixed header/legend overhead).
+ * The `@page size:` value for the readiness print. CSS Paged Media only
+ * defines keywords down to A3 — `size: A0 landscape` is invalid and the
+ * browser would silently fall back to the printer default — so A0 is emitted
+ * as explicit landscape dimensions (width height).
+ */
+export function readinessPageCss(years: PrintYears): string {
+  return years === 3 ? "1189mm 841mm" : `${readinessPaperSize(years)} landscape`;
+}
+
+/**
+ * Rig rows per readiness page, scaled with the paper's landscape HEIGHT at a
+ * constant ~26mm row pitch after the fixed header/legend overhead: A4 210mm
+ * → 6, A3 297mm → 9, A0 841mm → 30 (a whole campaign on one sheet).
  */
 export function readinessRowsPerPage(years: PrintYears): number {
-  return years === 1 ? 6 : years === 2 ? 9 : 14;
+  return years === 1 ? 6 : years === 2 ? 9 : 30;
 }
