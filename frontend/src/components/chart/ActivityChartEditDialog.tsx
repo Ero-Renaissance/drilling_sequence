@@ -23,7 +23,7 @@ import {
 } from "@/api/readiness";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
-import { LOCATIONS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
+import { LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { CHECK_META } from "@/components/readiness/check-meta";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
@@ -49,6 +49,7 @@ const schema = z
     location: z.string().min(1, "Required"),
     plan_type: z.string().min(1, "Required"),
     risk: z.string().min(1, "Required"),
+    market: z.string().optional(),
     comment: z.string().optional(),
     readiness_required: z.boolean(),
   })
@@ -151,6 +152,7 @@ export function ActivityChartEditDialog({
       location: activity.location ?? "",
       plan_type: activity.plan_type ?? "",
       risk: activity.risk ?? "",
+      market: activity.market ?? "",
       comment: activity.comment ?? "",
       readiness_required: activity.readiness_required ?? true,
     },
@@ -175,6 +177,7 @@ export function ActivityChartEditDialog({
       location: activity.location ?? "",
       plan_type: activity.plan_type ?? "",
       risk: activity.risk ?? "",
+      market: activity.market ?? "",
       comment: activity.comment ?? "",
       readiness_required: activity.readiness_required ?? true,
     });
@@ -267,6 +270,7 @@ export function ActivityChartEditDialog({
         location: values.location || null,
         plan_type: values.plan_type || null,
         risk: values.risk || null,
+        market: values.market || null,
         comment: values.comment || null,
         readiness_required: values.readiness_required,
       });
@@ -461,6 +465,16 @@ export function ActivityChartEditDialog({
                   {RISKS.map((r) => (
                     <option key={r} value={r}>
                       {r}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Market" error={errors.market?.message}>
+                <select {...register("market")} className={selectClass} disabled={locked}>
+                  <option value="">Select…</option>
+                  {MARKETS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
                     </option>
                   ))}
                 </select>

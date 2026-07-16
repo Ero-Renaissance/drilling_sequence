@@ -46,6 +46,7 @@ export function optimizerResultsToActivities(results: TerrainResult[]): Activity
           risk: null,
           comment: GAP_TEXT[w.gap_kind] ?? null,
           plan_type: null,
+          market: null,
           completed_at: null,
           updated_at: w.start,
           updated_by_name: null,

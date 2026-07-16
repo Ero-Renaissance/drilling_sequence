@@ -566,3 +566,45 @@ async def test_import_rejects_too_many_rows(client: AsyncClient, monkeypatch) ->
     )
     assert response.status_code == 413, response.text
     assert "rows" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_market_validated_on_create_and_edit(client: AsyncClient) -> None:
+    """Market is allow-listed (Oil / Domestic Gas / Export Gas / Not Applicable):
+    a free-form variant is refused on both write paths; a canonical value stores
+    and PATCH can set or clear it."""
+    project = await _create_project(client, "Market")
+
+    bad = await client.post(
+        f"/api/projects/{project['id']}/activities",
+        json={
+            "activity_type": "Oil Well Drilling",
+            "start_date": "2026-01-01", "end_date": "2026-03-31",
+            "well_name": "W-1", "rig_name": "Rig Alpha", "location": "OFFSHORE",
+            "plan_type": "Firm", "risk": "No Flood Risk", "market": "crude oil",
+        },
+    )
+    assert bad.status_code == 422
+
+    activity = await _create_activity(client, project["id"], market="Export Gas")
+    assert activity["market"] == "Export Gas"
+
+    patched = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"market": "domestic gas"},
+    )
+    assert patched.status_code == 422  # case-sensitive allow-list, no silent coercion
+
+    patched = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"market": "Domestic Gas"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["market"] == "Domestic Gas"
+
+    cleared = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={"market": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["market"] is None

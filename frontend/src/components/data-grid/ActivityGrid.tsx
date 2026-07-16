@@ -56,7 +56,7 @@ import {
 } from "@/lib/watchlist";
 import { EditableCell } from "./EditableCell";
 import { toast } from "@/components/ui/toaster";
-import { ActivityFormDialog, LOCATIONS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
+import { ActivityFormDialog, LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
 import { HistoryPanel } from "@/components/activity/HistoryPanel";
 
 declare module "@tanstack/react-table" {
@@ -494,6 +494,18 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
             value={getValue() ?? null}
             readOnly={!!row.original.locked_by_revision_id}
             onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_project", v)}
+          />
+        ),
+      }),
+      helper.accessor("market", {
+        header: "Market",
+        size: 110,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() ?? null}
+            options={MARKETS}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateCell(row.original.id, "market", v)}
           />
         ),
       }),

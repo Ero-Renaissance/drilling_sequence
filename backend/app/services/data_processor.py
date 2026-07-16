@@ -223,6 +223,16 @@ PLAN_TYPE_MAP = {
     "option": "Option",
 }
 
+# Spreadsheet market wording → canonical Market (app/schemas/activity.py).
+MARKET_MAP = {
+    "oil": "Oil",
+    "domestic gas": "Domestic Gas",
+    "export gas": "Export Gas",
+    "not applicable": "Not Applicable",
+    "n/a": "Not Applicable",
+    "na": "Not Applicable",
+}
+
 def is_long_schedule(df: pd.DataFrame) -> bool:
     """True when the upload is the rich schedule format (Well Name + activity
     columns, with per-rig contract expiry and a Project column). The minimal
@@ -253,6 +263,13 @@ def _map_plan_type(value: object) -> str | None:
     if text is None:
         return None
     return PLAN_TYPE_MAP.get(text.lower(), text)  # unknown → passthrough (schema validates)
+
+
+def _map_market(value: object) -> str | None:
+    text = _clean(value)
+    if text is None:
+        return None
+    return MARKET_MAP.get(text.lower(), text)  # unknown → passthrough (schema validates)
 
 
 @dataclass
@@ -308,6 +325,7 @@ def parse_long_schedule(
                     "well_project": project,
                     "location": _clean(row.get("Location")),
                     "plan_type": _map_plan_type(row.get("Plan Type")),
+                    "market": _map_market(row.get("Market")),
                     "risk": _clean(row.get("Risk")),
                     "comment": _clean(row.get("Comment")),
                 }
@@ -320,7 +338,37 @@ def parse_long_schedule(
         if hwu and hwu_expiry:
             hwu_contracts[hwu] = hwu_expiry
 
+    _apply_project_markets(activities)
+
     return list(activities.values()), rig_contracts, hwu_contracts
+
+
+def _apply_project_markets(activities: dict[tuple, ParsedActivity]) -> None:
+    """Market is a PROJECT-level assignment carried on activity rows: enforce one
+    canonical value per project. Two different values under one project reject
+    the whole upload (never guess which is right); a single value fills the
+    project's blank rows (the drag-fill habit); a non-canonical word is left on
+    its row for the activity schema to reject with row context.
+    """
+    canonical = set(MARKET_MAP.values())
+    by_project: dict[str, set[str]] = {}
+    for pa in activities.values():
+        proj, market = pa.fields.get("well_project"), pa.fields.get("market")
+        if proj and market in canonical:
+            by_project.setdefault(proj, set()).add(market)
+
+    conflicts = {p: sorted(v) for p, v in by_project.items() if len(v) > 1}
+    if conflicts:
+        detail = "; ".join(f"'{p}': {', '.join(v)}" for p, v in sorted(conflicts.items()))
+        raise ValueError(
+            "Conflicting Market values within a project — a field-development "
+            f"project has ONE market. Fix and re-upload: {detail}"
+        )
+
+    for pa in activities.values():
+        proj = pa.fields.get("well_project")
+        if proj in by_project and not pa.fields.get("market"):
+            pa.fields["market"] = next(iter(by_project[proj]))
 
 
 

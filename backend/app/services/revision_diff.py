@@ -16,6 +16,7 @@ _SCALAR_FIELDS: list[tuple[str, str]] = [
     ("rig_name", "Rig"),
     ("location", "Location"),
     ("plan_type", "Plan type"),
+    ("market", "Market"),
     ("risk", "Risk"),
     ("comment", "Comment"),
 ]

@@ -26,6 +26,9 @@ import {
 const LOCATIONS = ["LAND", "SWAMP", "OFFSHORE"] as const;
 const PLAN_TYPES = ["Firm", "Option", "Out of Plan"] as const;
 const RISKS = ["Flood Risk", "No Flood Risk"] as const;
+// Market is a PROJECT-level assignment (one value per field project — the
+// import enforces it); the form offers it per row like the sheet does.
+const MARKETS = ["Oil", "Domestic Gas", "Export Gas", "Not Applicable"] as const;
 
 const schema = z
   .object({
@@ -39,6 +42,7 @@ const schema = z
     location: z.string().min(1, "Required"),
     plan_type: z.string().min(1, "Required"),
     risk: z.string().min(1, "Required"),
+    market: z.string().optional(),
     comment: z.string().optional(),
     readiness_required: z.boolean(),
   })
@@ -144,6 +148,7 @@ export function ActivityFormDialog({
         location: values.location || null,
         plan_type: values.plan_type || null,
         risk: values.risk || null,
+        market: values.market || null,
         comment: values.comment || null,
         readiness_required: values.readiness_required,
       });
@@ -285,6 +290,12 @@ export function ActivityFormDialog({
                 {RISKS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
+            <Field label="Market" htmlFor="add-market" error={errors.market?.message}>
+              <select id="add-market" {...register("market")} className={selectClass}>
+                <option value="">Select…</option>
+                {MARKETS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Field>
           </div>
 
           {/* Comment */}
@@ -329,4 +340,4 @@ export function ActivityFormDialog({
 }
 
 // Re-export so consumers can use without importing directly
-export { LOCATIONS, PLAN_TYPES, RISKS };
+export { LOCATIONS, MARKETS, PLAN_TYPES, RISKS };

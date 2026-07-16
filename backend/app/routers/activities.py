@@ -181,19 +181,21 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     # ── Sheet 1: Schedule (one row per activity) ──────────────────────────────
     header = [
         "Location", "Rig Name", "HWU Name", "Activity Type", "Plan Type", "Project",
-        "Well Name", "Start Date", "End Date", "Rig Contract Expiry Date",
+        "Market", "Well Name", "Start Date", "End Date", "Rig Contract Expiry Date",
         "HWU Contract Expiry Date", "Risk", "Comment",
     ]
     samples = [
         ["LAND", "Rig 1", None, "Gas Development", "In Plan (Firm)", "Project Alpha",
-         "Well-1", _date(2026, 1, 15), _date(2026, 6, 30), _date(2030, 12, 31), None,
-         "No Flood Risk", "One row per activity — set the project's readiness gates in the app"],
+         "Oil", "Well-1", _date(2026, 1, 15), _date(2026, 6, 30), _date(2030, 12, 31),
+         None, "No Flood Risk",
+         "One row per activity — set the project's readiness gates in the app"],
         ["SWAMP", "Rig 1", None, "Oil Development", "In Plan (Option)", "Project Alpha",
-         "Well-2", _date(2026, 3, 1), _date(2026, 8, 31), _date(2031, 6, 30), None,
-         "Flood Risk", "Same name as the LAND rig = a DIFFERENT physical rig (see Guidance)"],
+         None, "Well-2", _date(2026, 3, 1), _date(2026, 8, 31), _date(2031, 6, 30),
+         None, "Flood Risk",
+         "Blank Market inherits the project's value (Oil, from Well-1's row)"],
         ["SWAMP", None, "HWU 1", "Well Repair/Safety", "In Plan (Firm)", "Project Beta",
-         "Well-3", _date(2026, 9, 1), _date(2026, 11, 30), None, _date(2031, 6, 30),
-         "No Flood Risk", "A row uses a rig OR an HWU, never both"],
+         "Domestic Gas", "Well-3", _date(2026, 9, 1), _date(2026, 11, 30), None,
+         _date(2031, 6, 30), "No Flood Risk", "A row uses a rig OR an HWU, never both"],
     ]
 
     wb = Workbook()
@@ -205,7 +207,7 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     for row in samples:
         ws.append(row)
     for r in range(2, ws.max_row + 1):
-        for c in (8, 9, 10, 11):  # Start, End, both expiry columns
+        for c in (9, 10, 11, 12):  # Start, End, both expiry columns
             ws.cell(row=r, column=c).number_format = "DD/MM/YYYY"
     for col in ws.columns:
         width = max((len(str(c.value)) for c in col if c.value is not None), default=10)
@@ -222,6 +224,9 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
         ("Readiness is set in the app", "Sanction gates (FDP, LLI, LOC, FE, FID, EIA, BUD) are "
          "per FIELD-DEVELOPMENT PROJECT and are managed on the app's Readiness tab after "
          "import — they are NOT part of this upload, and re-importing never resets them."),
+        ("Market", "The project's market: Oil, Domestic Gas, Export Gas or Not Applicable. "
+         "ONE value per project — fill any row and the project's blank rows inherit it; two "
+         "different values under one project reject the upload. Optional (may stay blank)."),
         ("Rig identity", "A rig is identified by Location + Rig Name. The same name in two "
          "locations is TWO physical rigs (e.g. a land 10K and a swamp 10K barge) — the import "
          "confirms this with an informational notice. Two rigs of the same class in the SAME "
@@ -268,7 +273,8 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     dropdown('"LAND,SWAMP,OFFSHORE"', f"A2:A{last}")
     dropdown("ActivityTypes", f"D2:D{last}")
     dropdown('"In Plan (Firm),In Plan (Option),Out of Plan"', f"E2:E{last}")
-    dropdown('"Flood Risk,No Flood Risk"', f"L2:L{last}")
+    dropdown('"Oil,Domestic Gas,Export Gas,Not Applicable"', f"G2:G{last}")
+    dropdown('"Flood Risk,No Flood Risk"', f"M2:M{last}")
 
     buf = io.BytesIO()
     wb.save(buf)

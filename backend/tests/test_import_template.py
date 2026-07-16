@@ -31,6 +31,7 @@ async def test_template_downloads_with_schedule_and_guidance(
     ws = wb["Schedule"]
     header = [c.value for c in ws[1]]
     assert header[:3] == ["Location", "Rig Name", "HWU Name"]
+    assert "Market" in header  # project market column (dropdown-validated)
     assert "Readiness Check" not in header
     assert "Readiness Check Status" not in header
 
@@ -75,6 +76,13 @@ async def test_template_round_trips_through_the_importer(client: AsyncClient) ->
     assert ("Rig 1", "SWAMP", "2031-06-30") in pairs
     hwu = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
     assert [(c["hwu_name"], c["contract_end"]) for c in hwu] == [("HWU 1", "2031-06-30")]
+
+    # Market round-trips: Alpha's blank second row inherits Oil; Beta is Domestic Gas.
+    markets = {
+        a["well_name"]: a["market"]
+        for a in (await client.get(f"/api/projects/{pid}/activities")).json()
+    }
+    assert markets == {"Well-1": "Oil", "Well-2": "Oil", "Well-3": "Domestic Gas"}
 
     # Readiness view lists the imported projects at their defaults — the upload
     # itself sets no gates (they are managed in the app).

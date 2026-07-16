@@ -21,7 +21,7 @@ LEGACY_HEADER = (
 )
 SCHEDULE_HEADER = [
     "Location", "Rig Name", "HWU Name", "Activity Type", "Plan Type", "Project",
-    "Well Name", "Start Date", "End Date", "Rig Contract Expiry Date",
+    "Market", "Well Name", "Start Date", "End Date", "Rig Contract Expiry Date",
     "HWU Contract Expiry Date", "Risk", "Comment",
 ]
 GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
@@ -52,10 +52,11 @@ def _long_csv(*row_groups) -> bytes:
 
 
 def _activity_row(*, well, project, atype, plan, risk, start, end, expiry=None,
-                  rig="RIG_1", hwu=None, hwu_expiry=None, loc="LAND", comment=None):
+                  rig="RIG_1", hwu=None, hwu_expiry=None, loc="LAND", comment=None,
+                  market=None):
     """NEW format: one Schedule-sheet row per activity."""
-    return [loc, rig, hwu, atype, plan, project, well, start, end, expiry, hwu_expiry,
-            risk, comment]
+    return [loc, rig, hwu, atype, plan, project, market, well, start, end, expiry,
+            hwu_expiry, risk, comment]
 
 
 def _xlsx(schedule_rows: list[list], readiness_rows: "list[list] | None" = None) -> bytes:
@@ -277,3 +278,82 @@ async def test_long_schedule_skips_invalid_well_imports_rest(client: AsyncClient
     body = resp.json()
     assert body["imported"] == 1 and body["skipped"] == 1
     assert body["skipped_rows"][0]["well"] == "BADDATES"
+
+
+@pytest.mark.asyncio
+async def test_market_imports_canonically_and_fills_project_blanks(
+    client: AsyncClient,
+) -> None:
+    """Market is a project-level assignment: wording is canonicalised ("oil",
+    "N/A"), and one filled row propagates to the project's blank rows."""
+    pid = (await _create_project(client))["id"]
+    content = _xlsx([
+        _activity_row(well="W-1", project="P-Oil", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="05/01/2026", end="15/03/2026", market="oil"),
+        _activity_row(well="W-2", project="P-Oil", atype="Oil Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="01/04/2026", end="01/06/2026"),  # blank → inherits Oil
+        _activity_row(well="W-3", project="P-NA", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="01/05/2026", end="01/07/2026", market="N/A"),
+    ])
+    resp = await _upload(client, pid, content, filename="s.xlsx")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["imported"] == 3
+
+    by_well = {
+        a["well_name"]: a["market"]
+        for a in (await client.get(f"/api/projects/{pid}/activities")).json()
+    }
+    assert by_well == {"W-1": "Oil", "W-2": "Oil", "W-3": "Not Applicable"}
+
+
+@pytest.mark.asyncio
+async def test_conflicting_markets_within_a_project_reject_the_upload(
+    client: AsyncClient,
+) -> None:
+    """Two different Market values under one project = ambiguous assignment —
+    the whole upload is refused (never guess), naming the project and values."""
+    pid = (await _create_project(client))["id"]
+    content = _xlsx([
+        _activity_row(well="W-1", project="P-X", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="05/01/2026", end="15/03/2026", market="Oil"),
+        _activity_row(well="W-2", project="P-X", atype="Oil Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="01/04/2026", end="01/06/2026", market="Export Gas"),
+    ])
+    resp = await _upload(client, pid, content, filename="s.xlsx")
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert "'P-X'" in detail and "Oil" in detail and "Export Gas" in detail
+    # Nothing imported.
+    assert (await client.get(f"/api/projects/{pid}/activities")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_market_word_skips_the_row_with_context(
+    client: AsyncClient,
+) -> None:
+    """A non-canonical market word ("crude") is a row-level rejection with the
+    well named — it neither imports nor poisons the project's other rows."""
+    pid = (await _create_project(client))["id"]
+    content = _xlsx([
+        _activity_row(well="W-GOOD", project="P-Y", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="05/01/2026", end="15/03/2026", market="Oil"),
+        _activity_row(well="W-BAD", project="P-Y", atype="Oil Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="01/04/2026", end="01/06/2026", market="crude"),
+    ])
+    resp = await _upload(client, pid, content, filename="s.xlsx")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["imported"] == 1
+    assert body["skipped"] == 1
+    assert body["skipped_rows"][0]["well"] == "W-BAD"
+    assert "market" in body["skipped_rows"][0]["reason"]
+
+    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
+    assert [(a["well_name"], a["market"]) for a in acts] == [("W-GOOD", "Oil")]

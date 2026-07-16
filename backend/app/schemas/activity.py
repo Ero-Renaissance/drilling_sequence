@@ -12,6 +12,9 @@ from app.services.activity_types import canonicalize_activity_type
 Location = Literal["LAND", "SWAMP", "OFFSHORE"]
 PlanType = Literal["Firm", "Option", "Out of Plan"]
 Risk = Literal["Flood Risk", "No Flood Risk"]
+# Market is assigned per field-development PROJECT (one value across its rows —
+# the import enforces this); it rides on activities like well_project does.
+Market = Literal["Oil", "Domestic Gas", "Export Gas", "Not Applicable"]
 
 # A required string that is trimmed and must be non-empty.
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -30,6 +33,7 @@ class ActivityCreate(BaseModel):
     risk: Risk | None = None
     comment: str | None = None
     plan_type: PlanType | None = None
+    market: Market | None = None
     readiness_required: bool = True
 
     # Normalize the type to its canonical spelling on EVERY write path (this is
@@ -91,6 +95,7 @@ class ActivityUpdate(BaseModel):
     risk: Risk | None = None
     comment: str | None = None
     plan_type: PlanType | None = None
+    market: Market | None = None
     readiness_required: bool | None = None
     # Optimistic lock: client sends back the updated_at it loaded; omit to skip check
     expected_updated_at: datetime | None = None
@@ -131,6 +136,7 @@ class ActivityResponse(BaseModel):
     risk: str | None
     comment: str | None
     plan_type: str | None
+    market: str | None = None
     readiness_required: bool = True
     completed_at: datetime | None = None
     created_at: datetime

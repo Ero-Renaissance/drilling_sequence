@@ -17,6 +17,7 @@ export interface Activity {
   risk: string | null;
   comment: string | null;
   plan_type: string | null;
+  market?: string | null;
   readiness_required?: boolean;
   completed_at: string | null;
   updated_at: string;
@@ -81,6 +82,7 @@ export interface ActivityCreate {
   risk?: string | null;
   comment?: string | null;
   plan_type?: string | null;
+  market?: string | null;
   readiness_required?: boolean;
 }
 

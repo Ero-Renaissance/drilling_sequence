@@ -120,6 +120,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             "hwu_name": a.hwu_name,
             "location": a.location,
             "plan_type": a.plan_type,
+            "market": a.market,
             "risk": a.risk,
             "comment": a.comment,
             # Per-activity readiness opt-out — carried so the print-out can suppress

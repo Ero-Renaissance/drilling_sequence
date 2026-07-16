@@ -50,6 +50,11 @@ class Activity(Base):
     risk: Mapped[str | None] = mapped_column(String(64), nullable=True)
     comment: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Market the field-development project's production is destined for — a
+    # PROJECT-level assignment (Oil / Domestic Gas / Export Gas / Not Applicable)
+    # denormalised onto activity rows the same way well_project itself is; the
+    # import enforces one value per project.
+    market: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # ── Readiness ──────────────────────────────────────────────────────────────
     # Per-activity opt-out: when False the activity tracks no readiness — its gate
