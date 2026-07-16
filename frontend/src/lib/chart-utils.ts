@@ -40,6 +40,15 @@ export interface ChartDataItem {
   };
   isConflict?: boolean;
   isCompleted?: boolean;
+  /** How the bar renders its project's gates. Readiness is per FIELD PROJECT,
+   *  so repeating the full strip on every bar of a project would be redundant
+   *  ink that reads as per-activity state (the exact misreading behind the old
+   *  data model). Instead: "anchor" = the project's earliest pending bar
+   *  carries the full strip (the decision point); "sibling" = its other
+   *  pending bars show a single worst-gate marker ONLY while a gate is Behind
+   *  (exception display — silence means fine); "none" = no gates (no project,
+   *  opt-out, or completed). Every bar's tooltip still lists the full gates. */
+  readinessRole: "anchor" | "sibling" | "none";
 }
 
 export interface ChartData {
@@ -115,6 +124,31 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
 
   const activityTypes = [...new Set(sorted.map((a) => a.activity_type))];
 
+  // The readiness ANCHOR per field project: its earliest not-completed,
+  // gate-carrying activity (opt-outs skipped — they never anchor). Completed
+  // work has no "are we ready" question left, so a fully-completed project
+  // anchors nowhere; its gates remain reachable via every bar's tooltip.
+  const gatesFor = (a: Activity) =>
+    a.readiness_required === false || !a.well_project
+      ? null
+      : (readinessMap?.get(a.well_project) ?? null);
+  const anchorByProject = new Map<string, string>(); // well_project → activity id
+  for (const a of sorted) {
+    if (a.completed_at || !gatesFor(a)) continue;
+    const current = anchorByProject.get(a.well_project!);
+    if (current === undefined) {
+      anchorByProject.set(a.well_project!, a.id);
+    } else {
+      const cur = sorted.find((x) => x.id === current)!;
+      if (
+        a.start_date < cur.start_date ||
+        (a.start_date === cur.start_date && a.id < cur.id)
+      ) {
+        anchorByProject.set(a.well_project!, a.id);
+      }
+    }
+  }
+
   const data: ChartDataItem[] = sorted.map((a) => {
     const yIndex = categories.indexOf(getLabel(a));
     const startMs = toMs(a.start_date);
@@ -147,11 +181,14 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
         // `well_project`. Opt-out activities (readiness_required === false) and
         // those with no field project carry no gates, so suppress the on-bar icon
         // strip and the tooltip's readiness section.
-        checks:
-          a.readiness_required === false || !a.well_project
-            ? null
-            : (readinessMap?.get(a.well_project) ?? null),
+        checks: gatesFor(a),
       },
+      readinessRole:
+        gatesFor(a) === null || a.completed_at
+          ? "none"
+          : anchorByProject.get(a.well_project!) === a.id
+            ? "anchor"
+            : "sibling",
     };
   });
 

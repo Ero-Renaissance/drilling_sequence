@@ -493,6 +493,7 @@ export function DrillChart({
         isCompleted?: boolean;
         _barText?: string | null;
         tooltip?: { checks?: Record<string, { status: CheckStatus }> | null };
+        readinessRole?: "anchor" | "sibling" | "none";
       };
       const isConflict = item?.isConflict ?? false;
       const isCompleted = item?.isCompleted ?? false;
@@ -602,17 +603,44 @@ export function DrillChart({
         });
       }
 
-      // Readiness icon strip below the bar — 4 adaptive tiers by bar width.
-      // Thresholds sized for the 7-gate set (FDP/LLI/LOC/FE/FID/EIA/BUD); they
-      // predate the CON-gate removal and still hold (7 icons need a touch less
-      // width than the 8 they were tuned for).
+      // Readiness — gates are per FIELD PROJECT, rendered anchor-plus-exception:
+      // the project's earliest pending bar (readinessRole "anchor") carries the
+      // full strip below the bar; its other pending bars ("sibling") show a
+      // single worst-gate marker ONLY while a gate is Behind — silence means
+      // fine. Every bar's tooltip still lists the full gates. The anchor strip
+      // keeps the 4 adaptive width tiers:
       //   ≥ 135px → 7 full-size icons (14px) in a single row
       //   90–135  → 7 half-size icons (10px) in a single row
       //   45–90   → mini grid (9px icons, 4 + 3 across two rows)
       //   <  45   → single worst-status icon (12px) — identifies the failing check
       const checks = item?.tooltip?.checks ?? null;
+      const readinessRole = item?.readinessRole ?? (checks ? "anchor" : "none");
       const barWidth = Math.max(end[0] - start[0], 1);
-      if (checks) {
+      if (checks && readinessRole === "sibling") {
+        // Exception marker: this bar's project is flagged elsewhere on the
+        // chart (its anchor bar carries the full strip) — repeat only trouble.
+        const worst = worstCheck(checks);
+        if (worst && worst.status === "Behind") {
+          const stripY = barTop + barH + BAR_TO_ICON_GAP;
+          const minX = coordSys.x;
+          const maxX = coordSys.x + coordSys.width;
+          const ICON = 12;
+          const x = start[0] + Math.max(0, (barWidth - ICON) / 2);
+          if (!(x + ICON < minX || x > maxX)) {
+            children.push({
+              type: "image",
+              silent: true,
+              style: {
+                image: buildCheckSvgDataUri(worst.code, worst.status),
+                x,
+                y: stripY + 4,
+                width: ICON,
+                height: ICON,
+              },
+            });
+          }
+        }
+      } else if (checks && readinessRole === "anchor") {
         const stripY = barTop + barH + BAR_TO_ICON_GAP;
         const stripX = start[0];
         const minX = coordSys.x;
@@ -883,7 +911,7 @@ export function DrillChart({
             }).join("");
             checksHtml = `
               <div style="margin-top:10px;padding-top:8px;border-top:1px solid ${theme.tooltipDivider}">
-                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:${theme.tooltipMuted};margin-bottom:6px">READINESS</div>
+                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:${theme.tooltipMuted};margin-bottom:6px">PROJECT READINESS</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${cells}</div>
               </div>`;
           }
