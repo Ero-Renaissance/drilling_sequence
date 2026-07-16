@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { aggregateCapacity } from "@/lib/campaign-capacity";
+import { aggregateCapacity, windowCapacity } from "@/lib/campaign-capacity";
 import type { Activity } from "@/api/activities";
 
 let seq = 0;
@@ -78,7 +78,10 @@ describe("aggregateCapacity", () => {
     );
     expect(d.years).toEqual([2026, 2027]);
     expect(d.oilSpuds).toEqual([1, 0]); // W1 oil-spud in 2026 only
-    expect(d.gasSpuds).toEqual([0, 1]); // W2 gas-spud in 2027
+    // W2 has no Market assigned → its gas spud is honest about that.
+    expect(d.unassignedGasSpuds).toEqual([0, 1]);
+    expect(d.domesticGasSpuds).toEqual([0, 0]);
+    expect(d.exportGasSpuds).toEqual([0, 0]);
   });
 
   it("respects an override that reclassifies a type", () => {
@@ -86,11 +89,75 @@ describe("aggregateCapacity", () => {
       act({ well_name: "W1", activity_type: "Oil Development", start_date: "2026-02-01", end_date: "2026-08-01" }),
     ];
     expect(aggregateCapacity(acts, {}).oilSpuds).toEqual([1]);
-    expect(aggregateCapacity(acts, { "Oil Development": "gas" }).gasSpuds).toEqual([1]);
+    expect(
+      aggregateCapacity(acts, { "Oil Development": "gas" }).unassignedGasSpuds,
+    ).toEqual([1]);
     expect(aggregateCapacity(acts, { "Oil Development": "exclude" }).oilSpuds).toEqual([0]);
   });
 
   it("returns empty data when there are no dated activities", () => {
     expect(aggregateCapacity([], {}).years).toEqual([]);
+  });
+});
+
+
+describe("gas spuds split by project Market", () => {
+  it("buckets gas spuds by the activity's market, inheriting the project's", () => {
+    const d = aggregateCapacity(
+      [
+        act({ well_name: "W1", activity_type: "Gas Development", well_project: "Dom",
+              market: "Domestic Gas", start_date: "2026-02-01", end_date: "2026-08-01" }),
+        // Same project, market cell empty on this row → inherits Domestic Gas.
+        act({ well_name: "W2", activity_type: "Gas Development", well_project: "Dom",
+              market: null, start_date: "2026-03-01", end_date: "2026-09-01" }),
+        act({ well_name: "W3", activity_type: "Gas Development", well_project: "Exp",
+              market: "Export Gas", start_date: "2027-01-01", end_date: "2027-06-01" }),
+        // No project, no market → honest "no market" bucket.
+        act({ well_name: "W4", activity_type: "Gas Development",
+              start_date: "2027-02-01", end_date: "2027-07-01" }),
+      ],
+      {},
+    );
+    expect(d.years).toEqual([2026, 2027]);
+    expect(d.domesticGasSpuds).toEqual([2, 0]);
+    expect(d.exportGasSpuds).toEqual([0, 1]);
+    expect(d.unassignedGasSpuds).toEqual([0, 1]);
+    expect(d.oilSpuds).toEqual([0, 0]);
+  });
+
+  it("a non-gas market (Oil / Not Applicable) on a gas spud is not guessed into a bucket", () => {
+    const d = aggregateCapacity(
+      [
+        act({ well_name: "W1", activity_type: "Gas Development", well_project: "P",
+              market: "Not Applicable", start_date: "2026-02-01", end_date: "2026-08-01" }),
+      ],
+      {},
+    );
+    expect(d.unassignedGasSpuds).toEqual([1]);
+  });
+});
+
+describe("windowCapacity (horizon filter)", () => {
+  const data = aggregateCapacity(
+    [
+      act({ well_name: "W1", activity_type: "Oil Development", rig_name: "R1", location: "LAND",
+            start_date: "2026-02-01", end_date: "2026-08-01" }),
+      act({ well_name: "W2", activity_type: "Oil Development", rig_name: "R1", location: "LAND",
+            start_date: "2029-02-01", end_date: "2030-08-01" }),
+    ],
+    {},
+  );
+
+  it("clips every parallel series to the first N years", () => {
+    const w = windowCapacity(data, 3);
+    expect(w.years).toEqual([2026, 2027, 2028]);
+    expect(w.rigsByLocation.LAND).toEqual([1, 0, 0]);
+    expect(w.oilSpuds).toEqual([1, 0, 0]); // the 2029 spud falls outside the window
+  });
+
+  it("null or an over-long horizon returns the data unchanged", () => {
+    expect(windowCapacity(data, null)).toBe(data);
+    expect(windowCapacity(data, 99)).toBe(data);
+    expect(data.years).toEqual([2026, 2027, 2028, 2029, 2030]);
   });
 });

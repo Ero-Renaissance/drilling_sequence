@@ -13,7 +13,9 @@ const LOCATION_COLORS: Record<"LAND" | "SWAMP" | "OFFSHORE", string> = {
   OFFSHORE: "#cbd5e1",
 };
 const OIL_COLOR = "#dc2626";
-const GAS_COLOR = "#16a34a";
+const DOMESTIC_GAS_COLOR = "#16a34a";
+const EXPORT_GAS_COLOR = "#06b6d4";
+const UNASSIGNED_GAS_COLOR = "#94a3b8";
 
 interface TipParam {
   seriesName?: string;
@@ -83,16 +85,37 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
       data: totals.map((t) => ({ value: 0, label: { show: t > 0, formatter: String(t) } })),
     };
 
-    const lineSeries: LineSeriesOption[] = [
-      { name: "Well spuds — Oil", color: OIL_COLOR, values: data.oilSpuds },
-      { name: "Well spuds — Gas", color: GAS_COLOR, values: data.gasSpuds },
-    ].map((s) => ({
+    // Gas is split by the project's Market. The no-market line only appears
+    // while unassigned gas spuds exist — a nudge to assign, not a fixture.
+    const lineDefs = [
+      { name: "Well spuds — Oil", color: OIL_COLOR, values: data.oilSpuds, dashed: false },
+      {
+        name: "Well spuds — Domestic Gas",
+        color: DOMESTIC_GAS_COLOR,
+        values: data.domesticGasSpuds,
+        dashed: false,
+      },
+      {
+        name: "Well spuds — Export Gas",
+        color: EXPORT_GAS_COLOR,
+        values: data.exportGasSpuds,
+        dashed: false,
+      },
+      {
+        name: "Well spuds — Gas (no market)",
+        color: UNASSIGNED_GAS_COLOR,
+        values: data.unassignedGasSpuds,
+        dashed: true,
+      },
+    ].filter((s) => s.name !== "Well spuds — Gas (no market)" || s.values.some((v) => v > 0));
+
+    const lineSeries: LineSeriesOption[] = lineDefs.map((s) => ({
       name: s.name,
       type: "line",
       yAxisIndex: 1,
       symbol: "circle",
       symbolSize: 6,
-      lineStyle: { width: 2.5, color: s.color },
+      lineStyle: { width: 2.5, color: s.color, type: s.dashed ? "dashed" : "solid" },
       itemStyle: { color: s.color },
       data: s.values,
     }));
@@ -106,7 +129,7 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
         itemHeight: 10,
         textStyle: { color: axisLabel, fontSize: 12 },
         // Omit the "total" helper series from the legend.
-        data: ["Land", "Swamp", "Offshore", "Well spuds — Oil", "Well spuds — Gas"],
+        data: ["Land", "Swamp", "Offshore", ...lineDefs.map((s) => s.name)],
       },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: tooltipRows },
       xAxis: {

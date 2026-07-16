@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
 import { listActivities, type Activity } from "@/api/activities";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
-import { aggregateCapacity } from "@/lib/campaign-capacity";
+import { aggregateCapacity, windowCapacity } from "@/lib/campaign-capacity";
 import { loadSpudMap, saveSpudMap, type SpudMap } from "@/lib/spud-classification";
 import { CapacityChart } from "./CapacityChart";
 import { SpudTypeEditor } from "./SpudTypeEditor";
@@ -24,6 +24,25 @@ export function CampaignCapacitySection({ projectId }: { projectId: string }) {
   const [compareId, setCompareId] = useState("");
   const [compareActivities, setCompareActivities] = useState<Activity[]>([]);
   const [spudMap, setSpudMap] = useState<SpudMap>(() => loadSpudMap());
+  // View horizon: first 3 / first 5 years of the campaign, or the full span
+  // (null). A per-user viewing habit, so it persists like the spud map.
+  const [horizon, setHorizon] = useState<number | null>(() => {
+    try {
+      const v = Number(window.localStorage.getItem("ds.capacity-horizon"));
+      return v === 3 || v === 5 ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  function updateHorizon(next: number | null) {
+    setHorizon(next);
+    try {
+      if (next === null) window.localStorage.removeItem("ds.capacity-horizon");
+      else window.localStorage.setItem("ds.capacity-horizon", String(next));
+    } catch {
+      // storage unavailable — the in-session choice still applies
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -63,10 +82,13 @@ export function CampaignCapacitySection({ projectId }: { projectId: string }) {
   const currentName = campaigns.find((c) => c.id === projectId)?.name ?? "This campaign";
   const compareName = campaigns.find((c) => c.id === compareId)?.name ?? "";
 
-  const currentData = useMemo(() => aggregateCapacity(activities, spudMap), [activities, spudMap]);
+  const currentData = useMemo(
+    () => windowCapacity(aggregateCapacity(activities, spudMap), horizon),
+    [activities, spudMap, horizon],
+  );
   const compareData = useMemo(
-    () => aggregateCapacity(compareActivities, spudMap),
-    [compareActivities, spudMap],
+    () => windowCapacity(aggregateCapacity(compareActivities, spudMap), horizon),
+    [compareActivities, spudMap, horizon],
   );
 
   // Activity types present across both campaigns — the set the editor classifies.
@@ -112,6 +134,21 @@ export function CampaignCapacitySection({ projectId }: { projectId: string }) {
                     {c.name}
                   </option>
                 ))}
+            </select>
+            <label htmlFor="capacity-horizon" className="ml-2 text-xs text-muted-foreground">
+              Horizon
+            </label>
+            <select
+              id="capacity-horizon"
+              value={horizon === null ? "all" : String(horizon)}
+              onChange={(e) =>
+                updateHorizon(e.target.value === "all" ? null : Number(e.target.value))
+              }
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+            >
+              <option value="all">All years</option>
+              <option value="3">First 3 years</option>
+              <option value="5">First 5 years</option>
             </select>
             <button
               type="button"

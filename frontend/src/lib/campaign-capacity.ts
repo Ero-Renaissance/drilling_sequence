@@ -21,8 +21,12 @@ export interface CapacityData {
   rigsByLocation: Record<CapacityLocation, number[]>;
   /** Distinct wells whose first oil-spud activity starts each year. */
   oilSpuds: number[];
-  /** Distinct wells whose first gas-spud activity starts each year. */
-  gasSpuds: number[];
+  /** Gas spuds split by the project's Market assignment (Domestic vs Export).
+   *  A gas spud whose project carries no gas market (unset, Oil or Not
+   *  Applicable) lands in `unassignedGasSpuds` — shown, never guessed. */
+  domesticGasSpuds: number[];
+  exportGasSpuds: number[];
+  unassignedGasSpuds: number[];
 }
 
 function yearOf(iso: string | null): number | null {
@@ -39,8 +43,21 @@ const empty = (): CapacityData => ({
   years: [],
   rigsByLocation: { LAND: [], SWAMP: [], OFFSHORE: [] },
   oilSpuds: [],
-  gasSpuds: [],
+  domesticGasSpuds: [],
+  exportGasSpuds: [],
+  unassignedGasSpuds: [],
 });
+
+type GasKind = "domestic" | "export" | "unassigned";
+
+/** A gas spud's market bucket: the activity's own Market, else its project's
+ *  (rows of one project share the assignment; older rows may predate it). */
+function gasKindOf(a: Activity, marketByProject: Map<string, string>): GasKind {
+  const market = a.market ?? (a.well_project ? marketByProject.get(a.well_project) : null);
+  if (market === "Domestic Gas") return "domestic";
+  if (market === "Export Gas") return "export";
+  return "unassigned";
+}
 
 export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): CapacityData {
   // ── Year span ──
@@ -82,7 +99,17 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
   };
 
   // ── Well spuds: each well's earliest oil/gas drilling activity ──
-  const wellSpud = new Map<string, { year: number; cls: "oil" | "gas" }>();
+  // Market is assigned per project; resolve each project's value first (first
+  // non-empty wins — the import enforces one per project) so a spud row that
+  // predates the assignment still inherits its project's market.
+  const marketByProject = new Map<string, string>();
+  for (const a of activities) {
+    if (a.well_project && a.market && !marketByProject.has(a.well_project)) {
+      marketByProject.set(a.well_project, a.market);
+    }
+  }
+
+  const wellSpud = new Map<string, { year: number; cls: "oil" | "gas"; gas: GasKind }>();
   for (const a of activities) {
     if (!a.well_name) continue;
     const cls = resolveSpudClass(a.activity_type, spudMap);
@@ -90,16 +117,50 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     const y = yearOf(a.start_date);
     if (y === null) continue;
     const prev = wellSpud.get(a.well_name);
-    if (!prev || y < prev.year) wellSpud.set(a.well_name, { year: y, cls });
+    if (!prev || y < prev.year) {
+      wellSpud.set(a.well_name, { year: y, cls, gas: gasKindOf(a, marketByProject) });
+    }
   }
   const oilSpuds = years.map(() => 0);
-  const gasSpuds = years.map(() => 0);
-  for (const { year, cls } of wellSpud.values()) {
+  const domesticGasSpuds = years.map(() => 0);
+  const exportGasSpuds = years.map(() => 0);
+  const unassignedGasSpuds = years.map(() => 0);
+  for (const { year, cls, gas } of wellSpud.values()) {
     const i = idxOf.get(year);
     if (i === undefined) continue;
     if (cls === "oil") oilSpuds[i] += 1;
-    else gasSpuds[i] += 1;
+    else if (gas === "domestic") domesticGasSpuds[i] += 1;
+    else if (gas === "export") exportGasSpuds[i] += 1;
+    else unassignedGasSpuds[i] += 1;
   }
 
-  return { years, rigsByLocation, oilSpuds, gasSpuds };
+  return {
+    years,
+    rigsByLocation,
+    oilSpuds,
+    domesticGasSpuds,
+    exportGasSpuds,
+    unassignedGasSpuds,
+  };
+}
+
+/**
+ * Clip a campaign's series to its first `horizon` years (the planner's chosen
+ * view span). `null` = the full span. Pure slice — parallel arrays stay aligned.
+ */
+export function windowCapacity(data: CapacityData, horizon: number | null): CapacityData {
+  if (horizon === null || data.years.length <= horizon) return data;
+  const cut = <T,>(arr: T[]) => arr.slice(0, horizon);
+  return {
+    years: cut(data.years),
+    rigsByLocation: {
+      LAND: cut(data.rigsByLocation.LAND),
+      SWAMP: cut(data.rigsByLocation.SWAMP),
+      OFFSHORE: cut(data.rigsByLocation.OFFSHORE),
+    },
+    oilSpuds: cut(data.oilSpuds),
+    domesticGasSpuds: cut(data.domesticGasSpuds),
+    exportGasSpuds: cut(data.exportGasSpuds),
+    unassignedGasSpuds: cut(data.unassignedGasSpuds),
+  };
 }
