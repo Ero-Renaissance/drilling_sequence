@@ -20,7 +20,6 @@ from app.models.activity_type_alias import ActivityTypeAlias
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectRole
-from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ProjectReadiness
 from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.activity import (
@@ -34,14 +33,12 @@ from app.schemas.audit import AuditEntryResponse
 from app.services.audit import ENTITY_VOCABULARY, governance_event
 from app.services.data_processor import (
     CANONICAL_ACTIVITY_TYPES,
-    READINESS_SHEET,
     SCHEDULE_SHEET,
     cross_terrain_resource_warnings,
     csv_df_to_db_rows,
     is_long_schedule,
     normalize_activity_type_key,
     parse_long_schedule,
-    parse_project_readiness,
     resolve_activity_type,
     unknown_activity_type_warnings,
     validate_csv_columns,
@@ -181,8 +178,6 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     from openpyxl.workbook.defined_name import DefinedName
     from openpyxl.worksheet.datavalidation import DataValidation
 
-    gates = list(CHECK_CODES)  # FDP, LLI, LOC, FE, FID, EIA, BUD
-
     # ── Sheet 1: Schedule (one row per activity) ──────────────────────────────
     header = [
         "Location", "Rig Name", "HWU Name", "Activity Type", "Plan Type", "Project",
@@ -192,7 +187,7 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     samples = [
         ["LAND", "Rig 1", None, "Gas Development", "In Plan (Firm)", "Project Alpha",
          "Well-1", _date(2026, 1, 15), _date(2026, 6, 30), _date(2030, 12, 31), None,
-         "No Flood Risk", "One row per activity — set this project's gates on the Readiness tab"],
+         "No Flood Risk", "One row per activity — set the project's readiness gates in the app"],
         ["SWAMP", "Rig 1", None, "Oil Development", "In Plan (Option)", "Project Alpha",
          "Well-2", _date(2026, 3, 1), _date(2026, 8, 31), _date(2031, 6, 30), None,
          "Flood Risk", "Same name as the LAND rig = a DIFFERENT physical rig (see Guidance)"],
@@ -216,37 +211,17 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
         width = max((len(str(c.value)) for c in col if c.value is not None), default=10)
         ws.column_dimensions[col[0].column_letter].width = min(width + 2, 42)
 
-    # ── Sheet 2: Readiness (one row per PROJECT × the seven gates) ─────────────
-    rd = wb.create_sheet(READINESS_SHEET)
-    rd.append(["Project", *gates])
-    for cell in rd[1]:
-        cell.font = Font(bold=True)
-    rd.append(
-        ["Project Alpha", "Completed", "On Track", "Behind",
-         "On Track", "On Track", "N/A", "Completed"]
-    )
-    rd.append(["Project Beta"] + ["On Track"] * len(gates))
-    rd.column_dimensions["A"].width = 22
-    for i in range(len(gates)):
-        rd.column_dimensions[chr(ord("B") + i)].width = 12
-    # Gate-status dropdowns across the readiness grid.
-    rd_dv = DataValidation(
-        type="list", formula1='"On Track,Completed,Behind,N/A"', allow_blank=True
-    )
-    rd.add_data_validation(rd_dv)
-    rd_dv.add(f"B2:{chr(ord('A') + len(gates))}500")
-
-    # ── Sheet 3: Guidance — the rules + the canonical vocabularies ────────────
+    # ── Sheet 2: Guidance — the rules + the canonical vocabularies ────────────
     gd = wb.create_sheet("Guidance")
     gd.append(["Rule", "Guidance"])
     for cell in gd[1]:
         cell.font = Font(bold=True)
     rules = [
-        ("One row per activity", "The Schedule tab is ONE ROW PER ACTIVITY. No more repeating "
-         "a well once per readiness gate — readiness now lives on the Readiness tab."),
-        ("Readiness is per project", "Gates (FDP, LLI, LOC, FE, FID, EIA, BUD) are sanction "
-         "gates for a FIELD-DEVELOPMENT PROJECT (the 'Project' column), shared by every well "
-         "under it. Set them once per project on the Readiness tab — one row per project."),
+        ("One row per activity", "The Schedule tab is ONE ROW PER ACTIVITY. Legacy files that "
+         "repeated a well once per readiness gate still import — the repeats collapse."),
+        ("Readiness is set in the app", "Sanction gates (FDP, LLI, LOC, FE, FID, EIA, BUD) are "
+         "per FIELD-DEVELOPMENT PROJECT and are managed on the app's Readiness tab after "
+         "import — they are NOT part of this upload, and re-importing never resets them."),
         ("Rig identity", "A rig is identified by Location + Rig Name. The same name in two "
          "locations is TWO physical rigs (e.g. a land 10K and a swamp 10K barge) — the import "
          "confirms this with an informational notice. Two rigs of the same class in the SAME "
@@ -260,8 +235,6 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
          "cells work too. A month-first or impossible date rejects the whole upload."),
         ("Activity Type", "Use the exact canonical names in column D — anything else imports "
          "but charts in neutral grey until an admin adds it to the catalogue."),
-        ("Readiness status", "On Track, Completed, Behind or N/A. Also accepted and mapped: "
-         "'Behind Schedule' → Behind; 'Not Started' / 'In Progress' → On Track."),
         ("Rig Contract Expiry Date", "ONE date per physical rig. Terrain twins may each carry "
          "their own date. Leave blank when there is no contract yet — correct for planned "
          "units; the dashboard then raises a procurement alert."),
@@ -775,20 +748,17 @@ async def import_activities(
     filename = file.filename or ""
 
     # keep_default_na=False + na_values=[""]: only genuinely EMPTY cells read as
-    # missing. Pandas' default NA list would turn the literal readiness status
-    # "N/A" into NaN — silently importing it as "On Track" (a real bug caught by
-    # the template round-trip test).
+    # missing. Pandas' default NA list would silently turn literal cell text like
+    # "N/A" (or a well named "NA") into NaN instead of keeping the planner's value.
     _na = {"keep_default_na": False, "na_values": [""]}
-    # Readiness is per FIELD PROJECT and lives on a separate "Readiness" sheet
-    # (Excel only) — captured here and passed to the schedule importer.
-    readiness_df: pd.DataFrame | None = None
     try:
         if filename.endswith((".xlsx", ".xls")):
             sheets = pd.read_excel(io.BytesIO(content), sheet_name=None, **_na)
             df = sheets.get(SCHEDULE_SHEET)
             if df is None:  # unnamed / legacy single-sheet workbook → first sheet
                 df = next(iter(sheets.values())) if sheets else pd.DataFrame()
-            readiness_df = sheets.get(READINESS_SHEET)
+            # Any other tab (Guidance, a legacy "Readiness" tab, planner scratch
+            # sheets) is ignored — readiness is managed in the app, not uploaded.
         else:
             df = pd.read_csv(io.BytesIO(content), **_na)
     except Exception as exc:
@@ -809,9 +779,9 @@ async def import_activities(
             ),
         )
 
-    # The new schedule export is long-format (one row per readiness gate, with
-    # embedded readiness statuses + per-rig contract expiry). It has its own
-    # ingestion path; the legacy wide CSV path continues below.
+    # The schedule workbook is one row per activity (with per-rig contract
+    # expiry). It has its own ingestion path; the legacy wide CSV path
+    # continues below.
     if is_long_schedule(df):
         return await _import_long_schedule(
             df,
@@ -819,7 +789,6 @@ async def import_activities(
             current_user,
             db,
             replace,
-            readiness_df=readiness_df,
             dry_run=dry_run,
             db_aliases=db_aliases,
             user_mappings=mappings_by_key,
@@ -916,19 +885,19 @@ async def _import_long_schedule(
     db: AsyncSession,
     replace: bool,
     *,
-    readiness_df: "pd.DataFrame | None" = None,
     dry_run: bool = False,
     db_aliases: dict[str, str] | None = None,
     user_mappings: dict[str, str] | None = None,
     remember_keys: list[str] | None = None,
     display_by_key: dict[str, str] | None = None,
 ) -> ImportResponse:
-    """Ingest the schedule workbook: one activity per Schedule row, per-rig/HWU
-    contract expiry, and per-FIELD-PROJECT readiness from the "Readiness" sheet.
+    """Ingest the schedule workbook: one activity per Schedule row, plus
+    per-rig/HWU contract expiry.
 
     Validated in full before any write, so a bad row never leaves a partial import
-    or deletes the existing schedule. The workbook is the source of truth for
-    readiness and contract dates (replace mode resets them to match the file).
+    or deletes the existing schedule. Readiness is NOT read from the upload — it
+    is per-project state managed in the app, and it survives a replace import
+    (the gates describe the field project, not the schedule rows).
     """
     try:
         parsed, rig_contracts, hwu_contracts = parse_long_schedule(df)
@@ -962,20 +931,6 @@ async def _import_long_schedule(
         _tally_type(raw, resolved, how, tally)  # only kept rows count toward the summary
         validated.append(activity_in)
 
-    # Per-field-project readiness from the "Readiness" sheet, kept only for
-    # projects that actually have an imported activity (no orphan gates). An
-    # unknown status word drops that cell with a warning.
-    imported_projects = {a.well_project for a in validated if a.well_project}
-    project_readiness: dict[tuple[str, str], str] = {}
-    if readiness_df is not None:
-        for (proj, gate), gate_status in parse_project_readiness(readiness_df).items():
-            if proj not in imported_projects:
-                continue
-            if gate_status not in CHECK_STATUSES:
-                warnings.append(f"{proj}: dropped {gate} (invalid status '{gate_status}')")
-                continue
-            project_readiness[(proj, gate)] = gate_status
-
     # Non-canonical activity types import fine but chart in neutral grey — tell
     # the planner so the vocabulary gets fixed (or the catalogue extended).
     warnings.extend(unknown_activity_type_warnings([a.activity_type for a in validated]))
@@ -1001,11 +956,12 @@ async def _import_long_schedule(
     # Replace only when at least one well is valid — never wipe the schedule to
     # import nothing (e.g. an entirely-bad file in replace mode).
     if replace and validated:
-        # Clear the campaign's project readiness then its activities. (Readiness is
-        # campaign-scoped now, not FK'd to activities, so delete it explicitly.)
-        await db.execute(
-            delete(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
-        )
+        # Activities only — ProjectReadiness rows deliberately SURVIVE a replace:
+        # gate statuses describe the field project, not the schedule rows, and a
+        # re-uploaded schedule must never silently reset what the planner set in
+        # the app. A project that drops out of the schedule just stops being
+        # listed (GET /readiness derives its projects from activities) and
+        # resurfaces with its statuses intact if the project returns.
         await db.execute(delete(Activity).where(Activity.project_id == project_id))
 
     for activity_in in validated:
@@ -1014,17 +970,6 @@ async def _import_long_schedule(
                 project_id=project_id,
                 updated_by=current_user.id,
                 **activity_in.model_dump(),
-            )
-        )
-
-    for (proj, gate), gate_status in project_readiness.items():
-        db.add(
-            ProjectReadiness(
-                project_id=project_id,
-                well_project=proj,
-                check_code=gate,
-                status=gate_status,
-                updated_by=current_user.id,
             )
         )
 

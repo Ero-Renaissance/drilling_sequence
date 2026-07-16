@@ -200,16 +200,15 @@ def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:
 
 # ── Schedule-workbook ingestion (the upload) ─────────────────────────────────
 #
-# The schedule is one row per activity (Sheet "Schedule"). Readiness is per
-# FIELD-DEVELOPMENT PROJECT (FDP/FID/EIA are project sanction gates, not
-# per-activity), so it lives on a separate Sheet "Readiness" — one row per
-# Project, one column per gate — parsed by parse_project_readiness. Legacy files
-# that repeated a well once per gate still collapse correctly here: the activity
-# identity key dedupes the repeated rows into one activity (their per-row gate
-# values are ignored — readiness now comes from the Readiness sheet).
+# The schedule is one row per activity (Sheet "Schedule"). Readiness is NOT part
+# of the upload: sanction gates are per FIELD-DEVELOPMENT PROJECT and are managed
+# in the app (app/routers/readiness.py), where project names are picked from the
+# imported schedule, never typed — reading them from a second sheet invited
+# silent name-mismatch drops and replace-mode resets. Legacy files that repeated
+# a well once per gate still collapse correctly here: the activity identity key
+# dedupes the repeated rows into one activity (retired gate columns are ignored).
 
 SCHEDULE_SHEET = "Schedule"
-READINESS_SHEET = "Readiness"
 
 # The activities sheet is recognised by these columns (Well Name distinguishes it
 # from the minimal legacy wide CSV, which routes through csv_df_to_db_rows).
@@ -223,20 +222,6 @@ PLAN_TYPE_MAP = {
     "firm": "Firm",
     "option": "Option",
 }
-
-# Spreadsheet readiness wording → canonical CheckStatus (app/models/readiness.py).
-# The status model collapsed to On Track / Completed / Behind / N/A, so the
-# upload's "not started" / "in progress" wording all fold into "On Track".
-READINESS_STATUS_MAP = {
-    "on track": "On Track",
-    "completed": "Completed",
-    "not started": "On Track",
-    "in progress": "On Track",
-    "behind": "Behind",
-    "behind schedule": "Behind",  # the planner's habitual wording
-    "n/a": "N/A",
-}
-
 
 def is_long_schedule(df: pd.DataFrame) -> bool:
     """True when the upload is the rich schedule format (Well Name + activity
@@ -270,17 +255,10 @@ def _map_plan_type(value: object) -> str | None:
     return PLAN_TYPE_MAP.get(text.lower(), text)  # unknown → passthrough (schema validates)
 
 
-def _map_readiness_status(value: object) -> str:
-    text = _clean(value)
-    if text is None:
-        return "On Track"
-    return READINESS_STATUS_MAP.get(text.lower(), text)  # unknown → passthrough (caller validates)
-
-
 @dataclass
 class ParsedActivity:
-    """One collapsed well-activity. Readiness is no longer per activity — it is
-    per field-development project (see parse_project_readiness)."""
+    """One collapsed well-activity. Readiness is not part of the upload — it is
+    per-project state managed in the app (app/routers/readiness.py)."""
 
     fields: dict  # ActivityCreate-shaped (includes `well_project`)
 
@@ -344,25 +322,5 @@ def parse_long_schedule(
 
     return list(activities.values()), rig_contracts, hwu_contracts
 
-
-def parse_project_readiness(df: pd.DataFrame) -> dict[tuple[str, str], str]:
-    """Parse the Readiness sheet — one row per field-development Project, one
-    column per gate (FDP, LLI, …) holding a status — into
-    {(well_project, CHECK_CODE): status}. A blank gate cell defaults to On Track.
-    Rows without a Project, and gate columns not present, are skipped.
-    """
-    from app.models.readiness import CHECK_CODES
-
-    out: dict[tuple[str, str], str] = {}
-    if "Project" not in df.columns:
-        return out
-    present_gates = [c for c in CHECK_CODES if c in df.columns]
-    for _, row in df.iterrows():
-        project = _clean(row.get("Project"))
-        if not project:
-            continue
-        for code in present_gates:
-            out[(project, code)] = _map_readiness_status(row.get(code))
-    return out
 
 

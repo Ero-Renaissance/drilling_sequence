@@ -1,11 +1,11 @@
 """Import of the schedule workbook.
 
-The Schedule sheet is ONE ROW PER ACTIVITY; readiness is per FIELD-DEVELOPMENT
-PROJECT and arrives on a separate "Readiness" sheet (one row per project, one
-column per gate). Legacy files that repeated a well once per gate still
-collapse to one activity — their retired gate columns are simply ignored.
-Exercises the collapse, value mappings (plan type, day-first dates), per-project
-readiness ingestion, rig/HWU contract capture, replace semantics, and rejection.
+The Schedule sheet is ONE ROW PER ACTIVITY. Readiness is NOT part of the
+upload — it is per-project state managed in the app, survives replace imports,
+and a legacy workbook's "Readiness" tab is ignored. Legacy files that repeated
+a well once per gate still collapse to one activity. Exercises the collapse,
+value mappings (plan type, day-first dates), readiness persistence, rig/HWU
+contract capture, replace semantics, and rejection.
 """
 
 import io
@@ -59,8 +59,9 @@ def _activity_row(*, well, project, atype, plan, risk, start, end, expiry=None,
 
 
 def _xlsx(schedule_rows: list[list], readiness_rows: "list[list] | None" = None) -> bytes:
-    """Build the two-sheet workbook the importer reads: Schedule (one row per
-    activity) + optionally Readiness (one row per project × the 7 gates)."""
+    """Build the schedule workbook: Schedule (one row per activity) +
+    optionally a LEGACY Readiness tab — the importer ignores it; tests pass it
+    to prove exactly that."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Schedule"
@@ -89,7 +90,7 @@ async def _upload(client: AsyncClient, project_id: str, content: bytes,
 async def test_legacy_per_gate_rows_still_collapse(client: AsyncClient) -> None:
     """A legacy file repeating each well once per readiness gate collapses to one
     activity per well; its retired per-row gate values are ignored (readiness is
-    per project now and comes from the Readiness sheet, which a CSV can't carry)."""
+    per project now, managed in the app — never read from an upload)."""
     pid = (await _create_project(client))["id"]
     csv = _long_csv(
         _well_rows(well="WELL_A", project="PROJECT_X", atype="Gas Development",
@@ -128,41 +129,27 @@ async def test_legacy_per_gate_rows_still_collapse(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_readiness_sheet_imports_per_project(client: AsyncClient) -> None:
-    """The Readiness sheet (one row per project × gates) sets each project's
-    shared gates; rows for projects with no imported activity are ignored."""
+async def test_legacy_readiness_tab_is_ignored(client: AsyncClient) -> None:
+    """Readiness is managed in the app, not the upload: a legacy two-tab workbook
+    still imports its Schedule, but the Readiness tab sets nothing — every gate
+    stays at its default."""
     pid = (await _create_project(client))["id"]
     content = _xlsx(
         [
             _activity_row(well="W-1", project="Bonga Phase 3", atype="Gas Development",
                           plan="In Plan (Firm)", risk="No Flood Risk",
                           start="05/01/2026", end="15/07/2026", expiry="31/12/2030"),
-            _activity_row(well="W-2", project="Egina North", atype="Oil Development",
-                          plan="In Plan (Option)", risk="Flood Risk",
-                          start="01/02/2026", end="01/08/2026", rig="RIG_2"),
         ],
-        readiness_rows=[
-            ["Bonga Phase 3", "Completed", "On track", "Behind", "On Track",
-             "Behind Schedule", "N/A", "Completed"],
-            ["Egina North"] + ["On Track"] * 7,
-            ["Ghost Project"] + ["Completed"] * 7,  # no activities → ignored
-        ],
+        readiness_rows=[["Bonga Phase 3", "Behind", "Behind", "Behind", "Behind",
+                         "Behind", "Behind", "Behind"]],
     )
     resp = await _upload(client, pid, content, filename="schedule.xlsx")
     assert resp.status_code == 200, resp.text
-    assert resp.json()["imported"] == 2
+    assert resp.json()["imported"] == 1
 
     readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    by_project = {r["well_project"]: r["checks"] for r in readiness}
-    assert set(by_project) == {"Bonga Phase 3", "Egina North"}  # Ghost ignored
-    bonga = by_project["Bonga Phase 3"]
-    assert bonga["FDP"]["status"] == "Completed"
-    assert bonga["LLI"]["status"] == "On Track"        # "On track" mapped
-    assert bonga["LOC"]["status"] == "Behind"
-    assert bonga["FID"]["status"] == "Behind"          # "Behind Schedule" mapped
-    assert bonga["EIA"]["status"] == "N/A"
-    assert all(c["status"] == "On Track" for c in by_project["Egina North"].values())
-
+    assert [r["well_project"] for r in readiness] == ["Bonga Phase 3"]
+    assert all(c["status"] == "On Track" for c in readiness[0]["checks"].values())
 
 @pytest.mark.asyncio
 async def test_long_schedule_imports_hwu_contract(client: AsyncClient) -> None:
@@ -192,50 +179,59 @@ async def test_long_schedule_imports_hwu_contract(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_replace_resets_activities_and_project_readiness(client: AsyncClient) -> None:
+async def test_replace_import_preserves_app_set_readiness(client: AsyncClient) -> None:
+    """THE decoupling regression: gate statuses set in the app survive a replace
+    import (they describe the field project, not the schedule rows). A project
+    that drops out of the schedule stops being listed, and resurfaces with its
+    statuses intact when the project returns."""
     pid = (await _create_project(client))["id"]
-    first = _xlsx(
-        [_activity_row(well="WELL_A", project="P1", atype="Gas Development",
-                       plan="In Plan (Firm)", risk="No Flood Risk",
-                       start="05/01/2026", end="15/07/2026", expiry="31/12/2030")],
-        readiness_rows=[["P1", "Completed", "Completed", "Completed", "Completed",
-                         "Completed", "Completed", "Completed"]],
-    )
+    first = _xlsx([
+        _activity_row(well="W-1", project="P1", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="05/01/2026", end="15/07/2026"),
+    ])
     assert (await _upload(client, pid, first, filename="s.xlsx")).status_code == 200
-    second = _xlsx(
-        [_activity_row(well="WELL_C", project="P2", atype="Oil Development",
-                       plan="In Plan (Option)", risk="Flood Risk",
-                       start="01/03/2026", end="01/09/2026", expiry="31/12/2031")],
-        readiness_rows=[["P2", "Behind", "On Track", "On Track", "On Track",
-                         "On Track", "On Track", "On Track"]],
-    )
-    assert (await _upload(client, pid, second, replace=True, filename="s.xlsx")).status_code == 200
 
-    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
-    assert [a["well_name"] for a in acts] == ["WELL_C"]      # WELL_A fully replaced
+    # Planner sets a gate in the app…
+    put = await client.put(
+        f"/api/projects/{pid}/readiness/P1/FID", json={"status": "Behind"}
+    )
+    assert put.status_code == 200, put.text
+
+    # …then re-imports the schedule in replace mode (new well, same project).
+    again = _xlsx([
+        _activity_row(well="W-2", project="P1", atype="Oil Development",
+                      plan="In Plan (Option)", risk="Flood Risk",
+                      start="01/03/2026", end="01/09/2026"),
+    ])
+    assert (await _upload(client, pid, again, filename="s.xlsx")).status_code == 200
     readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    assert [r["well_project"] for r in readiness] == ["P2"]  # P1 gates gone with it
-    assert readiness[0]["checks"]["FDP"]["status"] == "Behind"
+    assert readiness[0]["checks"]["FID"]["status"] == "Behind"  # survived
 
+    # Replace with a DIFFERENT project: P1 unlisted (no orphan gates shown)…
+    other = _xlsx([
+        _activity_row(well="W-3", project="P2", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="01/04/2026", end="01/10/2026"),
+    ])
+    assert (await _upload(client, pid, other, filename="s.xlsx")).status_code == 200
+    listed = (await client.get(f"/api/projects/{pid}/readiness")).json()
+    assert [r["well_project"] for r in listed] == ["P2"]
 
-@pytest.mark.asyncio
-async def test_invalid_readiness_status_drops_gate_with_warning(client: AsyncClient) -> None:
-    pid = (await _create_project(client))["id"]
-    content = _xlsx(
-        [_activity_row(well="WELL_A", project="P", atype="Gas Development",
-                       plan="In Plan (Firm)", risk="No Flood Risk",
-                       start="05/01/2026", end="15/07/2026", expiry="31/12/2030")],
-        readiness_rows=[["P", "On Track", "On Track", "On Track", "On Track",
-                         "On Track", "On Track", "Frozen"]],  # BUD not mappable
-    )
-    resp = await _upload(client, pid, content, filename="s.xlsx")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["imported"] == 1
-    assert any("BUD" in w for w in body["warnings"])
-    checks = (await client.get(f"/api/projects/{pid}/readiness")).json()[0]["checks"]
-    assert checks["BUD"]["status"] == "On Track"  # dropped gate falls back to default
-    assert checks["FDP"]["status"] == "On Track"
+    # …and P1's statuses resurface intact when the project returns (append mode).
+    back = _xlsx([
+        _activity_row(well="W-1", project="P1", atype="Gas Development",
+                      plan="In Plan (Firm)", risk="No Flood Risk",
+                      start="05/01/2026", end="15/07/2026"),
+    ])
+    assert (await _upload(client, pid, back, replace=False,
+                          filename="s.xlsx")).status_code == 200
+    by_project = {
+        r["well_project"]: r["checks"]
+        for r in (await client.get(f"/api/projects/{pid}/readiness")).json()
+    }
+    assert by_project["P1"]["FID"]["status"] == "Behind"
+
 
 
 @pytest.mark.asyncio

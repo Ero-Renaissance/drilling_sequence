@@ -370,10 +370,10 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
             <DialogHeader>
               <DialogTitle>Import Activities</DialogTitle>
               <DialogDescription>
-                Upload the drilling-schedule export (CSV or Excel). One row per readiness
-                check per well — the importer groups them into wells and reads Project,
-                readiness, risk and rig-contract expiry. (Older one-row-per-activity files
-                still import.)
+                Upload the drilling schedule (CSV or Excel), one row per activity — the
+                importer reads Project, plan type, risk and rig-contract expiry. Readiness
+                is managed on the Readiness tab in the app, not in the upload, so
+                re-importing never resets gate statuses. (Older file layouts still import.)
               </DialogDescription>
             </DialogHeader>
 
@@ -390,10 +390,9 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
               <p className="text-xs text-muted-foreground">
                 The template's <strong>Guidance</strong> sheet lists the canonical activity
                 types and every rule. Key ones: dates are <strong>day-first</strong>{" "}
-                (DD/MM/YYYY); <strong>one well per block of 7 rows</strong> (one per readiness
-                gate); a rig is identified by <strong>Location + Rig Name</strong> — the same
-                name on land and in swamp is two physical rigs, which the import confirms with
-                a notice.
+                (DD/MM/YYYY); <strong>one row per activity</strong>; a rig is identified by{" "}
+                <strong>Location + Rig Name</strong> — the same name on land and in swamp is
+                two physical rigs, which the import confirms with a notice.
               </p>
 
               <div
