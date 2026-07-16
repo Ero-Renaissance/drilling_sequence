@@ -20,7 +20,7 @@ from app.models.project import (
     ProjectStatus,
     ReviewPolicy,
 )
-from app.models.readiness import ReadinessCheck
+from app.models.readiness import ProjectReadiness
 from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision, RevisionComment, Signature
 from app.models.rig_contract import RigContract
@@ -38,7 +38,7 @@ __all__ = [
     "ProjectMember",
     "ProjectRole",
     "ProjectStatus",
-    "ReadinessCheck",
+    "ProjectReadiness",
     "ResourceRecord",
     "ReviewPolicy",
     "Revision",

@@ -3,10 +3,10 @@ import { RefreshCw, Lock } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { isNearTerm, checksReady } from "@/lib/watchlist";
+import { checksReady } from "@/lib/watchlist";
 import {
   CHECK_CODES,
-  type ActivityReadiness,
+  type ProjectReadiness,
   type CheckCode,
   type CheckStatus,
   listReadiness,
@@ -73,7 +73,7 @@ function Legend() {
 
 // ── Progress summary bar ──────────────────────────────────────────────────────
 
-function ProgressBar({ rows }: { rows: ActivityReadiness[] }) {
+function ProgressBar({ rows }: { rows: ProjectReadiness[] }) {
   let total = 0,
     completed = 0,
     onTrack = 0,
@@ -139,10 +139,10 @@ interface ReadinessGridProps {
 }
 
 export function ReadinessGrid({ projectId }: ReadinessGridProps) {
-  const [rows, setRows] = useState<ActivityReadiness[]>([]);
+  const [rows, setRows] = useState<ProjectReadiness[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState<string | null>(null); // "activityId:checkCode"
+  const [saving, setSaving] = useState<string | null>(null); // "wellProject:checkCode"
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState("");
@@ -171,14 +171,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   }, [rows.length, search, searchParams]);
 
   const handleChange = useCallback(
-    async (activityId: string, code: CheckCode, next: CheckStatus) => {
-      const key = `${activityId}:${code}`;
-      const previous = rows.find((r) => r.activity_id === activityId)?.checks[code].status;
+    async (wellProject: string, code: CheckCode, next: CheckStatus) => {
+      const key = `${wellProject}:${code}`;
+      const previous = rows.find((r) => r.well_project === wellProject)?.checks[code].status;
 
-      // Optimistic update
+      // Optimistic update — a gate is set for the whole field project.
       setRows((prev) =>
         prev.map((r) =>
-          r.activity_id !== activityId
+          r.well_project !== wellProject
             ? r
             : { ...r, checks: { ...r.checks, [code]: { ...r.checks[code], status: next } } },
         ),
@@ -186,12 +186,12 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
 
       setSaving(key);
       try {
-        await upsertCheck(projectId, activityId, code, next);
+        await upsertCheck(projectId, wellProject, code, next);
       } catch (err) {
         if (previous) {
           setRows((prev) =>
             prev.map((r) =>
-              r.activity_id !== activityId
+              r.well_project !== wellProject
                 ? r
                 : {
                     ...r,
@@ -210,16 +210,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
 
   const q = search.trim().toLowerCase();
   const textRows = q
-    ? rows.filter((r) =>
-        [r.activity_type, r.well_name, r.rig_name]
-          .filter(Boolean)
-          .some((v) => v!.toLowerCase().includes(q)),
-      )
+    ? rows.filter((r) => r.well_project.toLowerCase().includes(q))
     : rows;
-  // Watchlist drill-through: ?focus=not-ready narrows to the near-term, not-ready set.
+  // Watchlist drill-through: ?focus=not-ready narrows to the not-yet-ready field
+  // projects (there is no per-project start date, so the near-term half of the
+  // dashboard's filter can't apply here — readiness is what this view tracks).
   const notReadyFocus = searchParams.get("focus") === "not-ready";
   const filteredRows = notReadyFocus
-    ? textRows.filter((r) => isNearTerm(r.start_date) && !checksReady(r.checks))
+    ? textRows.filter((r) => !checksReady(r.checks))
     : textRows;
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -239,8 +237,8 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       {notReadyFocus && (
         <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
           <span>
-            <span className="font-semibold">{filteredRows.length}</span> shown — starting
-            within the next 90 days and not yet ready
+            <span className="font-semibold">{filteredRows.length}</span> shown — field
+            projects that are not yet ready
           </span>
           <button
             type="button"
@@ -280,14 +278,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search well, rig, type…"
+            placeholder="Search field project…"
             ariaLabel="Search readiness"
             testId="readiness-search"
           />
           <span className="text-xs tabular-nums text-muted-foreground">
             {q
               ? `${filteredRows.length} of ${rows.length}`
-              : `${rows.length} ${rows.length === 1 ? "activity" : "activities"}`}
+              : `${rows.length} ${rows.length === 1 ? "project" : "projects"}`}
           </span>
         </div>
       </div>
@@ -316,22 +314,20 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       ) : rows.length === 0 ? (
         <div className="flex h-48 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
           <div className="text-center">
-            <p className="font-medium">No activities</p>
-            <p className="text-sm">Add activities in the Data tab first.</p>
+            <p className="font-medium">No field projects</p>
+            <p className="text-sm">Give activities a Project in the Data tab first.</p>
           </div>
         </div>
       ) : filteredRows.length === 0 ? (
         <div className="flex h-48 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
-          <p className="text-sm">No activities match &ldquo;{search}&rdquo;.</p>
+          <p className="text-sm">No field projects match &ldquo;{search}&rdquo;.</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
           <table className="w-full min-w-[860px] table-fixed border-collapse text-sm">
             <colgroup>
-              <col className="w-[26%]" />
-              <col className="w-[15%]" />
-              <col className="w-[15%]" />
-              <col className="w-[6%]" />
+              <col className="w-[34%]" />
+              <col className="w-[8%]" />
               {CHECK_CODES.map((code) => (
                 <col key={code} />
               ))}
@@ -339,13 +335,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             <thead>
               <tr className="border-b border-border/70 bg-muted/30">
                 <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Activity
-                </th>
-                <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Well
-                </th>
-                <th className="px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Rig
+                  Field Project
                 </th>
                 <th className="px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Done
@@ -378,20 +368,18 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
 
                 return (
                   <tr
-                    key={row.activity_id}
+                    key={row.well_project}
                     className={cn(
                       "border-b border-border/40 transition-colors hover:bg-accent/30",
                       i % 2 === 1 && "bg-muted/15",
                     )}
                   >
-                    <td className="px-3 py-2 font-medium text-foreground">
-                      {row.activity_type}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {row.well_name ?? <span className="text-muted-foreground/40">—</span>}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {row.rig_name ?? <span className="text-muted-foreground/40">—</span>}
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-foreground">{row.well_project}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {row.activity_count}{" "}
+                        {row.activity_count === 1 ? "activity" : "activities"}
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-center">
                       <span
@@ -404,14 +392,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                       </span>
                     </td>
                     {CHECK_CODES.map((code) => {
-                      const key = `${row.activity_id}:${code}`;
+                      const key = `${row.well_project}:${code}`;
                       return (
                         <td key={code} className="px-1 py-2 text-center">
                           <div className="flex justify-center">
                             <ReadinessDot
                               code={code}
                               status={row.checks[code].status}
-                              onChange={(next) => handleChange(row.activity_id, code, next)}
+                              onChange={(next) => handleChange(row.well_project, code, next)}
                               disabled={saving === key || !!row.locked}
                             />
                           </div>

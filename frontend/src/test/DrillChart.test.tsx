@@ -234,14 +234,15 @@ describe("activitiesToChartData", () => {
 
   it("suppresses readiness checks for an opt-out activity (readiness_required=false)", async () => {
     const { activitiesToChartData } = await import("@/lib/chart-utils");
-    // Minimal readiness map keyed by activity id (cast: the chart only reads it).
+    // Readiness is keyed by field project (well_project), not activity id (cast:
+    // the chart only reads the status off it).
     const readinessMap = new Map([
-      ["act-001", { FDP: { status: "Completed" } }],
-      ["act-002", { FDP: { status: "Completed" } }],
+      ["Bonga Phase 3", { FDP: { status: "Completed" } }],
     ]) as unknown as Parameters<typeof activitiesToChartData>[1];
 
-    const optOut: Activity = { ...MOCK_ACTIVITIES[0], readiness_required: false };
-    const normal: Activity = MOCK_ACTIVITIES[1]; // readiness_required undefined → treated as required
+    // Both belong to the same field project; only the opt-out one drops its gates.
+    const optOut: Activity = { ...MOCK_ACTIVITIES[0], well_project: "Bonga Phase 3", readiness_required: false };
+    const normal: Activity = { ...MOCK_ACTIVITIES[1], well_project: "Bonga Phase 3" }; // required → gates kept
     const { data } = activitiesToChartData([optOut, normal], readinessMap);
     const byId = Object.fromEntries(data.map((d) => [d.activityId, d]));
 

@@ -4,6 +4,12 @@ import { getActivityColor } from "./chart-colors";
 import { formatDate } from "./utils";
 import { terrainRank } from "./gantt-rows";
 
+/**
+ * Readiness is per FIELD-DEVELOPMENT PROJECT, so this map is keyed by an
+ * activity's `well_project` (e.g. "Bonga Phase 3") — every activity sharing a
+ * field project resolves to the same gates. Activities with no `well_project`
+ * have no entry (and show no gates).
+ */
 export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }>>;
 
 /** The scheduling resource a row represents — a rig or an HWU. */
@@ -137,9 +143,14 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
         end: formatDate(a.end_date),
         plan: a.plan_type,
         risk: a.risk,
-        // Opt-out activities (readiness_required === false) carry no gates, so
-        // suppress the on-bar icon strip and the tooltip's readiness section.
-        checks: a.readiness_required === false ? null : (readinessMap?.get(a.id) ?? null),
+        // Readiness is per field project — resolve the activity's gates by its
+        // `well_project`. Opt-out activities (readiness_required === false) and
+        // those with no field project carry no gates, so suppress the on-bar icon
+        // strip and the tooltip's readiness section.
+        checks:
+          a.readiness_required === false || !a.well_project
+            ? null
+            : (readinessMap?.get(a.well_project) ?? null),
       },
     };
   });

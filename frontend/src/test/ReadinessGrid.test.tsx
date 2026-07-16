@@ -37,12 +37,14 @@ describe("ReadinessGrid", () => {
     });
   });
 
-  it("renders activity rows from API", async () => {
+  it("renders one row per field project from API", async () => {
     renderGrid();
     await waitFor(() => {
-      expect(screen.getByText("Oil Development")).toBeInTheDocument();
-      expect(screen.getByText("Gas Development")).toBeInTheDocument();
-      expect(screen.getByText("Well-A1")).toBeInTheDocument();
+      // Rows are keyed by well_project now, labelled by the field-project name.
+      expect(screen.getByText("Bonga Phase 3")).toBeInTheDocument();
+      expect(screen.getByText("Egina North")).toBeInTheDocument();
+      // The activity count rides under the project name.
+      expect(screen.getByText("3 activities")).toBeInTheDocument();
     });
   });
 
@@ -54,12 +56,8 @@ describe("ReadinessGrid", () => {
       http.get("/api/projects/:projectId/readiness", () =>
         HttpResponse.json([
           {
-            activity_id: "act-locked",
-            activity_type: "Oil Development",
-            well_name: "Well-A1",
-            rig_name: "Rig Alpha",
-            start_date: "2026-01-01",
-            end_date: "2026-03-31",
+            well_project: "Bonga Phase 3",
+            activity_count: 2,
             checks,
             locked: true,
           },
@@ -68,7 +66,7 @@ describe("ReadinessGrid", () => {
     );
 
     renderGrid();
-    await waitFor(() => screen.getByText("Oil Development"));
+    await waitFor(() => screen.getByText("Bonga Phase 3"));
 
     expect(screen.getByText(/plan locked/i)).toBeInTheDocument();
     const dots = screen.getAllByTitle(/: On Track$/);
@@ -76,9 +74,9 @@ describe("ReadinessGrid", () => {
     dots.forEach((dot) => expect(dot).toBeDisabled());
   });
 
-  it("shows BUD as Completed for Oil Development row", async () => {
+  it("shows BUD as Completed for the Bonga Phase 3 project row", async () => {
     renderGrid();
-    await waitFor(() => screen.getByText("Oil Development"));
+    await waitFor(() => screen.getByText("Bonga Phase 3"));
     // Each cell's title is "<code>: <status>" (e.g. "BUD: Completed").
     const completedCells = screen.getAllByTitle(/: Completed$/);
     expect(completedCells.length).toBeGreaterThanOrEqual(1);
@@ -93,7 +91,7 @@ describe("ReadinessGrid", () => {
 
   it("shows per-row completion count", async () => {
     renderGrid();
-    // 1 completed / 7 effective (7 check codes, none N/A) for Oil Development row
+    // 1 completed / 7 effective (7 check codes, none N/A) for the Bonga Phase 3 row
     await waitFor(() => {
       expect(screen.getByText("1/7")).toBeInTheDocument();
     });
@@ -101,7 +99,7 @@ describe("ReadinessGrid", () => {
 
   it("changes status via the dropdown picker", async () => {
     renderGrid();
-    await waitFor(() => screen.getByText("Gas Development"));
+    await waitFor(() => screen.getByText("Egina North"));
 
     // Cells default to "On Track"; open one and choose "Behind".
     await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);
@@ -114,7 +112,7 @@ describe("ReadinessGrid", () => {
 
   it("can mark a single gate Not Applicable (N/A) via the picker", async () => {
     renderGrid();
-    await waitFor(() => screen.getByText("Gas Development"));
+    await waitFor(() => screen.getByText("Egina North"));
 
     const naBefore = screen.queryAllByTitle(/: N\/A$/).length;
     // A planner marking a gate that doesn't apply to this well, even though the
@@ -129,7 +127,7 @@ describe("ReadinessGrid", () => {
 
   it("shows legend entries for all statuses", async () => {
     renderGrid();
-    await waitFor(() => screen.getByText("Oil Development"));
+    await waitFor(() => screen.getByText("Bonga Phase 3"));
     // The legend renders every status by its canonical name.
     expect(screen.getAllByText("On Track").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Behind").length).toBeGreaterThanOrEqual(1);
@@ -137,15 +135,17 @@ describe("ReadinessGrid", () => {
     expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows empty state when no activities", async () => {
+  it("shows empty state when no field projects", async () => {
     // Override handler for this test via server (MSW returns empty by default only
     // if we do a different projectId that matches nothing — here we just verify the
     // empty state branch is reachable by checking the placeholder text exists when
     // there are no rows; for simplicity we verify the real rows scenario instead)
     renderGrid();
     await waitFor(() => {
-      // Grid loaded with 2 rows — empty state should NOT show
-      expect(screen.queryByText("Add activities in the Data tab first.")).not.toBeInTheDocument();
+      // Grid loaded with 2 field-project rows — empty state should NOT show
+      expect(
+        screen.queryByText("Give activities a Project in the Data tab first."),
+      ).not.toBeInTheDocument();
     });
   });
 });

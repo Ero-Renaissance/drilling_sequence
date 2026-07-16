@@ -32,6 +32,7 @@ async def _activity(
             "end_date": _iso(end),
             "rig_name": rig,
             "well_name": "W",
+            "well_project": "Field Project A",
             "location": "OFFSHORE",
             "plan_type": "Firm",
             "risk": risk,
@@ -189,11 +190,13 @@ async def test_completed_ytd_spans_clone_lineage(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
     pid = await _project(client, "Ready")
-    a = await _activity(client, pid, rig="R", start=TODAY + timedelta(days=10), end=TODAY + timedelta(days=20))
-    await client.put(
-        f"/api/projects/{pid}/activities/{a['id']}/readiness/BUD", json={"status": "Completed"}
+    await _activity(client, pid, rig="R", start=TODAY + timedelta(days=10), end=TODAY + timedelta(days=20))
+    r = await client.put(
+        f"/api/projects/{pid}/readiness/Field Project A/BUD", json={"status": "Completed"}
     )
-    # BUD is the only stored gate and it's Completed → the activity is 100% ready.
+    assert r.status_code == 200, r.text
+    # BUD is the only stored gate and it's Completed → the PROJECT is 100% ready
+    # (readiness is per field project; the focus KPIs count projects once).
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     assert d["readiness"]["overall_pct"] == 100
     assert d["readiness"]["ready"] == 1

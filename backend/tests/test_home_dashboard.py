@@ -14,7 +14,7 @@ async def _approved_project(
     """A project with one rig activity (BUD Completed, a covering contract) whose
     Rev 1 is approved by other@company.com. Returns (project_id, revision)."""
     pid = (await client.post("/api/projects", json={"name": name})).json()["id"]
-    a = (
+    (
         await client.post(
             f"/api/projects/{pid}/activities",
             json={
@@ -23,6 +23,7 @@ async def _approved_project(
                 "end_date": (TODAY + timedelta(days=20)).isoformat(),
                 "rig_name": "R",
                 "well_name": "Well-1",
+                "well_project": "Field Project A",
                 "location": "OFFSHORE",
                 "plan_type": "Firm",
                 "risk": "No Flood Risk",
@@ -30,7 +31,7 @@ async def _approved_project(
         )
     ).json()
     await client.put(
-        f"/api/projects/{pid}/activities/{a['id']}/readiness/BUD", json={"status": "Completed"}
+        f"/api/projects/{pid}/readiness/Field Project A/BUD", json={"status": "Completed"}
     )
     # New units auto-register as PLANNED slots; this rig is a real, procured one.
     unit = (await client.get(f"/api/projects/{pid}/resources")).json()[0]
@@ -107,6 +108,7 @@ async def test_contracts_at_risk_counted(client: AsyncClient, other_client: Asyn
                 "end_date": (TODAY + timedelta(days=15)).isoformat(),
                 "rig_name": "R",
                 "well_name": "Well-1",
+                "well_project": "Field Project A",
                 "location": "OFFSHORE",
                 "plan_type": "Firm",
                 "risk": "No Flood Risk",

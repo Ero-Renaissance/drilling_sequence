@@ -1,8 +1,10 @@
+"""Per-FIELD-PROJECT readiness: gates live on the well_project (the "Project"
+column), shared by every activity under it — not on individual activities."""
 import pytest
 from httpx import AsyncClient
 
 
-async def _create_project(client: AsyncClient, name: str = "Test Project") -> dict:
+async def _create_project(client: AsyncClient, name: str = "Test Campaign") -> dict:
     resp = await client.post("/api/projects", json={"name": name})
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -10,7 +12,7 @@ async def _create_project(client: AsyncClient, name: str = "Test Project") -> di
 
 async def _create_activity(client: AsyncClient, project_id: str, **overrides) -> dict:
     payload = {
-        "activity_type": "Oil Well Drilling",
+        "activity_type": "Oil Development",
         "start_date": "2026-01-01",
         "end_date": "2026-03-31",
         "well_name": "Well-A1",
@@ -18,6 +20,7 @@ async def _create_activity(client: AsyncClient, project_id: str, **overrides) ->
         "location": "OFFSHORE",
         "plan_type": "Firm",
         "risk": "No Flood Risk",
+        "well_project": "Bonga Phase 3",
         **overrides,
     }
     resp = await client.post(f"/api/projects/{project_id}/activities", json=payload)
@@ -25,7 +28,12 @@ async def _create_activity(client: AsyncClient, project_id: str, **overrides) ->
     return resp.json()
 
 
+def _url(project_id: str, well_project: str, code: str) -> str:
+    return f"/api/projects/{project_id}/readiness/{well_project}/{code}"
+
+
 # ── GET /readiness ──────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_readiness_empty_project(client: AsyncClient) -> None:
@@ -36,136 +44,121 @@ async def test_readiness_empty_project(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_readiness_all_on_track_by_default(client: AsyncClient) -> None:
+async def test_activities_without_project_have_no_gates(client: AsyncClient) -> None:
+    """Gates are field-project attributes — an activity with no Project value
+    has nothing to attach them to and is omitted from the readiness view."""
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
-
+    await _create_activity(client, project["id"], well_project=None)
     resp = await client.get(f"/api/projects/{project['id']}/readiness")
     assert resp.status_code == 200
-    rows = resp.json()
-    assert len(rows) == 1
-
-    row = rows[0]
-    assert row["activity_id"] == activity["id"]
-    assert row["activity_type"] == "Oil Well Drilling"
-    assert row["well_name"] == "Well-A1"
-
-    # All 7 readiness codes present; unset gates default to "On Track". (CON was
-    # retired — the contract is shown via the expiry marker, not as a readiness gate.)
-    checks = row["checks"]
-    assert set(checks.keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"}
-    for code, state in checks.items():
-        assert state["status"] == "On Track", f"{code} should default to On Track"
+    assert resp.json() == []
 
 
 @pytest.mark.asyncio
-async def test_readiness_returns_multiple_activities(client: AsyncClient) -> None:
+async def test_readiness_one_row_per_field_project(client: AsyncClient) -> None:
+    """Several activities under one field project = ONE readiness entry (with
+    the activity count); a second project gets its own entry."""
     project = await _create_project(client)
-    await _create_activity(client, project["id"], activity_type="Oil Development")
-    await _create_activity(client, project["id"], activity_type="Gas Development",
-                           start_date="2026-04-01", end_date="2026-06-30")
+    await _create_activity(client, project["id"], well_name="W-1")
+    await _create_activity(client, project["id"], well_name="W-2",
+                           start_date="2026-04-01", end_date="2026-05-01")
+    await _create_activity(client, project["id"], well_name="W-3",
+                           well_project="Egina North", rig_name="Rig Beta",
+                           start_date="2026-06-01", end_date="2026-07-01")
 
-    resp = await client.get(f"/api/projects/{project['id']}/readiness")
-    assert resp.status_code == 200
-    assert len(resp.json()) == 2
+    rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
+    assert [(r["well_project"], r["activity_count"]) for r in rows] == [
+        ("Bonga Phase 3", 2),
+        ("Egina North", 1),
+    ]
+    # Defaults: every gate On Track.
+    for row in rows:
+        assert all(c["status"] == "On Track" for c in row["checks"].values())
+        assert set(row["checks"].keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"}
 
 
-# ── PUT /activities/{id}/readiness/{code} ───────────────────────────────────
+# ── PUT /readiness/{well_project}/{check_code} ───────────────────────────────
+
 
 @pytest.mark.asyncio
-async def test_upsert_check_creates_record(client: AsyncClient) -> None:
+async def test_upsert_gate_shared_by_all_project_activities(client: AsyncClient) -> None:
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
+    await _create_activity(client, project["id"], well_name="W-1")
+    await _create_activity(client, project["id"], well_name="W-2",
+                           start_date="2026-04-01", end_date="2026-05-01")
 
     resp = await client.put(
-        f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/BUD",
-        json={"status": "Completed"},
+        _url(project["id"], "Bonga Phase 3", "FID"),
+        json={"status": "Completed", "notes": "Sanctioned at Q2 board"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["check_code"] == "BUD"
-    assert data["status"] == "Completed"
-    assert data["notes"] is None
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["well_project"] == "Bonga Phase 3"
+    assert body["check_code"] == "FID"
+    assert body["status"] == "Completed"
+
+    # The ONE project entry reflects it — there is no per-activity copy.
+    rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
+    assert len(rows) == 1
+    assert rows[0]["checks"]["FID"]["status"] == "Completed"
+    assert rows[0]["checks"]["FID"]["notes"] == "Sanctioned at Q2 board"
 
 
 @pytest.mark.asyncio
-async def test_upsert_check_updates_existing(client: AsyncClient) -> None:
+async def test_upsert_updates_existing_gate(client: AsyncClient) -> None:
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
-    url = f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/LLI"
-
-    await client.put(url, json={"status": "On Track"})
-    resp = await client.put(url, json={"status": "Completed", "notes": "Approved by team"})
-
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "Completed"
-    assert resp.json()["notes"] == "Approved by team"
+    await _create_activity(client, project["id"])
+    url = _url(project["id"], "Bonga Phase 3", "BUD")
+    assert (await client.put(url, json={"status": "Behind"})).status_code == 200
+    assert (await client.put(url, json={"status": "Completed"})).status_code == 200
+    rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
+    assert rows[0]["checks"]["BUD"]["status"] == "Completed"
 
 
 @pytest.mark.asyncio
-async def test_upsert_check_reflects_in_get(client: AsyncClient) -> None:
+async def test_upsert_unknown_project_404s(client: AsyncClient) -> None:
+    """BOLA: gates can only be set for a field project that has activities in
+    THIS campaign — no inventing readiness rows for arbitrary names."""
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
-
-    await client.put(
-        f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/FID",
-        json={"status": "Behind"},
+    await _create_activity(client, project["id"])
+    resp = await client.put(
+        _url(project["id"], "No Such Project", "FID"), json={"status": "Completed"}
     )
-
-    resp = await client.get(f"/api/projects/{project['id']}/readiness")
-    row = resp.json()[0]
-    assert row["checks"]["FID"]["status"] == "Behind"
-    assert row["checks"]["BUD"]["status"] == "On Track"  # unset → default
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_upsert_invalid_check_code(client: AsyncClient) -> None:
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
-
+    await _create_activity(client, project["id"])
     resp = await client.put(
-        f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/BOGUS",
-        json={"status": "Completed"},
+        _url(project["id"], "Bonga Phase 3", "CON"), json={"status": "Completed"}
     )
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_upsert_rejects_retired_status(client: AsyncClient) -> None:
-    """The status enum collapsed to On Track / Behind / Completed (+ N/A); the old
-    'Not Started' / 'In Progress' values are no longer accepted."""
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
-    url = f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/BUD"
-    for retired in ("Not Started", "In Progress"):
-        resp = await client.put(url, json={"status": retired})
-        assert resp.status_code == 422, f"{retired} should be rejected"
-
-
-@pytest.mark.asyncio
-async def test_upsert_activity_not_in_project(client: AsyncClient) -> None:
-    project_a = await _create_project(client, "Project A")
-    project_b = await _create_project(client, "Project B")
-    activity = await _create_activity(client, project_a["id"])
-
+    await _create_activity(client, project["id"])
     resp = await client.put(
-        f"/api/projects/{project_b['id']}/activities/{activity['id']}/readiness/BUD",
-        json={"status": "Completed"},
+        _url(project["id"], "Bonga Phase 3", "FID"), json={"status": "Delayed"}
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_readiness_requires_auth(client: AsyncClient, other_client: AsyncClient) -> None:
+async def test_readiness_write_requires_planner(
+    client: AsyncClient, noplan_client: AsyncClient
+) -> None:
     project = await _create_project(client)
-    activity = await _create_activity(client, project["id"])
-
-    # Reads are org-wide; readiness writes stay planner-only.
-    resp = await other_client.get(f"/api/projects/{project['id']}/readiness")
-    assert resp.status_code == 200
-
-    resp = await other_client.put(
-        f"/api/projects/{project['id']}/activities/{activity['id']}/readiness/BUD",
-        json={"status": "Completed"},
+    await _create_activity(client, project["id"])
+    # Org-wide read stays open…
+    assert (
+        await noplan_client.get(f"/api/projects/{project['id']}/readiness")
+    ).status_code == 200
+    # …but a non-planner cannot set gates.
+    resp = await noplan_client.put(
+        _url(project["id"], "Bonga Phase 3", "FID"), json={"status": "Completed"}
     )
     assert resp.status_code == 403

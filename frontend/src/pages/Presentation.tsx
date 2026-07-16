@@ -44,7 +44,7 @@ export function Presentation() {
     setActivities(acts);
     setReadinessMap(
       new Map(
-        readiness.map((r) => [r.activity_id, r.checks as Record<CheckCode, { status: CheckStatus }>]),
+        readiness.map((r) => [r.well_project, r.checks as Record<CheckCode, { status: CheckStatus }>]),
       ),
     );
     setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));

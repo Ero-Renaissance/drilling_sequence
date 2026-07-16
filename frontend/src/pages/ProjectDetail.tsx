@@ -337,8 +337,10 @@ export function ChartTab() {
           listChangeNotes(projectId).catch(() => []), // change notes are best-effort
         ]);
       setActivities(acts);
+      // Readiness is per field project — key the map by `well_project` so the
+      // chart can resolve each activity's gates from its project.
       const map: ReadinessMap = new Map(
-        readiness.map((r) => [r.activity_id, r.checks as Record<CheckCode, { status: CheckStatus }>]),
+        readiness.map((r) => [r.well_project, r.checks as Record<CheckCode, { status: CheckStatus }>]),
       );
       setReadinessMap(map);
       setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
@@ -509,7 +511,11 @@ export function ChartTab() {
         (() => {
           const activity = activities.find((a) => a.id === editActivityId);
           if (!activity) return null;
-          const readiness = readinessMap?.get(editActivityId) ?? null;
+          // Gates live on the field project, so look them up by the activity's
+          // `well_project` (none → no gates to show/edit).
+          const readiness = activity.well_project
+            ? readinessMap?.get(activity.well_project) ?? null
+            : null;
           return (
             <ActivityChartEditDialog
               projectId={projectId!}

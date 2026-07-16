@@ -38,10 +38,12 @@ import {
 import { ChartLegend } from "./ChartLegend";
 
 /**
- * The per-activity readiness gates shown on each bar. (The Y-axis AlarmClock is a
- * separate, RIG-level signal — "how soon does this rig's contract expire?" — and
- * only fires for in-force (Completed) contracts; the contract is no longer mirrored
- * as a per-activity readiness gate.)
+ * The readiness gates shown on each bar. Gates are per FIELD-DEVELOPMENT PROJECT
+ * (resolved from the activity's `well_project` via the ReadinessMap in
+ * chart-utils), so every bar under the same field project shows the same strip.
+ * (The Y-axis AlarmClock is a separate, RIG-level signal — "how soon does this
+ * rig's contract expire?" — and only fires for in-force (Completed) contracts;
+ * the contract is no longer mirrored as a readiness gate.)
  */
 const BAR_STRIP_CODES = CHECK_CODES;
 

@@ -14,7 +14,7 @@ from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
-from app.models.readiness import ReadinessCheck
+from app.models.readiness import ProjectReadiness
 from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision
 from app.models.rig_contract import RigContract
@@ -202,27 +202,25 @@ async def clone_project(
 
     await db.flush()  # assign ids to the new activities
 
-    # Copy per-activity readiness checks onto the cloned activities.
-    if source_activities:
-        source_checks = (
-            await db.execute(
-                select(ReadinessCheck).where(
-                    ReadinessCheck.activity_id.in_(new_activity_by_source.keys())
-                )
+    # Carry the per-FIELD-PROJECT readiness gates over. Keyed by well_project
+    # (a name, not an activity id), so no id remap is needed — the clone keeps the
+    # same field projects, so their gate statuses come with it.
+    source_gates = (
+        await db.execute(
+            select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
+        )
+    ).scalars().all()
+    for gate in source_gates:
+        db.add(
+            ProjectReadiness(
+                project_id=clone.id,
+                well_project=gate.well_project,
+                check_code=gate.check_code,
+                status=gate.status,
+                notes=gate.notes,
+                updated_by=current_user.id,
             )
-        ).scalars().all()
-        for check in source_checks:
-            target = new_activity_by_source.get(check.activity_id)
-            if target is None:
-                continue
-            db.add(
-                ReadinessCheck(
-                    activity_id=target.id,
-                    check_code=check.check_code,
-                    status=check.status,
-                    notes=check.notes,
-                )
-            )
+        )
 
     # Carry the rig contracts over so the new quarter starts from the same contract
     # state — otherwise the clone has no contracts, the expiry markers read as unset,

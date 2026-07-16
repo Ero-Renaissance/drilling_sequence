@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.hwu_contract import HwuContract
-from app.models.readiness import CHECK_CODES, ReadinessCheck
+from app.models.readiness import CHECK_CODES, ProjectReadiness
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.rig_contract import RigContract
 from app.services.readiness import resolve_activity_contract
@@ -29,13 +29,16 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     if not activities:
         return []
 
-    activity_ids = [a.id for a in activities]
-    checks_result = await db.execute(
-        select(ReadinessCheck).where(ReadinessCheck.activity_id.in_(activity_ids))
+    # Readiness is per FIELD-DEVELOPMENT PROJECT (well_project); denormalise each
+    # project's gates onto every activity under it, so the snapshot stays a flat
+    # activity list and existing readers (diff, dashboard, print) keep parsing —
+    # the values are now the project's shared gates, not per-activity ones.
+    gates_result = await db.execute(
+        select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
     )
-    checks_by_activity: dict[uuid.UUID, dict[str, str]] = {}
-    for check in checks_result.scalars().all():
-        checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check.status
+    readiness_by_project: dict[str, dict[str, str]] = {}
+    for gate in gates_result.scalars().all():
+        readiness_by_project.setdefault(gate.well_project, {})[gate.check_code] = gate.status
 
     # Resource contracts (rig or HWU) drive the contract-expiry marker and are a
     # material part of the plan under approval, so capture each activity's contract
@@ -127,7 +130,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
             "readiness": {
-                code: checks_by_activity.get(a.id, {}).get(code, "On Track")
+                code: readiness_by_project.get(a.well_project or "", {}).get(code, "On Track")
                 for code in CHECK_CODES
             },
             "resource_planned": resource_planned(a),

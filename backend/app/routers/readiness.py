@@ -2,23 +2,23 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.locks import ensure_activity_unlocked
+from app.core.locks import assert_project_not_locked
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
 from app.models.project import ProjectRole
-from app.models.readiness import CHECK_CODES, ReadinessCheck
+from app.models.readiness import CHECK_CODES, ProjectReadiness
 from app.models.user import User
 from app.schemas.readiness import (
-    ActivityReadiness,
     CheckState,
     CheckUpsert,
     CheckUpsertResponse,
 )
+from app.schemas.readiness import ProjectReadiness as ProjectReadinessSchema
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
 
@@ -26,71 +26,79 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
 
 
-@router.get("/readiness", response_model=list[ActivityReadiness])
+async def _campaign_locked(project_id: uuid.UUID, db: AsyncSession) -> bool:
+    """True while any activity in the campaign is frozen by a pending revision —
+    readiness is part of the snapshot under approval, so it freezes with it."""
+    result = await db.execute(
+        select(Activity.id)
+        .where(
+            Activity.project_id == project_id,
+            Activity.locked_by_revision_id.is_not(None),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+@router.get("/readiness", response_model=list[ProjectReadinessSchema])
 async def list_readiness(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
-) -> list[ActivityReadiness]:
+) -> list[ProjectReadinessSchema]:
+    """Readiness per FIELD-DEVELOPMENT PROJECT (the "Project" column). One entry
+    per distinct ``well_project`` in the campaign, each with its seven gates.
+    Activities with no project have no gates and are omitted.
+    """
     # Reads are org-wide: any authenticated user may view campaign data.
-
-    acts_result = await db.execute(
-        select(Activity)
-        .where(Activity.project_id == project_id)
-        .order_by(Activity.start_date)
+    # Distinct projects + how many activities each carries (grid context).
+    counts_result = await db.execute(
+        select(Activity.well_project, func.count(Activity.id))
+        .where(Activity.project_id == project_id, Activity.well_project.is_not(None))
+        .group_by(Activity.well_project)
+        .order_by(Activity.well_project)
     )
-    activities = acts_result.scalars().all()
-    if not activities:
+    project_counts = [(wp, n) for wp, n in counts_result.all() if wp]
+    if not project_counts:
         return []
 
-    activity_ids = [a.id for a in activities]
-    checks_result = await db.execute(
-        select(ReadinessCheck).where(ReadinessCheck.activity_id.in_(activity_ids))
+    gates_result = await db.execute(
+        select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
     )
-    # Index: activity_id → { check_code → ReadinessCheck }
-    checks_by_activity: dict[uuid.UUID, dict[str, ReadinessCheck]] = {}
-    for check in checks_result.scalars().all():
-        checks_by_activity.setdefault(check.activity_id, {})[check.check_code] = check
+    by_gate: dict[tuple[str, str], ProjectReadiness] = {
+        (g.well_project, g.check_code): g for g in gates_result.scalars().all()
+    }
+    locked = await _campaign_locked(project_id, db)
 
-    rows: list[ActivityReadiness] = []
-    for act in activities:
-        activity_checks = checks_by_activity.get(act.id, {})
+    def _state(well_project: str, code: str) -> CheckState:
+        gate = by_gate.get((well_project, code))
+        if gate is not None:
+            return CheckState(status=gate.status, notes=gate.notes, updated_at=gate.updated_at)
+        return CheckState(status="On Track", notes=None, updated_at=None)
 
-        def _state(code: str) -> CheckState:
-            if code in activity_checks:
-                return CheckState(
-                    status=activity_checks[code].status,
-                    notes=activity_checks[code].notes,
-                    updated_at=activity_checks[code].updated_at,
-                )
-            return CheckState(status="On Track", notes=None, updated_at=None)
-
-        rows.append(
-            ActivityReadiness(
-                activity_id=act.id,
-                activity_type=act.activity_type,
-                well_name=act.well_name,
-                rig_name=act.rig_name,
-                hwu_name=act.hwu_name,
-                start_date=act.start_date,
-                end_date=act.end_date,
-                checks={code: _state(code) for code in CHECK_CODES},
-                locked=act.locked_by_revision_id is not None,
-            )
+    return [
+        ProjectReadinessSchema(
+            well_project=wp,
+            checks={code: _state(wp, code) for code in CHECK_CODES},
+            activity_count=n,
+            locked=locked,
         )
-    return rows
+        for wp, n in project_counts
+    ]
 
 
 @router.put(
-    "/activities/{activity_id}/readiness/{check_code}",
+    "/readiness/{well_project}/{check_code}",
     response_model=CheckUpsertResponse,
 )
 async def upsert_readiness_check(
     project_id: uuid.UUID,
-    activity_id: uuid.UUID,
+    well_project: str,
     check_code: str,
     payload: CheckUpsert,
     current_user: CurrentUser,
     db: DB,
 ) -> CheckUpsertResponse:
+    """Set one gate's status for a field-development project — shared by every
+    activity under that project."""
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
 
     if check_code not in CHECK_CODES:
@@ -98,39 +106,49 @@ async def upsert_readiness_check(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid check code '{check_code}'. Must be one of: {', '.join(CHECK_CODES)}",
         )
-    act_result = await db.execute(
-        select(Activity).where(
-            Activity.id == activity_id,
-            Activity.project_id == project_id,
+    # The project must actually exist in this campaign (BOLA: scoped by project_id)
+    # — no inventing readiness for a field project with no activities here.
+    exists = (
+        await db.execute(
+            select(Activity.id)
+            .where(Activity.project_id == project_id, Activity.well_project == well_project)
+            .limit(1)
         )
-    )
-    activity = act_result.scalar_one_or_none()
-    if activity is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
-
-    # Readiness state is part of the snapshot under approval — freeze it too.
-    ensure_activity_unlocked(activity)
-
-    check_result = await db.execute(
-        select(ReadinessCheck).where(
-            ReadinessCheck.activity_id == activity_id,
-            ReadinessCheck.check_code == check_code,
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No activities under that project in this campaign",
         )
-    )
-    check = check_result.scalar_one_or_none()
 
-    if check is None:
-        check = ReadinessCheck(
-            activity_id=activity_id,
+    # Readiness is part of the snapshot under approval — freeze it with the plan.
+    await assert_project_not_locked(project_id, db)
+
+    gate = (
+        await db.execute(
+            select(ProjectReadiness).where(
+                ProjectReadiness.project_id == project_id,
+                ProjectReadiness.well_project == well_project,
+                ProjectReadiness.check_code == check_code,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if gate is None:
+        gate = ProjectReadiness(
+            project_id=project_id,
+            well_project=well_project,
             check_code=check_code,
             status=payload.status,
             notes=payload.notes,
+            updated_by=current_user.id,
         )
-        db.add(check)
+        db.add(gate)
     else:
-        check.status = payload.status
-        check.notes = payload.notes
+        gate.status = payload.status
+        gate.notes = payload.notes
+        gate.updated_by = current_user.id
 
     await db.commit()
-    await db.refresh(check)
-    return CheckUpsertResponse.model_validate(check)
+    await db.refresh(gate)
+    return CheckUpsertResponse.model_validate(gate)

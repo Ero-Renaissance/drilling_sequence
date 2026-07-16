@@ -3,7 +3,7 @@ Data processing — CSV / Excel import helpers.
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 
 import pandas as pd
@@ -198,16 +198,22 @@ def csv_df_to_db_rows(df: pd.DataFrame, project_id: str) -> list[dict]:
     return rows
 
 
-# ── Long-format schedule ingestion (the new upload) ──────────────────────────
+# ── Schedule-workbook ingestion (the upload) ─────────────────────────────────
 #
-# The schedule export is "long": one row per (well-activity × readiness gate), so a
-# single well repeats once per gate. We collapse those rows back into one activity
-# plus its readiness checks, and capture the per-rig contract-expiry date alongside.
+# The schedule is one row per activity (Sheet "Schedule"). Readiness is per
+# FIELD-DEVELOPMENT PROJECT (FDP/FID/EIA are project sanction gates, not
+# per-activity), so it lives on a separate Sheet "Readiness" — one row per
+# Project, one column per gate — parsed by parse_project_readiness. Legacy files
+# that repeated a well once per gate still collapse correctly here: the activity
+# identity key dedupes the repeated rows into one activity (their per-row gate
+# values are ignored — readiness now comes from the Readiness sheet).
 
-# Presence of these columns marks a file as the long schedule format.
-LONG_FORMAT_COLUMNS = ("Readiness Check", "Readiness Check Status")
+SCHEDULE_SHEET = "Schedule"
+READINESS_SHEET = "Readiness"
 
-LONG_REQUIRED_COLUMNS = ["Activity Type", "Start Date", "End Date", "Well Name", "Readiness Check"]
+# The activities sheet is recognised by these columns (Well Name distinguishes it
+# from the minimal legacy wide CSV, which routes through csv_df_to_db_rows).
+LONG_REQUIRED_COLUMNS = ["Activity Type", "Start Date", "End Date", "Well Name"]
 
 # Spreadsheet plan-type wording → canonical PlanType (app/schemas/activity.py).
 PLAN_TYPE_MAP = {
@@ -233,8 +239,10 @@ READINESS_STATUS_MAP = {
 
 
 def is_long_schedule(df: pd.DataFrame) -> bool:
-    """True when the upload is the long (one-row-per-readiness-gate) schedule format."""
-    return all(c in df.columns for c in LONG_FORMAT_COLUMNS)
+    """True when the upload is the rich schedule format (Well Name + activity
+    columns, with per-rig contract expiry and a Project column). The minimal
+    legacy wide CSV lacks Well Name and routes through csv_df_to_db_rows."""
+    return all(c in df.columns for c in LONG_REQUIRED_COLUMNS)
 
 
 def _clean(value: object) -> str | None:
@@ -271,23 +279,23 @@ def _map_readiness_status(value: object) -> str:
 
 @dataclass
 class ParsedActivity:
-    """One collapsed well-activity plus its readiness gate→status map."""
+    """One collapsed well-activity. Readiness is no longer per activity — it is
+    per field-development project (see parse_project_readiness)."""
 
-    fields: dict  # ActivityCreate-shaped (includes `project`)
-    readiness: dict = field(default_factory=dict)
+    fields: dict  # ActivityCreate-shaped (includes `well_project`)
 
 
 def parse_long_schedule(
     df: pd.DataFrame,
 ) -> tuple[list[ParsedActivity], dict[tuple[str, str], date], dict[str, date]]:
-    """Collapse the long schedule into (activities, rig_contracts, hwu_contracts).
+    """Parse the Schedule sheet into (activities, rig_contracts, hwu_contracts).
 
-    Rows are grouped by their well-activity identity; each row contributes one
-    readiness gate to its activity. A row uses a rig OR an HWU, and the matching
-    contract-expiry date is captured per PHYSICAL unit: rigs keyed by
-    ("Rig Name", terrain) — rig identity is terrain-qualified, so a LAND and a
-    SWAMP rig sharing a name get separate contracts — and HWUs by "HWU Name"
-    alone (mobile units). Both ingest from one sheet.
+    One row per activity. Rows are still grouped by their well-activity identity,
+    so a legacy file that repeated a well once per readiness gate collapses to one
+    activity (the repeated rows are identical bar the retired gate columns). A row
+    uses a rig OR an HWU; the contract-expiry date is captured per PHYSICAL unit:
+    rigs keyed by ("Rig Name", terrain) — terrain-qualified, so a LAND and a SWAMP
+    rig sharing a name get separate contracts — and HWUs by "HWU Name" alone.
     """
     missing = [c for c in LONG_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
@@ -310,9 +318,8 @@ def parse_long_schedule(
         project = _clean(row.get("Project"))
 
         key = (project, well, rig, hwu, activity_type, start, end)
-        rec = activities.get(key)
-        if rec is None:
-            rec = ParsedActivity(
+        if key not in activities:
+            activities[key] = ParsedActivity(
                 fields={
                     "activity_type": activity_type,
                     "start_date": start,
@@ -327,11 +334,6 @@ def parse_long_schedule(
                     "comment": _clean(row.get("Comment")),
                 }
             )
-            activities[key] = rec
-
-        gate = _clean(row.get("Readiness Check"))
-        if gate:
-            rec.readiness[gate.upper()] = _map_readiness_status(row.get("Readiness Check Status"))
 
         rig_expiry = _to_date(row.get("Rig Contract Expiry Date"))
         if rig and rig_expiry:
@@ -341,5 +343,26 @@ def parse_long_schedule(
             hwu_contracts[hwu] = hwu_expiry
 
     return list(activities.values()), rig_contracts, hwu_contracts
+
+
+def parse_project_readiness(df: pd.DataFrame) -> dict[tuple[str, str], str]:
+    """Parse the Readiness sheet — one row per field-development Project, one
+    column per gate (FDP, LLI, …) holding a status — into
+    {(well_project, CHECK_CODE): status}. A blank gate cell defaults to On Track.
+    Rows without a Project, and gate columns not present, are skipped.
+    """
+    from app.models.readiness import CHECK_CODES
+
+    out: dict[tuple[str, str], str] = {}
+    if "Project" not in df.columns:
+        return out
+    present_gates = [c for c in CHECK_CODES if c in df.columns]
+    for _, row in df.iterrows():
+        project = _clean(row.get("Project"))
+        if not project:
+            continue
+        for code in present_gates:
+            out[(project, code)] = _map_readiness_status(row.get(code))
+    return out
 
 

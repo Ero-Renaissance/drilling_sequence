@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw";
 import type { Project, User } from "@/types";
 import type { Activity, ImportResult } from "@/api/activities";
-import { CHECK_CODES, type CheckCode, type CheckStatus, type ActivityReadiness } from "@/api/readiness";
+import { CHECK_CODES, type CheckCode, type CheckStatus, type ProjectReadiness } from "@/api/readiness";
 import type { AuditEntry } from "@/api/audit";
 import type { Viewer } from "@/api/viewers";
 import type { Revision, RevisionDetail } from "@/api/revisions";
@@ -181,23 +181,16 @@ export const handlers = [
         CHECK_CODES.map((c) => [c, { status: "On Track" as CheckStatus, notes: null, updated_at: null }]),
       ) as Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }>;
 
-    const rows: ActivityReadiness[] = [
+    // One entry per distinct FIELD PROJECT (well_project).
+    const rows: ProjectReadiness[] = [
       {
-        activity_id: "act-001",
-        activity_type: "Oil Development",
-        well_name: "Well-A1",
-        rig_name: "Rig Alpha",
-        start_date: "2026-01-01",
-        end_date: "2026-03-31",
+        well_project: "Bonga Phase 3",
+        activity_count: 3,
         checks: { ...makeChecks(), BUD: { status: "Completed", notes: null, updated_at: null } },
       },
       {
-        activity_id: "act-002",
-        activity_type: "Gas Development",
-        well_name: "Well-B2",
-        rig_name: "Rig Beta",
-        start_date: "2026-04-01",
-        end_date: "2026-06-30",
+        well_project: "Egina North",
+        activity_count: 2,
         checks: makeChecks(),
       },
     ];
@@ -205,7 +198,7 @@ export const handlers = [
   }),
 
   http.put(
-    "/api/projects/:projectId/activities/:activityId/readiness/:checkCode",
+    "/api/projects/:projectId/readiness/:wellProject/:checkCode",
     async ({ request, params }) => {
       const body = (await request.json()) as { status: CheckStatus; notes: string | null };
       return HttpResponse.json({

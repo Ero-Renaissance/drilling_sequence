@@ -20,7 +20,7 @@ from app.models.activity_type_alias import ActivityTypeAlias
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectRole
-from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ReadinessCheck
+from app.models.readiness import CHECK_CODES, CHECK_STATUSES, ProjectReadiness
 from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.activity import (
@@ -34,11 +34,14 @@ from app.schemas.audit import AuditEntryResponse
 from app.services.audit import ENTITY_VOCABULARY, governance_event
 from app.services.data_processor import (
     CANONICAL_ACTIVITY_TYPES,
+    READINESS_SHEET,
+    SCHEDULE_SHEET,
     cross_terrain_resource_warnings,
     csv_df_to_db_rows,
     is_long_schedule,
     normalize_activity_type_key,
     parse_long_schedule,
+    parse_project_readiness,
     resolve_activity_type,
     unknown_activity_type_warnings,
     validate_csv_columns,
@@ -161,14 +164,14 @@ async def export_activities(project_id: uuid.UUID, current_user: CurrentUser, db
 
 @router.get("/import-template")
 async def download_import_template(project_id: uuid.UUID, current_user: CurrentUser):
-    """A blank, self-documenting Excel template for the long-format import.
+    """A blank, self-documenting Excel template for the schedule import.
 
     Static content (no project data), so any authenticated user may download it.
-    Sheet 1 "Schedule": header + three sample wells — including a LAND and a
-    SWAMP rig SHARING A NAME, demonstrating the identity convention (two
-    physical rigs) — with Excel dropdowns on every enum column so wrong values
-    are hard to type. Sheet 2 "Guidance": the rules and canonical vocabularies
-    (which also feed the activity-type dropdown via a defined name).
+    Sheet 1 "Schedule": ONE ROW PER ACTIVITY (Location + Rig Name identify a
+    physical rig — a LAND and a SWAMP "Rig 1" are two rigs), with Excel dropdowns
+    on every enum column. Sheet 2 "Readiness": ONE ROW PER PROJECT — the seven
+    sanction gates (FDP…BUD) are field-development-project attributes, not
+    per-activity. Sheet 3 "Guidance": the rules + canonical vocabularies.
     """
     from datetime import date as _date
 
@@ -178,97 +181,90 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     from openpyxl.workbook.defined_name import DefinedName
     from openpyxl.worksheet.datavalidation import DataValidation
 
+    gates = list(CHECK_CODES)  # FDP, LLI, LOC, FE, FID, EIA, BUD
+
+    # ── Sheet 1: Schedule (one row per activity) ──────────────────────────────
     header = [
         "Location", "Rig Name", "HWU Name", "Activity Type", "Plan Type", "Project",
         "Well Name", "Start Date", "End Date", "Rig Contract Expiry Date",
-        "HWU Contract Expiry Date", "Risk", "Readiness Check", "Readiness Check Status",
-        "Comment",
+        "HWU Contract Expiry Date", "Risk", "Comment",
     ]
-    gates = list(CHECK_CODES)  # FDP, LLI, LOC, FE, FID, EIA, BUD
-
-    def well_rows(
-        *, loc, rig, hwu, atype, plan, project, well,
-        start, end, rig_exp=None, hwu_exp=None, risk, statuses=None, comment="",
-    ):
-        statuses = statuses or {}
-        return [
-            [
-                loc, rig, hwu, atype, plan, project, well, start, end,
-                rig_exp, hwu_exp, risk, g, statuses.get(g, "On Track"),
-                comment if i == 0 else "",
-            ]
-            for i, g in enumerate(gates)
-        ]
-
     samples = [
-        *well_rows(
-            loc="LAND", rig="Rig 1", hwu=None, atype="Gas Development",
-            plan="In Plan (Firm)", project="Project Alpha", well="Well-1",
-            start=_date(2026, 1, 15), end=_date(2026, 6, 30),
-            rig_exp=_date(2030, 12, 31), risk="No Flood Risk",
-            statuses={"FDP": "Completed", "LOC": "Behind", "EIA": "N/A", "BUD": "Completed"},
-            comment="One well = one block of 7 rows (one per readiness gate)",
-        ),
-        *well_rows(
-            loc="SWAMP", rig="Rig 1", hwu=None, atype="Oil Development",
-            plan="In Plan (Option)", project="Project Alpha", well="Well-2",
-            start=_date(2026, 3, 1), end=_date(2026, 8, 31),
-            rig_exp=_date(2031, 6, 30), risk="Flood Risk",
-            comment="Same name as the LAND rig = a DIFFERENT physical rig (see Guidance)",
-        ),
-        *well_rows(
-            loc="SWAMP", rig=None, hwu="HWU 1", atype="Well Repair/Safety",
-            plan="In Plan (Firm)", project="Project Alpha", well="Well-3",
-            start=_date(2026, 9, 1), end=_date(2026, 11, 30),
-            hwu_exp=_date(2031, 6, 30), risk="No Flood Risk",
-            comment="A row uses a rig OR an HWU, never both",
-        ),
+        ["LAND", "Rig 1", None, "Gas Development", "In Plan (Firm)", "Project Alpha",
+         "Well-1", _date(2026, 1, 15), _date(2026, 6, 30), _date(2030, 12, 31), None,
+         "No Flood Risk", "One row per activity — set this project's gates on the Readiness tab"],
+        ["SWAMP", "Rig 1", None, "Oil Development", "In Plan (Option)", "Project Alpha",
+         "Well-2", _date(2026, 3, 1), _date(2026, 8, 31), _date(2031, 6, 30), None,
+         "Flood Risk", "Same name as the LAND rig = a DIFFERENT physical rig (see Guidance)"],
+        ["SWAMP", None, "HWU 1", "Well Repair/Safety", "In Plan (Firm)", "Project Beta",
+         "Well-3", _date(2026, 9, 1), _date(2026, 11, 30), None, _date(2031, 6, 30),
+         "No Flood Risk", "A row uses a rig OR an HWU, never both"],
     ]
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Schedule"
+    ws.title = SCHEDULE_SHEET
     ws.append(header)
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for row in samples:
         ws.append(row)
-    date_cols = (8, 9, 10, 11)  # Start, End, both expiry columns
     for r in range(2, ws.max_row + 1):
-        for c in date_cols:
+        for c in (8, 9, 10, 11):  # Start, End, both expiry columns
             ws.cell(row=r, column=c).number_format = "DD/MM/YYYY"
     for col in ws.columns:
         width = max((len(str(c.value)) for c in col if c.value is not None), default=10)
         ws.column_dimensions[col[0].column_letter].width = min(width + 2, 42)
 
-    # ── Guidance sheet: the rules + the canonical vocabularies ────────────────
+    # ── Sheet 2: Readiness (one row per PROJECT × the seven gates) ─────────────
+    rd = wb.create_sheet(READINESS_SHEET)
+    rd.append(["Project", *gates])
+    for cell in rd[1]:
+        cell.font = Font(bold=True)
+    rd.append(
+        ["Project Alpha", "Completed", "On Track", "Behind",
+         "On Track", "On Track", "N/A", "Completed"]
+    )
+    rd.append(["Project Beta"] + ["On Track"] * len(gates))
+    rd.column_dimensions["A"].width = 22
+    for i in range(len(gates)):
+        rd.column_dimensions[chr(ord("B") + i)].width = 12
+    # Gate-status dropdowns across the readiness grid.
+    rd_dv = DataValidation(
+        type="list", formula1='"On Track,Completed,Behind,N/A"', allow_blank=True
+    )
+    rd.add_data_validation(rd_dv)
+    rd_dv.add(f"B2:{chr(ord('A') + len(gates))}500")
+
+    # ── Sheet 3: Guidance — the rules + the canonical vocabularies ────────────
     gd = wb.create_sheet("Guidance")
     gd.append(["Rule", "Guidance"])
     for cell in gd[1]:
         cell.font = Font(bold=True)
     rules = [
-        ("One well per block", "Each well is ONE block of 7 rows — one row per readiness "
-         "gate (FDP, LLI, LOC, FE, FID, EIA, BUD). Never put several wells in one cell."),
+        ("One row per activity", "The Schedule tab is ONE ROW PER ACTIVITY. No more repeating "
+         "a well once per readiness gate — readiness now lives on the Readiness tab."),
+        ("Readiness is per project", "Gates (FDP, LLI, LOC, FE, FID, EIA, BUD) are sanction "
+         "gates for a FIELD-DEVELOPMENT PROJECT (the 'Project' column), shared by every well "
+         "under it. Set them once per project on the Readiness tab — one row per project."),
         ("Rig identity", "A rig is identified by Location + Rig Name. The same name in two "
          "locations is TWO physical rigs (e.g. a land 10K and a swamp 10K barge) — the import "
          "confirms this with an informational notice. Two rigs of the same class in the SAME "
          "location must be numbered (10K Rig 1, 10K Rig 2)."),
         ("Planned rigs", "Don't know the awarded rig yet? Use a class-style slot name "
-         "(e.g. '10K Rig 3'). It registers as a PLANNED unit (no awarded rig behind it); rename "
-         "it from the Fleet page when the contract is awarded — its schedule and contract "
-         "follow automatically."),
+         "(e.g. '10K Rig 3'). It registers as a PLANNED unit; rename it from the Fleet page "
+         "when the contract is awarded — its schedule and contract follow automatically."),
         ("HWUs", "HWUs are mobile units: the same HWU Name anywhere is ONE unit, whatever "
          "the location."),
         ("Dates", "Day-first — DD/MM/YYYY or DD-MM-YYYY (e.g. 31/07/2026). Real Excel date "
          "cells work too. A month-first or impossible date rejects the whole upload."),
         ("Activity Type", "Use the exact canonical names in column D — anything else imports "
          "but charts in neutral grey until an admin adds it to the catalogue."),
-        ("Readiness Check Status", "On Track, Completed, Behind or N/A. Also accepted and "
-         "mapped: 'Behind Schedule' → Behind; 'Not Started' / 'In Progress' → On Track."),
-        ("Rig Contract Expiry Date", "ONE date per physical rig, repeated identically on its "
-         "rows (the last row wins). Terrain twins may each carry their own date. Leave blank "
-         "when there is no contract yet — correct for planned units; the dashboard then raises "
-         "a procurement alert. Never a computed date (e.g. end + 24 months)."),
+        ("Readiness status", "On Track, Completed, Behind or N/A. Also accepted and mapped: "
+         "'Behind Schedule' → Behind; 'Not Started' / 'In Progress' → On Track."),
+        ("Rig Contract Expiry Date", "ONE date per physical rig. Terrain twins may each carry "
+         "their own date. Leave blank when there is no contract yet — correct for planned "
+         "units; the dashboard then raises a procurement alert."),
         ("Plan Type", "In Plan (Firm), In Plan (Option) or Out of Plan."),
         ("Risk", "Flood Risk or No Flood Risk."),
     ]
@@ -300,8 +296,6 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     dropdown("ActivityTypes", f"D2:D{last}")
     dropdown('"In Plan (Firm),In Plan (Option),Out of Plan"', f"E2:E{last}")
     dropdown('"Flood Risk,No Flood Risk"', f"L2:L{last}")
-    dropdown(f'"{",".join(gates)}"', f"M2:M{last}")
-    dropdown('"On Track,Completed,Behind,N/A"', f"N2:N{last}")
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -785,9 +779,16 @@ async def import_activities(
     # "N/A" into NaN — silently importing it as "On Track" (a real bug caught by
     # the template round-trip test).
     _na = {"keep_default_na": False, "na_values": [""]}
+    # Readiness is per FIELD PROJECT and lives on a separate "Readiness" sheet
+    # (Excel only) — captured here and passed to the schedule importer.
+    readiness_df: pd.DataFrame | None = None
     try:
         if filename.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(io.BytesIO(content), **_na)
+            sheets = pd.read_excel(io.BytesIO(content), sheet_name=None, **_na)
+            df = sheets.get(SCHEDULE_SHEET)
+            if df is None:  # unnamed / legacy single-sheet workbook → first sheet
+                df = next(iter(sheets.values())) if sheets else pd.DataFrame()
+            readiness_df = sheets.get(READINESS_SHEET)
         else:
             df = pd.read_csv(io.BytesIO(content), **_na)
     except Exception as exc:
@@ -818,6 +819,7 @@ async def import_activities(
             current_user,
             db,
             replace,
+            readiness_df=readiness_df,
             dry_run=dry_run,
             db_aliases=db_aliases,
             user_mappings=mappings_by_key,
@@ -914,18 +916,19 @@ async def _import_long_schedule(
     db: AsyncSession,
     replace: bool,
     *,
+    readiness_df: "pd.DataFrame | None" = None,
     dry_run: bool = False,
     db_aliases: dict[str, str] | None = None,
     user_mappings: dict[str, str] | None = None,
     remember_keys: list[str] | None = None,
     display_by_key: dict[str, str] | None = None,
 ) -> ImportResponse:
-    """Ingest the long-format schedule: collapse the per-gate rows into one activity
-    each, import every well's readiness gates, and upsert per-rig contract expiry.
+    """Ingest the schedule workbook: one activity per Schedule row, per-rig/HWU
+    contract expiry, and per-FIELD-PROJECT readiness from the "Readiness" sheet.
 
     Validated in full before any write, so a bad row never leaves a partial import
-    or deletes the existing schedule. The sheet is the source of truth for readiness
-    and contract dates (replace mode resets them to match the file).
+    or deletes the existing schedule. The workbook is the source of truth for
+    readiness and contract dates (replace mode resets them to match the file).
     """
     try:
         parsed, rig_contracts, hwu_contracts = parse_long_schedule(df)
@@ -934,15 +937,11 @@ async def _import_long_schedule(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    # Validate each collapsed activity (same ActivityCreate gate the JSON API uses)
-    # and its readiness gates/statuses. An invalid well is skipped (not imported) and
-    # reported; an invalid readiness cell drops just that gate. A structural problem
-    # (missing required columns) already raised 422 above.
-    #
-    # Type resolution happens per row here, and a row's resolution is tallied ONLY
-    # after it validates — so the reported unknown/mapped counts match what was
-    # actually imported (skipped rows never inflate the summary).
-    validated: list[tuple[ActivityCreate, dict[str, str]]] = []
+    # Validate each activity (same ActivityCreate gate the JSON API uses). An
+    # invalid row is skipped (not imported) and reported. Type resolution happens
+    # per row and is tallied ONLY after the row validates, so the reported
+    # unknown/mapped counts match what was actually imported.
+    validated: list[ActivityCreate] = []
     skipped_rows: list[dict[str, str]] = []
     warnings: list[str] = []
     tally: _TypeTally = ({}, {})
@@ -960,27 +959,31 @@ async def _import_long_schedule(
             )
             skipped_rows.append({"well": label, "reason": reason})
             continue
-        readiness: dict[str, str] = {}
-        for gate, gate_status in pa.readiness.items():
-            if gate not in CHECK_CODES:
-                warnings.append(f"{label}: dropped unknown readiness check '{gate}'")
-            elif gate_status not in CHECK_STATUSES:
-                warnings.append(f"{label}: dropped {gate} (invalid status '{gate_status}')")
-            else:
-                readiness[gate] = gate_status
         _tally_type(raw, resolved, how, tally)  # only kept rows count toward the summary
-        validated.append((activity_in, readiness))
+        validated.append(activity_in)
+
+    # Per-field-project readiness from the "Readiness" sheet, kept only for
+    # projects that actually have an imported activity (no orphan gates). An
+    # unknown status word drops that cell with a warning.
+    imported_projects = {a.well_project for a in validated if a.well_project}
+    project_readiness: dict[tuple[str, str], str] = {}
+    if readiness_df is not None:
+        for (proj, gate), gate_status in parse_project_readiness(readiness_df).items():
+            if proj not in imported_projects:
+                continue
+            if gate_status not in CHECK_STATUSES:
+                warnings.append(f"{proj}: dropped {gate} (invalid status '{gate_status}')")
+                continue
+            project_readiness[(proj, gate)] = gate_status
 
     # Non-canonical activity types import fine but chart in neutral grey — tell
     # the planner so the vocabulary gets fixed (or the catalogue extended).
-    warnings.extend(
-        unknown_activity_type_warnings([a.activity_type for a, _ in validated])
-    )
+    warnings.extend(unknown_activity_type_warnings([a.activity_type for a in validated]))
     # A RIG name spanning terrains is legal (two physical units under the
     # planner's naming convention) but can also hide a location typo — warn.
     # HWUs are exempt: they are mobile, so cross-terrain use is unremarkable.
     warnings.extend(
-        cross_terrain_resource_warnings([(a.rig_name, a.location) for a, _ in validated], "Rig")
+        cross_terrain_resource_warnings([(a.rig_name, a.location) for a in validated], "Rig")
     )
 
     if dry_run:
@@ -998,32 +1001,37 @@ async def _import_long_schedule(
     # Replace only when at least one well is valid — never wipe the schedule to
     # import nothing (e.g. an entirely-bad file in replace mode).
     if replace and validated:
-        # Clear readiness then activities explicitly — don't rely on a DB ON DELETE
-        # cascade (SQLite doesn't enforce FKs by default).
-        existing_ids = (
-            await db.execute(select(Activity.id).where(Activity.project_id == project_id))
-        ).scalars().all()
-        if existing_ids:
-            await db.execute(
-                delete(ReadinessCheck).where(ReadinessCheck.activity_id.in_(existing_ids))
-            )
+        # Clear the campaign's project readiness then its activities. (Readiness is
+        # campaign-scoped now, not FK'd to activities, so delete it explicitly.)
+        await db.execute(
+            delete(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
+        )
         await db.execute(delete(Activity).where(Activity.project_id == project_id))
 
-    for activity_in, readiness in validated:
-        activity = Activity(
-            id=uuid.uuid4(),  # set up-front so readiness rows can reference it without a flush
-            project_id=project_id,
-            updated_by=current_user.id,
-            **activity_in.model_dump(),
+    for activity_in in validated:
+        db.add(
+            Activity(
+                project_id=project_id,
+                updated_by=current_user.id,
+                **activity_in.model_dump(),
+            )
         )
-        db.add(activity)
-        for gate, gate_status in readiness.items():
-            db.add(ReadinessCheck(activity_id=activity.id, check_code=gate, status=gate_status))
+
+    for (proj, gate), gate_status in project_readiness.items():
+        db.add(
+            ProjectReadiness(
+                project_id=project_id,
+                well_project=proj,
+                check_code=gate,
+                status=gate_status,
+                updated_by=current_user.id,
+            )
+        )
 
     # Register every physical unit the sheet references (rigs terrain-qualified,
     # HWUs by name) — new units start as placeholder slots.
     await ensure_activity_resources_registered(
-        db, project_id, _resource_triples([a for a, _ in validated]), current_user.id
+        db, project_id, _resource_triples(validated), current_user.id
     )
 
     # Resource contract expiry — upsert each rig / HWU end date, so an imported

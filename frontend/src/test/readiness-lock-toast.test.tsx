@@ -22,12 +22,12 @@ describe("Readiness change while the campaign is locked", () => {
     // The plan is locked for approval — the API rejects readiness edits with 423.
     server.use(
       http.put(
-        "/api/projects/:projectId/activities/:activityId/readiness/:checkCode",
+        "/api/projects/:projectId/readiness/:wellProject/:checkCode",
         () =>
           HttpResponse.json(
             {
               detail:
-                "This activity is part of a revision awaiting approval and cannot be modified.",
+                "This field project is part of a revision awaiting approval and cannot be modified.",
             },
             { status: 423 },
           ),
@@ -40,7 +40,7 @@ describe("Readiness change while the campaign is locked", () => {
         <Toaster />
       </MemoryRouter>,
     );
-    await waitFor(() => screen.getByText("Gas Development"));
+    await waitFor(() => screen.getByText("Bonga Phase 3"));
 
     // Open a gate's picker and choose a new status → triggers the (rejected) PUT.
     await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);

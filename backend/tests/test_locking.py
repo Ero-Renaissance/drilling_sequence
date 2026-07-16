@@ -21,6 +21,7 @@ async def _project_with_activity(client: AsyncClient) -> tuple[str, str]:
                 "start_date": "2026-01-01",
                 "end_date": "2026-02-01",
                 "well_name": "Well-1",
+                "well_project": "Lock Project",
                 "location": "OFFSHORE",
                 "plan_type": "Firm",
                 "risk": "No Flood Risk",
@@ -107,10 +108,11 @@ async def test_edit_allowed_after_revision_discarded(client: AsyncClient) -> Non
 
 @pytest.mark.asyncio
 async def test_readiness_upsert_locked_then_unlocked(client: AsyncClient) -> None:
-    project_id, activity_id = await _project_with_activity(client)
+    project_id, _activity_id = await _project_with_activity(client)
     revision_id = await _create_revision(client, project_id)
 
-    url = f"/api/projects/{project_id}/activities/{activity_id}/readiness/BUD"
+    # Readiness is per FIELD PROJECT now — the gate freezes with the plan.
+    url = f"/api/projects/{project_id}/readiness/Lock Project/BUD"
     assert (await client.put(url, json={"status": "On Track"})).status_code == 423
 
     discard = await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")

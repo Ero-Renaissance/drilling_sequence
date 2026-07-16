@@ -117,6 +117,9 @@ export function ActivityChartEditDialog({
 }: Props) {
   const locked = !!activity.locked_by_revision_id;
   const isCompleted = !!activity.completed_at;
+  // Readiness gates live on the FIELD PROJECT (well_project). Without one there's
+  // nothing to attach them to, so the gates are shown disabled with a hint.
+  const hasProject = !!activity.well_project;
   const [completing, setCompleting] = useState(false);
 
   const [checkStatuses, setCheckStatuses] = useState<Record<CheckCode, CheckStatus>>(
@@ -268,12 +271,16 @@ export function ActivityChartEditDialog({
         readiness_required: values.readiness_required,
       });
 
-      // Persist the per-activity readiness gates.
-      await Promise.all(
-        EDITABLE_CODES.map((code) =>
-          upsertCheck(projectId, activity.id, code, checkStatuses[code]),
-        ),
-      );
+      // Persist the readiness gates. Gates belong to the FIELD PROJECT
+      // (well_project), so this updates every activity sharing it; an activity
+      // with no field project has no gates to save.
+      if (activity.well_project) {
+        await Promise.all(
+          EDITABLE_CODES.map((code) =>
+            upsertCheck(projectId, activity.well_project!, code, checkStatuses[code]),
+          ),
+        );
+      }
 
       // The resource's contract (only if the user edited it) saves with the
       // activity — one Save, not two.
@@ -475,6 +482,19 @@ export function ActivityChartEditDialog({
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Readiness
             </p>
+            {/* Gates are per FIELD PROJECT — editing them here updates every activity
+                that shares this well's project. */}
+            {hasProject ? (
+              <p className="text-xs text-muted-foreground">
+                Gates apply to the whole{" "}
+                <span className="font-medium text-foreground">{activity.well_project}</span>{" "}
+                field project — every activity in it shares them.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Set a Project for this well to track its readiness gates.
+              </p>
+            )}
             {/* Opt-out — when off, this activity's gate icons are hidden on the
                 chart and print-out, and it drops out of the dashboard readiness KPIs. */}
             <label className="flex items-center gap-2 text-xs">
@@ -505,7 +525,7 @@ export function ActivityChartEditDialog({
                     <ReadinessDot
                       code={code}
                       status={status}
-                      disabled={locked}
+                      disabled={locked || !hasProject}
                       onChange={(next) =>
                         setCheckStatuses((prev) => ({ ...prev, [code]: next }))
                       }

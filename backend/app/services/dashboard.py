@@ -15,7 +15,7 @@ from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project
-from app.models.readiness import CHECK_CODES, ReadinessCheck
+from app.models.readiness import CHECK_CODES, ProjectReadiness
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -70,17 +70,19 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         await db.execute(select(Activity).where(Activity.project_id == project_id))
     ).scalars().all()
 
-    # readiness map: activity_id -> {check_code: status}
-    readiness_by_activity: dict[uuid.UUID, dict[str, str]] = {}
-    if activities:
-        act_ids = [a.id for a in activities]
-        rows = (
-            await db.execute(
-                select(ReadinessCheck).where(ReadinessCheck.activity_id.in_(act_ids))
-            )
-        ).scalars().all()
-        for r in rows:
-            readiness_by_activity.setdefault(r.activity_id, {})[r.check_code] = r.status
+    # Readiness is per FIELD-DEVELOPMENT PROJECT (well_project): well_project ->
+    # {check_code: status}. An activity's gates are its project's gates.
+    readiness_by_project: dict[str, dict[str, str]] = {}
+    gate_rows = (
+        await db.execute(
+            select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
+        )
+    ).scalars().all()
+    for r in gate_rows:
+        readiness_by_project.setdefault(r.well_project, {})[r.check_code] = r.status
+
+    def gates_for(a: Activity) -> dict[str, str]:
+        return readiness_by_project.get(a.well_project or "", {})
 
     contracts = (
         await db.execute(select(RigContract).where(RigContract.project_id == project_id))
@@ -125,10 +127,11 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
         return today <= a.start_date <= near_term_end
 
     def ready(a: Activity) -> bool:
-        # Ready = has ≥1 applicable (non-N/A) gate AND all applicable gates Completed.
-        # An activity with no readiness set is therefore *not* ready — for a
-        # near-term activity that's a legitimate "set your gates" nudge.
-        applicable = [s for s in readiness_by_activity.get(a.id, {}).values() if s != "N/A"]
+        # Ready = the activity's PROJECT has ≥1 applicable (non-N/A) gate AND all
+        # applicable gates Completed. An activity whose project has no gates set is
+        # therefore *not* ready — for a near-term activity that's a legitimate
+        # "set your project's gates" nudge.
+        applicable = [s for s in gates_for(a).values() if s != "N/A"]
         return bool(applicable) and all(s == "Completed" for s in applicable)
 
     # ── activities ─────────────────────────────────────────────────────────────
@@ -173,16 +176,24 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
     )
 
     # ── readiness (focus window) ───────────────────────────────────────────────
-    # Activities that opt out (readiness_required=False) track no gates, so they
-    # are excluded from every readiness KPI below.
-    focus = [
-        a
-        for a in activities
-        if not done(a) and a.start_date <= focus_end and a.readiness_required
-    ]
+    # Readiness is per FIELD-DEVELOPMENT PROJECT, so the KPIs count each project
+    # ONCE — a project's shared FID isn't "behind" five times because it has five
+    # activities. A project is in focus when it has a not-done, readiness-required
+    # activity starting within the window; opt-out activities (readiness_required
+    # =False) don't pull their project into focus.
+    focus_projects = sorted(
+        {
+            a.well_project
+            for a in activities
+            if not done(a)
+            and a.start_date <= focus_end
+            and a.readiness_required
+            and a.well_project
+        }
+    )
     applicable_cells = completed_cells = behind_cells = 0
-    for a in focus:
-        for s in readiness_by_activity.get(a.id, {}).values():
+    for wp in focus_projects:
+        for s in readiness_by_project.get(wp, {}).values():
             if s == "N/A":
                 continue
             applicable_cells += 1
@@ -190,22 +201,26 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
                 completed_cells += 1
             elif s == "Behind":
                 behind_cells += 1
-    # Per-gate status split across the focus activities — surfaces the top
-    # blocking gate. A gate with no row reads as its default, "On Track".
+    # Per-gate status split across the focus PROJECTS — surfaces the top blocking
+    # gate. A gate with no row reads as its default, "On Track".
     gate_buckets = {
         c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
         for c in CHECK_CODES
     }
-    for a in focus:
-        checks = readiness_by_activity.get(a.id, {})
+    for wp in focus_projects:
+        checks = readiness_by_project.get(wp, {})
         for c in CHECK_CODES:
             gate_buckets[c][_STATUS_KEY.get(checks.get(c, "On Track"), "on_track")] += 1
 
+    def _project_ready(wp: str) -> bool:
+        applicable = [s for s in readiness_by_project.get(wp, {}).values() if s != "N/A"]
+        return bool(applicable) and all(s == "Completed" for s in applicable)
+
     readiness_stats = ReadinessStats(
-        focus_count=len(focus),
+        focus_count=len(focus_projects),
         overall_pct=round(100 * completed_cells / applicable_cells) if applicable_cells else None,
         behind_cells=behind_cells,
-        ready=sum(1 for a in focus if ready(a)),
+        ready=sum(1 for wp in focus_projects if _project_ready(wp)),
         by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in CHECK_CODES],
     )
 
@@ -444,13 +459,21 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
         and s <= focus_end
     ]
 
+    # Readiness is per FIELD-DEVELOPMENT PROJECT; the snapshot denormalises the
+    # project's gates onto every activity, so dedupe by well_project to count each
+    # project's gates once. Snapshots predating per-project readiness carried
+    # per-activity gates under a null/absent project — those fall in a single ""
+    # bucket, which is faithful (they were one plan's gates).
+    readiness_by_focus_project: dict[str, dict] = {}
+    for a in focus:
+        readiness_by_focus_project.setdefault(a.get("well_project") or "", a.get("readiness") or {})
+
     applicable = completed = 0
     gate_buckets = {
         c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
         for c in CHECK_CODES
     }
-    for a in focus:
-        readiness = a.get("readiness") or {}
+    for readiness in readiness_by_focus_project.values():
         for status in readiness.values():
             if status == "N/A":
                 continue
@@ -506,7 +529,7 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
         schedule_start=min(starts).isoformat() if starts else None,
         schedule_end=max(ends).isoformat() if ends else None,
         readiness_pct=round(100 * completed / applicable) if applicable else None,
-        readiness_focus_count=len(focus),
+        readiness_focus_count=len(readiness_by_focus_project),
         rigs_in_use=len(rig_keys - planned_rig_keys),
         hwus_in_use=len(hwu_keys - planned_hwu_keys),
         planned_rigs=len(planned_rig_keys),

@@ -1,7 +1,8 @@
 """The import template must be correct BY CONSTRUCTION: whatever it teaches,
 the importer accepts. The strongest check is the round trip — download the
-template, upload it unchanged, and assert it imports cleanly with exactly the
-expected (intentional) cross-terrain notice."""
+template, upload it unchanged, and assert it imports cleanly (activities,
+contracts AND the per-project Readiness sheet) with exactly the expected
+(intentional) cross-terrain notice."""
 import io
 
 import pytest
@@ -14,20 +15,29 @@ async def _project(client: AsyncClient) -> str:
 
 
 @pytest.mark.asyncio
-async def test_template_downloads_with_schedule_and_guidance(client: AsyncClient) -> None:
+async def test_template_downloads_with_schedule_readiness_and_guidance(
+    client: AsyncClient,
+) -> None:
     pid = await _project(client)
     r = await client.get(f"/api/projects/{pid}/activities/import-template")
     assert r.status_code == 200, r.text
     assert "spreadsheetml" in r.headers["content-type"]
 
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames[0] == "Schedule"  # pandas reads the FIRST sheet on import
+    assert wb.sheetnames[:2] == ["Schedule", "Readiness"]
     assert "Guidance" in wb.sheetnames
 
     ws = wb["Schedule"]
     header = [c.value for c in ws[1]]
     assert header[:3] == ["Location", "Rig Name", "HWU Name"]
-    assert "Readiness Check" in header and "Readiness Check Status" in header
+    # Readiness is per PROJECT now — the Schedule sheet carries no gate columns.
+    assert "Readiness Check" not in header
+    assert "Readiness Check Status" not in header
+
+    rd = wb["Readiness"]
+    assert [c.value for c in rd[1]] == [
+        "Project", "FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD",
+    ]
 
     # The guidance sheet carries the canonical activity types (dropdown source).
     gd = wb["Guidance"]
@@ -71,32 +81,47 @@ async def test_template_round_trips_through_the_importer(client: AsyncClient) ->
     hwu = (await client.get(f"/api/projects/{pid}/hwu-contracts")).json()
     assert [(c["hwu_name"], c["contract_end"]) for c in hwu] == [("HWU 1", "2031-06-30")]
 
-    # The sample's readiness statuses (incl. Behind and N/A) all imported.
+    # The Readiness sheet's per-PROJECT gates (incl. Behind and N/A) all imported.
     readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    checks = {r["well_name"]: r["checks"] for r in readiness}
-    assert checks["Well-1"]["LOC"]["status"] == "Behind"
-    assert checks["Well-1"]["EIA"]["status"] == "N/A"
+    by_project = {row["well_project"]: row for row in readiness}
+    assert set(by_project) == {"Project Alpha", "Project Beta"}
+    alpha = by_project["Project Alpha"]
+    assert alpha["activity_count"] == 2  # Well-1 + Well-2 share the project
+    assert alpha["checks"]["FDP"]["status"] == "Completed"
+    assert alpha["checks"]["LOC"]["status"] == "Behind"
+    assert alpha["checks"]["EIA"]["status"] == "N/A"
+    beta = by_project["Project Beta"]
+    assert all(c["status"] == "On Track" for c in beta["checks"].values())
 
 
 @pytest.mark.asyncio
 async def test_planner_wording_behind_schedule_is_mapped_not_dropped(
     client: AsyncClient,
 ) -> None:
-    """'Behind Schedule' — the planner's habitual wording — maps to Behind
-    instead of being silently dropped with a warning."""
+    """'Behind Schedule' — the planner's habitual wording — maps to Behind on the
+    Readiness sheet instead of being dropped with a warning."""
+    from openpyxl import Workbook
+
     pid = await _project(client)
-    header = (
-        "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,"
-        "Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,"
-        "Readiness Check,Readiness Check Status,Comment"
-    )
-    row = (
-        "LAND,RIG_1,,Oil Development,In Plan (Firm),PX,W-1,"
-        "05/01/2026,15/03/2026,,,No Flood Risk,LLI,Behind Schedule,"
-    )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Schedule"
+    ws.append(["Location", "Rig Name", "HWU Name", "Activity Type", "Plan Type",
+               "Project", "Well Name", "Start Date", "End Date",
+               "Rig Contract Expiry Date", "HWU Contract Expiry Date", "Risk", "Comment"])
+    ws.append(["LAND", "RIG_1", None, "Oil Development", "In Plan (Firm)", "PX",
+               "W-1", "05/01/2026", "15/03/2026", None, None, "No Flood Risk", None])
+    rd = wb.create_sheet("Readiness")
+    rd.append(["Project", "FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"])
+    rd.append(["PX", "On Track", "Behind Schedule", "On Track", "On Track",
+               "On Track", "On Track", "On Track"])
+    buf = io.BytesIO()
+    wb.save(buf)
+
     up = await client.post(
         f"/api/projects/{pid}/activities/import?replace=true",
-        files={"file": ("s.csv", io.BytesIO(f"{header}\n{row}\n".encode()), "text/csv")},
+        files={"file": ("s.xlsx", io.BytesIO(buf.getvalue()),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert up.status_code == 200, up.text
     assert up.json()["warnings"] == []

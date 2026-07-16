@@ -65,12 +65,12 @@ function readiness(overrides: Partial<Record<CheckCode, CheckStatus>>): Record<C
   return out;
 }
 
+// Readiness is per FIELD PROJECT (well_project), so the map is keyed by project
+// name — every activity under a project shares its gates.
 export const FIXTURE_READINESS: ReadinessMap = new Map([
-  ["f1", readiness({ FDP: "Completed", LLI: "Completed", LOC: "On Track", FE: "On Track", FID: "Completed", EIA: "On Track", BUD: "Completed" })],
-  ["f4", readiness({ FDP: "Behind", LLI: "Behind", LOC: "On Track", FE: "Behind", FID: "On Track", EIA: "N/A", BUD: "On Track" })],
-  ["f6", readiness({ FDP: "Completed", LLI: "On Track", LOC: "Completed", FE: "Completed", FID: "On Track", EIA: "Completed", BUD: "Completed" })],
-  ["f7", readiness({ FDP: "Completed", LLI: "Completed", LOC: "Completed", FE: "Completed", FID: "Completed", EIA: "Completed", BUD: "Completed" })],
-  ["f8", readiness({ FDP: "On Track", LLI: "On Track", LOC: "On Track", FE: "On Track", FID: "On Track", EIA: "On Track", BUD: "On Track" })],
+  ["Alpha Field", readiness({ FDP: "Completed", LLI: "Completed", LOC: "On Track", FE: "On Track", FID: "Completed", EIA: "On Track", BUD: "Completed" })],
+  ["Bravo Block", readiness({ FDP: "Behind", LLI: "Behind", LOC: "On Track", FE: "Behind", FID: "On Track", EIA: "N/A", BUD: "On Track" })],
+  ["Charlie Deep", readiness({ FDP: "Completed", LLI: "Completed", LOC: "Completed", FE: "Completed", FID: "Completed", EIA: "Completed", BUD: "Completed" })],
 ]);
 
 function contract(rig: string, end: string): RigContract {
@@ -114,7 +114,7 @@ export const FIXTURE_HWU_CONTRACTS: Map<string, HwuContract> = new Map([
 /** The same activities as PrintRows, with readiness flattened to code→status and
  *  each rig's contract denormalised onto its rows (as the snapshot does). */
 export const FIXTURE_PRINT_ROWS: PrintRow[] = FIXTURE_ACTIVITIES.map((a) => {
-  const rd = FIXTURE_READINESS.get(a.id);
+  const rd = a.well_project ? FIXTURE_READINESS.get(a.well_project) : undefined;
   const readiness = rd
     ? (Object.fromEntries(CHECK_CODES.map((c) => [c, rd[c].status])) as Record<string, CheckStatus>)
     : undefined;

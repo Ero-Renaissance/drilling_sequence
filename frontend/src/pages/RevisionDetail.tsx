@@ -232,14 +232,17 @@ function snapshotToActivities(rows: SnapshotRow[]): Activity[] {
 }
 
 function snapshotToReadinessMap(rows: SnapshotRow[]): ReadinessMap {
+  // Readiness is per field project. The snapshot denormalises the project's gates
+  // onto every activity row, so key the map by `well_project` (rows without one,
+  // or without readiness, are skipped — the chart shows them no gates).
   const map: ReadinessMap = new Map();
   for (const r of rows) {
-    if (!r.readiness) continue;
+    if (!r.readiness || !r.well_project) continue;
     const checks: Record<string, { status: CheckStatus }> = {};
     for (const [code, status] of Object.entries(r.readiness)) {
       checks[code] = { status };
     }
-    map.set(r.id, checks as Record<CheckCode, { status: CheckStatus }>);
+    map.set(r.well_project, checks as Record<CheckCode, { status: CheckStatus }>);
   }
   return map;
 }
