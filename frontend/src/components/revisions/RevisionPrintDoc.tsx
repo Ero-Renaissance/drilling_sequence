@@ -15,7 +15,7 @@ import {
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
-import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel } from "@/lib/print-gantt";
+import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessRowsPerPage, type PrintYears } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
 import { cn, formatDate } from "@/lib/utils";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
@@ -919,6 +919,7 @@ export function RevisionPrintDoc({
   chart = "standard",
   includeSchedule = true,
   signatures = "system",
+  readinessYears = 1,
 }: {
   revision: RevisionDetail;
   project: Project | null;
@@ -931,6 +932,10 @@ export function RevisionPrintDoc({
   /** "system" → the system-recorded sign-off (their actual signatures + Document ID
    *  on the standard JV record). "wetink" → blank lines to sign by hand. */
   signatures?: "system" | "wetink";
+  /** Readiness chart only: calendar years per printed page (1/2/3). The host
+   *  page matches the @page paper size to this (A4/A3/A2) so month density —
+   *  and gate-icon legibility — stays near the 1-year-on-A4 baseline. */
+  readinessYears?: PrintYears;
 }) {
   const isReadiness = chart === "readiness";
   const isWetInk = signatures === "wetink";
@@ -1033,7 +1038,14 @@ export function RevisionPrintDoc({
           readiness view zooms to one year per page and shows the icons on the chart. */}
       <h2 className="mt-3 text-sm font-semibold">{isReadiness ? "Sequence readiness" : "Sequence"}</h2>
       {isReadiness ? (
-        <StaticGantt rows={rows} index={index} windowYears={1} rowsPerPage={6} showReadiness dropEmptyRows />
+        <StaticGantt
+          rows={rows}
+          index={index}
+          windowYears={readinessYears}
+          rowsPerPage={readinessRowsPerPage(readinessYears)}
+          showReadiness
+          dropEmptyRows
+        />
       ) : (
         <StaticGantt rows={rows} index={index} />
       )}

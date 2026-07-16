@@ -230,3 +230,26 @@ describe("RevisionPrintDoc — page-local readiness anchors", () => {
     expect(strips).toHaveLength(1);
   });
 });
+
+describe("RevisionPrintDoc — years per page", () => {
+  it("readinessYears=3 fits a two-year project on ONE page (one strip)", () => {
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={[
+          projRow("y1", "Bonga Phase 3", "2033-02-01", "2033-06-01"),
+          projRow("y2", "Bonga Phase 3", "2034-02-01", "2034-06-01"),
+        ]}
+        chart="readiness"
+        includeSchedule={false}
+        signatures="wetink"
+        readinessYears={3}
+      />,
+    );
+    // Same project, one 3-year window → a single page-local anchor strip
+    // (the default 1-year pagination puts these on two pages → two strips,
+    // asserted by the re-anchoring test above).
+    expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(1);
+  });
+});

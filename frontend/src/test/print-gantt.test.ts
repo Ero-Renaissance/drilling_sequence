@@ -1,12 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  monthFloor,
-  monthCeil,
-  computeFittedWindows,
-  computeYearSpans,
-  estimateNamePct,
-  placeBarLabel,
-} from "@/lib/print-gantt";
+import { monthFloor, monthCeil, computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessPaperSize, readinessRowsPerPage } from "@/lib/print-gantt";
 
 // Local-constructed timestamps (month is 1-based here for readability) so the
 // assertions are timezone-independent — the functions use local getFullYear/
@@ -191,5 +184,19 @@ describe("placeBarLabel", () => {
       nameLenPct: 6, ...opts,
     });
     expect(p.side).toBe("none");
+  });
+});
+
+describe("years-per-page paper matching (readiness print)", () => {
+  it("steps the paper up the A-series as the span grows, holding month density", () => {
+    expect(readinessPaperSize(1)).toBe("A4");
+    expect(readinessPaperSize(2)).toBe("A3");
+    expect(readinessPaperSize(3)).toBe("A2");
+  });
+
+  it("scales rig rows per page with the paper height", () => {
+    expect(readinessRowsPerPage(1)).toBe(6);
+    expect(readinessRowsPerPage(2)).toBe(9);
+    expect(readinessRowsPerPage(3)).toBe(14);
   });
 });

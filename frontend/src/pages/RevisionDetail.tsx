@@ -31,6 +31,7 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { buildDocRef, docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
+import { readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
 import { cn, formatDate } from "@/lib/utils";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
@@ -619,6 +620,24 @@ export function RevisionDetail() {
   // signature mode and bump a nonce; the nonce (not the value) drives the print so
   // re-printing the same choice still fires.
   const [printChart, setPrintChart] = useState<"standard" | "readiness">("standard");
+  // Readiness print: calendar years per page (1/2/3), remembered across
+  // sessions — the planner's normal span is a per-user habit, not per print.
+  const [printYears, setPrintYears] = useState<PrintYears>(() => {
+    try {
+      const v = Number(window.localStorage.getItem("ds.print-years"));
+      return v === 1 || v === 2 || v === 3 ? (v as PrintYears) : 3;
+    } catch {
+      return 3;
+    }
+  });
+  const setYears = (y: PrintYears) => {
+    setPrintYears(y);
+    try {
+      window.localStorage.setItem("ds.print-years", String(y));
+    } catch {
+      // storage unavailable (private mode) — the in-session choice still applies
+    }
+  };
   const [printSchedule, setPrintSchedule] = useState(true);
   const [printSignatures, setPrintSignatures] = useState<"system" | "wetink">("system");
   const [printNonce, setPrintNonce] = useState(0);
@@ -782,7 +801,9 @@ export function RevisionDetail() {
       {/* Inline print stylesheet — keeps it co-located with the page that uses it */}
       <style>{`
         @media print {
-          @page { size: A4 landscape; margin: 14mm 12mm; }
+          @page { size: ${
+            printChart === "readiness" ? readinessPaperSize(printYears) : "A4"
+          } landscape; margin: 14mm 12mm; }
           /* Force light document tokens so a dark-mode user still gets a clean,
              readable PDF (dark text on white), not light text on white. */
           :root, .dark {
@@ -913,6 +934,28 @@ export function RevisionDetail() {
                   Sequence with Readiness Icons
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
+              {printChart === "readiness" && (
+                <>
+                  <DropdownMenuSeparator />
+                  {/* Paper auto-matches the span (A4/A3/A2) so the month density —
+                      and gate-icon legibility — stays near the 1-year baseline. */}
+                  <DropdownMenuLabel>Years per page</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={String(printYears)}
+                    onValueChange={(v) => setYears(Number(v) as PrintYears)}
+                  >
+                    {([1, 2, 3] as const).map((y) => (
+                      <DropdownMenuRadioItem
+                        key={y}
+                        value={String(y)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {y} {y === 1 ? "year" : "years"} · {readinessPaperSize(y)}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
                 checked={printSchedule}
@@ -942,6 +985,7 @@ export function RevisionDetail() {
         project={project}
         rows={snapshot}
         chart={printChart}
+        readinessYears={printYears}
         includeSchedule={printSchedule}
         signatures={printSignatures}
       />

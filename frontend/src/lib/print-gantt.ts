@@ -179,3 +179,29 @@ export function placeBarLabel({
     ? { side: "right", maxWidthPct: gapRight }
     : { side: "left", maxWidthPct: gapLeft };
 }
+
+
+// ── Years-per-page → paper matching (readiness print) ────────────────────────
+
+export type PrintYears = 1 | 2 | 3;
+
+/**
+ * Paper size for the readiness print, matched to years-per-page so the month
+ * density (and with it the gate-icon legibility) stays near the 1-year-on-A4
+ * baseline: each A-series step up doubles the landscape width, absorbing the
+ * extra months. The standard (JV record) chart is NOT covered here — it stays
+ * a fixed A4 2-year document; changing the formal record's format is a
+ * separate decision.
+ */
+export function readinessPaperSize(years: PrintYears): "A4" | "A3" | "A2" {
+  return years === 1 ? "A4" : years === 2 ? "A3" : "A2";
+}
+
+/**
+ * Rig rows per readiness page, scaled with the paper's landscape HEIGHT
+ * (A4 210mm → 6 rows fits today's row pitch; A3 297mm and A2 420mm grow
+ * proportionally after the fixed header/legend overhead).
+ */
+export function readinessRowsPerPage(years: PrintYears): number {
+  return years === 1 ? 6 : years === 2 ? 9 : 14;
+}
