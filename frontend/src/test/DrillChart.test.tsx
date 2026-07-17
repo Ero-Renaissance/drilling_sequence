@@ -3,11 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
-// Mock echarts-for-react to avoid canvas in jsdom
+// Mock echarts-for-react to avoid canvas in jsdom; capture the last option so
+// tests can assert on the chart's declarative shape (axes, zoom, marklines).
+const captured = vi.hoisted(() => ({ option: undefined as unknown }));
 vi.mock("echarts-for-react/lib/core", () => ({
-  default: ({ style }: { style?: React.CSSProperties }) => (
-    <div data-testid="echarts-instance" style={style} />
-  ),
+  default: ({ option, style }: { option?: unknown; style?: React.CSSProperties }) => {
+    captured.option = option;
+    return <div data-testid="echarts-instance" style={style} />;
+  },
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -103,6 +106,31 @@ describe("DrillChart", () => {
   it("renders with empty activities without crashing", () => {
     render(<DrillChart activities={[]} />);
     expect(screen.getByTestId("drill-chart")).toBeInTheDocument();
+  });
+
+  it("timescale reads at the top, echoed at the bottom, Today label on top", () => {
+    render(<DrillChart activities={MOCK_ACTIVITIES} />);
+    const opt = captured.option as {
+      xAxis: { position: string; min: number; max: number; splitLine: { show: boolean } }[];
+      dataZoom: { xAxisIndex: number[] }[];
+      series: { id?: string; markLine?: { label: { show: boolean } } }[];
+    };
+    expect(Array.isArray(opt.xAxis)).toBe(true);
+    expect(opt.xAxis[0].position).toBe("top");
+    expect(opt.xAxis[1].position).toBe("bottom");
+    // The echo has no bound series — it must share the primary's exact bounds,
+    // and the single inside-zoom must drive both so they can't drift apart.
+    expect(opt.xAxis[1].min).toBe(opt.xAxis[0].min);
+    expect(opt.xAxis[1].max).toBe(opt.xAxis[0].max);
+    expect(opt.dataZoom[0].xAxisIndex).toEqual([0, 1]);
+    // Gridlines are drawn once (primary only).
+    expect(opt.xAxis[0].splitLine.show).toBe(true);
+    expect(opt.xAxis[1].splitLine.show).toBe(false);
+    // The Today text is a dedicated pixel-placed series (markLine labels
+    // anchor in the axis band and collide with the month ticks), so the line
+    // itself carries no label.
+    expect(opt.series[0].markLine?.label.show).toBe(false);
+    expect(opt.series.some((sr) => sr.id === "today-flag")).toBe(true);
   });
 
   it("shows a focus-year strip spanning every year the campaign covers", () => {

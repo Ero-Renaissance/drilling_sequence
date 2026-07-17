@@ -787,6 +787,37 @@ export function DrillChart({
       });
     }
 
+    // Shared bounds for BOTH x axes. The bottom echo has no bound series, so it
+    // needs explicit bounds — and they must equal what the primary would derive
+    // on its own: activity bars plus contract markers (real series data that
+    // can sit past the last bar). A degenerate span widens to a day so an
+    // empty chart still draws a scale.
+    let axisMin = dataMin;
+    let axisMax = dataMax;
+    for (const m of contractMarkers) {
+      axisMin = Math.min(axisMin, m.value[0]);
+      axisMax = Math.max(axisMax, m.value[0]);
+    }
+    if (axisMax <= axisMin) axisMax = axisMin + 86_400_000;
+
+    function renderTodayFlag(
+      params: CustomSeriesRenderItemParams,
+      api: CustomSeriesRenderItemAPI,
+    ): CustomSeriesRenderItemReturn {
+      const [x] = api.coord([api.value(0), 0]);
+      const sys = params.coordSys as unknown as { y: number };
+      return {
+        type: "text",
+        style: {
+          text: "Today",
+          x: x + 5,
+          y: sys.y + 6,
+          fill: theme.todayLabel,
+          font: "600 11px sans-serif",
+        },
+      } as unknown as CustomSeriesRenderItemReturn;
+    }
+
     function renderContractMarker(
       params: CustomSeriesRenderItemParams,
       api: CustomSeriesRenderItemAPI,
@@ -933,22 +964,49 @@ export function DrillChart({
 
       grid: { top: 16, left: 12, right: 16, bottom: 20, containLabel: true },
 
-      xAxis: {
-        type: "time",
-        axisLabel: {
-          formatter: (val: number) => {
-            const d = new Date(val);
-            return `${d.toLocaleString("default", { month: "short" })}\n${d.getFullYear()}`;
+      // Timescale header at the TOP (standard Gantt reading order) with a
+      // labels-only echo at the BOTTOM, so the foot of a tall chart still
+      // names its dates. Both share explicit bounds and the one inside-zoom
+      // below, so they can never drift apart.
+      xAxis: [
+        {
+          type: "time",
+          position: "top",
+          min: axisMin,
+          max: axisMax,
+          axisLabel: {
+            formatter: (val: number) => {
+              const d = new Date(val);
+              return `${d.toLocaleString("default", { month: "short" })}\n${d.getFullYear()}`;
+            },
+            color: theme.axisLabel,
+            fontSize: 11,
+            // Emit click events from axis labels so a tap on a month/year focuses
+            // that whole calendar year (handled in onEvents.click).
+            triggerEvent: true,
           },
-          color: theme.axisLabel,
-          fontSize: 11,
-          // Emit click events from axis labels so a tap on a month/year focuses
-          // that whole calendar year (handled in onEvents.click).
-          triggerEvent: true,
+          axisLine: { lineStyle: { color: theme.axisLine } },
+          splitLine: { show: true, lineStyle: { color: theme.splitLine, type: "solid" } },
         },
-        axisLine: { lineStyle: { color: theme.axisLine } },
-        splitLine: { show: true, lineStyle: { color: theme.splitLine, type: "solid" } },
-      },
+        {
+          type: "time",
+          position: "bottom",
+          min: axisMin,
+          max: axisMax,
+          axisLabel: {
+            formatter: (val: number) => {
+              const d = new Date(val);
+              return `${d.toLocaleString("default", { month: "short" })}\n${d.getFullYear()}`;
+            },
+            color: theme.axisLabel,
+            fontSize: 11,
+            triggerEvent: true, // clicking a bottom label focuses the year too
+          },
+          axisLine: { lineStyle: { color: theme.axisLine } },
+          // Gridlines are drawn once, by the primary axis above.
+          splitLine: { show: false },
+        },
+      ],
 
       yAxis: {
         type: "category",
@@ -975,7 +1033,7 @@ export function DrillChart({
       // filterMode "none" keeps bars that straddle the focused window visible
       // (clipped by renderItem) instead of dropping them — correct for a Gantt.
       // startValue/endValue (when a year is focused) come from focusZoom.
-      dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "none", ...focusZoom }],
+      dataZoom: [{ type: "inside", xAxisIndex: [0, 1], filterMode: "none", ...focusZoom }],
 
       series: [
         {
@@ -1011,14 +1069,26 @@ export function DrillChart({
               width: 2,
               opacity: 0.8,
             },
-            label: {
-              formatter: "Today",
-              position: "insideEndTop",
-              color: theme.todayLabel,
-              fontSize: 11,
-              fontWeight: "600",
-            },
+            // No markLine label: ECharts anchors line-end labels in the axis
+            // band where they collide with the month/year ticks. The "Today"
+            // text is drawn by the dedicated flag series below with exact
+            // pixel placement, matching how bars and badges are rendered.
+            label: { show: false },
           },
+        },
+        {
+          // "Today" flag: red text pinned just inside the plot's TOP edge at
+          // today's x — a custom series (not a markLine label) so its pixel
+          // position is exact and it clips away when today is zoomed out of
+          // the window.
+          id: "today-flag",
+          type: "custom",
+          z: 7,
+          silent: true,
+          clip: true,
+          data: [[today, 0]],
+          renderItem: renderTodayFlag,
+          encode: { x: 0, y: 1 },
         },
         {
           // Contract-expiry alarm markers, on top of the bars; clipped to the
