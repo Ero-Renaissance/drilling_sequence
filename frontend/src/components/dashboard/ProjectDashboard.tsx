@@ -195,11 +195,11 @@ const READINESS_HORIZONS = [
   { value: 6, label: "Next 6 months" },
   { value: 12, label: "Next 12 months" },
   { value: 24, label: "Next 24 months" },
-  { value: 0, label: "All projects" },
+  { value: 0, label: "All duration" },
 ] as const;
 
 function horizonSuffix(months: number): string {
-  return months === 0 ? "all projects" : `next ${months} months`;
+  return months === 0 ? "all duration" : `next ${months} months`;
 }
 
 export function ProjectDashboard({ projectId }: { projectId: string }) {

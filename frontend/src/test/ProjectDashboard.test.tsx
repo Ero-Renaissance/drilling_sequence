@@ -111,7 +111,7 @@ describe("ProjectDashboard", () => {
     await waitFor(() =>
       expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 0),
     );
-    expect(await screen.findByText(/Readiness · all projects/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Readiness · all duration/i)).toBeInTheDocument();
   });
 
   it("renders the breakdown panel (plan firmness and idle gaps retired)", async () => {

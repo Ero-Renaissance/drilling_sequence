@@ -83,7 +83,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
 export async function fetchDashboard(
   projectId: string,
-  readinessHorizonMonths = 12, // 0 = all projects; backend allow-lists 0/6/12/24
+  readinessHorizonMonths = 12, // 0 = no window (all duration); backend allow-lists 0/6/12/24
 ): Promise<DashboardResponse> {
   const resp = await fetch(
     `/api/projects/${projectId}/dashboard?readiness_horizon_months=${readinessHorizonMonths}`,
