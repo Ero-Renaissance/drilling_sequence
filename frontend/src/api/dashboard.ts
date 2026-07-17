@@ -81,10 +81,14 @@ async function authHeaders(): Promise<HeadersInit> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export async function fetchDashboard(projectId: string): Promise<DashboardResponse> {
-  const resp = await fetch(`/api/projects/${projectId}/dashboard`, {
-    headers: await authHeaders(),
-  });
+export async function fetchDashboard(
+  projectId: string,
+  readinessHorizonMonths = 12, // 0 = all projects; backend allow-lists 0/6/12/24
+): Promise<DashboardResponse> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/dashboard?readiness_horizon_months=${readinessHorizonMonths}`,
+    { headers: await authHeaders() },
+  );
   if (!resp.ok) await throwApiError(resp, "Failed to load dashboard");
   return resp.json();
 }

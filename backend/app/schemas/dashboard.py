@@ -29,11 +29,11 @@ class GateBreakdown(BaseModel):
 
 
 class ReadinessStats(BaseModel):
-    focus_count: int  # activities considered (focus window, not completed)
-    overall_pct: int | None  # Completed cells / applicable cells, across focus activities
+    focus_count: int  # field projects in the focus window (not-done activity within it)
+    overall_pct: int | None  # Completed cells / applicable cells, across focus projects
     behind_cells: int
-    ready: int  # focus activities with all applicable gates Completed
-    by_gate: list[GateBreakdown]  # status split per gate, over focus activities
+    ready: int  # focus projects with all applicable gates Completed
+    by_gate: list[GateBreakdown]  # per-gate PROJECT counts across the focus set
 
 
 class RigDetail(BaseModel):

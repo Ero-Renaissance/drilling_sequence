@@ -61,10 +61,24 @@ _SOON_DAYS = 180
 _PROCUREMENT_LOOKAHEAD_DAYS = 270
 
 
-async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardResponse:
+# Readiness horizon presets (months → days). 0 = no window (all projects).
+# 12 keeps the historical FOCUS_WINDOW_DAYS behaviour.
+READINESS_HORIZONS = {6: 183, 12: FOCUS_WINDOW_DAYS, 24: 730}
+
+
+async def build_dashboard(
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    readiness_horizon_months: int = 12,
+) -> DashboardResponse:
     today = date.today()
     near_term_end = today + timedelta(days=NEAR_TERM_DAYS)
-    focus_end = today + timedelta(days=FOCUS_WINDOW_DAYS)
+    # The readiness focus window — the router allow-lists the months value, and
+    # the .get() below fails closed to the 12-month default rather than open.
+    horizon_days = READINESS_HORIZONS.get(readiness_horizon_months, FOCUS_WINDOW_DAYS)
+    focus_end = (
+        None if readiness_horizon_months == 0 else today + timedelta(days=horizon_days)
+    )
 
     activities = (
         await db.execute(select(Activity).where(Activity.project_id == project_id))
@@ -186,7 +200,7 @@ async def build_dashboard(project_id: uuid.UUID, db: AsyncSession) -> DashboardR
             a.well_project
             for a in activities
             if not done(a)
-            and a.start_date <= focus_end
+            and (focus_end is None or a.start_date <= focus_end)
             and a.readiness_required
             and a.well_project
         }

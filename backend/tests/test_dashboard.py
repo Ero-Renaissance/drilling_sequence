@@ -257,3 +257,50 @@ def test_placeholder_filter_compiles_on_sql_server() -> None:
     )
     assert " IS 1" not in sql
     assert "is_placeholder = 1" in sql
+
+
+@pytest.mark.asyncio
+async def test_readiness_horizon_widens_and_narrows_the_focus_set(
+    client: AsyncClient,
+) -> None:
+    """The readiness_horizon_months filter decides which field projects the
+    readiness KPIs and by-gate PROJECT counts consider; 0 = no window. Values
+    off the allow-list are refused."""
+    pid = await _project(client)
+
+    async def proj_activity(project: str, start: date) -> None:
+        r = await client.post(
+            f"/api/projects/{pid}/activities",
+            json={
+                "activity_type": "Gas Development",
+                "start_date": _iso(start), "end_date": _iso(start + timedelta(days=60)),
+                "rig_name": "R1", "well_name": f"W-{project}", "well_project": project,
+                "location": "LAND", "plan_type": "Firm", "risk": "No Flood Risk",
+            },
+        )
+        assert r.status_code == 201, r.text
+
+    await proj_activity("Near", TODAY + timedelta(days=30))     # inside 6 months
+    await proj_activity("Mid", TODAY + timedelta(days=300))     # inside 12, outside 6
+    await proj_activity("Far", TODAY + timedelta(days=900))     # outside 24
+
+    async def focus(horizon: int) -> tuple[int, int]:
+        r = await client.get(
+            f"/api/projects/{pid}/dashboard?readiness_horizon_months={horizon}"
+        )
+        assert r.status_code == 200, r.text
+        rd = r.json()["readiness"]
+        on_track_fdp = next(g for g in rd["by_gate"] if g["code"] == "FDP")["on_track"]
+        return rd["focus_count"], on_track_fdp
+
+    assert await focus(6) == (1, 1)     # Near only
+    assert await focus(12) == (2, 2)    # + Mid
+    assert await focus(0) == (3, 3)     # everything, incl. Far
+
+    # Default stays the 12-month window.
+    default = (await client.get(f"/api/projects/{pid}/dashboard")).json()["readiness"]
+    assert default["focus_count"] == 2
+
+    # Off the allow-list → refused by validation, not silently coerced.
+    bad = await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=7")
+    assert bad.status_code == 422

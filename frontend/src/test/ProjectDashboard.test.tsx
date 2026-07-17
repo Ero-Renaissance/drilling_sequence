@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -55,7 +55,7 @@ describe("ProjectDashboard", () => {
   it("renders hero tiles from the dashboard data", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
-    expect(await screen.findByText("Fleet in use")).toBeInTheDocument();
+    expect(await screen.findByText("Fleet status")).toBeInTheDocument();
     expect(screen.getByText("Completed YTD")).toBeInTheDocument();
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     expect(screen.getByText("62%")).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe("ProjectDashboard", () => {
   it("splits the fleet tile by kind and procurement", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
-    await screen.findByText("Fleet in use");
+    await screen.findByText("Fleet status");
     // A 2×2: one column per kind — procured count headlines, that kind's
     // planned (no awarded unit yet) count sits beneath it.
     expect(screen.getByText("rigs")).toBeInTheDocument(); // 5 rigs
@@ -74,14 +74,44 @@ describe("ProjectDashboard", () => {
     expect(screen.getByText("1 planned")).toBeInTheDocument(); // HWU column
   });
 
-  it("shows watchlist rows that drill through to the right tab", async () => {
+  it("removed the needs-attention section from the overview", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
-    const overdue = await screen.findByText(/overdue/i);
-    expect(overdue.closest("a")).toHaveAttribute("href", "/projects/p1/data?focus=overdue");
-    // Unprocured slots drill through to the Fleet registry, TBD-filtered.
-    const unprocured = screen.getByText(/no awarded rig/i);
-    expect(unprocured.closest("a")).toHaveAttribute("href", "/projects/p1/fleet?focus=tbd");
+    await screen.findByText("Fleet status");
+    expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
+    expect(screen.queryByText(/overdue \(past due/i)).not.toBeInTheDocument();
+  });
+
+  it("shows per-PROJECT counts inside the gate segments", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    await screen.findByText("Fleet status");
+    // Fixture gates: BUD completed 2 / on_track 2; FID on_track 3 / behind 1.
+    // Each segment carries its project count and a named tooltip.
+    const completedSeg = screen.getByTitle("Completed: 2 projects");
+    expect(completedSeg).toHaveTextContent("2");
+    expect(screen.getByTitle("Behind: 1 project")).toBeInTheDocument();
+    expect(screen.getByTitle("On track: 3 projects")).toHaveTextContent("3");
+  });
+
+  it("readiness horizon select refetches with the chosen window and relabels", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    await screen.findByText("Fleet status");
+    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12);
+    expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "6" } });
+    await waitFor(() =>
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 6),
+    );
+    expect(await screen.findByText(/Readiness · next 6 months/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "0" } });
+    await waitFor(() =>
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 0),
+    );
+    expect(await screen.findByText(/Readiness · all projects/i)).toBeInTheDocument();
   });
 
   it("renders the breakdown panel (plan firmness and idle gaps retired)", async () => {
@@ -94,17 +124,4 @@ describe("ProjectDashboard", () => {
     expect(screen.queryByText(/Rig idle gaps/i)).not.toBeInTheDocument();
   });
 
-  it("shows an all-clear when the watchlist is empty", async () => {
-    vi.mocked(fetchDashboard).mockResolvedValue(
-      makeData({
-        watchlist: {
-          near_term_not_ready: 0, overdue: 0, past_contract: 0, contracts_expiring: 0,
-          flood_risk_near_term: 0, stale_approval: 0, conflicts: 0, drift_since_approved: 0,
-          unprocured_slots: 0,
-        },
-      }),
-    );
-    renderDash();
-    expect(await screen.findByText(/all clear/i)).toBeInTheDocument();
-  });
 });

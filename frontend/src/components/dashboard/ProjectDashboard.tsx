@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { CheckCircle2 } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
 
@@ -45,7 +43,7 @@ function FleetTile({ rigs }: { rigs: DashboardResponse["rigs"] }) {
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Fleet in use
+        Fleet status
       </p>
       <div className="mt-1 grid grid-cols-2 gap-4">
         <div>
@@ -75,10 +73,6 @@ function FleetTile({ rigs }: { rigs: DashboardResponse["rigs"] }) {
   );
 }
 
-function plural(n: number, one: string, many = one + "s"): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
-
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   pending_approval: "Pending approval",
@@ -104,21 +98,6 @@ function readinessTone(pct: number | null): Tone {
   return "bad";
 }
 
-function WatchRow({ count, label, to }: { count: number; label: string; to: string }) {
-  if (!count) return null;
-  return (
-    <Link
-      to={to}
-      className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-    >
-      <span>{label}</span>
-      <span className="ml-3 shrink-0 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
-        {count}
-      </span>
-    </Link>
-  );
-}
-
 // ── Breakdown panel (Phase 2) ────────────────────────────────────────────────
 
 const GATE_COLORS = {
@@ -128,10 +107,21 @@ const GATE_COLORS = {
   na: "#cbd5e1",
 } as const;
 
-function BreakdownCard({ title, children }: { title: string; children: React.ReactNode }) {
+function BreakdownCard({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+        {action}
+      </div>
       {children}
     </div>
   );
@@ -162,66 +152,103 @@ function BarList({ items, max }: { items: { label: string; value: number; color:
   );
 }
 
-/** A gate's status split as a single stacked bar. */
+/** A gate's status split as a single stacked bar, each segment carrying its
+ *  PROJECT count (a thin segment keeps the count in its tooltip). */
 function GateRow({ gate }: { gate: GateBreakdown }) {
   const total = gate.completed + gate.on_track + gate.behind + gate.na;
-  const seg = (value: number, color: string) =>
-    value > 0 ? (
-      <div className="h-full" style={{ width: `${(value / total) * 100}%`, backgroundColor: color }} />
-    ) : null;
+  const seg = (value: number, color: string, label: string, textColor = "#ffffff") => {
+    if (value <= 0) return null;
+    const pct = (value / total) * 100;
+    return (
+      <div
+        className="flex h-full items-center justify-center"
+        style={{ width: `${pct}%`, backgroundColor: color }}
+        title={`${label}: ${value} ${value === 1 ? "project" : "projects"}`}
+      >
+        {pct >= 7 && (
+          <span className="text-[10px] font-semibold leading-none" style={{ color: textColor }}>
+            {value}
+          </span>
+        )}
+      </div>
+    );
+  };
   return (
     <div className="flex items-center gap-2">
       <span className="w-10 shrink-0 text-xs font-medium text-muted-foreground">{gate.code}</span>
-      <div className="flex h-3 flex-1 overflow-hidden rounded-sm bg-muted">
+      <div className="flex h-4 flex-1 overflow-hidden rounded-sm bg-muted">
         {total > 0 && (
           <>
-            {seg(gate.completed, GATE_COLORS.completed)}
-            {seg(gate.on_track, GATE_COLORS.on_track)}
-            {seg(gate.behind, GATE_COLORS.behind)}
-            {seg(gate.na, GATE_COLORS.na)}
+            {seg(gate.completed, GATE_COLORS.completed, "Completed")}
+            {seg(gate.on_track, GATE_COLORS.on_track, "On track")}
+            {seg(gate.behind, GATE_COLORS.behind, "Behind")}
+            {seg(gate.na, GATE_COLORS.na, "N/A", "#334155")}
           </>
         )}
       </div>
-      <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-destructive">
-        {gate.behind > 0 ? gate.behind : ""}
-      </span>
     </div>
   );
+}
+
+// Readiness focus-window presets, mirrored by the backend's allow-list.
+const READINESS_HORIZONS = [
+  { value: 6, label: "Next 6 months" },
+  { value: 12, label: "Next 12 months" },
+  { value: 24, label: "Next 24 months" },
+  { value: 0, label: "All projects" },
+] as const;
+
+function horizonSuffix(months: number): string {
+  return months === 0 ? "all projects" : `next ${months} months`;
 }
 
 export function ProjectDashboard({ projectId }: { projectId: string }) {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Readiness focus window — a per-user viewing habit, persisted like the
+  // spud map. Drives the whole readiness block (tile + by-gate card).
+  const [horizon, setHorizon] = useState<number>(() => {
+    try {
+      // Read the raw string first: Number(null) is 0, which would silently
+      // turn a MISSING key into the "All projects" horizon instead of 12.
+      const raw = window.localStorage.getItem("ds.readiness-horizon");
+      if (raw === null) return 12;
+      const v = Number(raw);
+      return v === 0 || v === 6 || v === 12 || v === 24 ? v : 12;
+    } catch {
+      return 12;
+    }
+  });
+  function updateHorizon(next: number) {
+    setHorizon(next);
+    try {
+      window.localStorage.setItem("ds.readiness-horizon", String(next));
+    } catch {
+      // storage unavailable — the in-session choice still applies
+    }
+  }
+
+  // Blank the page only when switching CAMPAIGN — a horizon change refetches
+  // in place, keeping the current numbers up instead of flashing "Loading".
+  useEffect(() => setData(null), [projectId]);
 
   useEffect(() => {
     let active = true;
-    setData(null);
     setError(null);
-    fetchDashboard(projectId)
+    fetchDashboard(projectId, horizon)
       .then((d) => active && setData(d))
       .catch(() => active && setError("Couldn't load the dashboard."));
     return () => {
       active = false;
     };
-  }, [projectId]);
+  }, [projectId, horizon]);
 
   if (error) return <p className="py-12 text-center text-sm text-destructive">{error}</p>;
   if (!data) return <p className="py-12 text-center text-sm text-muted-foreground">Loading dashboard…</p>;
 
-  const { activities, readiness, rigs, contracts, approval, watchlist } = data;
-  const base = `/projects/${projectId}`;
+  const { activities, readiness, rigs, contracts, approval } = data;
 
   const contractsAtRisk = contracts.expired + contracts.critical + contracts.soon;
-  const watchlistTotal =
-    watchlist.near_term_not_ready +
-    watchlist.overdue +
-    watchlist.conflicts +
-    watchlist.past_contract +
-    watchlist.contracts_expiring +
-    watchlist.unprocured_slots +
-    watchlist.flood_risk_near_term +
-    watchlist.stale_approval +
-    watchlist.drift_since_approved;
 
   // Breakdown data. (Plan firmness and rig idle gaps were retired from this
   // page 2026-07 — plan type reads off the grid/chart, idle gaps off the
@@ -243,7 +270,7 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
           sub={`${activities.completed_this_quarter} this quarter`}
         />
         <Tile
-          label="Readiness · next 12 months"
+          label={`Readiness · ${horizonSuffix(horizon)}`}
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
           sub={`${readiness.ready}/${readiness.focus_count} ready · ${readiness.behind_cells} behind`}
           tone={readinessTone(readiness.overall_pct)}
@@ -269,70 +296,28 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
         />
       </div>
 
-      {/* Needs attention */}
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-foreground">Needs attention</h3>
-        {watchlistTotal === 0 ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-3 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            All clear — nothing needs your attention right now.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <WatchRow
-              count={watchlist.near_term_not_ready}
-              label={`${plural(watchlist.near_term_not_ready, "activity", "activities")} starting soon and not ready`}
-              to={`${base}/readiness?focus=not-ready`}
-            />
-            <WatchRow
-              count={watchlist.overdue}
-              label={`${plural(watchlist.overdue, "activity", "activities")} overdue (past due, not marked complete)`}
-              to={`${base}/data?focus=overdue`}
-            />
-            <WatchRow
-              count={watchlist.conflicts}
-              label={`${plural(watchlist.conflicts, "rig conflict")} blocking submission`}
-              to={`${base}/data?focus=conflicts`}
-            />
-            <WatchRow
-              count={watchlist.past_contract}
-              label={`${plural(watchlist.past_contract, "activity", "activities")} scheduled past the rig's contract end`}
-              to={`${base}/data?focus=past-contract`}
-            />
-            <WatchRow
-              count={watchlist.contracts_expiring}
-              label={`${plural(watchlist.contracts_expiring, "rig contract")} expiring soon`}
-              to={`${base}/fleet?focus=contracts`}
-            />
-            <WatchRow
-              count={watchlist.unprocured_slots}
-              label={`${plural(watchlist.unprocured_slots, "planned slot")} with work soon but no awarded rig or HWU — start tendering`}
-              to={`${base}/fleet?focus=tbd`}
-            />
-            <WatchRow
-              count={watchlist.flood_risk_near_term}
-              label={`${plural(watchlist.flood_risk_near_term, "flood-risk activity", "flood-risk activities")} starting soon`}
-              to={`${base}/data?focus=flood-risk`}
-            />
-            <WatchRow
-              count={watchlist.stale_approval}
-              label="A revision has been pending approval over a week"
-              to={`${base}/signatures`}
-            />
-            <WatchRow
-              count={watchlist.drift_since_approved}
-              label={`${plural(watchlist.drift_since_approved, "change")} since the last approved plan`}
-              to={`${base}/compare`}
-            />
-          </div>
-        )}
-      </div>
 
       {/* Breakdown */}
       <div>
         <h3 className="mb-2 text-sm font-semibold text-foreground">Breakdown</h3>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <BreakdownCard title="Readiness by gate · next 12 months">
+          <BreakdownCard
+            title={`Readiness by gate · ${horizonSuffix(horizon)}`}
+            action={
+              <select
+                aria-label="Readiness horizon"
+                value={String(horizon)}
+                onChange={(e) => updateHorizon(Number(e.target.value))}
+                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+              >
+                {READINESS_HORIZONS.map((h) => (
+                  <option key={h.value} value={String(h.value)}>
+                    {h.label}
+                  </option>
+                ))}
+              </select>
+            }
+          >
             {readiness.by_gate.length ? (
               <div className="space-y-1.5">
                 {readiness.by_gate.map((g) => (
