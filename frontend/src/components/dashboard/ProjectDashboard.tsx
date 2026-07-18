@@ -200,7 +200,15 @@ function horizonSuffix(months: number): string {
   return months === 0 ? "all duration" : `next ${months} months`;
 }
 
-export function ProjectDashboard({ projectId }: { projectId: string }) {
+export function ProjectDashboard({
+  projectId,
+  afterTiles,
+}: {
+  projectId: string;
+  /** Rendered directly under the KPI tiles — the Overview's "read this
+   *  first" slot (key notes). */
+  afterTiles?: React.ReactNode;
+}) {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Readiness focus window — a per-user viewing habit, persisted like the
@@ -285,6 +293,8 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
           tone={contracts.expired || contracts.critical ? "bad" : contracts.soon ? "warn" : "good"}
         />
       </div>
+
+      {afterTiles}
 
 
       {/* Breakdown */}

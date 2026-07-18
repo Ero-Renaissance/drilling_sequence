@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
+from app.core.locks import assert_project_not_locked
 from app.core.rbac import assert_can_plan, assert_member
 from app.database import get_db
 from app.models.activity import Activity
@@ -21,6 +23,8 @@ from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.audit import AuditEntryResponse
 from app.schemas.project import (
+    KeyNotes,
+    KeyNotesUpsert,
     PlannerAdd,
     ProjectApprovalSummary,
     ProjectClone,
@@ -569,7 +573,56 @@ async def get_project(
     response = ProjectResponse.from_project(project)
     response.lock = await compute_project_lock(project_id, db)
     response.approval = await compute_approval_summary(project_id, db, current_user)
+    if project.key_notes:
+        editor = (
+            await db.get(User, project.key_notes_updated_by)
+            if project.key_notes_updated_by
+            else None
+        )
+        response.key_notes = KeyNotes(
+            body=project.key_notes,
+            updated_at=project.key_notes_updated_at,
+            updated_by_name=editor.name if editor else None,
+        )
     return response
+
+
+@router.put("/{project_id}/key-notes", response_model=KeyNotes)
+async def upsert_key_notes(
+    project_id: uuid.UUID,
+    payload: KeyNotesUpsert,
+    current_user: CurrentUser,
+    db: DB,
+) -> KeyNotes:
+    """The planner's campaign bulletin (Overview card). Planner-only, and
+    lock-gated like every plan-shaped write — while a revision is pending or
+    the plan is frozen-by-approval, the communicated story holds still too.
+    An empty body clears the notes. Audited as a plain activity-log entry."""
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await assert_project_not_locked(project_id, db)
+    project = await _load_project_or_404(project_id, db)
+
+    body = payload.body.strip()
+    project.key_notes = body or None
+    project.key_notes_updated_at = datetime.now(timezone.utc)
+    project.key_notes_updated_by = current_user.id
+    db.add(
+        AuditLog(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type="project",
+            entity_id=project_id,
+            field="key_notes_updated",
+            old_value=None,
+            new_value="cleared" if not body else f"{len(body)} chars",
+        )
+    )
+    await db.commit()
+    return KeyNotes(
+        body=body,
+        updated_at=project.key_notes_updated_at,
+        updated_by_name=current_user.name,
+    )
 
 
 @router.get("/{project_id}/audit", response_model=list[AuditEntryResponse])

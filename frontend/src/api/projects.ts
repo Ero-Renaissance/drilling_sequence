@@ -1,4 +1,4 @@
-import type { Project, ProjectClone, ProjectCreate, ProjectUpdate } from "@/types";
+import type { Project, ProjectClone, ProjectCreate, ProjectKeyNotes, ProjectUpdate } from "@/types";
 import { api } from "./client";
 
 export const projectsApi = {
@@ -14,4 +14,6 @@ export const projectsApi = {
     api.post<Project>(`/api/projects/${id}/planners`, { email }),
   removePlanner: (id: string, userId: string) =>
     api.delete(`/api/projects/${id}/planners/${userId}`),
+  updateKeyNotes: (id: string, body: string) =>
+    api.put<ProjectKeyNotes>(`/api/projects/${id}/key-notes`, { body }),
 };

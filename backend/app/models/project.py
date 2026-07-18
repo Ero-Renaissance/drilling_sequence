@@ -48,6 +48,17 @@ class Project(Base):
         SAEnum(ProjectStatus, name="projectstatus"), default=ProjectStatus.active
     )
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    # ── Key notes: the planner's campaign bulletin shown on Overview ─────────
+    # Plain text (the lists subset renders client-side); lock-gated like every
+    # plan-shaped write, with lightweight accountability (who/when).
+    key_notes: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    key_notes_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    key_notes_updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

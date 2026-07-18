@@ -44,6 +44,12 @@ export interface ProjectApprovalSummary {
   your_action?: "review" | "approve" | null;
 }
 
+export interface ProjectKeyNotes {
+  body: string;
+  updated_at: string | null;
+  updated_by_name: string | null;
+}
+
 export interface ProjectLock {
   locked: boolean;
   /** Why it's frozen: "pending" (in review/approval) or "approved" (revise to edit). */
@@ -69,6 +75,8 @@ export interface Project {
   lock?: ProjectLock | null;
   /** Plan state for the header chip (detail endpoint only). */
   approval?: ProjectApprovalSummary | null;
+  /** The planner's campaign bulletin (detail endpoint only). */
+  key_notes?: ProjectKeyNotes | null;
 }
 
 export interface ProjectCreate {

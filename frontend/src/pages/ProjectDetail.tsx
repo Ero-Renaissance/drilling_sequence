@@ -28,6 +28,7 @@ import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
 import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
 import { rigLaneKey } from "@/lib/resource-identity";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
+import { KeyNotesCard } from "@/components/dashboard/KeyNotesCard";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { PlannersPanel } from "@/components/projects/PlannersPanel";
 import { CampaignCapacitySection } from "@/components/dashboard/CampaignCapacitySection";
@@ -616,7 +617,7 @@ export function OverviewTab() {
   if (!projectId) return null;
   return (
     <div className="space-y-6">
-      <ProjectDashboard projectId={projectId} />
+      <ProjectDashboard projectId={projectId} afterTiles={<KeyNotesCard projectId={projectId} />} />
       <CampaignCapacitySection projectId={projectId} />
       <PlannersPanel projectId={projectId} />
     </div>

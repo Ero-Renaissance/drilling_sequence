@@ -306,3 +306,42 @@ async def test_your_action_flags_only_eligible_non_creator_signers(
 
     signer_view = (await other_client.get(f"/api/projects/{project_id}")).json()["approval"]
     assert signer_view["your_action"] == "approve"
+
+
+async def test_key_notes_planner_only_lock_gated_and_audited(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """Key notes (the Overview bulletin): planner-writable, refused for
+    non-members, frozen with the plan lock, cleared by an empty body, and
+    each write leaves an activity-log entry."""
+    project_id, _ = await _project_with_activity(client)
+
+    saved = await client.put(
+        f"/api/projects/{project_id}/key-notes",
+        json={"body": "- RIG_2 renewal in negotiation\n- Q3 spuds exposed"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["updated_by_name"]
+
+    detail = (await client.get(f"/api/projects/{project_id}")).json()
+    assert detail["key_notes"]["body"].startswith("- RIG_2")
+
+    # Not a member (org-wide READ only) → denied the write.
+    denied = await other_client.put(
+        f"/api/projects/{project_id}/key-notes", json={"body": "nope"}
+    )
+    assert denied.status_code == 403
+
+    # Locked with the plan: pending revision → 423.
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    await _create_revision(client, project_id)
+    locked = await client.put(
+        f"/api/projects/{project_id}/key-notes", json={"body": "changed story"}
+    )
+    assert locked.status_code == 423
+
+    audit = (await client.get(f"/api/projects/{project_id}/audit")).json()
+    assert any(e["field"] == "key_notes_updated" for e in audit)

@@ -111,6 +111,20 @@ class ProjectApprovalSummary(BaseModel):
     your_action: Literal["review", "approve"] | None = None
 
 
+class KeyNotes(BaseModel):
+    """The planner's campaign bulletin (Overview card): plain text carrying
+    the lists subset, with who/when accountability."""
+
+    body: str
+    updated_at: datetime | None = None
+    updated_by_name: str | None = None
+
+
+class KeyNotesUpsert(BaseModel):
+    # Empty body clears the notes (the card disappears).
+    body: str = Field(max_length=4000)
+
+
 class ProjectResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -125,6 +139,7 @@ class ProjectResponse(BaseModel):
     # Populated on the detail endpoint only (None in the list response).
     lock: ProjectLock | None = None
     approval: ProjectApprovalSummary | None = None
+    key_notes: KeyNotes | None = None
 
     model_config = {"from_attributes": True}
 
