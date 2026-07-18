@@ -151,6 +151,22 @@ describe("DrillChart", () => {
     expect(opt.series.some((sr) => sr.id === "today-flag")).toBe(true);
   });
 
+  it("row stripes are explicit even-lane markAreas, not the axis splitArea", () => {
+    render(<DrillChart activities={MULTI_YEAR_ACTIVITIES} />);
+    const opt = captured.option as {
+      yAxis: { splitArea: { show: boolean } };
+      series: { id?: string; z?: number; markArea?: { data: unknown[] } }[];
+    };
+    // ECharts' splitArea can merge the last two category bands on some row
+    // counts — it stays off; the stripes are drawn per even lane instead.
+    expect(opt.yAxis.splitArea.show).toBe(false);
+    const stripes = opt.series.find((sr) => sr.id === "row-stripes");
+    expect(stripes).toBeDefined();
+    expect(stripes?.z).toBe(0); // under the bars
+    // MULTI_YEAR_ACTIVITIES → 2 lanes → exactly one striped (even) lane.
+    expect(stripes?.markArea?.data).toHaveLength(1);
+  });
+
   it("shows a focus-year strip spanning every year the campaign covers", () => {
     render(<DrillChart activities={MULTI_YEAR_ACTIVITIES} />);
     expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();

@@ -468,6 +468,18 @@ export function DrillChart({
 
 
 
+    // Alternating row stripes, one markArea per EVEN lane — deterministic,
+    // unlike the axis splitArea (see the yAxis comment). They ride the
+    // today-flag series so updateBands' imperative series[0] markArea merge
+    // (time bands) can never wipe them.
+    const rowStripeAreas = categories
+      .map((cat, i) => [cat, i] as const)
+      .filter(([, i]) => i % 2 === 0)
+      .map(([cat]) => [
+        { yAxis: cat, itemStyle: { color: theme.yStripe[0] } },
+        { yAxis: cat },
+      ]);
+
     // Default bands for the current React render: same ≤800-days month/year
     // break the zoom-adaptive refine (updateBands) and the sticky strip use,
     // so a 2-year focus gets month bands and a wider one year bands. Free
@@ -1091,10 +1103,12 @@ export function DrillChart({
         axisLine: { show: false },
         axisTick: { show: false },
         splitLine: { show: false },
-        splitArea: {
-          show: true,
-          areaStyle: { color: theme.yStripe },
-        },
+        // No splitArea: ECharts' category splitArea derives its bands from the
+        // axis tick coords and can MERGE the final two rows into one band on
+        // some row counts (seen live: alternation broke between the last two
+        // lanes). The row stripes are drawn explicitly instead — see the
+        // today-flag series' markArea, one area per even row by construction.
+        splitArea: { show: false },
       },
 
       // filterMode "none" keeps bars that straddle the focused window visible
@@ -1156,6 +1170,21 @@ export function DrillChart({
           data: [[today, 0]],
           renderItem: renderTodayFlag,
           encode: { x: 0, y: 1 },
+        },
+        {
+          // Row stripes (see rowStripeAreas above): a dedicated data-less
+          // series so they sit at z 0 (UNDER the bars — the today-flag and
+          // marker series render at z 6-7) and clear of series[0], whose
+          // markArea is replaced wholesale by the zoom-adaptive band refresh.
+          id: "row-stripes",
+          type: "line",
+          z: 0,
+          silent: true,
+          data: [],
+          markArea: {
+            silent: true,
+            data: rowStripeAreas as never,
+          },
         },
         {
           // Contract-expiry alarm markers, on top of the bars; clipped to the
