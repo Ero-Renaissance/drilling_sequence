@@ -837,7 +837,10 @@ export function RevisionDetail() {
       `}</style>
 
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 print:hidden">
+      {/* Sticky decision bar: the evidence scrolls, the decision never does.
+          Binds to the app shell's <main> scrollport (same mechanism as the
+          chart's pinned timescale). */}
+      <div className="sticky top-0 z-30 -mx-1 flex flex-wrap items-center gap-3 rounded-lg bg-background/95 px-1 py-2 backdrop-blur print:hidden">
         <Button variant="ghost" size="icon" asChild className="text-muted-foreground">
           <NavLink to={`/projects/${projectId}/signatures`}>
             <ArrowLeft className="h-4 w-4" />

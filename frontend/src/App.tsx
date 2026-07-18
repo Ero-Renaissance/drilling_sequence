@@ -76,6 +76,8 @@ export default function App() {
             <Route path="fleet" element={<FleetTab />} />
             <Route path="compare" element={<CompareTab />} />
             <Route path="signatures" element={<SignaturesTab />} />
+            {/* Old notification emails linked /approvals — keep them landing. */}
+            <Route path="approvals" element={<Navigate to="../signatures" replace />} />
             <Route path="activity" element={<ActivityLogTab />} />
             <Route path="revisions/:revisionId" element={<RevisionDetail />} />
           </Route>

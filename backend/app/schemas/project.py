@@ -104,6 +104,11 @@ class ProjectApprovalSummary(BaseModel):
     # Approval-stage signatures landed / designated approvers (kind="approver").
     signed: int = 0
     approvers: int = 0
+    # What the CURRENT VIEWER can do about the pending revision — drives the
+    # "awaiting your review/approval" banner. Mirrors the sign/review endpoint
+    # gates (designated signer of the stage's kind, or admin — never the
+    # revision's creator); null when there is nothing for this viewer to do.
+    your_action: Literal["review", "approve"] | None = None
 
 
 class ProjectResponse(BaseModel):

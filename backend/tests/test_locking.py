@@ -263,7 +263,7 @@ async def test_project_detail_carries_the_approval_summary(
     detail = (await client.get(f"/api/projects/{project_id}")).json()
     assert detail["approval"] == {
         "status": "draft", "rev_number": None, "rev_label": None,
-        "signed": 0, "approvers": 0,
+        "signed": 0, "approvers": 0, "your_action": None,
     }
 
     await client.post(
@@ -286,3 +286,23 @@ async def test_project_detail_carries_the_approval_summary(
     approved = (await client.get(f"/api/projects/{project_id}")).json()["approval"]
     assert approved["status"] == "approved"
     assert approved["rev_number"] == 1
+
+
+async def test_your_action_flags_only_eligible_non_creator_signers(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """The signer banner's server-side gate: the pending revision's designated
+    approver sees your_action="approve"; the CREATOR — even though an admin in
+    the dev fixture — sees None (separation of duties)."""
+    project_id, _ = await _project_with_activity(client)
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    await _create_revision(client, project_id)
+
+    creator_view = (await client.get(f"/api/projects/{project_id}")).json()["approval"]
+    assert creator_view["your_action"] is None
+
+    signer_view = (await other_client.get(f"/api/projects/{project_id}")).json()["approval"]
+    assert signer_view["your_action"] == "approve"

@@ -483,10 +483,11 @@ async def compute_project_lock(project_id: uuid.UUID, db: AsyncSession) -> Proje
 
 
 async def compute_approval_summary(
-    project_id: uuid.UUID, db: AsyncSession
+    project_id: uuid.UUID, db: AsyncSession, viewer: User | None = None
 ) -> ProjectApprovalSummary:
     """Plan state for the header chip/banner: latest revision's status, plus
-    approval-signature progress while pending. No revisions yet → "draft"."""
+    approval-signature progress while pending — and, when a viewer is given,
+    what THEY can do about it (drives the "awaiting your review" banner)."""
     latest = (
         await db.execute(
             select(Revision)
@@ -521,7 +522,42 @@ async def compute_approval_summary(
         rev_label=latest.label,
         signed=signed,
         approvers=approvers,
+        your_action=await _viewer_action(project_id, latest, viewer, db),
     )
+
+
+async def _viewer_action(
+    project_id: uuid.UUID,
+    latest: Revision,
+    viewer: User | None,
+    db: AsyncSession,
+) -> str | None:
+    """Mirror of the review/sign endpoint gates, non-raising: what the viewer
+    can do about the pending revision. Display-only — the endpoints stay the
+    enforcement. The revision's creator gets None (separation of duties: they
+    may only discard), whatever their other hats."""
+    if viewer is None:
+        return None
+    if latest.status not in ("pending_review", "pending_approval"):
+        return None
+    if latest.created_by == viewer.id:
+        return None
+    action = "review" if latest.status == "pending_review" else "approve"
+    if viewer.is_admin:
+        return action
+    if not viewer.email:
+        return None
+    kind = "reviewer" if latest.status == "pending_review" else "approver"
+    designated = (
+        await db.execute(
+            select(ProjectApprover).where(
+                ProjectApprover.project_id == project_id,
+                ProjectApprover.email == viewer.email.lower(),
+                ProjectApprover.kind == kind,
+            )
+        )
+    ).scalar_one_or_none()
+    return action if designated is not None else None
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -532,7 +568,7 @@ async def get_project(
     project = await _load_project_or_404(project_id, db)
     response = ProjectResponse.from_project(project)
     response.lock = await compute_project_lock(project_id, db)
-    response.approval = await compute_approval_summary(project_id, db)
+    response.approval = await compute_approval_summary(project_id, db, current_user)
     return response
 
 

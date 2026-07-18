@@ -1,7 +1,7 @@
 import { PlanStateChip } from "@/components/PlanStateChip";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, NavLink, Outlet, Navigate, useOutletContext, useSearchParams } from "react-router-dom";
-import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown, Drill, Settings2 } from "lucide-react";
+import { useParams, NavLink, Link, Outlet, Navigate, useOutletContext, useSearchParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, BarChart2, CheckSquare, ChevronDown, ChevronUp, Drill, FileDown, GitCompare, History, LayoutDashboard, Lock, MonitorPlay, PenLine, PenSquare, RefreshCw, Settings2, Table2 } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Project, ProjectLock } from "@/types";
 import { listRevisions, reopenPlan } from "@/api/revisions";
@@ -120,6 +120,45 @@ export function PlanLockBanner({
   );
 }
 
+/** The signer's call-to-action: shown instead of the passive lock banner when
+ *  the CURRENT VIEWER can act on the pending revision (server-computed
+ *  eligibility — designated signer for the stage or admin, never the
+ *  creator). Identical on every tab: wherever they roam, the decision is one
+ *  click away. */
+export function SignerActionBanner({
+  projectId,
+  lock,
+  approval,
+}: {
+  projectId: string;
+  lock: ProjectLock;
+  approval: import("@/types").ProjectApprovalSummary;
+}) {
+  const rev = lock.rev_label ? `Rev ${lock.rev_number} · ${lock.rev_label}` : `Rev ${lock.rev_number}`;
+  const reviewing = approval.your_action === "review";
+  const progress =
+    !reviewing && approval.approvers > 0 ? ` · ${approval.signed}/${approval.approvers} signed` : "";
+  return (
+    <div
+      data-testid="signer-action-banner"
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm print:hidden"
+    >
+      <PenLine className="h-4 w-4 shrink-0 text-amber-700" />
+      <span className="text-amber-900">
+        <span className="font-semibold">
+          {rev} is awaiting your {reviewing ? "review" : "approval"}
+          {progress}.
+        </span>
+      </span>
+      <Button size="sm" asChild className="ml-auto">
+        <Link to={`/projects/${projectId}/revisions/${lock.revision_id}`}>
+          {reviewing ? "Open & review" : "Review & sign"}
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
 export function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const storeProject = useProjectsStore((s) => s.projects.find((p) => p.id === projectId));
@@ -188,14 +227,23 @@ export function ProjectDetail() {
         </div>
       </div>
 
-      {fetchedProject?.lock?.locked && (
-        <PlanLockBanner
-          projectId={projectId}
-          lock={fetchedProject.lock}
-          canRevise={canRevise}
-          approval={fetchedProject.approval}
-        />
-      )}
+      {fetchedProject?.lock?.locked &&
+        (fetchedProject.lock.reason === "pending" &&
+        fetchedProject.approval?.your_action &&
+        fetchedProject.lock.revision_id ? (
+          <SignerActionBanner
+            projectId={projectId}
+            lock={fetchedProject.lock}
+            approval={fetchedProject.approval}
+          />
+        ) : (
+          <PlanLockBanner
+            projectId={projectId}
+            lock={fetchedProject.lock}
+            canRevise={canRevise}
+            approval={fetchedProject.approval}
+          />
+        ))}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-border/70 print:hidden">

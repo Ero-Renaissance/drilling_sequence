@@ -57,12 +57,15 @@ def notify_revision_pending(
     project_id,
 ) -> None:
     """Notify designated approvers that a revision needs their signature."""
-    link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/approvals"
+    # Land on the campaign OVERVIEW (context first) — a banner there takes an
+    # eligible signer straight to the revision. (/approvals was a dead route.)
+    link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/overview"
     subject = f"{_SUBJECT_PREFIX} {rev_label} awaiting your approval — {project_name}"
     body = (
         f"A new revision is ready for your review on project \"{project_name}\".\n\n"
         f"Revision: {rev_label}\n\n"
-        f"Open the approvals page to sign, request changes, or reject:\n{link}\n"
+        f"Open the campaign — the banner takes you to review, sign, request "
+        f"changes, or reject:\n{link}\n"
         f"{_FOOTER}"
     )
     send_email(recipients, subject, body)
@@ -81,7 +84,7 @@ def notify_revision_decision(
     """Notify the planner who created a revision that it was rejected or sent
     back for changes, including the reviewer's reason. `outcome` is a short
     human phrase like "rejected" or "sent back for changes"."""
-    link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/approvals"
+    link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/overview"
     subject = f"{_SUBJECT_PREFIX} {rev_label} {outcome} — {project_name}"
     body = (
         f"Your revision \"{rev_label}\" on project \"{project_name}\" was {outcome} "

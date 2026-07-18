@@ -68,6 +68,10 @@ export function RevisionDiff({
   // SummaryBar keeps full totals and shows "X of Y" while these are active).
   const [changeFilter, setChangeFilter] = useState<ChangeKindFilter | null>(null);
   const [search, setSearch] = useState("");
+  // Lean by default: the summary bar is the decision artifact a signer must
+  // meet; the grouped detail (and its search) is one click away. Applying a
+  // summary-chip filter opens the detail — that click IS a request to see it.
+  const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
     setBaseRef(APPROVED_REF);
@@ -142,14 +146,16 @@ export function RevisionDiff({
           changes from the selected version into{" "}
           <span className="font-medium text-foreground">{sideLabel(target)}</span>
         </span>
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder="Filter by rig, well, project…"
-          ariaLabel="Filter changes"
-          testId="diff-search"
-          className="ml-auto"
-        />
+        {detailOpen && (
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Filter by rig, well, project…"
+            ariaLabel="Filter changes"
+            testId="diff-search"
+            className="ml-auto"
+          />
+        )}
       </div>
 
       {error && (
@@ -170,14 +176,25 @@ export function RevisionDiff({
           <SummaryBar
             diff={diff}
             filter={changeFilter}
-            onFilterChange={setChangeFilter}
+            onFilterChange={(f) => {
+              setChangeFilter(f);
+              if (f !== null) setDetailOpen(true);
+            }}
             shownCount={filteredActivities.length}
             onClearFilters={() => {
               setChangeFilter(null);
               setSearch("");
             }}
           />
-          {diff.activities.length === 0 &&
+          <button
+            type="button"
+            onClick={() => setDetailOpen((v) => !v)}
+            data-testid="diff-detail-toggle"
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            {detailOpen ? "Hide change details" : "Show change details"}
+          </button>
+          {!detailOpen ? null : diff.activities.length === 0 &&
           diff.contracts.length === 0 &&
           (changeNotes?.length ?? 0) === 0 ? (
             <p className="rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-sm text-muted-foreground">

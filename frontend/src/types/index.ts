@@ -39,6 +39,9 @@ export interface ProjectApprovalSummary {
   /** Approval-stage signatures landed / designated approvers. */
   signed: number;
   approvers: number;
+  /** What the current viewer can do about the pending revision (server-gated,
+   *  never the creator) — drives the "awaiting your review" banner. */
+  your_action?: "review" | "approve" | null;
 }
 
 export interface ProjectLock {
