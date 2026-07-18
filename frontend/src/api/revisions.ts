@@ -7,6 +7,8 @@ export interface Signature {
   user_id: string | null;
   user_name: string | null;
   role_label: string;
+  /** Which stage the signature belongs to (review = support). */
+  stage: "review" | "approval";
   signed_at: string;
 }
 

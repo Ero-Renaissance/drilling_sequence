@@ -40,7 +40,7 @@ export interface ProjectApprovalSummary {
   signed: number;
   approvers: number;
   /** What the current viewer can do about the pending revision (server-gated,
-   *  never the creator) — drives the "awaiting your review" banner. */
+   *  never the creator) — drives the "awaiting your support" banner. */
   your_action?: "review" | "approve" | null;
 }
 

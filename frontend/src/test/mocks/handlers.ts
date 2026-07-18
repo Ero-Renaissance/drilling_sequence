@@ -392,6 +392,7 @@ export const handlers = [
           user_id: mockUser.id,
           user_name: mockUser.name,
           role_label: body.role_label,
+          stage: "approval" as const,
           signed_at: new Date().toISOString(),
         },
       ],

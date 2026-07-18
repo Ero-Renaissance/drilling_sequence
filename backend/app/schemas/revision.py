@@ -35,6 +35,9 @@ class SignatureResponse(BaseModel):
     user_id: uuid.UUID | None
     user_name: str | None
     role_label: str
+    # Which stage this signature belongs to — lets the UI show a reviewer's
+    # "Supported" state distinctly from an approval signature.
+    stage: str = "approval"
     # What the signer declared they reviewed (None on pre-attestation rows).
     attestation: str | None = None
     signed_at: datetime

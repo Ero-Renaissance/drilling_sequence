@@ -98,3 +98,24 @@ describe("RevisionList", () => {
     });
   });
 });
+
+describe("Print on the Approvals tab", () => {
+  it("offers the print/export menu on each revision, outside the signing flow", async () => {
+    renderList();
+    await waitFor(() => {
+      expect(screen.getAllByTestId("revision-print").length).toBeGreaterThan(0);
+    });
+    await userEvent.click(screen.getAllByTestId("revision-print")[0]);
+    expect(await screen.findByText("Export PDF (with signatures)")).toBeInTheDocument();
+    expect(screen.getByText("Print for signature")).toBeInTheDocument();
+  });
+
+  it("uses the support vocabulary for the pending card CTA", async () => {
+    renderList();
+    await waitFor(() => {
+      expect(screen.getByTestId("review-revision")).toBeInTheDocument();
+    });
+    const label = screen.getByTestId("review-revision").textContent ?? "";
+    expect(/Open & (support|approve)/.test(label)).toBe(true);
+  });
+});

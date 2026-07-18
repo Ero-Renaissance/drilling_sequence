@@ -459,6 +459,7 @@ async def create_revision(
             project_name=project_name,
             rev_label=revision.label or f"Rev. {rev_number:02d}",
             project_id=project_id,
+            stage="review" if review_required else "approval",
         )
 
     return RevisionResponse.model_validate(
@@ -857,6 +858,7 @@ async def sign_review(
                 project_name=project.name if project else "a project",
                 rev_label=revision.label or f"Rev. {revision.rev_number:02d}",
                 project_id=project_id,
+                stage="approval",
             )
 
     required_approvers = await _get_required_approvers(project_id, db)

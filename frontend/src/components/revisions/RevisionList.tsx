@@ -23,6 +23,9 @@ import {
   type ApproverSignStatus,
 } from "@/api/revisions";
 import { CreateRevisionDialog } from "./CreateRevisionDialog";
+import { RevisionPrintControl } from "./RevisionPrintControl";
+import { projectsApi } from "@/api/projects";
+import type { Project } from "@/types";
 import type { CampaignOutletContext } from "@/pages/ProjectDetail";
 
 function relativeTime(iso: string): string {
@@ -76,7 +79,7 @@ function StatusBadge({ status }: { status: Revision["status"] }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/12 px-2 py-0.5 text-[11px] font-medium text-sky-600 dark:text-sky-400">
         <PenLine className="h-3 w-3" />
-        In review
+        Awaiting support
       </span>
     );
   }
@@ -92,9 +95,9 @@ function ReviewSkippedBadge() {
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-      title="The planner submitted this straight to approval, skipping review."
+      title="The planner submitted this straight to approval, skipping the support stage."
     >
-      Review skipped
+      Support skipped
     </span>
   );
 }
@@ -164,11 +167,13 @@ function ApproverStatusList({
 function PendingRevisionCard({
   projectId,
   rev,
+  project,
   actionLoading,
   onDiscard,
 }: {
   projectId: string;
   rev: Revision;
+  project: Project | null;
   actionLoading: string | null;
   onDiscard: (r: Revision) => void;
 }) {
@@ -193,17 +198,18 @@ function PendingRevisionCard({
           </p>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {rev.status === "pending_review"
-              ? "Awaiting review before it can go to approval."
+              ? "Awaiting reviewers' support before it can go to approval."
               : "Review the changes and schedule snapshot before deciding."}
           </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <RevisionPrintControl projectId={projectId} revision={rev} project={project} />
           <Button size="sm" asChild data-testid="review-revision">
             <Link to={`/projects/${projectId}/revisions/${rev.id}`}>
               <GitCompare className="h-3.5 w-3.5" />
               <span className="ml-1.5">
-                {rev.status === "pending_review" ? "Open & review" : "Review & sign"}
+                {rev.status === "pending_review" ? "Open & support" : "Open & approve"}
               </span>
             </Link>
           </Button>
@@ -222,7 +228,7 @@ function PendingRevisionCard({
       </div>
 
       {rev.reviewer_status.length > 0 && (
-        <ApproverStatusList statuses={rev.reviewer_status} title="Required reviews" />
+        <ApproverStatusList statuses={rev.reviewer_status} title="Required support" />
       )}
 
       {rev.approver_status.length > 0 && <ApproverStatusList statuses={rev.approver_status} />}
@@ -239,19 +245,23 @@ function PendingRevisionCard({
 function HistoryRow({
   projectId,
   rev,
+  project,
 }: {
   projectId: string;
   rev: Revision;
+  project: Project | null;
 }) {
   return (
-    <Link
-      to={`/projects/${projectId}/revisions/${rev.id}`}
+    <div
       className={cn(
         "group flex items-center gap-3 rounded-lg border border-border/60 bg-card px-4 py-3 transition-all hover:border-border hover:shadow-soft-sm",
         rev.status === "discarded" && "opacity-70",
       )}
     >
-      <div className="min-w-0 flex-1">
+      <Link
+        to={`/projects/${projectId}/revisions/${rev.id}`}
+        className="min-w-0 flex-1"
+      >
         <div className="flex flex-wrap items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{revLabel(rev)}</span>
           <StatusBadge status={rev.status} />
@@ -278,9 +288,16 @@ function HistoryRow({
             )}
           </p>
         )}
-      </div>
-      <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
-    </Link>
+      </Link>
+      <RevisionPrintControl projectId={projectId} revision={rev} project={project} />
+      <Link
+        to={`/projects/${projectId}/revisions/${rev.id}`}
+        aria-label={`Open ${revLabel(rev)}`}
+        className="text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Link>
+    </div>
   );
 }
 
@@ -317,6 +334,8 @@ interface RevisionListProps {
 
 export function RevisionList({ projectId }: RevisionListProps) {
   const [revisions, setRevisions] = useState<Revision[]>([]);
+  // For the print controls (document refs + PDF titles carry the campaign name).
+  const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -338,6 +357,13 @@ export function RevisionList({ projectId }: RevisionListProps) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    projectsApi
+      .get(projectId)
+      .then(setProject)
+      .catch(() => setProject(null));
+  }, [projectId]);
 
   async function handleDiscard(revision: Revision) {
     if (!confirm(`Discard "${revLabel(revision)}"? This will unlock all activities.`)) return;
@@ -424,6 +450,7 @@ export function RevisionList({ projectId }: RevisionListProps) {
               key={rev.id}
               projectId={projectId}
               rev={rev}
+              project={project}
               actionLoading={actionLoading}
               onDiscard={handleDiscard}
             />
@@ -447,7 +474,7 @@ export function RevisionList({ projectId }: RevisionListProps) {
           </div>
           <div className="space-y-1.5">
             {history.map((rev) => (
-              <HistoryRow key={rev.id} projectId={projectId} rev={rev} />
+              <HistoryRow key={rev.id} projectId={projectId} rev={rev} project={project} />
             ))}
           </div>
         </div>

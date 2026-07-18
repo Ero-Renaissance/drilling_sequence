@@ -168,8 +168,8 @@ export const FIXTURE_REVISION: RevisionDetail = {
   created_by_name: "Dev Planner",
   created_at: "2026-06-01T08:00:00Z",
   signatures: [
-    { id: "sig-1", user_id: "u1", user_name: "Asha Reviewer", role_label: "Technical Reviewer", signed_at: "2026-06-05T10:00:00Z" },
-    { id: "sig-2", user_id: "u2", user_name: "Femi Approver", role_label: "Asset Manager", signed_at: "2026-06-10T14:00:00Z" },
+    { id: "sig-1", user_id: "u1", user_name: "Asha Reviewer", role_label: "Technical Reviewer", stage: "review" as const, signed_at: "2026-06-05T10:00:00Z" },
+    { id: "sig-2", user_id: "u2", user_name: "Femi Approver", role_label: "Asset Manager", stage: "approval" as const, signed_at: "2026-06-10T14:00:00Z" },
   ],
   reviewer_status: [
     { email: "asha@example.com", name: "Asha Reviewer", role_label: "Technical Reviewer", signed: true, signed_at: "2026-06-05T10:00:00Z", signer_name: "Asha Reviewer" },

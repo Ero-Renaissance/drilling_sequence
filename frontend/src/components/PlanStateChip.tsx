@@ -26,7 +26,7 @@ export function planStateLabel(a: ProjectApprovalSummary): {
         ? { label: "Pending approval · no approvers", tone: "red" }
         : { label: `Pending approval · ${a.signed}/${a.approvers} signed`, tone: "amber" };
     case "pending_review":
-      return { label: "Pending review", tone: "amber" };
+      return { label: "Pending support", tone: "amber" };
     case "changes_requested":
       return { label: "Changes requested", tone: "amber" };
     case "rejected":

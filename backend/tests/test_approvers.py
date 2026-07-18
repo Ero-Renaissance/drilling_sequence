@@ -543,6 +543,11 @@ async def test_review_signoff_records_review_attestation(
     assert r.status_code == 200, r.text
     reviewer_sig = r.json()["reviewer_status"][0]
     assert reviewer_sig["signed"] is True
+    # Contract: the flat signatures list stays the BINDING (approval-stage)
+    # record — a review concurrence must not appear there; the reviewer's
+    # supported state travels via reviewer_status instead.
+    assert r.json()["signatures"] == []
+    assert all(sig["stage"] == "approval" for sig in r.json()["signatures"])
     # Review signatures aren't in the binding (approval-only) flat list — read
     # the row itself for the technical-review wording.
     import uuid as _uuid

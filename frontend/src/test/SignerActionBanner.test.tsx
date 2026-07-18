@@ -33,13 +33,13 @@ describe("SignerActionBanner", () => {
     expect(
       screen.getByText(/Rev 4 · Rev\. 04 is awaiting your approval · 1\/2 signed\./),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Review & sign" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Approve & Sign" })).toHaveAttribute(
       "href",
       "/projects/p1/revisions/rev-9",
     );
   });
 
-  it("reads as a review ask during the review stage", () => {
+  it("reads as a support ask during the review stage", () => {
     render(
       <MemoryRouter>
         <SignerActionBanner
@@ -49,7 +49,7 @@ describe("SignerActionBanner", () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/awaiting your review\./)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open & review" })).toBeInTheDocument();
+    expect(screen.getByText(/awaiting your support\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Support & Sign" })).toBeInTheDocument();
   });
 });

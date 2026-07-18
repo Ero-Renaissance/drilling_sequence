@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import {
   ArrowLeft,
@@ -10,28 +10,14 @@ import {
   Circle,
   Clock,
   Copy,
-  FileSignature,
   PenLine,
-  Printer,
   RotateCcw,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuItem,
-  DropdownMenuCheckboxItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from "@/components/ui/dropdown-menu";
-import { buildDocRef, docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
-import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
+import { docIdMatches, formatDocId, normalizeDocId } from "@/lib/doc-id";
 import { cn, formatDate } from "@/lib/utils";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
@@ -48,7 +34,6 @@ import {
 } from "@/api/revisions";
 import { RevisionDiff } from "@/components/revisions/RevisionDiff";
 import { RevisionDiscussion } from "@/components/revisions/RevisionDiscussion";
-import { RevisionPrintDoc } from "@/components/revisions/RevisionPrintDoc";
 import { DecisionDialog, type DecisionAction } from "@/components/revisions/DecisionDialog";
 import { SignAttestationDialog } from "@/components/revisions/SignAttestationDialog";
 import { projectsApi } from "@/api/projects";
@@ -147,7 +132,7 @@ function StatusBadge({ status }: { status: RevisionDetailType["status"] }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/12 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400">
         <PenLine className="h-3 w-3" />
-        In review
+        Awaiting support
       </span>
     );
   }
@@ -614,44 +599,6 @@ export function RevisionDetail() {
   const [signStage, setSignStage] = useState<"approval" | "review" | null>(null);
   const user = useAuthStore((s) => s.user);
 
-  // The print is three independent choices — chart (standard vs readiness),
-  // whether to append the activity schedule, and whose signatures (system-recorded
-  // vs blank wet-ink). The two actions (Export PDF / Print for signature) set the
-  // signature mode and bump a nonce; the nonce (not the value) drives the print so
-  // re-printing the same choice still fires.
-  const [printChart, setPrintChart] = useState<"standard" | "readiness">("standard");
-  // Readiness print: calendar years per page (1/2/3), remembered across
-  // sessions — the planner's normal span is a per-user habit, not per print.
-  const [printYears, setPrintYears] = useState<PrintYears>(() => {
-    try {
-      const v = Number(window.localStorage.getItem("ds.print-years"));
-      return v === 1 || v === 2 || v === 3 ? (v as PrintYears) : 3;
-    } catch {
-      return 3;
-    }
-  });
-  const setYears = (y: PrintYears) => {
-    setPrintYears(y);
-    try {
-      window.localStorage.setItem("ds.print-years", String(y));
-    } catch {
-      // storage unavailable (private mode) — the in-session choice still applies
-    }
-  };
-  const [printSchedule, setPrintSchedule] = useState(true);
-  const [printSignatures, setPrintSignatures] = useState<"system" | "wetink">("system");
-  const [printNonce, setPrintNonce] = useState(0);
-  const printWith = useCallback((sig: "system" | "wetink") => {
-    setPrintSignatures(sig);
-    setPrintNonce((n) => n + 1);
-  }, []);
-  useEffect(() => {
-    if (printNonce === 0) return; // skip the initial render
-    // Let the chosen variant paint before opening the print dialog.
-    const id = requestAnimationFrame(() => window.print());
-    return () => cancelAnimationFrame(id);
-  }, [printNonce]);
-
   useEffect(() => {
     if (!projectId || !revisionId) return;
     setLoading(true);
@@ -774,68 +721,24 @@ export function RevisionDetail() {
   if (!revision) return null;
 
   const alreadySigned = user
-    ? revision.signatures.some((s) => s.user_id === user.id)
+    ? revision.signatures.some((s) => s.user_id === user.id && s.stage === "approval")
+    : false;
+  // The flat signatures list is approval-stage only (the binding record), so a
+  // reviewer's supported state comes from their reviewer_status row: their
+  // required support is recorded, whoever entered it.
+  const alreadySupported = user
+    ? revision.reviewer_status.some(
+        (r) => r.signed && r.email.toLowerCase() === user.email.toLowerCase(),
+      )
     : false;
   const canSign = revision.status === "pending_approval" && !alreadySigned;
-  const canReview = revision.status === "pending_review";
+  const canReview = revision.status === "pending_review" && !alreadySupported;
   const isPending =
     revision.status === "pending_review" || revision.status === "pending_approval";
 
-  const statusLabel =
-    revision.status === "approved"
-      ? "Approved"
-      : revision.status === "rejected"
-        ? "Rejected"
-        : revision.status === "changes_requested"
-          ? "Changes requested"
-          : revision.status === "discarded"
-            ? "Discarded"
-            : revision.status === "pending_review"
-              ? "In review"
-              : "Pending approval";
-  // Document reference for the print footer, e.g. Renaissance/DS/Q2-RIG-SEQUENCE/REV05.
-  const docRef = buildDocRef(project?.name, revision.rev_number);
 
   return (
     <div className="space-y-5">
-      {/* Inline print stylesheet — keeps it co-located with the page that uses it */}
-      <style>{`
-        @media print {
-          @page { size: ${
-            printChart === "readiness" ? readinessPageCss(printYears) : "A4 landscape"
-          }; margin: 14mm 12mm; }
-          /* Force light document tokens so a dark-mode user still gets a clean,
-             readable PDF (dark text on white), not light text on white. */
-          :root, .dark {
-            --background: 0 0% 100%;
-            --foreground: 222 24% 12%;
-            --card: 0 0% 100%;
-            --card-foreground: 222 24% 12%;
-            --muted: 220 14% 95%;
-            --muted-foreground: 220 9% 40%;
-            --border: 220 13% 85%;
-          }
-          body { background: white !important; }
-          aside, header, .print\\:hidden { display: none !important; }
-          main { overflow: visible !important; }
-          /* Unclip scroll containers + height caps so content paginates across
-             pages and the chart legend (below the Gantt) isn't cut off. */
-          .overflow-auto, .overflow-y-auto { overflow: visible !important; }
-          .h-full, .h-screen { height: auto !important; }
-          .shadow-soft-sm, .shadow-soft-md, .shadow-soft-lg { box-shadow: none !important; }
-          /* Preserve brand colours (gradient linebar, status badges) in print. */
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          /* Room for the fixed confidentiality footer. */
-          main > div { padding-bottom: 12mm; }
-          /* The schedule table: repeat the header on every page, keep rows whole,
-             and give clean horizontal rules so it reads as a formal schedule. */
-          thead { display: table-header-group; }
-          tbody tr { break-inside: avoid; }
-          th, td { border-bottom: 1px solid hsl(220 13% 88%) !important; }
-          h2 { break-after: avoid; }
-        }
-      `}</style>
-
       {/* Header */}
       {/* Sticky decision bar: the evidence scrolls, the decision never does.
           Binds to the app shell's <main> scrollport (same mechanism as the
@@ -851,9 +754,9 @@ export function RevisionDetail() {
         {revision.review_skipped && (
           <span
             className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-            title="The planner submitted this straight to approval, skipping review."
+            title="The planner submitted this straight to approval, skipping the support stage."
           >
-            Review skipped
+            Support skipped
           </span>
         )}
 
@@ -862,7 +765,7 @@ export function RevisionDetail() {
             <>
               <Button onClick={() => setSignStage("review")} disabled={reviewSigning} data-testid="sign-review">
                 <PenLine className="h-4 w-4" />
-                {reviewSigning ? "Signing…" : "Sign off review"}
+                {reviewSigning ? "Signing…" : "Support & Sign"}
               </Button>
               <Button
                 variant="outline"
@@ -876,10 +779,18 @@ export function RevisionDetail() {
               </Button>
             </>
           )}
+          {alreadySupported && isPending && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-600 dark:text-sky-400"
+              data-testid="supported-chip"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Supported
+            </span>
+          )}
           {canSign && (
             <Button onClick={() => setSignStage("approval")} disabled={signing} data-testid="sign-approve">
               <PenLine className="h-4 w-4" />
-              {signing ? "Signing…" : "Sign & Approve"}
+              {signing ? "Signing…" : "Approve & Sign"}
             </Button>
           )}
           {alreadySigned && revision.status === "pending_approval" && (
@@ -911,102 +822,7 @@ export function RevisionDetail() {
               </Button>
             </>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Printer className="h-4 w-4" />
-                Print
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel>Chart</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={printChart}
-                onValueChange={(v) => {
-                  const c = v as "standard" | "readiness";
-                  setPrintChart(c);
-                  // Readiness leads with the chart only; standard keeps the schedule.
-                  setPrintSchedule(c === "standard");
-                }}
-              >
-                <DropdownMenuRadioItem value="standard" onSelect={(e) => e.preventDefault()}>
-                  Standard Sequence
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="readiness" onSelect={(e) => e.preventDefault()}>
-                  Sequence with Readiness Icons
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-              {printChart === "readiness" && (
-                <>
-                  <DropdownMenuSeparator />
-                  {/* Paper auto-matches the span (A4/A3/A2) so the month density —
-                      and gate-icon legibility — stays near the 1-year baseline. */}
-                  <DropdownMenuLabel>Years per page</DropdownMenuLabel>
-                  <DropdownMenuRadioGroup
-                    value={String(printYears)}
-                    onValueChange={(v) => setYears(Number(v) as PrintYears)}
-                  >
-                    {([1, 2, 3] as const).map((y) => (
-                      <DropdownMenuRadioItem
-                        key={y}
-                        value={String(y)}
-                        onSelect={(e) => e.preventDefault()}
-                      >
-                        {y} {y === 1 ? "year" : "years"} · {readinessPaperSize(y)}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={printSchedule}
-                onCheckedChange={setPrintSchedule}
-                onSelect={(e) => e.preventDefault()}
-              >
-                Include Activity Schedule
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => printWith("system")}>
-                <Printer className="h-4 w-4" />
-                Export PDF (with signatures)
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => printWith("wetink")}>
-                <FileSignature className="h-4 w-4" />
-                Print for signature
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
-      </div>
-
-      {/* The print/PDF document — print only. The three choices below select the
-          chart style, whether to append the schedule, and whose signatures. */}
-      <RevisionPrintDoc
-        revision={revision}
-        project={project}
-        rows={snapshot}
-        chart={printChart}
-        readinessYears={printYears}
-        includeSchedule={printSchedule}
-        signatures={printSignatures}
-      />
-
-      {/* Print-only confidentiality footer (repeats per page in Chrome). Only the
-          JV record (standard chart + recorded signatures) carries the system refs. */}
-      <div className="fixed inset-x-0 bottom-0 hidden items-center justify-between border-t border-border/60 bg-white px-3 pt-1 text-[8px] text-muted-foreground print:flex">
-        <span>
-          Renaissance Africa Energy Company Limited — Confidential
-          {printChart === "standard" && printSignatures === "system"
-            ? " · For JV partner distribution only"
-            : ""}
-        </span>
-        {printChart === "standard" && printSignatures === "system" && (
-          <span className="tabular-nums">
-            {docRef} · {statusLabel} · Uncontrolled when printed
-          </span>
-        )}
       </div>
 
       {/* Compact metadata bar (screen only — the print exec summary covers this) */}

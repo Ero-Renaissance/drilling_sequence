@@ -109,7 +109,7 @@ export function PlanLockBanner({
       ) : (
         <span className="text-amber-800">
           <span className="font-semibold">
-            {rev} is awaiting approval
+            {rev} is awaiting {approval?.status === "pending_review" ? "support" : "approval"}
             {approval?.status === "pending_approval" && approval.approvers > 0
               ? ` · ${approval.signed}/${approval.approvers} signed`
               : ""}
@@ -148,13 +148,13 @@ export function SignerActionBanner({
       <PenLine className="h-4 w-4 shrink-0 text-amber-700" />
       <span className="text-amber-900">
         <span className="font-semibold">
-          {rev} is awaiting your {reviewing ? "review" : "approval"}
+          {rev} is awaiting your {reviewing ? "support" : "approval"}
           {progress}.
         </span>
       </span>
       <Button size="sm" asChild className="ml-auto">
         <Link to={`/projects/${projectId}/revisions/${lock.revision_id}`}>
-          {reviewing ? "Open & review" : "Review & sign"}
+          {reviewing ? "Support & Sign" : "Approve & Sign"}
         </Link>
       </Button>
     </div>

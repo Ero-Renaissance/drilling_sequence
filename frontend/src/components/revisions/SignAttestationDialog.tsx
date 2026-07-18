@@ -19,12 +19,12 @@ const COPY = {
     confirm: "Sign & approve",
   },
   review: {
-    title: "Sign off review",
+    title: "Support & Sign",
     description:
-      "Your sign-off records technical concurrence; approval follows once every reviewer has signed. The attestation below is stored with it.",
+      "Your signature records your support for this revision's progression; it advances to approval once every reviewer has signed. The attestation below is stored with it.",
     statement:
       "I have reviewed the technical content of this revision and the discussion thread.",
-    confirm: "Sign off review",
+    confirm: "Support & Sign",
   },
 } as const;
 

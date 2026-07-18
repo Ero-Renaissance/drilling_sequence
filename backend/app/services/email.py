@@ -55,17 +55,26 @@ def notify_revision_pending(
     project_name: str,
     rev_label: str,
     project_id,
+    stage: str = "approval",
 ) -> None:
-    """Notify designated approvers that a revision needs their signature."""
+    """Notify the designated signers whose action is needed next. `stage` is
+    "review" (reviewers — the UI calls their sign-off "support") or "approval"
+    (approvers); it only shapes the wording, never the routing."""
     # Land on the campaign OVERVIEW (context first) — a banner there takes an
     # eligible signer straight to the revision. (/approvals was a dead route.)
     link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/overview"
-    subject = f"{_SUBJECT_PREFIX} {rev_label} awaiting your approval — {project_name}"
+    action = "support" if stage == "review" else "approval"
+    next_steps = (
+        "support & sign, or request changes"
+        if stage == "review"
+        else "approve & sign, request changes, or reject"
+    )
+    subject = f"{_SUBJECT_PREFIX} {rev_label} awaiting your {action} — {project_name}"
     body = (
-        f"A new revision is ready for your review on project \"{project_name}\".\n\n"
+        f"A new revision is ready for your {action} on project \"{project_name}\".\n\n"
         f"Revision: {rev_label}\n\n"
-        f"Open the campaign — the banner takes you to review, sign, request "
-        f"changes, or reject:\n{link}\n"
+        f"Open the campaign — the banner takes you straight to the revision "
+        f"({next_steps}):\n{link}\n"
         f"{_FOOTER}"
     )
     send_email(recipients, subject, body)

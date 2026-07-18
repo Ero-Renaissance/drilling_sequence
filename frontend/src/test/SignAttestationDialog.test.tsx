@@ -38,7 +38,7 @@ describe("SignAttestationDialog", () => {
     expect(
       screen.getByText(/reviewed the technical content of this revision/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Sign off review — Rev\. 02/)).toBeInTheDocument();
+    expect(screen.getByText(/Support & Sign — Rev\. 02/)).toBeInTheDocument();
   });
 
   it("states the approval declaration against the last approved plan", () => {

@@ -21,7 +21,7 @@ describe("planStateLabel", () => {
     expect(planStateLabel(summary({ status: "pending_approval" }))).toEqual({
       label: "Pending approval · no approvers", tone: "red",
     });
-    expect(planStateLabel(summary({ status: "pending_review" })).label).toBe("Pending review");
+    expect(planStateLabel(summary({ status: "pending_review" })).label).toBe("Pending support");
     expect(planStateLabel(summary({ status: "changes_requested" })).label).toBe(
       "Changes requested",
     );
