@@ -1,4 +1,5 @@
 import type { ChangeNote } from "@/api/change-notes";
+import { NoteText } from "@/components/ui/note-text";
 
 function label(n: ChangeNote): string {
   if (n.kind === "terrain") return `Terrain · ${n.resource_name ?? ""}`;
@@ -48,7 +49,7 @@ export function ChangeNotesPanel({
           className="rounded-lg border border-border/70 bg-card p-3 shadow-soft-sm"
         >
           <div className="mb-1 text-xs font-semibold text-foreground">{label(n)}</div>
-          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{n.body}</p>
+          <NoteText body={n.body} className="text-sm text-muted-foreground" />
         </div>
       ))}
     </div>

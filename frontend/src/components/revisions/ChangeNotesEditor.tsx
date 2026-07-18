@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { upsertChangeNote, type ChangeNote, type ChangeNoteKind } from "@/api/change-notes";
 import type { ActivityDiff, ContractDiff } from "@/api/compare";
+import { NoteText } from "@/components/ui/note-text";
+import { NoteToolbar } from "@/components/ui/note-toolbar";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { toast } from "@/components/ui/toaster";
 import {
@@ -238,6 +240,7 @@ function ResourceBlock({
   const [body, setBody] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [saving, setSaving] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [open, setOpen] = useState(defaultOpen);
@@ -365,12 +368,23 @@ function ResourceBlock({
 
       {open && group.kind !== "unassigned" && (readOnly ? (
         initial.trim() ? (
-          <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1.5 text-sm text-foreground/90">
-            {initial}
-          </p>
+          <NoteText
+            body={initial}
+            className="mt-1 rounded-md bg-muted/40 px-2 py-1.5 text-sm text-foreground/90"
+          />
         ) : null
       ) : (
+        <>
+        {canEdit && (
+          <NoteToolbar
+            textareaRef={textareaRef}
+            value={body}
+            onChange={setBody}
+            disabled={saving}
+          />
+        )}
         <textarea
+          ref={textareaRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onBlur={save}
@@ -389,6 +403,7 @@ function ResourceBlock({
           }
           className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring read-only:opacity-70 disabled:opacity-60"
         />
+        </>
       ))}
     </div>
   );
