@@ -83,10 +83,10 @@ describe("ProjectDashboard", () => {
     await screen.findByText("Fleet status");
     // A 2×2: one column per kind — procured count headlines, that kind's
     // planned (no awarded unit yet) count sits beneath it.
-    expect(screen.getByText("rigs")).toBeInTheDocument(); // 5 rigs
-    expect(screen.getByText("HWUs")).toBeInTheDocument(); // 2 HWUs
-    expect(screen.getByText("3 planned")).toBeInTheDocument(); // rig column
-    expect(screen.getByText("1 planned")).toBeInTheDocument(); // HWU column
+    expect(screen.getByText("rigs in use")).toBeInTheDocument(); // 5 rigs
+    expect(screen.getByText("HWUs in use")).toBeInTheDocument(); // 2 HWUs
+    expect(screen.getByText("3 rigs planned")).toBeInTheDocument();
+    expect(screen.getByText("1 HWU planned")).toBeInTheDocument();
   });
 
   it("removed the needs-attention section from the overview", async () => {

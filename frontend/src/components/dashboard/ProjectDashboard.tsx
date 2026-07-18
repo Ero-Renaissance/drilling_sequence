@@ -66,22 +66,22 @@ function FleetTile({ rigs, to }: { rigs: DashboardResponse["rigs"]; to: string }
           <p className="text-2xl font-semibold text-foreground">
             {rigs.in_use}
             <span className="ml-1 text-xs font-normal text-muted-foreground">
-              {rigs.in_use === 1 ? "rig" : "rigs"}
+              {rigs.in_use === 1 ? "rig" : "rigs"} in use
             </span>
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground" title={plannedHint}>
-            {rigs.planned_rigs} planned
+            {rigs.planned_rigs} {rigs.planned_rigs === 1 ? "rig" : "rigs"} planned
           </p>
         </div>
         <div>
           <p className="text-2xl font-semibold text-foreground">
             {rigs.hwus_in_use}
             <span className="ml-1 text-xs font-normal text-muted-foreground">
-              {rigs.hwus_in_use === 1 ? "HWU" : "HWUs"}
+              {rigs.hwus_in_use === 1 ? "HWU" : "HWUs"} in use
             </span>
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground" title={plannedHint}>
-            {rigs.planned_hwus} planned
+            {rigs.planned_hwus} {rigs.planned_hwus === 1 ? "HWU" : "HWUs"} planned
           </p>
         </div>
       </div>
