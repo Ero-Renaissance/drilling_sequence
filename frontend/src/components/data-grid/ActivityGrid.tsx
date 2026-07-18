@@ -429,6 +429,17 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
 
   const columns = useMemo(
     () => [
+      helper.accessor("well_project", {
+        header: "Project",
+        size: 130,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() ?? null}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_project", v)}
+          />
+        ),
+      }),
       helper.accessor("activity_type", {
         header: "Activity Type",
         size: 180,
@@ -447,6 +458,43 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
               </span>
             )}
           </div>
+        ),
+      }),
+      helper.accessor((row) => (row.hwu_name ? "HWU" : row.rig_name ? "Rig" : ""), {
+        id: "resource_type",
+        header: "Resource Type",
+        size: 110,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() || null}
+            options={["Rig", "HWU"]}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateResourceType(row.original.id, v)}
+          />
+        ),
+      }),
+      helper.accessor((row) => row.hwu_name ?? row.rig_name ?? null, {
+        id: "resource_name",
+        header: "Resource Name",
+        size: 130,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() ?? null}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateResourceName(row.original.id, v)}
+          />
+        ),
+      }),
+      helper.accessor("market", {
+        header: "Market",
+        size: 110,
+        cell: ({ getValue, row, table }) => (
+          <EditableCell
+            value={getValue() ?? null}
+            options={MARKETS}
+            readOnly={!!row.original.locked_by_revision_id}
+            onSave={(v) => table.options.meta?.updateCell(row.original.id, "market", v)}
+          />
         ),
       }),
       helper.accessor("start_date", {
@@ -483,54 +531,6 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
             value={getValue() ?? null}
             readOnly={!!row.original.locked_by_revision_id}
             onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_name", v)}
-          />
-        ),
-      }),
-      helper.accessor("well_project", {
-        header: "Project",
-        size: 130,
-        cell: ({ getValue, row, table }) => (
-          <EditableCell
-            value={getValue() ?? null}
-            readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_project", v)}
-          />
-        ),
-      }),
-      helper.accessor("market", {
-        header: "Market",
-        size: 110,
-        cell: ({ getValue, row, table }) => (
-          <EditableCell
-            value={getValue() ?? null}
-            options={MARKETS}
-            readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateCell(row.original.id, "market", v)}
-          />
-        ),
-      }),
-      helper.accessor((row) => (row.hwu_name ? "HWU" : row.rig_name ? "Rig" : ""), {
-        id: "resource_type",
-        header: "Resource Type",
-        size: 110,
-        cell: ({ getValue, row, table }) => (
-          <EditableCell
-            value={getValue() || null}
-            options={["Rig", "HWU"]}
-            readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateResourceType(row.original.id, v)}
-          />
-        ),
-      }),
-      helper.accessor((row) => row.hwu_name ?? row.rig_name ?? null, {
-        id: "resource_name",
-        header: "Resource Name",
-        size: 130,
-        cell: ({ getValue, row, table }) => (
-          <EditableCell
-            value={getValue() ?? null}
-            readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateResourceName(row.original.id, v)}
           />
         ),
       }),
