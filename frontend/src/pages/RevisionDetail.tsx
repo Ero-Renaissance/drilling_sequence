@@ -132,7 +132,7 @@ function StatusBadge({ status }: { status: RevisionDetailType["status"] }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/12 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400">
         <PenLine className="h-3 w-3" />
-        Awaiting support
+        Awaiting endorsement
       </span>
     );
   }
@@ -754,9 +754,9 @@ export function RevisionDetail() {
         {revision.review_skipped && (
           <span
             className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-            title="The planner submitted this straight to approval, skipping the support stage."
+            title="The planner submitted this straight to approval, skipping the endorsement stage."
           >
-            Support skipped
+            Endorsement skipped
           </span>
         )}
 
@@ -765,7 +765,7 @@ export function RevisionDetail() {
             <>
               <Button onClick={() => setSignStage("review")} disabled={reviewSigning} data-testid="sign-review">
                 <PenLine className="h-4 w-4" />
-                {reviewSigning ? "Signing…" : "Support & Sign"}
+                {reviewSigning ? "Signing…" : "Endorse & Sign"}
               </Button>
               <Button
                 variant="outline"
@@ -784,7 +784,7 @@ export function RevisionDetail() {
               className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-600 dark:text-sky-400"
               data-testid="supported-chip"
             >
-              <CheckCircle2 className="h-3.5 w-3.5" /> Supported
+              <CheckCircle2 className="h-3.5 w-3.5" /> Endorsed
             </span>
           )}
           {canSign && (

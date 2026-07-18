@@ -36,9 +36,9 @@ describe("SignAttestationDialog", () => {
   it("shows the stage-appropriate declaration", () => {
     setup("review");
     expect(
-      screen.getByText(/I support the plan captured in this revision/i),
+      screen.getByText(/I endorse the plan captured in this revision/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Support & Sign — Rev\. 02/)).toBeInTheDocument();
+    expect(screen.getByText(/Endorse & Sign — Rev\. 02/)).toBeInTheDocument();
   });
 
   it("states the approval declaration for the revision", () => {

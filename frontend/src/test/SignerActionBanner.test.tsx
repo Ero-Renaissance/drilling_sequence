@@ -39,7 +39,7 @@ describe("SignerActionBanner", () => {
     );
   });
 
-  it("reads as a support ask during the review stage", () => {
+  it("reads as an endorsement ask during the review stage", () => {
     render(
       <MemoryRouter>
         <SignerActionBanner
@@ -49,7 +49,7 @@ describe("SignerActionBanner", () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/awaiting your support\./)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Support & Sign" })).toBeInTheDocument();
+    expect(screen.getByText(/awaiting your endorsement\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Endorse & Sign" })).toBeInTheDocument();
   });
 });

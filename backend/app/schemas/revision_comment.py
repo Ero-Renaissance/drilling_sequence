@@ -16,7 +16,8 @@ class RevisionCommentResponse(BaseModel):
     revision_id: uuid.UUID
     user_id: uuid.UUID | None
     user_name: str | None
-    # Capacity held at post time: "Admin" | "Approver" | "Reviewer" | "Planner"
+    # Capacity held at post time: "Admin" | "Approver" | "Endorser" | "Planner"
+    # (rows predating the Endorse vocabulary read "Reviewer" — kept verbatim).
     author_role: str
     # Revision stage at post time: "review" | "approval"
     stage: str

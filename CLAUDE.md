@@ -25,13 +25,15 @@ Three near-synonyms mean three different things here; keep them straight.
   "Project".
 - **Sequence** / **Rig Sequence** — the Gantt timeline view and the print-out
   ("Rig Sequence — …"); the product itself is the "Drilling Sequence Planner".
-- **Support** — the USER-FACING verb for the review stage's affirmative decision
-  (buttons "Support & Sign", chip "Pending support", state "Supported"); the
-  approval stage uses **Approve** ("Approve & Sign"). In CODE and the DATABASE
-  the stage stays **`review`** (`pending_review`, `Signature.stage="review"`,
-  `review_signed` audit events) and the designated person stays a **Reviewer**
-  (role noun, admin matrix, emails' salutations). Do NOT rename the stored
-  enums/audit vocabulary — UI copy only, same precedent as Campaign/`Project`.
+- **Endorse** — the USER-FACING vocabulary for the review stage: the people are
+  **Endorsers**, the act is "Endorse & Sign", states read "Pending endorsement" /
+  "Endorsed" / "Endorsement skipped", and the settings card is the "Endorsement
+  stage". The approval stage uses **Approve** ("Approve & Sign"). In CODE and
+  the DATABASE the stage stays **`review`** (`pending_review`,
+  `Signature.stage="review"`, `review_signed` audit events, `ProjectApprover`
+  kind="reviewer", `/reviewers` routes). Do NOT rename the stored enums, routes
+  or audit vocabulary — UI copy only, same precedent as Campaign/`Project`.
+  (Historical audit/comment rows may read "Reviewer"/"review" — leave them.)
 Net: Campaign (the container, code=`Project`) · Project (the well's field group,
 code=`well_project`) · Sequence (the chart + print + product name).
 

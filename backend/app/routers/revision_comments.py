@@ -74,7 +74,7 @@ async def _author_role(
         if "approver" in kinds:
             return "Approver"
         if "reviewer" in kinds:
-            return "Reviewer"
+            return "Endorser"
     try:
         await assert_member(project_id, user, db, allowed_roles={ProjectRole.planner})
         return "Planner"

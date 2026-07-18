@@ -562,7 +562,7 @@ async def test_review_signoff_records_review_attestation(
             )
         )
     ).scalar_one()
-    assert "I support its progression to approval" in (row.attestation or "")
+    assert "I endorse its progression to approval" in (row.attestation or "")
     assert "first submission" in (row.attestation or "")
     # And the stage advanced: all required reviewers have signed.
     revs = (await client.get(f"/api/projects/{project_id}/revisions")).json()

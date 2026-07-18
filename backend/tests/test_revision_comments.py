@@ -140,7 +140,7 @@ async def test_reviewer_comments_during_review_stage(
         _url(project_id, revision_id), json={"body": "Subsurface inputs verified."}
     )
     assert r.status_code == 201, r.text
-    assert r.json()["author_role"] == "Reviewer"
+    assert r.json()["author_role"] == "Endorser"
     assert r.json()["stage"] == "review"
 
 

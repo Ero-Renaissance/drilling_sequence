@@ -65,7 +65,7 @@ async def add_reviewer(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Reviewer with this email already exists")
+        raise HTTPException(status_code=409, detail="Endorser with this email already exists")
 
     reviewer = ProjectApprover(
         project_id=project_id,
@@ -104,7 +104,7 @@ async def remove_reviewer(
     await assert_signer_lists_not_frozen(project_id, db)
     reviewer = await db.get(ProjectApprover, reviewer_id)
     if not reviewer or reviewer.project_id != project_id or reviewer.kind != "reviewer":
-        raise HTTPException(status_code=404, detail="Reviewer not found")
+        raise HTTPException(status_code=404, detail="Endorser not found")
     db.add(
         governance_event(
             project_id=project_id,

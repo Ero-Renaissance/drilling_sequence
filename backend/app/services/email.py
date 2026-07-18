@@ -58,14 +58,14 @@ def notify_revision_pending(
     stage: str = "approval",
 ) -> None:
     """Notify the designated signers whose action is needed next. `stage` is
-    "review" (reviewers — the UI calls their sign-off "support") or "approval"
+    "review" (endorsers — the UI calls their sign-off "endorsement") or "approval"
     (approvers); it only shapes the wording, never the routing."""
     # Land on the campaign OVERVIEW (context first) — a banner there takes an
     # eligible signer straight to the revision. (/approvals was a dead route.)
     link = f"{settings.app_base_url.rstrip('/')}/projects/{project_id}/overview"
-    action = "support" if stage == "review" else "approval"
+    action = "endorsement" if stage == "review" else "approval"
     next_steps = (
-        "support & sign, or request changes"
+        "endorse & sign, or request changes"
         if stage == "review"
         else "approve & sign, request changes, or reject"
     )

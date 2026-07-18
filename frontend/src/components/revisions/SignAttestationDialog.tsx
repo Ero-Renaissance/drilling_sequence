@@ -18,11 +18,11 @@ const COPY = {
     confirm: "Approve & Sign",
   },
   review: {
-    title: "Support & Sign",
+    title: "Endorse & Sign",
     description:
-      "Your signature records your support for this revision's progression; it advances to approval once every reviewer has signed. The attestation below is stored with it.",
-    statement: "I support the plan captured in this revision.",
-    confirm: "Support & Sign",
+      "Your signature records your endorsement of this revision's progression; it advances to approval once every endorser has signed. The attestation below is stored with it.",
+    statement: "I endorse the plan captured in this revision.",
+    confirm: "Endorse & Sign",
   },
 } as const;
 

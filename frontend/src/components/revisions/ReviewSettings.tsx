@@ -19,9 +19,9 @@ function initials(value: string): string {
 }
 
 const POLICY_COPY: Record<ReviewPolicy, string> = {
-  required: "Every revision must gather reviewers' support before approval.",
-  optional: "The planner chooses per revision whether to route through the support stage.",
-  off: "The support stage is off — revisions go straight to approval.",
+  required: "Every revision must be endorsed before it can go to approval.",
+  optional: "The planner chooses per revision whether to route through the endorsement stage.",
+  off: "The endorsement stage is off — revisions go straight to approval.",
 };
 
 // ── Review policy selector ────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ function ReviewPolicyCard({ projectId }: { projectId: string }) {
           <SlidersHorizontal className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">Support stage</h2>
+          <h2 className="text-sm font-semibold text-foreground">Endorsement stage</h2>
           <p className="text-xs text-muted-foreground">{POLICY_COPY[policy]}</p>
         </div>
         <select
@@ -69,7 +69,7 @@ function ReviewPolicyCard({ projectId }: { projectId: string }) {
           disabled={saving}
           className="rounded-md border border-border bg-background px-2 py-1 text-sm"
           data-testid="review-policy-select"
-          aria-label="Support stage policy"
+          aria-label="Endorsement stage policy"
         >
           <option value="required">Required</option>
           <option value="optional">Optional</option>
@@ -95,7 +95,7 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [roleLabel, setRoleLabel] = useState("Reviewer");
+  const [roleLabel, setRoleLabel] = useState("Endorser");
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
@@ -123,15 +123,15 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
       const r = await addReviewer(projectId, {
         email: email.trim(),
         name: name.trim() || undefined,
-        role_label: roleLabel.trim() || "Reviewer",
+        role_label: roleLabel.trim() || "Endorser",
       });
       setReviewers((prev) => [...prev, r]);
       setEmail("");
       setName("");
-      setRoleLabel("Reviewer");
+      setRoleLabel("Endorser");
       setShowForm(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add reviewer");
+      setError(err instanceof Error ? err.message : "Failed to add endorser");
     } finally {
       setAdding(false);
     }
@@ -142,7 +142,7 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
       await removeReviewer(projectId, reviewer.id);
       setReviewers((prev) => prev.filter((r) => r.id !== reviewer.id));
     } catch {
-      setError("Failed to remove reviewer");
+      setError("Failed to remove endorser");
     }
   }
 
@@ -157,11 +157,11 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
           <UserSearch className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">Reviewers</h2>
+          <h2 className="text-sm font-semibold text-foreground">Endorsers</h2>
           <p className="text-xs text-muted-foreground">
             {reviewers.length === 0
-              ? "Designate reviewers — all must sign off before a revision goes to approval"
-              : `${reviewers.length} reviewer${reviewers.length === 1 ? "" : "s"} · all sign off before approval`}
+              ? "Designate endorsers — all must endorse before a revision goes to approval"
+              : `${reviewers.length} endorser${reviewers.length === 1 ? "" : "s"} · all endorse before approval`}
           </p>
         </div>
         {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
@@ -204,7 +204,7 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
                       type="button"
                       onClick={() => handleRemove(r)}
                       className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                      title="Remove reviewer"
+                      title="Remove endorser"
                       data-testid="remove-reviewer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -253,7 +253,7 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
               </div>
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={adding || !email.trim()}>
-                  {adding ? "Adding…" : "Add reviewer"}
+                  {adding ? "Adding…" : "Add endorser"}
                 </Button>
                 <Button
                   type="button"
@@ -276,7 +276,7 @@ function ReviewerList({ projectId, frozen = false }: { projectId: string; frozen
               data-testid="add-reviewer-btn"
             >
               <Plus className="h-3.5 w-3.5" />
-              Add reviewer
+              Add endorser
             </button>
           )}
         </div>

@@ -116,6 +116,6 @@ describe("Print on the Approvals tab", () => {
       expect(screen.getByTestId("review-revision")).toBeInTheDocument();
     });
     const label = screen.getByTestId("review-revision").textContent ?? "";
-    expect(/Open & (support|approve)/.test(label)).toBe(true);
+    expect(/Open & (endorse|approve)/.test(label)).toBe(true);
   });
 });

@@ -79,7 +79,7 @@ function StatusBadge({ status }: { status: Revision["status"] }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/12 px-2 py-0.5 text-[11px] font-medium text-sky-600 dark:text-sky-400">
         <PenLine className="h-3 w-3" />
-        Awaiting support
+        Awaiting endorsement
       </span>
     );
   }
@@ -95,9 +95,9 @@ function ReviewSkippedBadge() {
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-      title="The planner submitted this straight to approval, skipping the support stage."
+      title="The planner submitted this straight to approval, skipping the endorsement stage."
     >
-      Support skipped
+      Endorsement skipped
     </span>
   );
 }
@@ -198,7 +198,7 @@ function PendingRevisionCard({
           </p>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {rev.status === "pending_review"
-              ? "Awaiting reviewers' support before it can go to approval."
+              ? "Awaiting endorsement before it can go to approval."
               : "Review the changes and schedule snapshot before deciding."}
           </p>
         </div>
@@ -209,7 +209,7 @@ function PendingRevisionCard({
             <Link to={`/projects/${projectId}/revisions/${rev.id}`}>
               <GitCompare className="h-3.5 w-3.5" />
               <span className="ml-1.5">
-                {rev.status === "pending_review" ? "Open & support" : "Open & approve"}
+                {rev.status === "pending_review" ? "Open & endorse" : "Open & approve"}
               </span>
             </Link>
           </Button>
@@ -228,7 +228,7 @@ function PendingRevisionCard({
       </div>
 
       {rev.reviewer_status.length > 0 && (
-        <ApproverStatusList statuses={rev.reviewer_status} title="Required support" />
+        <ApproverStatusList statuses={rev.reviewer_status} title="Required endorsements" />
       )}
 
       {rev.approver_status.length > 0 && <ApproverStatusList statuses={rev.approver_status} />}

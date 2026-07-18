@@ -799,7 +799,7 @@ function SignOff({ revision }: { revision: RevisionDetail }) {
           </tr>
         </thead>
         <tbody>
-          {group("Reviewers", reviewers)}
+          {group("Endorsers", reviewers)}
           {group("Approvers", approvers)}
         </tbody>
       </table>
@@ -851,9 +851,9 @@ function ManualSignOff({ revision }: { revision: RevisionDetail }) {
 
   return (
     <div className="mt-5 print:break-inside-avoid">
-      <h2 className="mb-1 text-[11px] font-semibold text-foreground">Support &amp; approval signatures</h2>
+      <h2 className="mb-1 text-[11px] font-semibold text-foreground">Endorsement &amp; approval signatures</h2>
       <p className="mb-2 text-[9px] text-muted-foreground">
-        Each reviewer and approver signs and dates below to record their support/approval of
+        Each reviewer and approver signs and dates below to record their endorsement/approval of
         this rig sequence.
       </p>
       <table className="w-full max-w-3xl border-collapse text-[10px]">
@@ -866,7 +866,7 @@ function ManualSignOff({ revision }: { revision: RevisionDetail }) {
           </tr>
         </thead>
         <tbody>
-          {group("Reviewers", reviewers, 2)}
+          {group("Endorsers", reviewers, 2)}
           {group("Approvers", approvers, 2)}
         </tbody>
       </table>
@@ -983,7 +983,7 @@ export function RevisionPrintDoc({
             {isReadiness
               ? "Readiness"
               : isWetInk
-                ? "For Support & Approval"
+                ? "For Endorsement & Approval"
                 : isApproved
                   ? "Approved Sequence"
                   : "Draft (Not for distribution)"}
@@ -1019,7 +1019,7 @@ export function RevisionPrintDoc({
             )}
           >
             {isWetInk
-              ? "For support & approval"
+              ? "For endorsement & approval"
               : isApproved
                 ? "Approved"
                 : revision.status.replace(/_/g, " ")}

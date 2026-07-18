@@ -35,7 +35,7 @@ function statusLabel(status: Revision["status"]): string {
     case "discarded":
       return "Discarded";
     case "pending_review":
-      return "Awaiting support";
+      return "Awaiting endorsement";
     default:
       return "Pending approval";
   }

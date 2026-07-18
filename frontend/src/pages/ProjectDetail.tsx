@@ -109,7 +109,7 @@ export function PlanLockBanner({
       ) : (
         <span className="text-amber-800">
           <span className="font-semibold">
-            {rev} is awaiting {approval?.status === "pending_review" ? "support" : "approval"}
+            {rev} is awaiting {approval?.status === "pending_review" ? "endorsement" : "approval"}
             {approval?.status === "pending_approval" && approval.approvers > 0
               ? ` · ${approval.signed}/${approval.approvers} signed`
               : ""}
@@ -148,13 +148,13 @@ export function SignerActionBanner({
       <PenLine className="h-4 w-4 shrink-0 text-amber-700" />
       <span className="text-amber-900">
         <span className="font-semibold">
-          {rev} is awaiting your {reviewing ? "support" : "approval"}
+          {rev} is awaiting your {reviewing ? "endorsement" : "approval"}
           {progress}.
         </span>
       </span>
       <Button size="sm" asChild className="ml-auto">
         <Link to={`/projects/${projectId}/revisions/${lock.revision_id}`}>
-          {reviewing ? "Support & Sign" : "Approve & Sign"}
+          {reviewing ? "Endorse & Sign" : "Approve & Sign"}
         </Link>
       </Button>
     </div>
@@ -746,7 +746,7 @@ export function SignaturesTab() {
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-foreground">Governance settings</h2>
             <p className="text-xs text-muted-foreground">
-              Support stage · reviewers · required approvers
+              Endorsement stage · endorsers · required approvers
               {signersFrozen && " — signer lists frozen while a revision is open"}
             </p>
           </div>

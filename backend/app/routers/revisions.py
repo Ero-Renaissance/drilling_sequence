@@ -244,7 +244,7 @@ async def _attestation_text(revision: Revision, stage: str, db: AsyncSession) ->
     if stage == "review":
         return (
             f"I confirm I have reviewed {scope} for Rev. {revision.rev_number:02d}, "
-            f"and I support its progression to approval."
+            f"and I endorse its progression to approval."
         )
     return (
         f"I confirm I have reviewed {scope} for Rev. {revision.rev_number:02d}, "
