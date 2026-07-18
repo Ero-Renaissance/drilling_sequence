@@ -19,9 +19,9 @@ function initials(value: string): string {
 }
 
 const POLICY_COPY: Record<ReviewPolicy, string> = {
-  required: "Every revision must pass review before approval.",
-  optional: "The planner chooses per revision whether to route through review.",
-  off: "Review is unavailable — revisions go straight to approval.",
+  required: "Every revision must gather reviewers' support before approval.",
+  optional: "The planner chooses per revision whether to route through the support stage.",
+  off: "The support stage is off — revisions go straight to approval.",
 };
 
 // ── Review policy selector ────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ function ReviewPolicyCard({ projectId }: { projectId: string }) {
           <SlidersHorizontal className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">Review policy</h2>
+          <h2 className="text-sm font-semibold text-foreground">Support stage</h2>
           <p className="text-xs text-muted-foreground">{POLICY_COPY[policy]}</p>
         </div>
         <select
@@ -69,7 +69,7 @@ function ReviewPolicyCard({ projectId }: { projectId: string }) {
           disabled={saving}
           className="rounded-md border border-border bg-background px-2 py-1 text-sm"
           data-testid="review-policy-select"
-          aria-label="Review policy"
+          aria-label="Support stage policy"
         >
           <option value="required">Required</option>
           <option value="optional">Optional</option>

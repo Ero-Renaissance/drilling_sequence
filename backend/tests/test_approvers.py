@@ -469,7 +469,7 @@ async def test_signature_records_first_submission_attestation(
     # Server-owned wording: names the resolved baseline (none here) and the rev.
     assert "first submission" in sig["attestation"]
     assert "Rev. 01" in sig["attestation"]
-    assert "before approving" in sig["attestation"]
+    assert "I approve the plan it captures" in sig["attestation"]
 
 
 @pytest.mark.asyncio
@@ -562,7 +562,7 @@ async def test_review_signoff_records_review_attestation(
             )
         )
     ).scalar_one()
-    assert "as its technical review" in (row.attestation or "")
+    assert "I support its progression to approval" in (row.attestation or "")
     assert "first submission" in (row.attestation or "")
     # And the stage advanced: all required reviewers have signed.
     revs = (await client.get(f"/api/projects/{project_id}/revisions")).json()

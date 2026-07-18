@@ -106,7 +106,7 @@ function ReviewSkippedBadge() {
 
 function ApproverStatusList({
   statuses,
-  title = "Required signatures",
+  title = "Required approvals",
 }: {
   statuses: ApproverSignStatus[];
   title?: string;

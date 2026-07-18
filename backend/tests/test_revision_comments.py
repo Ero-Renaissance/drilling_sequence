@@ -163,3 +163,44 @@ async def test_comment_bounds_and_bola(client: AsyncClient) -> None:
     assert (
         await client.post(_url(other_project, revision_id), json={"body": "x"})
     ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_comment_notifies_participants_but_never_the_author(
+    client: AsyncClient, other_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The thread is only useful if it is heard: a comment emails the
+    revision's creator plus everyone who commented before — minus the author,
+    so nobody is notified about their own words."""
+    import app.routers.revision_comments as rc
+
+    sent: list[dict] = []
+
+    def record(**kwargs) -> None:
+        sent.append(kwargs)
+
+    monkeypatch.setattr(rc, "notify_revision_comment", record)
+
+    project_id, revision_id = await _pending_revision(client)
+
+    # Approver comments → the creator (test@) is notified; the author is not.
+    r = await other_client.post(
+        _url(project_id, revision_id), json={"body": "Why did Rig 2 move to March?"}
+    )
+    assert r.status_code == 201, r.text
+    assert len(sent) == 1
+    assert sent[0]["recipients"] == ["test@company.com"]
+    assert "Why did Rig 2 move" in sent[0]["body"]
+
+    # Creator replies → the prior commenter is notified, the creator is not.
+    r = await client.post(
+        _url(project_id, revision_id), json={"body": "LLI slipped — see readiness."}
+    )
+    assert r.status_code == 201, r.text
+    assert len(sent) == 2
+    assert sent[1]["recipients"] == ["other@company.com"]
+
+    # The author never self-notifies even as a prior participant.
+    r = await other_client.post(_url(project_id, revision_id), json={"body": "Clear, thanks."})
+    assert r.status_code == 201, r.text
+    assert sorted(sent[2]["recipients"]) == ["test@company.com"]

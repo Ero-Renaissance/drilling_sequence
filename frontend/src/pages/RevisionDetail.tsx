@@ -400,7 +400,7 @@ function SignaturesPanel({ revision }: { revision: RevisionDetailType }) {
     return (
       <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm print:break-inside-avoid">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Required signatures</h2>
+          <h2 className="text-sm font-semibold text-foreground">Required approvals</h2>
           <span className="text-xs tabular-nums text-muted-foreground">
             {signedCount} of {revision.approver_status.length}
           </span>

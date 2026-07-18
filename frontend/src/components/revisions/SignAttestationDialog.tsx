@@ -11,19 +11,17 @@ import {
 
 const COPY = {
   approval: {
-    title: "Sign & approve",
+    title: "Approve & Sign",
     description:
       "Your signature makes this revision part of the approved record. The attestation below is stored with it.",
-    statement:
-      "I have reviewed the changes against the last approved plan and the discussion thread.",
-    confirm: "Sign & approve",
+    statement: "I approve the plan captured in this revision.",
+    confirm: "Approve & Sign",
   },
   review: {
     title: "Support & Sign",
     description:
       "Your signature records your support for this revision's progression; it advances to approval once every reviewer has signed. The attestation below is stored with it.",
-    statement:
-      "I have reviewed the technical content of this revision and the discussion thread.",
+    statement: "I support the plan captured in this revision.",
     confirm: "Support & Sign",
   },
 } as const;

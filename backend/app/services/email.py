@@ -80,6 +80,36 @@ def notify_revision_pending(
     send_email(recipients, subject, body)
 
 
+def notify_revision_comment(
+    *,
+    recipients: list[str],
+    project_name: str,
+    rev_label: str,
+    author_name: str,
+    author_role: str,
+    body: str,
+    project_id,
+    revision_id,
+) -> None:
+    """Notify the revision's participants (creator + prior commenters, minus
+    the author) that the deliberation thread moved — a silent thread is a dead
+    letterbox, and a stalled question otherwise escalates into an unnecessary
+    request-changes round-trip."""
+    link = (
+        f"{settings.app_base_url.rstrip('/')}/projects/{project_id}"
+        f"/revisions/{revision_id}"
+    )
+    subject = f"{_SUBJECT_PREFIX} New comment on {rev_label} — {project_name}"
+    email_body = (
+        f"{author_name} ({author_role}) commented on {rev_label} "
+        f"in project \"{project_name}\":\n\n"
+        f"{body}\n\n"
+        f"Read and reply on the revision:\n{link}\n"
+        f"{_FOOTER}"
+    )
+    send_email(recipients, subject, email_body)
+
+
 def notify_revision_decision(
     *,
     recipient: str,

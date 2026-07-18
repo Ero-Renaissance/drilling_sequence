@@ -746,7 +746,7 @@ export function SignaturesTab() {
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-foreground">Governance settings</h2>
             <p className="text-xs text-muted-foreground">
-              Review policy · reviewers · required approvers
+              Support stage · reviewers · required approvers
               {signersFrozen && " — signer lists frozen while a revision is open"}
             </p>
           </div>

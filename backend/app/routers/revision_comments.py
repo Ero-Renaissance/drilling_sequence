@@ -16,7 +16,7 @@ without ENDING the pending state. Comments fill that gap:
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,10 +24,11 @@ from app.core.auth import get_current_user
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.approver import ProjectApprover
-from app.models.project import ProjectRole
+from app.models.project import Project, ProjectRole
 from app.models.revision import Revision, RevisionComment
 from app.models.user import User
 from app.schemas.revision_comment import RevisionCommentCreate, RevisionCommentResponse
+from app.services.email import notify_revision_comment
 
 router = APIRouter(
     prefix="/api/projects/{project_id}/revisions/{revision_id}/comments",
@@ -104,6 +105,7 @@ async def add_comment(
     project_id: uuid.UUID,
     revision_id: uuid.UUID,
     payload: RevisionCommentCreate,
+    background_tasks: BackgroundTasks,
     current_user: CurrentUser,
     db: DB,
 ) -> RevisionComment:
@@ -127,4 +129,32 @@ async def add_comment(
     db.add(comment)
     await db.commit()
     await db.refresh(comment)
+
+    # Notify the thread's participants — the revision's creator plus everyone
+    # who commented before, never the author themself. Fire-and-forget: email
+    # must not break the request path.
+    recipients: dict[str, None] = {}
+    if revision.creator and revision.creator.email:
+        recipients[revision.creator.email.lower()] = None
+    prior = await db.execute(
+        select(RevisionComment).where(RevisionComment.revision_id == revision_id)
+    )
+    for c in prior.scalars():
+        if c.user and c.user.email:
+            recipients[c.user.email.lower()] = None
+    if current_user.email:
+        recipients.pop(current_user.email.lower(), None)
+    if recipients:
+        project = await db.get(Project, project_id)
+        background_tasks.add_task(
+            notify_revision_comment,
+            recipients=list(recipients),
+            project_name=project.name if project else "a project",
+            rev_label=revision.label or f"Rev. {revision.rev_number:02d}",
+            author_name=current_user.name or "A colleague",
+            author_role=role,
+            body=payload.body,
+            project_id=project_id,
+            revision_id=revision_id,
+        )
     return comment
