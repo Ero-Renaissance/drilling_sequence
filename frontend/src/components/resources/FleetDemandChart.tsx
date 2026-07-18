@@ -75,10 +75,16 @@ function tooltipRows(params: unknown): string {
 export function FleetDemandChart({
   projectId,
   refreshToken = 0,
+  activeYear = null,
+  onYearClick,
 }: {
   projectId: string;
   /** Bump to re-fetch (the registry notifies after unit add/edit). */
   refreshToken?: number;
+  /** Year the registry below is filtered to — highlighted on the axis. */
+  activeYear?: number | null;
+  /** Bar click → filter the registry to that year (toggle handled by the tab). */
+  onYearClick?: (year: number) => void;
 }) {
   const dark = useThemeStore((s) => s.resolved) === "dark";
   const axisLabel = dark ? "#94a3b8" : "#64748b";
@@ -200,7 +206,13 @@ export function FleetDemandChart({
       xAxis: {
         type: "category",
         data: view.years.map(String),
-        axisLabel: { color: axisLabel },
+        axisLabel: {
+          color: axisLabel,
+          // The filtered year reads bold so the chart shows what the registry
+          // below is scoped to.
+          formatter: (v: string) => (activeYear !== null && v === String(activeYear) ? `{on|${v}}` : v),
+          rich: { on: { color: totalLabel, fontWeight: "bold" } },
+        },
         axisLine: { lineStyle: { color: axisLine } },
         axisTick: { show: false },
       },
@@ -214,7 +226,21 @@ export function FleetDemandChart({
       },
       series: bars,
     };
-  }, [view, axisLabel, axisLine, splitLine, totalLabel]);
+  }, [view, activeYear, axisLabel, axisLine, splitLine, totalLabel]);
+
+  // Clicking a year's bar filters the fleet registry below to that year.
+  const onEvents = useMemo(
+    () =>
+      onYearClick
+        ? {
+            click: (p: { name?: string }) => {
+              const y = Number(p.name);
+              if (Number.isInteger(y) && y > 1900) onYearClick(y);
+            },
+          }
+        : undefined,
+    [onYearClick],
+  );
 
   const unitWord = kind === "rig" ? "rig" : "HWU";
   const scopedOut = view.years.length === 0 && demand.years.length > 0;
@@ -309,6 +335,7 @@ export function FleetDemandChart({
         <ReactECharts
           echarts={echarts}
           option={option}
+          onEvents={onEvents}
           style={{ height: 260 }}
           notMerge
           lazyUpdate

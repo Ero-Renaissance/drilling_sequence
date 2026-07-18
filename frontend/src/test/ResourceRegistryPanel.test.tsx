@@ -27,6 +27,11 @@ vi.mock("@/api/contracts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/contracts")>();
   return { ...actual, listContracts: vi.fn(async () => CONTRACTS), upsertContract: vi.fn() };
 });
+const listActivities = vi.fn(async () => [] as unknown[]);
+vi.mock("@/api/activities", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/activities")>();
+  return { ...actual, listActivities: () => listActivities() };
+});
 vi.mock("@/api/hwu-contracts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/hwu-contracts")>();
   return { ...actual, listHwuContracts: vi.fn(async () => []), upsertHwuContract: vi.fn() };
@@ -258,5 +263,66 @@ describe("Add unit from the Fleet page", () => {
   it("disables the trigger while the plan is locked", async () => {
     render(<ResourceRegistryPanel projectId="p" canEdit locked />);
     expect(await screen.findByTestId("add-resource")).toBeDisabled();
+  });
+});
+
+describe("Active-in-year filter", () => {
+  const ACT = (over: Record<string, unknown>) => ({
+    id: "a1",
+    project_id: "p",
+    activity_type: "Drilling",
+    start_date: "2026-01-01",
+    end_date: "2026-06-01",
+    well_name: "W",
+    rig_name: null,
+    hwu_name: null,
+    well_project: null,
+    project_group: null,
+    location: null,
+    risk: null,
+    comment: null,
+    plan_type: null,
+    market: null,
+    readiness_required: true,
+    completed_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    updated_by_name: null,
+    locked_by_revision_id: null,
+    ...over,
+  });
+
+  beforeEach(() => {
+    listResources.mockReset().mockResolvedValue([
+      unit({ id: "rA", name: "Rig 26", terrain: "LAND" }),
+      unit({ id: "rB", name: "Rig 27", terrain: "LAND" }),
+    ]);
+    listActivities.mockReset().mockResolvedValue([
+      ACT({ rig_name: "Rig 26", location: "LAND", start_date: "2026-02-01", end_date: "2026-09-01" }),
+      ACT({ id: "a2", rig_name: "Rig 27", location: "LAND", start_date: "2027-01-01", end_date: "2027-04-01" }),
+    ]);
+  });
+
+  it("offers the scheduled years and hides units without work in the chosen one", async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ResourceRegistryPanel projectId="p" canEdit={false} activeYear={null} onActiveYearChange={onChange} />,
+    );
+    expect(await screen.findByText("Rig 26")).toBeInTheDocument();
+    expect(screen.getByText("Rig 27")).toBeInTheDocument();
+
+    const select = screen.getByLabelText("Active in year");
+    expect(select).toHaveTextContent("Active in 2026");
+    expect(select).toHaveTextContent("Active in 2027");
+
+    fireEvent.change(select, { target: { value: "2026" } });
+    expect(onChange).toHaveBeenCalledWith(2026);
+
+    rerender(
+      <ResourceRegistryPanel projectId="p" canEdit={false} activeYear={2026} onActiveYearChange={onChange} />,
+    );
+    await waitFor(() => expect(screen.queryByText("Rig 27")).not.toBeInTheDocument());
+    expect(screen.getByText("Rig 26")).toBeInTheDocument();
+    expect(screen.getByText(/scheduled work in 2026/)).toBeInTheDocument();
   });
 });

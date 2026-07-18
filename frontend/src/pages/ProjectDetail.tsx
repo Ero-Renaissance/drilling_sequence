@@ -649,12 +649,26 @@ export function FleetTab() {
   const [searchParams] = useSearchParams();
   // Registry mutations bump this so the demand chart re-derives from fresh data.
   const [registryVersion, setRegistryVersion] = useState(0);
+  // "Active in year" registry filter — owned here so a chart bar-click can set
+  // it (clicking the same year again clears it). Stable identity: a fresh
+  // closure per render would make echarts-for-react dispose/rebuild the chart
+  // on every render (its onEvents prop is compared by identity).
+  const [activeYear, setActiveYear] = useState<number | null>(null);
+  const handleYearClick = useCallback(
+    (y: number) => setActiveYear((cur) => (cur === y ? null : y)),
+    [],
+  );
   if (!projectId) return null;
   const focus = searchParams.get("focus");
   return (
     <div className="space-y-4">
       <ErrorBoundary label="fleet demand chart">
-        <FleetDemandChart projectId={projectId} refreshToken={registryVersion} />
+        <FleetDemandChart
+          projectId={projectId}
+          refreshToken={registryVersion}
+          activeYear={activeYear}
+          onYearClick={handleYearClick}
+        />
       </ErrorBoundary>
       <ErrorBoundary label="fleet registry">
         <ResourceRegistryPanel
@@ -662,6 +676,8 @@ export function FleetTab() {
           canEdit={canEditPlan}
           locked={locked}
           onRegistryChange={() => setRegistryVersion((v) => v + 1)}
+          activeYear={activeYear}
+          onActiveYearChange={setActiveYear}
           initialTbdOnly={focus === "tbd"}
           initialAtRiskOnly={focus === "contracts"}
         />

@@ -143,3 +143,16 @@ describe("computeFleetDemand terrain scoping", () => {
     expect(d.awarded).toEqual([1]);
   });
 });
+
+describe("computeLaneYears", () => {
+  it("maps rig and HWU lanes to their scheduled years in one map", async () => {
+    const { computeLaneYears, unitLaneKey } = await import("@/lib/fleet-demand");
+    const lanes = computeLaneYears([
+      act({ rig_name: "Rig A", location: "LAND", start_date: "2026-06-01", end_date: "2027-02-01" }),
+      act({ hwu_name: "HWU-1", start_date: "2028-01-01", end_date: "2028-05-01" }),
+    ]);
+    expect([...(lanes.get(unitLaneKey("rig", "Rig A", "LAND")) ?? [])]).toEqual([2026, 2027]);
+    expect([...(lanes.get(unitLaneKey("hwu", "HWU-1", null)) ?? [])]).toEqual([2028]);
+    expect(lanes.get(unitLaneKey("rig", "Rig A", "SWAMP"))).toBeUndefined();
+  });
+});

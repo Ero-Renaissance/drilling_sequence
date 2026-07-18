@@ -3,10 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 // Capture the ECharts option instead of rendering canvas in jsdom.
-const captured = vi.hoisted(() => ({ option: undefined as unknown }));
+const captured = vi.hoisted(
+  () => ({ option: undefined, onEvents: undefined }) as {
+    option: unknown;
+    onEvents?: { click?: (p: { name?: string }) => void };
+  },
+);
 vi.mock("echarts-for-react/lib/core", () => ({
-  default: ({ option }: { option?: unknown }) => {
+  default: ({ option, onEvents }: { option?: unknown; onEvents?: typeof captured.onEvents }) => {
     captured.option = option;
+    captured.onEvents = onEvents;
     return <div data-testid="echarts-instance" />;
   },
 }));
@@ -165,5 +171,28 @@ describe("FleetDemandChart filters", () => {
     });
     expect(window.localStorage.getItem("ds.fleet-demand-horizon")).toBe("3");
     window.localStorage.removeItem("ds.fleet-demand-horizon");
+  });
+});
+
+describe("FleetDemandChart year click", () => {
+  it("reports the clicked bar's year to the tab", async () => {
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          activity({ rig_name: "Rig A", location: "LAND", start_date: "2026-01-01", end_date: "2027-06-01" }),
+        ]),
+      ),
+      http.get("/api/projects/:projectId/resources", () => HttpResponse.json([])),
+    );
+    const onYearClick = vi.fn();
+    render(<FleetDemandChart projectId="p1" onYearClick={onYearClick} />);
+    await screen.findByTestId("echarts-instance");
+
+    captured.onEvents?.click?.({ name: "2027" });
+    expect(onYearClick).toHaveBeenCalledWith(2027);
+
+    // Non-year click targets (e.g. legend text routed oddly) are ignored.
+    captured.onEvents?.click?.({ name: "In use" });
+    expect(onYearClick).toHaveBeenCalledTimes(1);
   });
 });

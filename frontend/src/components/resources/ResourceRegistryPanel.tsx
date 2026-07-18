@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Loader2, PencilLine, Search, X } from "lucide-react";
 
+import { listActivities, type Activity } from "@/api/activities";
+import { computeLaneYears, unitLaneKey } from "@/lib/fleet-demand";
+
 import { AddResourceDialog } from "./AddResourceDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +62,8 @@ export function ResourceRegistryPanel({
   canEdit,
   locked = false,
   onRegistryChange,
+  activeYear = null,
+  onActiveYearChange,
   initialTbdOnly = false,
   initialAtRiskOnly = false,
 }: {
@@ -68,12 +73,16 @@ export function ResourceRegistryPanel({
   locked?: boolean;
   /** Fired after any registry mutation reload — lets the Fleet tab refresh the demand chart. */
   onRegistryChange?: () => void;
+  /** Only show units with scheduled work in this year (null = any). Owned by the tab so chart bar-clicks can drive it. */
+  activeYear?: number | null;
+  onActiveYearChange?: (year: number | null) => void;
   /** Start with the Planned filter on (dashboard "planned slots" drill-through). */
   initialTbdOnly?: boolean;
   /** Start with the contracts-at-risk filter on (dashboard "expiring soon" drill-through). */
   initialAtRiskOnly?: boolean;
 }) {
   const [resources, setResources] = useState<ResourceRecord[] | null>(null);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [rigContracts, setRigContracts] = useState<RigContract[]>([]);
   const [hwuContracts, setHwuContracts] = useState<HwuContract[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -85,14 +94,17 @@ export function ResourceRegistryPanel({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [res, rc, hc] = await Promise.all([
+      const [res, rc, hc, acts] = await Promise.all([
         listResources(projectId),
         listContracts(projectId).catch(() => []),
         listHwuContracts(projectId).catch(() => []),
+        // Year filter is an enhancement — the registry must load without it.
+        listActivities(projectId).catch(() => [] as Activity[]),
       ]);
       setResources(res);
       setRigContracts(rc);
       setHwuContracts(hc);
+      setActivities(acts);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load the fleet registry");
     }
@@ -118,8 +130,21 @@ export function ResourceRegistryPanel({
         : rigByLane.get(`${unit.terrain}|${unit.name}`) ?? rigByLane.get(`|${unit.name}`) ?? null;
   }, [rigContracts, hwuContracts]);
 
+  const laneYears = useMemo(() => computeLaneYears(activities), [activities]);
+  // Years offered by the filter: every year some unit is scheduled in.
+  const scheduleYears = useMemo(() => {
+    const all = new Set<number>();
+    for (const set of laneYears.values()) for (const y of set) all.add(y);
+    return [...all].sort((a, b) => a - b);
+  }, [laneYears]);
+
   const matches = useCallback(
     (u: ResourceRecord) => {
+      if (
+        activeYear !== null &&
+        !laneYears.get(unitLaneKey(u.kind, u.name, u.terrain || null))?.has(activeYear)
+      )
+        return false;
       if (tbdOnly && !u.is_placeholder) return false;
       if (atRiskOnly && !AT_RISK.has(classifyContract(contractFor(u)) ?? "")) return false;
       const q = filter.trim().toLowerCase();
@@ -129,7 +154,7 @@ export function ResourceRegistryPanel({
         (u.capability_class ?? "").toLowerCase().includes(q)
       );
     },
-    [filter, tbdOnly, atRiskOnly, contractFor],
+    [filter, tbdOnly, atRiskOnly, contractFor, activeYear, laneYears],
   );
 
   const all = resources ?? [];
@@ -184,7 +209,7 @@ export function ResourceRegistryPanel({
     );
   }
 
-  const filtering = !!filter.trim() || tbdOnly || atRiskOnly;
+  const filtering = !!filter.trim() || tbdOnly || atRiskOnly || activeYear !== null;
   const activeUnits = byTab.get(activeTab) ?? [];
   const matchesElsewhere = matched.length - activeUnits.length;
 
@@ -244,12 +269,41 @@ export function ResourceRegistryPanel({
         >
           Contracts at risk
         </button>
+        {scheduleYears.length > 0 && (
+          <select
+            aria-label="Active in year"
+            value={activeYear === null ? "" : String(activeYear)}
+            onChange={(e) =>
+              onActiveYearChange?.(e.target.value === "" ? null : Number(e.target.value))
+            }
+            className={cn(
+              "rounded-md border px-1.5 py-1 text-xs",
+              activeYear !== null
+                ? "border-sky-500/50 bg-sky-500/10 font-medium text-sky-700 dark:text-sky-400"
+                : "border-border/70 bg-background text-muted-foreground",
+            )}
+          >
+            <option value="">Any year</option>
+            {scheduleYears.map((y) => (
+              <option key={y} value={String(y)}>
+                Active in {y}
+              </option>
+            ))}
+          </select>
+        )}
         {filtering && (
           <span className="text-xs text-muted-foreground">
             {matched.length} of {all.length} units match
           </span>
         )}
       </div>
+
+      {activeYear !== null && (
+        <p className="text-xs text-muted-foreground">
+          Showing units with scheduled work in {activeYear}; registered units without work that
+          year are hidden. Check their contract badges cover it.
+        </p>
+      )}
 
       {/* Terrain tab strip — counts always reflect the current search/filter scope */}
       <div className="flex flex-wrap items-center gap-1 border-b border-border/70">
