@@ -194,9 +194,14 @@ describe("DrillChart", () => {
 
     const zoomed = captured.option as {
       dataZoom: { startValue?: number; endValue?: number }[];
+      xAxis: { min: number; max: number }[];
     };
     expect(zoomed.dataZoom[0].startValue).toBe(new Date(2026, 0, 1).getTime());
     expect(zoomed.dataZoom[0].endValue).toBe(new Date(2029, 0, 1).getTime());
+    // The span is also the AXIS: free zoom/pan cannot leave the selection.
+    expect(zoomed.xAxis[0].min).toBe(new Date(2026, 0, 1).getTime());
+    expect(zoomed.xAxis[0].max).toBe(new Date(2029, 0, 1).getTime());
+    expect(zoomed.xAxis[1].min).toBe(zoomed.xAxis[0].min);
 
     // Deselecting an edge year shrinks the window to what remains selected.
     await userEvent.click(y2028);
@@ -212,8 +217,12 @@ describe("DrillChart", () => {
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     const cleared = captured.option as {
       dataZoom: { startValue?: number; endValue?: number }[];
+      xAxis: { min: number; max: number }[];
     };
     expect(cleared.dataZoom[0].startValue).toBeUndefined();
+    // All → the axis returns to the full data extent (free navigation).
+    expect(cleared.xAxis[0].min).not.toBe(new Date(2026, 0, 1).getTime());
+    expect(cleared.xAxis[0].max).not.toBe(new Date(2029, 0, 1).getTime());
   });
 
   it("hides the year strip for a single-year campaign", () => {

@@ -466,6 +466,8 @@ export function DrillChart({
         ? {}
         : { startValue: spanStart, endValue: spanEnd };
 
+
+
     // Default bands for the current React render: same ≤800-days month/year
     // break the zoom-adaptive refine (updateBands) and the sticky strip use,
     // so a 2-year focus gets month bands and a wider one year bands. Free
@@ -841,6 +843,12 @@ export function DrillChart({
     }
     if (axisMax <= axisMin) axisMax = axisMin + 86_400_000;
 
+    // With a year selection the span IS the axis: wheel/pinch/drag physically
+    // cannot leave it, so the chips never lie about the viewport. Zooming and
+    // panning WITHIN the span stay free; "All" restores the full extent.
+    const boundMin = spanStart ?? axisMin;
+    const boundMax = spanEnd ?? axisMax;
+
     function renderTodayFlag(
       params: CustomSeriesRenderItemParams,
       api: CustomSeriesRenderItemAPI,
@@ -1031,8 +1039,8 @@ export function DrillChart({
         {
           type: "time",
           position: "top",
-          min: axisMin,
-          max: axisMax,
+          min: boundMin,
+          max: boundMax,
           axisLabel: {
             formatter: (val: number) => {
               const d = new Date(val);
@@ -1050,8 +1058,8 @@ export function DrillChart({
         {
           type: "time",
           position: "bottom",
-          min: axisMin,
-          max: axisMax,
+          min: boundMin,
+          max: boundMax,
           axisLabel: {
             formatter: (val: number) => {
               const d = new Date(val);
