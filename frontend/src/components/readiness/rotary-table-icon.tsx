@@ -3,10 +3,12 @@ import { forwardRef } from "react";
 import type { LucideIcon, LucideProps } from "lucide-react";
 
 /**
- * Rotary table, top view — the drilling "rotary wheel": rim, kelly-drive
- * square in the centre, four drive ticks. Drawn to lucide's 24×24 stroke
- * grammar so it sits beside the stock icons in CHECK_META; the canvas twin
- * lives in lib/check-icon-svg.ts (keep the two path sets identical).
+ * Rotary table, top view — the drilling "rotary wheel": rim with SIX drive
+ * spikes radiating OUTWARD (external detail survives tiny sizes better than
+ * inner ticks) and the kelly-drive square in the centre keeping it
+ * unmistakably drilling. Drawn to lucide's 24×24 stroke grammar so it sits
+ * beside the stock icons in CHECK_META; the canvas twin lives in
+ * lib/check-icon-svg.ts (keep the two path sets identical).
  */
 export const RotaryTable = forwardRef<SVGSVGElement, LucideProps>(
   ({ color = "currentColor", size = 24, strokeWidth = 2, ...rest }, ref) => (
@@ -23,12 +25,14 @@ export const RotaryTable = forwardRef<SVGSVGElement, LucideProps>(
       strokeLinejoin="round"
       {...rest}
     >
-      <circle cx="12" cy="12" r="9" />
-      <rect x="8.5" y="8.5" width="7" height="7" rx="0.5" />
-      <path d="M12 3v3" />
-      <path d="M12 18v3" />
-      <path d="M3 12h3" />
-      <path d="M18 12h3" />
+      <circle cx="12" cy="12" r="7" />
+      <rect x="9" y="9" width="6" height="6" rx="0.5" />
+      <path d="M12 1.5V5" />
+      <path d="M12 19v3.5" />
+      <path d="m21.09 6.75-3.03 1.75" />
+      <path d="m2.91 6.75 3.03 1.75" />
+      <path d="m21.09 17.25-3.03-1.75" />
+      <path d="m2.91 17.25 3.03-1.75" />
     </svg>
   ),
 ) as LucideIcon;
