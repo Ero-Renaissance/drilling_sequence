@@ -78,6 +78,7 @@ export function Presentation() {
         {activities.length > 0 ? (
           <ErrorBoundary label="chart">
             <DrillChart
+              stickyScale
               activities={activities}
               readinessMap={readinessMap}
               contractsByRig={contractsByRig}

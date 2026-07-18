@@ -36,6 +36,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { ChartLegend } from "./ChartLegend";
+import { TimeScaleStrip } from "./TimeScaleStrip";
 
 /**
  * The readiness gates shown on each bar. Gates are per FIELD-DEVELOPMENT PROJECT
@@ -78,6 +79,11 @@ interface DrillChartProps {
    *  presentation view (aligned with the chart, below the filters); "bottom"
    *  (default) everywhere else. */
   legendPosition?: "bottom" | "right";
+  /** Pin a thin month/year timescale (with a dated Today flag) to the top of
+   *  the scroll container while the tall chart scrolls beneath — for the
+   *  Sequence tab and Presentation view. Off (default) for short charts like
+   *  the optimizer's. */
+  stickyScale?: boolean;
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -278,6 +284,7 @@ export function DrillChart({
   initialLocations,
   onFiltersChange,
   legendPosition = "bottom",
+  stickyScale = false,
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
@@ -805,7 +812,25 @@ export function DrillChart({
       api: CustomSeriesRenderItemAPI,
     ): CustomSeriesRenderItemReturn {
       const [x] = api.coord([api.value(0), 0]);
-      const sys = params.coordSys as unknown as { y: number };
+      const sys = params.coordSys as unknown as {
+        x: number;
+        y: number;
+        width: number;
+      };
+      // Report the plot rect + visible window for the sticky timescale: two
+      // reference values give the value→pixel line, inverted at the plot
+      // edges. Runs on every ECharts paint, so zoom/resize stay in sync.
+      const [x0] = api.coord([axisMin, 0]);
+      const [x1] = api.coord([axisMax, 0]);
+      if (x1 > x0) {
+        const perPx = (axisMax - axisMin) / (x1 - x0);
+        scaleReportRef.current({
+          vs: axisMin + (sys.x - x0) * perPx,
+          ve: axisMin + (sys.x + sys.width - x0) * perPx,
+          left: sys.x,
+          width: sys.width,
+        });
+      }
       return {
         type: "text",
         style: {
@@ -1149,6 +1174,37 @@ export function DrillChart({
     );
   }, [dataMin, dataMax, theme]);
 
+  // Sticky-scale geometry: the visible time window plus the plot area's pixel
+  // inset, REPORTED BY THE CHART ITSELF — the today-flag series' renderItem
+  // receives the plot rect and value→pixel mapping on every ECharts paint
+  // (initial render, zoom, resize, theme swap), so there is no instance
+  // polling to go stale. queueMicrotask defers the setState out of the
+  // ECharts commit; compare-first keeps it settled.
+  const [scaleGeom, setScaleGeom] = useState<{
+    vs: number;
+    ve: number;
+    left: number;
+    width: number;
+  } | null>(null);
+  const [scaleScrollLeft, setScaleScrollLeft] = useState(0);
+  const scaleReportRef = useRef<(g: { vs: number; ve: number; left: number; width: number }) => void>(
+    () => {},
+  );
+  scaleReportRef.current = (g) => {
+    if (!stickyScale) return;
+    queueMicrotask(() =>
+      setScaleGeom((prev) =>
+        prev &&
+        prev.vs === g.vs &&
+        prev.ve === g.ve &&
+        prev.left === g.left &&
+        prev.width === g.width
+          ? prev
+          : g,
+      ),
+    );
+  };
+
   const onEvents = useMemo(
     () => ({
       click: (params: {
@@ -1184,8 +1240,13 @@ export function DrillChart({
   const chartEl = (
     <div
       className={`overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm${
-        legendPosition === "right" ? " min-w-0 flex-1" : ""
+        legendPosition === "right" && !stickyScale ? " min-w-0 flex-1" : ""
       }`}
+      onScroll={
+        stickyScale
+          ? (e) => setScaleScrollLeft(e.currentTarget.scrollLeft)
+          : undefined
+      }
     >
       <ReactECharts
         echarts={echarts}
@@ -1277,17 +1338,47 @@ export function DrillChart({
           )}
         </div>
       )}
-      {legendPosition === "right" ? (
-        <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
-          {chartEl}
-          {legendEl}
-        </div>
-      ) : (
-        <>
-          {chartEl}
-          {legendEl}
-        </>
-      )}
+      {(() => {
+        // The strip must sit OUTSIDE the overflow-x-auto wrapper (an
+        // overflowing ancestor would become its sticky containment and pin
+        // nothing), directly above the chart in both legend layouts.
+        const strip =
+          stickyScale && scaleGeom ? (
+            <TimeScaleStrip
+              vs={scaleGeom.vs}
+              ve={scaleGeom.ve}
+              left={scaleGeom.left}
+              width={scaleGeom.width}
+              scrollLeft={scaleScrollLeft}
+            />
+          ) : null;
+        // Wrap whenever stickyScale is on (not only once geometry exists) so
+        // the flex classes don't jump between first paint and the strip
+        // appearing a frame later.
+        const chartCol = stickyScale ? (
+          <div
+            className={`flex flex-col gap-2${
+              legendPosition === "right" ? " min-w-0 flex-1" : ""
+            }`}
+          >
+            {strip}
+            {chartEl}
+          </div>
+        ) : (
+          chartEl
+        );
+        return legendPosition === "right" ? (
+          <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
+            {chartCol}
+            {legendEl}
+          </div>
+        ) : (
+          <>
+            {chartCol}
+            {legendEl}
+          </>
+        );
+      })()}
     </div>
   );
 }

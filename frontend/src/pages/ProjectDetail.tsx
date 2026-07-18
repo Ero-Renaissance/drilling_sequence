@@ -213,8 +213,13 @@ export function ProjectDetail() {
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-auto">
+      {/* Tab content. No overflow-auto here: the page scrolls in the app
+          shell's <main>, and an interim scrollable ancestor would become the
+          sticky containment for the sequence chart's pinned timescale (it
+          binds to the nearest scrollable box, which this div would be while
+          never actually scrolling). Wide tab content manages its own
+          overflow-x wrappers. */}
+      <div className="flex-1">
         <Outlet
           context={
             {
@@ -467,6 +472,7 @@ export function ChartTab() {
       {activities && activities.length > 0 && (
         <ErrorBoundary label="chart">
           <DrillChart
+            stickyScale
             activities={activities}
             readinessMap={readinessMap}
             rigContractsByLane={rigContractsByLane}
