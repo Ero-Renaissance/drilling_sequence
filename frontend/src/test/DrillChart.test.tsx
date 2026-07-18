@@ -108,7 +108,7 @@ describe("DrillChart", () => {
     expect(screen.getByTestId("drill-chart")).toBeInTheDocument();
   });
 
-  it("renders legendExtra in the right rail (presentation change notes)", () => {
+  it("renders legendExtra in the right rail, ahead of the legend", () => {
     render(
       <DrillChart
         activities={MOCK_ACTIVITIES}
@@ -117,8 +117,13 @@ describe("DrillChart", () => {
       />,
     );
     const extra = screen.getByTestId("rail-extra");
-    // Pinned alongside the legend: the shared rail is the sticky element.
-    expect(extra.parentElement?.className).toContain("lg:sticky");
+    // Pinned alongside the legend: the shared rail is the sticky element…
+    const rail = extra.closest('div[class*="lg:sticky"]');
+    expect(rail).not.toBeNull();
+    // …notes come FIRST (talking points before glance-reference), and on wide
+    // screens the rail lays the two side by side.
+    expect(rail?.firstElementChild?.contains(extra)).toBe(true);
+    expect(rail?.className).toContain("2xl:flex-row");
   });
 
   it("timescale reads at the top, echoed at the bottom, Today label on top", () => {

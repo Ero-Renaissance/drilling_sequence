@@ -1469,12 +1469,20 @@ export function DrillChart({
         return legendPosition === "right" ? (
           <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
             {chartCol}
-            {/* The rail (legend + any extra, e.g. presentation change notes)
-                pins while the tall chart scrolls — sticky against the page
-                scroller, its own scrollbar when taller than the viewport. */}
-            <div className="flex flex-col gap-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:w-60 lg:shrink-0 lg:self-start lg:overflow-y-auto">
-              {legendEl}
-              {legendExtra}
+            {/* The rail pins while the tall chart scrolls — sticky against
+                the page scroller, its own scrollbar when taller than the
+                viewport. Notes (legendExtra) come FIRST: in a presentation
+                they are the talking points, the legend is glance-reference —
+                so with a long list it's the legend that slides, not the
+                notes. On wide presentation screens (2xl) the rail widens and
+                the two sit side by side, both still pinned. */}
+            <div
+              className={`flex flex-col gap-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:shrink-0 lg:self-start lg:overflow-y-auto ${
+                legendExtra ? "lg:w-60 2xl:w-[34rem] 2xl:flex-row 2xl:gap-4" : "lg:w-60"
+              }`}
+            >
+              {legendExtra && <div className="2xl:min-w-0 2xl:flex-1">{legendExtra}</div>}
+              <div className="2xl:w-56 2xl:shrink-0">{legendEl}</div>
             </div>
           </div>
         ) : (
