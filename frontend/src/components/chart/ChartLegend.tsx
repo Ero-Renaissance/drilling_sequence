@@ -120,16 +120,7 @@ export function ChartLegend({
 
       {showContractExpiry && (
         <>
-          <div className="flex min-w-0 flex-col gap-1.5 md:max-w-[13rem]">
-            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <AlarmClock className="h-3 w-3" strokeWidth={2.25} />
-              Contract expiration
-            </span>
-            <p className="text-[10px] text-muted-foreground">
-              A clock badge on a rig&apos;s row marks its contract&apos;s expiration
-              date, with a line at the date. It states the date — urgency alerts
-              live on the Overview and Fleet pages.
-            </p>
+          <Section label="Contract">
             <span className="flex items-center gap-1.5 text-xs text-foreground">
               {/* The key IS the mark: the same solid badge the chart draws. */}
               <span
@@ -138,9 +129,9 @@ export function ChartLegend({
               >
                 <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
               </span>
-              <span className="font-medium">Expiration date</span>
+              Contract expiration date
             </span>
-          </div>
+          </Section>
         </>
       )}
 

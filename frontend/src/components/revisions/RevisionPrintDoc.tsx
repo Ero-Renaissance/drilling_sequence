@@ -601,9 +601,6 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
       {hasExpiry && (
         <>
           <span className="mx-0.5 h-3 w-px bg-border" />
-          <span className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-muted-foreground">
-            <AlarmClock className="h-3 w-3" strokeWidth={2.25} /> Contract Expiration
-          </span>
           <span className="inline-flex items-center gap-1">
             {/* The key IS the mark: the same solid badge drawn on the chart. */}
             <span
@@ -612,7 +609,7 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
             >
               <AlarmClock className="h-2 w-2 text-white" strokeWidth={2.5} />
             </span>
-            Expiration date
+            Contract expiration date
           </span>
         </>
       )}

@@ -95,11 +95,9 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
       />,
     );
 
-    // The expiry-key section header now reads the full label, and it's the
-    // styled header (uppercase, like the "Activity"/"Flood risk" headers), not
-    // stray text. We assert the styled header rather than a global text search.
-    const header = screen.getByText("Contract Expiration");
-    expect(header.className).toContain("uppercase");
+    // One key row: the red badge plus the four-word label — no section header,
+    // no urgency vocabulary.
+    expect(screen.getByText("Contract expiration date")).toBeInTheDocument();
   });
 
   it("draws the expiration marker as a solid badge with a row tick", () => {
@@ -180,8 +178,7 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
         signatures="wetink"
       />,
     );
-    expect(screen.getByText("Contract Expiration")).toBeInTheDocument();
-    expect(screen.getByText("Expiration date")).toBeInTheDocument();
+    expect(screen.getByText("Contract expiration date")).toBeInTheDocument();
   });
 });
 
