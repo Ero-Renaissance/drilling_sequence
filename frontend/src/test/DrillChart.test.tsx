@@ -159,6 +159,45 @@ describe("DrillChart", () => {
     expect(y2027).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("multi-selects years into one contiguous window, middle years included", async () => {
+    render(<DrillChart activities={MULTI_YEAR_ACTIVITIES} />);
+    const y2026 = screen.getByRole("button", { name: "2026" });
+    const y2027 = screen.getByRole("button", { name: "2027" });
+    const y2028 = screen.getByRole("button", { name: "2028" });
+
+    // Select the two OUTER years — the chart must window 2026→2028 inclusive
+    // (a time axis can't skip 2027), and the 2027 chip shows as included.
+    await userEvent.click(y2026);
+    await userEvent.click(y2028);
+    expect(y2026).toHaveAttribute("aria-pressed", "true");
+    expect(y2028).toHaveAttribute("aria-pressed", "true");
+    expect(y2027).toHaveAttribute("aria-pressed", "false");
+    expect(y2027).toHaveAttribute("data-included", "true");
+
+    const zoomed = captured.option as {
+      dataZoom: { startValue?: number; endValue?: number }[];
+    };
+    expect(zoomed.dataZoom[0].startValue).toBe(new Date(2026, 0, 1).getTime());
+    expect(zoomed.dataZoom[0].endValue).toBe(new Date(2029, 0, 1).getTime());
+
+    // Deselecting an edge year shrinks the window to what remains selected.
+    await userEvent.click(y2028);
+    expect(y2027).not.toHaveAttribute("data-included");
+    const shrunk = captured.option as {
+      dataZoom: { startValue?: number; endValue?: number }[];
+    };
+    expect(shrunk.dataZoom[0].startValue).toBe(new Date(2026, 0, 1).getTime());
+    expect(shrunk.dataZoom[0].endValue).toBe(new Date(2027, 0, 1).getTime());
+
+    // Deselecting the last year returns to All (no zoom window).
+    await userEvent.click(y2026);
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    const cleared = captured.option as {
+      dataZoom: { startValue?: number; endValue?: number }[];
+    };
+    expect(cleared.dataZoom[0].startValue).toBeUndefined();
+  });
+
   it("hides the year strip for a single-year campaign", () => {
     render(<DrillChart activities={MOCK_ACTIVITIES} />);
     expect(screen.queryByRole("button", { name: "All" })).not.toBeInTheDocument();

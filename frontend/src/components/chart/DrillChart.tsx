@@ -87,12 +87,18 @@ interface DrillChartProps {
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
-function yearChipClass(active: boolean): string {
+/** Chip state: "active" = explicitly selected; "included" = inside the focused
+ *  span without being clicked (the axis can only show a contiguous window, so
+ *  years between two selections come along — shown honestly, but lighter);
+ *  "idle" = outside the span. */
+function yearChipClass(state: "active" | "included" | "idle"): string {
   return [
     "rounded-md px-2 py-0.5 text-xs font-medium transition-colors",
-    active
+    state === "active"
       ? "bg-primary text-primary-foreground shadow-soft-sm"
-      : "border border-border/70 text-muted-foreground hover:bg-muted hover:text-foreground",
+      : state === "included"
+        ? "border border-primary/50 bg-primary/15 text-foreground"
+        : "border border-border/70 text-muted-foreground hover:bg-muted hover:text-foreground",
   ].join(" ");
 }
 
@@ -289,7 +295,15 @@ export function DrillChart({
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
 
-  const [activeYear, setActiveYear] = useState<number | null>(null);
+  // Focused years — a SET, but the time axis can only show one contiguous
+  // window, so the chart zooms to min(selected)..max(selected); years in
+  // between ride along (rendered as "included" chips). Empty set = All.
+  const [focusYears, setFocusYears] = useState<ReadonlySet<number>>(() => new Set());
+  const focusSpan = useMemo(() => {
+    if (focusYears.size === 0) return null;
+    const ys = [...focusYears];
+    return { from: Math.min(...ys), to: Math.max(...ys) };
+  }, [focusYears]);
   // Selected projects to single out — empty Set means "no filter" (all vivid).
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(() => new Set(initialProjects));
   // Selected locations (terrains) — empty Set means "no filter"; otherwise only
@@ -377,7 +391,21 @@ export function DrillChart({
   // through the option's dataZoom window (see below) rather than an imperative
   // dispatchAction: each change becomes a clean notMerge re-render, so no stale
   // custom-series elements (bars/labels) linger from the previous window.
-  const focusYear = useCallback((year: number | null) => setActiveYear(year), []);
+  // Chip click: toggle the year in/out of the selection.
+  const toggleYear = useCallback((year: number) => {
+    setFocusYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) next.delete(year);
+      else next.add(year);
+      return next;
+    });
+  }, []);
+  // Axis-label click (and the All chip): REPLACE the selection — an axis tap
+  // reads as "take me to that year", not "extend what I had".
+  const focusYear = useCallback(
+    (year: number | null) => setFocusYears(year === null ? new Set() : new Set([year])),
+    [],
+  );
 
   const { categories, data, activityTypes, categoryToResource } = useMemo(
     () => activitiesToChartData(visibleActivities, readinessMap),
@@ -425,26 +453,27 @@ export function DrillChart({
     const chartHeight = Math.max(500, categories.length * ROW_HEIGHT + 220);
     const today = Date.now();
 
-    // Focus-year zoom window. null → full span. Local-time year bounds match how
-    // bars are positioned (chart-utils builds timestamps from local midnight).
+    // Focused-span zoom window. null → full span. Local-time year bounds match
+    // how bars are positioned (chart-utils builds timestamps from local midnight).
+    const spanStart = focusSpan && new Date(focusSpan.from, 0, 1).getTime();
+    const spanEnd = focusSpan && new Date(focusSpan.to + 1, 0, 1).getTime();
     const focusZoom =
-      activeYear === null
+      spanStart === null || spanEnd === null
         ? {}
-        : {
-            startValue: new Date(activeYear, 0, 1).getTime(),
-            endValue: new Date(activeYear + 1, 0, 1).getTime(),
-          };
+        : { startValue: spanStart, endValue: spanEnd };
 
-    // Default bands for the current React render: year granularity across the full
-    // span, month granularity when a year is focused. Free scroll/pinch zoom is
-    // refined imperatively in updateBands() (notMerge would otherwise reset zoom).
+    // Default bands for the current React render: same ≤800-days month/year
+    // break the zoom-adaptive refine (updateBands) and the sticky strip use,
+    // so a 2-year focus gets month bands and a wider one year bands. Free
+    // scroll/pinch zoom is refined imperatively in updateBands() (notMerge
+    // would otherwise reset zoom).
     const bandAreas =
-      activeYear === null
+      spanStart === null || spanEnd === null
         ? buildTimeBands(dataMin, dataMax, "year", theme.xBand)
         : buildTimeBands(
-            new Date(activeYear, 0, 1).getTime(),
-            new Date(activeYear + 1, 0, 1).getTime(),
-            "month",
+            spanStart,
+            spanEnd,
+            (spanEnd - spanStart) / 86_400_000 <= 800 ? "month" : "year",
             theme.xBand,
           );
 
@@ -1131,7 +1160,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, activeYear, dataMin, dataMax, selectedProjects, enableFilters]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, enableFilters]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -1345,22 +1374,33 @@ export function DrillChart({
               <button
                 type="button"
                 onClick={() => focusYear(null)}
-                aria-pressed={activeYear === null}
-                className={yearChipClass(activeYear === null)}
+                aria-pressed={focusYears.size === 0}
+                className={yearChipClass(focusYears.size === 0 ? "active" : "idle")}
               >
                 All
               </button>
-              {years.map((y) => (
-                <button
-                  key={y}
-                  type="button"
-                  onClick={() => focusYear(y)}
-                  aria-pressed={activeYear === y}
-                  className={yearChipClass(activeYear === y)}
-                >
-                  {y}
-                </button>
-              ))}
+              {years.map((y) => {
+                const selected = focusYears.has(y);
+                const included =
+                  !selected && focusSpan !== null && y > focusSpan.from && y < focusSpan.to;
+                return (
+                  <button
+                    key={y}
+                    type="button"
+                    onClick={() => toggleYear(y)}
+                    aria-pressed={selected}
+                    data-included={included || undefined}
+                    title={
+                      included
+                        ? "Inside the focused span (the timeline is contiguous) — click to pin it"
+                        : undefined
+                    }
+                    className={yearChipClass(selected ? "active" : included ? "included" : "idle")}
+                  >
+                    {y}
+                  </button>
+                );
+              })}
             </div>
           )}
           {enableFilters && projects.length > 1 && (
