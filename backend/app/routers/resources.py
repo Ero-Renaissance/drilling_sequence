@@ -24,6 +24,7 @@ from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.resource import (
     ResourceConvert,
+    ResourceCreate,
     ResourceRename,
     ResourceResponse,
     ResourceUpdate,
@@ -56,6 +57,66 @@ async def _get_record(
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     return record
+
+
+@router.post("", response_model=ResourceResponse, status_code=status.HTTP_201_CREATED)
+async def create_resource(
+    project_id: uuid.UUID,
+    payload: ResourceCreate,
+    current_user: CurrentUser,
+    db: DB,
+) -> ResourceResponse:
+    """Register a unit directly (procurement ahead of scheduling). Planner-only
+    and lock-gated like every registry write. A unit that already exists on the
+    same identity — (terrain, name) for rigs, (name) for HWUs, case-insensitive
+    — is refused rather than silently merged."""
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await assert_project_not_locked(project_id, db)
+
+    terrain = payload.terrain or ""
+    name_key = normalize_resource_name(payload.name)
+    existing = (
+        await db.execute(
+            select(ResourceRecord).where(
+                ResourceRecord.project_id == project_id,
+                ResourceRecord.kind == payload.kind,
+                ResourceRecord.terrain == terrain,
+                ResourceRecord.name_key == name_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A unit with this identity is already registered.",
+        )
+
+    record = ResourceRecord(
+        id=uuid.uuid4(),  # assigned up front so the audit row can reference it pre-flush
+        project_id=project_id,
+        kind=payload.kind,
+        terrain=terrain,
+        name=payload.name,
+        name_key=name_key,
+        is_placeholder=payload.is_placeholder,
+        updated_by=current_user.id,
+    )
+    db.add(record)
+    db.add(
+        AuditLog(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type="resource",
+            entity_id=record.id,
+            field="resource_registered",
+            old_value=None,
+            new_value=f"{payload.kind} · {_lane(record)}"
+            + (" · planned slot" if payload.is_placeholder else ""),
+        )
+    )
+    await db.commit()
+    await db.refresh(record)
+    return ResourceResponse.model_validate(record)
 
 
 @router.get("", response_model=list[ResourceResponse])

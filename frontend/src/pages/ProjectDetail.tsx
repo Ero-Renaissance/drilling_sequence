@@ -17,6 +17,7 @@ import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import { ResourceRegistryPanel } from "@/components/resources/ResourceRegistryPanel";
+import { FleetDemandChart } from "@/components/resources/FleetDemandChart";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
@@ -641,22 +642,31 @@ export function DataTab() {
 
 export function FleetTab() {
   const { projectId } = useParams<{ projectId: string }>();
-  const { canEditPlan } = useOutletContext<CampaignOutletContext>();
+  const { canEditPlan, locked } = useOutletContext<CampaignOutletContext>();
   // Dashboard drill-throughs land here focused: ?focus=tbd pre-filters to the
   // planned (unprocured) slots, ?focus=contracts to units whose contract is
   // expired / critical / expiring soon.
   const [searchParams] = useSearchParams();
+  // Registry mutations bump this so the demand chart re-derives from fresh data.
+  const [registryVersion, setRegistryVersion] = useState(0);
   if (!projectId) return null;
   const focus = searchParams.get("focus");
   return (
-    <ErrorBoundary label="fleet registry">
-      <ResourceRegistryPanel
-        projectId={projectId}
-        canEdit={canEditPlan}
-        initialTbdOnly={focus === "tbd"}
-        initialAtRiskOnly={focus === "contracts"}
-      />
-    </ErrorBoundary>
+    <div className="space-y-4">
+      <ErrorBoundary label="fleet demand chart">
+        <FleetDemandChart projectId={projectId} refreshToken={registryVersion} />
+      </ErrorBoundary>
+      <ErrorBoundary label="fleet registry">
+        <ResourceRegistryPanel
+          projectId={projectId}
+          canEdit={canEditPlan}
+          locked={locked}
+          onRegistryChange={() => setRegistryVersion((v) => v + 1)}
+          initialTbdOnly={focus === "tbd"}
+          initialAtRiskOnly={focus === "contracts"}
+        />
+      </ErrorBoundary>
+    </div>
   );
 }
 

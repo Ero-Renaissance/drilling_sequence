@@ -852,3 +852,50 @@ async def test_placeholder_flip_blocked_while_plan_locked(client: AsyncClient) -
     )
     assert r.status_code == 200, r.text
     assert r.json()["is_placeholder"] is True  # untouched by the metadata edit
+
+
+async def test_register_unit_directly_from_the_fleet_page(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """Procurement ahead of scheduling: a planner registers a rig (or planned
+    slot) with no activity behind it. Planner-only; duplicate identity → 409;
+    rigs demand a terrain."""
+    pid = await _project(client)
+
+    created = await client.post(
+        f"/api/projects/{pid}/resources",
+        json={"kind": "rig", "name": "10K Rig 9", "terrain": "SWAMP", "is_placeholder": True},
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert (body["kind"], body["terrain"], body["is_placeholder"]) == ("rig", "SWAMP", True)
+
+    listed = (await client.get(f"/api/projects/{pid}/resources")).json()
+    assert any(r["name"] == "10K Rig 9" and r["is_placeholder"] for r in listed)
+
+    # Same identity, different casing → refused, not merged.
+    dup = await client.post(
+        f"/api/projects/{pid}/resources",
+        json={"kind": "rig", "name": "10k rig 9", "terrain": "SWAMP"},
+    )
+    assert dup.status_code == 409
+
+    # A rig without a terrain has no identity.
+    no_terrain = await client.post(
+        f"/api/projects/{pid}/resources", json={"kind": "rig", "name": "Rig X"}
+    )
+    assert no_terrain.status_code == 422
+
+    # HWUs are mobile — terrain silently normalises to the sentinel.
+    hwu = await client.post(
+        f"/api/projects/{pid}/resources", json={"kind": "hwu", "name": "Unit 5"}
+    )
+    assert hwu.status_code == 201
+    assert hwu.json()["terrain"] == ""
+
+    # Org-wide read, planner-only write.
+    denied = await other_client.post(
+        f"/api/projects/{pid}/resources",
+        json={"kind": "rig", "name": "Nope", "terrain": "LAND"},
+    )
+    assert denied.status_code == 403

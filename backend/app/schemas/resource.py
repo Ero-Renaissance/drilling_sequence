@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, StringConstraints, model_validator
 
 # Trimmed, bounded strings — identity names and class labels are short.
 ResourceName = Annotated[
@@ -24,6 +24,28 @@ class ResourceResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ResourceCreate(BaseModel):
+    """Register a unit directly from the Fleet page — procurement often runs
+    ahead of scheduling (a rig under tender exists before any activity uses
+    it). Rigs are identified by (terrain, name), so terrain is mandatory for
+    them; HWUs are mobile and carry the "" sentinel."""
+
+    kind: Literal["rig", "hwu"]
+    name: ResourceName
+    terrain: Literal["LAND", "SWAMP", "OFFSHORE"] | None = None
+    # True = a planned slot awaiting award (feeds the procurement watchlist);
+    # False = an awarded unit.
+    is_placeholder: bool = False
+
+    @model_validator(mode="after")
+    def _terrain_matches_kind(self) -> "ResourceCreate":
+        if self.kind == "rig" and not self.terrain:
+            raise ValueError("terrain is required for rigs — rig identity is (terrain, name)")
+        if self.kind == "hwu":
+            self.terrain = None  # mobile: stored as the "" sentinel
+        return self
 
 
 class ResourceUpdate(BaseModel):

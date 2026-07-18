@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Loader2, PencilLine, Search, X } from "lucide-react";
+
+import { AddResourceDialog } from "./AddResourceDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toaster";
@@ -55,11 +57,17 @@ const AT_RISK = new Set(["expired", "critical", "soon"]);
 export function ResourceRegistryPanel({
   projectId,
   canEdit,
+  locked = false,
+  onRegistryChange,
   initialTbdOnly = false,
   initialAtRiskOnly = false,
 }: {
   projectId: string;
   canEdit: boolean;
+  /** Plan locked: the Add-unit trigger disables (the write would 423). */
+  locked?: boolean;
+  /** Fired after any registry mutation reload — lets the Fleet tab refresh the demand chart. */
+  onRegistryChange?: () => void;
   /** Start with the Planned filter on (dashboard "planned slots" drill-through). */
   initialTbdOnly?: boolean;
   /** Start with the contracts-at-risk filter on (dashboard "expiring soon" drill-through). */
@@ -93,6 +101,13 @@ export function ResourceRegistryPanel({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Reload after a mutation AND tell the tab, so sibling views (demand chart)
+  // pick up the change; the initial mount load stays silent.
+  const reloadAfterMutation = useCallback(async () => {
+    await load();
+    onRegistryChange?.();
+  }, [load, onRegistryChange]);
 
   const contractFor = useMemo(() => {
     const rigByLane = new Map(rigContracts.map((c) => [`${c.terrain ?? ""}|${c.rig_name}`, c]));
@@ -206,6 +221,9 @@ export function ResourceRegistryPanel({
         >
           Planned only
         </button>
+        {canEdit && (
+          <AddResourceDialog projectId={projectId} disabled={locked} onCreated={reloadAfterMutation} />
+        )}
         <button
           type="button"
           onClick={() => setAtRiskOnly((v) => !v)}
@@ -278,7 +296,7 @@ export function ResourceRegistryPanel({
         contractFor={contractFor}
         canEdit={canEdit}
         projectId={projectId}
-        onChanged={load}
+        onChanged={reloadAfterMutation}
       />
     </div>
   );

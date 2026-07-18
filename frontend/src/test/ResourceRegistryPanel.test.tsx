@@ -243,3 +243,19 @@ describe("ResourceRegistryPanel", () => {
     expect(screen.getByRole("button", { name: "Contract" })).toBeInTheDocument();
   });
 });
+
+describe("Add unit from the Fleet page", () => {
+  it("shows the Add trigger to planners and hides it from readers", async () => {
+    render(<ResourceRegistryPanel projectId="p" canEdit />);
+    expect(await screen.findByTestId("add-resource")).toBeEnabled();
+
+    render(<ResourceRegistryPanel projectId="p" canEdit={false} />);
+    await screen.findAllByLabelText("Search fleet");
+    expect(screen.queryAllByTestId("add-resource")).toHaveLength(1); // only the first render's
+  });
+
+  it("disables the trigger while the plan is locked", async () => {
+    render(<ResourceRegistryPanel projectId="p" canEdit locked />);
+    expect(await screen.findByTestId("add-resource")).toBeDisabled();
+  });
+});

@@ -21,9 +21,31 @@ export interface ResourceUpdate {
   is_placeholder?: boolean;
 }
 
+export interface ResourceCreate {
+  kind: "rig" | "hwu";
+  name: string;
+  /** Required for rigs (identity is terrain+name); omitted for mobile HWUs. */
+  terrain?: "LAND" | "SWAMP" | "OFFSHORE";
+  /** True = planned slot awaiting award (feeds the procurement watchlist). */
+  is_placeholder?: boolean;
+}
+
 async function authHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function createResource(
+  projectId: string,
+  payload: ResourceCreate,
+): Promise<ResourceRecord> {
+  const resp = await fetch(`/api/projects/${projectId}/resources`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) await throwApiError(resp, "Failed to register the unit");
+  return resp.json();
 }
 
 export async function listResources(projectId: string): Promise<ResourceRecord[]> {
