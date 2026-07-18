@@ -83,6 +83,10 @@ interface DrillChartProps {
    *  Sequence tab and Presentation view. Off (default) for short charts like
    *  the optimizer's. */
   stickyScale?: boolean;
+  /** Extra content for the right rail, rendered under the legend and pinned
+   *  with it while the chart scrolls (presentation mode's change notes).
+   *  Only meaningful with legendPosition="right". */
+  legendExtra?: React.ReactNode;
 }
 
 /** Pill styling for the focus-year strip — solid when active, outline otherwise. */
@@ -290,6 +294,7 @@ export function DrillChart({
   onFiltersChange,
   legendPosition = "bottom",
   stickyScale = false,
+  legendExtra,
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
@@ -1351,9 +1356,7 @@ export function DrillChart({
       showContractExpiry={!!(contractsByRig || rigContractsByLane || contractsByHwu)}
       showFloodRisk={hasFlood}
       className={
-        legendPosition === "right"
-          ? "lg:w-60 lg:shrink-0 lg:flex-col lg:flex-nowrap lg:gap-3"
-          : undefined
+        legendPosition === "right" ? "lg:flex-col lg:flex-nowrap lg:gap-3" : undefined
       }
     />
   );
@@ -1466,7 +1469,13 @@ export function DrillChart({
         return legendPosition === "right" ? (
           <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
             {chartCol}
-            {legendEl}
+            {/* The rail (legend + any extra, e.g. presentation change notes)
+                pins while the tall chart scrolls — sticky against the page
+                scroller, its own scrollbar when taller than the viewport. */}
+            <div className="flex flex-col gap-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:w-60 lg:shrink-0 lg:self-start lg:overflow-y-auto">
+              {legendEl}
+              {legendExtra}
+            </div>
           </div>
         ) : (
           <>

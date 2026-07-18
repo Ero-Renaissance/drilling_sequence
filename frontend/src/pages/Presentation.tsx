@@ -87,16 +87,22 @@ export function Presentation() {
               legendPosition="right"
               initialProjects={searchParams.getAll("projects")}
               initialLocations={searchParams.getAll("locations")}
+              legendExtra={
+                <section className="space-y-2">
+                  <h2 className="text-sm font-semibold text-foreground">Change notes</h2>
+                  <ChangeNotesPanel
+                    notes={notes}
+                    layout="list"
+                    emptyText="No change notes recorded for this sequence."
+                  />
+                </section>
+              }
             />
           </ErrorBoundary>
         ) : (
           <p className="text-sm text-muted-foreground">No activities to present.</p>
         )}
 
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">Change notes</h2>
-          <ChangeNotesPanel notes={notes} emptyText="No change notes recorded for this sequence." />
-        </section>
       </div>
     </div>
   );

@@ -14,9 +14,13 @@ function label(n: ChangeNote): string {
 export function ChangeNotesPanel({
   notes,
   emptyText,
+  layout = "grid",
 }: {
   notes: ChangeNote[];
   emptyText?: string;
+  /** "grid" (default) for full-width pages; "list" stacks one card per row for
+   *  narrow rails like the presentation sidebar. */
+  layout?: "grid" | "list";
 }) {
   const withNotes = notes
     .filter((n) => n.body.trim())
@@ -27,7 +31,11 @@ export function ChangeNotesPanel({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div
+      className={
+        layout === "list" ? "flex flex-col gap-2" : "grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      }
+    >
       {withNotes.map((n) => (
         <div
           key={`${n.kind}:${n.resource_name ?? ""}`}

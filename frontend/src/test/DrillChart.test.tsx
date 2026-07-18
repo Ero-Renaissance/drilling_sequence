@@ -108,6 +108,19 @@ describe("DrillChart", () => {
     expect(screen.getByTestId("drill-chart")).toBeInTheDocument();
   });
 
+  it("renders legendExtra in the right rail (presentation change notes)", () => {
+    render(
+      <DrillChart
+        activities={MOCK_ACTIVITIES}
+        legendPosition="right"
+        legendExtra={<div data-testid="rail-extra">Change notes</div>}
+      />,
+    );
+    const extra = screen.getByTestId("rail-extra");
+    // Pinned alongside the legend: the shared rail is the sticky element.
+    expect(extra.parentElement?.className).toContain("lg:sticky");
+  });
+
   it("timescale reads at the top, echoed at the bottom, Today label on top", () => {
     render(<DrillChart activities={MOCK_ACTIVITIES} />);
     const opt = captured.option as {
