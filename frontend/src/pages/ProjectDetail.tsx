@@ -234,13 +234,14 @@ export function ProjectDetail() {
         ))}
       </div>
 
-      {/* Tab content. No overflow-auto here: the page scrolls in the app
-          shell's <main>, and an interim scrollable ancestor would become the
-          sticky containment for the sequence chart's pinned timescale (it
-          binds to the nearest scrollable box, which this div would be while
-          never actually scrolling). Wide tab content manages its own
-          overflow-x wrappers. */}
-      <div className="flex-1">
+      {/* Tab content. overflow-x-CLIP, deliberately not auto: clip contains
+          any stray over-wide element (so it can't inflate <main>'s scroll
+          width and shove the centred content sideways) yet does NOT create a
+          scroll container — an interim scrollable ancestor would become the
+          sticky containment for the sequence chart's pinned timescale and
+          break its pinning. Legitimately wide content (chart, grid) manages
+          its own overflow-x wrappers. */}
+      <div className="flex-1 overflow-x-clip">
         <Outlet
           context={
             {
