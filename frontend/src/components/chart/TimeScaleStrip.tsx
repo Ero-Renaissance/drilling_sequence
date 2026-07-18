@@ -10,6 +10,10 @@ import { computeScaleTicks, todayLabel, todayPct } from "@/lib/time-scale";
  * area so ticks sit exactly over the chart's own gridlines, and `scrollLeft`
  * keeps them aligned when the chart is scrolled horizontally on narrow
  * screens.
+ *
+ * The wrapper is HEIGHT ZERO — it takes no layout space, and the card fades
+ * in (`visible`) only once the chart's own top axis has scrolled out of view,
+ * so the two date rows are never on screen together.
  */
 export function TimeScaleStrip({
   vs,
@@ -17,20 +21,26 @@ export function TimeScaleStrip({
   left,
   width,
   scrollLeft,
+  visible,
 }: {
   vs: number;
   ve: number;
   left: number;
   width: number;
   scrollLeft: number;
+  visible: boolean;
 }) {
   const ticks = useMemo(() => computeScaleTicks(vs, ve), [vs, ve]);
   const now = Date.now();
   const tp = todayPct(vs, ve, now);
 
   return (
-    <div data-testid="time-scale-strip" className="sticky top-0 z-20">
-      <div className="overflow-hidden rounded-lg border border-border/70 bg-card/95 shadow-soft-sm backdrop-blur">
+    <div data-testid="time-scale-strip" className="sticky top-0 z-20 h-0">
+      <div
+        className={`overflow-hidden rounded-lg border border-border/70 bg-card/95 shadow-soft-sm backdrop-blur transition-all duration-200 ${
+          visible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1 opacity-0"
+        }`}
+      >
         <div
           className="relative h-8"
           style={{ marginLeft: left - scrollLeft, width }}

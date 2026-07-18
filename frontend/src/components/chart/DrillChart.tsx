@@ -1187,6 +1187,52 @@ export function DrillChart({
     width: number;
   } | null>(null);
   const [scaleScrollLeft, setScaleScrollLeft] = useState(0);
+  // The strip shows only after the chart's own top axis row scrolls out of
+  // view (both date rows on screen together read as clutter). A sentinel
+  // overlays the chart's axis band; a capture-phase scroll listener (scroll
+  // events don't bubble, but capture sees every scroll container's) measures
+  // it against its scrollport — engaged once the band is fully above it.
+  // Measured, not IntersectionObserver: IO never fires a single callback in
+  // some embedded/webview environments (observed live), and a rect compare
+  // per scroll frame is cheap.
+  const [scaleEngaged, setScaleEngaged] = useState(false);
+  const axisSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!stickyScale) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const el = axisSentinelRef.current;
+      if (!el) return;
+      // Nearest ancestor that REALLY scrolls vertically. The chart wrapper's
+      // own overflow-x:auto computes overflow-y:auto as a side effect, but its
+      // content fits — require actual overflow so the walk passes it by.
+      let scroller: HTMLElement | null = el.parentElement;
+      while (scroller) {
+        const oy = getComputedStyle(scroller).overflowY;
+        if (
+          (oy === "auto" || oy === "scroll") &&
+          scroller.scrollHeight > scroller.clientHeight + 1
+        ) {
+          break;
+        }
+        scroller = scroller.parentElement;
+      }
+      const portTop = scroller ? scroller.getBoundingClientRect().top : 0;
+      setScaleEngaged(el.getBoundingClientRect().bottom <= portTop + 1);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    measure();
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [stickyScale]);
   const scaleReportRef = useRef<(g: { vs: number; ve: number; left: number; width: number }) => void>(
     () => {},
   );
@@ -1239,7 +1285,7 @@ export function DrillChart({
 
   const chartEl = (
     <div
-      className={`overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm${
+      className={`relative overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm${
         legendPosition === "right" && !stickyScale ? " min-w-0 flex-1" : ""
       }`}
       onScroll={
@@ -1248,6 +1294,15 @@ export function DrillChart({
           : undefined
       }
     >
+      {stickyScale && (
+        // Covers the chart's top axis band (grid inset + month/year labels);
+        // measured by the scroll listener that toggles the sticky strip.
+        <div
+          ref={axisSentinelRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-14"
+        />
+      )}
       <ReactECharts
         echarts={echarts}
         ref={chartRef}
@@ -1350,6 +1405,7 @@ export function DrillChart({
               left={scaleGeom.left}
               width={scaleGeom.width}
               scrollLeft={scaleScrollLeft}
+              visible={scaleEngaged}
             />
           ) : null;
         // Wrap whenever stickyScale is on (not only once geometry exists) so
@@ -1357,7 +1413,7 @@ export function DrillChart({
         // appearing a frame later.
         const chartCol = stickyScale ? (
           <div
-            className={`flex flex-col gap-2${
+            className={`flex flex-col${
               legendPosition === "right" ? " min-w-0 flex-1" : ""
             }`}
           >
