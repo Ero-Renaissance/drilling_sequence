@@ -17,6 +17,8 @@ export interface ActivityDiff {
   activity_type: string;
   well_name: string | null;
   well_project: string | null;
+  /** Terrain (LAND/SWAMP/OFFSHORE) — drives the by-terrain compare grouping. */
+  location?: string | null;
   rig_name: string | null;
   hwu_name: string | null;
   comment: string | null;

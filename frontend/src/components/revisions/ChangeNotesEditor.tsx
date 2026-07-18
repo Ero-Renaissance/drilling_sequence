@@ -5,32 +5,16 @@ import { upsertChangeNote, type ChangeNote, type ChangeNoteKind } from "@/api/ch
 import type { ActivityDiff, ContractDiff } from "@/api/compare";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { toast } from "@/components/ui/toaster";
+import {
+  buildResourceGroups,
+  buildTerrainGroups,
+  groupKey,
+  loadCompareGrouping,
+  saveCompareGrouping,
+  type CompareGrouping,
+  type DiffGroup,
+} from "@/lib/compare-grouping";
 import { cn } from "@/lib/utils";
-
-interface ResourceGroup {
-  kind: ChangeNoteKind;
-  resourceName: string | null;
-  label: string;
-  activities: ActivityDiff[];
-}
-
-const groupKey = (kind: ChangeNoteKind, name: string | null) => `${kind}:${name ?? ""}`;
-
-const labelFor = (kind: ChangeNoteKind, name: string | null) =>
-  kind === "hwu" ? `HWU · ${name ?? ""}` : kind === "general" ? "No resource" : name ?? "";
-
-function resourceOf(a: ActivityDiff): { kind: ChangeNoteKind; name: string | null; label: string } {
-  if (a.rig_name) return { kind: "rig", name: a.rig_name, label: a.rig_name };
-  if (a.hwu_name) return { kind: "hwu", name: a.hwu_name, label: `HWU · ${a.hwu_name}` };
-  return { kind: "general", name: null, label: "No resource" };
-}
-
-/** A ContractDiff.resource is the rig name, or "HWU · <name>". */
-function parseContractResource(resource: string): { kind: ChangeNoteKind; name: string } {
-  return resource.startsWith("HWU · ")
-    ? { kind: "hwu", name: resource.slice("HWU · ".length) }
-    : { kind: "rig", name: resource };
-}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -125,36 +109,52 @@ export function ChangeNotesEditor({
    *  auto-expand, and stale note-only groups are skipped as noise. */
   filterActive?: boolean;
 }) {
-  // Group by resource: changed activities, then fold in resources that only have a
-  // contract change or a (stale) note, so nothing relevant is hidden.
-  const groups = new Map<string, ResourceGroup>();
-  for (const a of activities) {
-    const r = resourceOf(a);
-    const k = groupKey(r.kind, r.name);
-    if (!groups.has(k))
-      groups.set(k, { kind: r.kind, resourceName: r.name, label: r.label, activities: [] });
-    groups.get(k)!.activities.push(a);
-  }
-  for (const c of contracts) {
-    const { kind, name } = parseContractResource(c.resource);
-    const k = groupKey(kind, name);
-    if (!groups.has(k)) groups.set(k, { kind, resourceName: name, label: c.resource, activities: [] });
-  }
-  if (!filterActive) {
-    // Fold in resources that only carry a (possibly stale) note — but not
-    // while filtering, where a row-less group would read as a false match.
-    for (const n of notes) {
-      const k = groupKey(n.kind, n.resource_name);
-      if (!groups.has(k))
-        groups.set(k, {
-          kind: n.kind,
-          resourceName: n.resource_name,
-          label: labelFor(n.kind, n.resource_name),
-          activities: [],
-        });
-    }
-  }
-  const ordered = [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  // Two groupings of the same change set: TERRAIN (default — three buckets
+  // however large the fleet) and per-resource (the forensic drill-down). The
+  // choice is a per-user habit, persisted like other view preferences.
+  const [grouping, setGrouping] = useState<CompareGrouping>(() => loadCompareGrouping());
+  const setAndSaveGrouping = (g: CompareGrouping) => {
+    setGrouping(g);
+    saveCompareGrouping(g);
+  };
+
+  const ordered =
+    grouping === "terrain"
+      ? buildTerrainGroups(activities, contracts, notes, filterActive)
+      : buildResourceGroups(activities, contracts, notes, filterActive);
+
+  const tabs = (
+    <div
+      role="tablist"
+      aria-label="Group changes by"
+      className="flex items-center gap-0.5 rounded-md border border-border/70 bg-background p-0.5 text-xs"
+    >
+      {(
+        [
+          ["terrain", "Terrain"],
+          ["resource", "By rig"],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={grouping === value}
+          data-testid={`grouping-${value}`}
+          onClick={() => setAndSaveGrouping(value)}
+          className={cn(
+            "rounded px-2 py-0.5 font-medium transition-colors",
+            grouping === value
+              ? "bg-primary text-primary-foreground shadow-soft-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   if (ordered.length === 0) return null;
 
   // Progressive disclosure, not pagination: with a big fleet the per-rig groups
@@ -162,17 +162,15 @@ export function ChangeNotesEditor({
   // small diffs and filtered views stay fully expanded.
   const defaultOpen = filterActive || ordered.length <= 8;
 
-  const noteFor = (g: ResourceGroup) =>
+  const noteFor = (g: DiffGroup) =>
     notes.find((n) => n.kind === g.kind && (n.resource_name ?? null) === g.resourceName)?.body ?? "";
-  const contractFor = (g: ResourceGroup) =>
-    contracts.find((c) => c.resource === labelFor(g.kind, g.resourceName));
 
   const blocks = ordered.map((g) => (
     <ResourceBlock
       key={groupKey(g.kind, g.resourceName)}
       projectId={projectId}
       group={g}
-      contract={contractFor(g)}
+      grouping={grouping}
       initial={noteFor(g)}
       canEdit={canEdit}
       locked={locked}
@@ -183,7 +181,14 @@ export function ChangeNotesEditor({
 
   // Read-only (revision detail): no authoring header/box — the surrounding diff
   // panel supplies the context; each block shows its note as plain text.
-  if (readOnly) return <div className="space-y-2">{blocks}</div>;
+  if (readOnly) {
+    return (
+      <div className="space-y-2">
+        <div className="flex justify-end">{tabs}</div>
+        {blocks}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
@@ -195,11 +200,14 @@ export function ChangeNotesEditor({
             chart and the presentation view.
           </p>
         </div>
-        {!canEdit && (
-          <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
-            {locked ? "Locked with the plan — reopen to edit" : "Read-only"}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {!canEdit && (
+            <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+              {locked ? "Locked with the plan — reopen to edit" : "Read-only"}
+            </span>
+          )}
+          {tabs}
+        </div>
       </div>
       {blocks}
     </div>
@@ -211,7 +219,7 @@ const PAGE_SIZE = 8;
 function ResourceBlock({
   projectId,
   group,
-  contract,
+  grouping,
   initial,
   canEdit,
   locked,
@@ -219,8 +227,8 @@ function ResourceBlock({
   defaultOpen,
 }: {
   projectId: string;
-  group: ResourceGroup;
-  contract: ContractDiff | undefined;
+  group: DiffGroup;
+  grouping: CompareGrouping;
   initial: string;
   canEdit: boolean;
   locked: boolean;
@@ -242,11 +250,11 @@ function ResourceBlock({
   const rows = group.activities.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
 
   async function save() {
-    if (body === saved) return;
+    if (body === saved || group.kind === "unassigned") return;
     setSaving(true);
     try {
       await upsertChangeNote(projectId, {
-        kind: group.kind,
+        kind: group.kind as ChangeNoteKind,
         resource_name: group.resourceName,
         body,
       });
@@ -274,11 +282,17 @@ function ResourceBlock({
             {group.activities.length} change{group.activities.length === 1 ? "" : "s"}
           </span>
         )}
-        {contract && (
+        {grouping === "terrain" && group.resourceCount > 0 && (
           <span className="text-[11px] text-muted-foreground">
-            · contract {contract.fields.map((f) => `${f.field} ${f.old ?? "—"} → ${f.new ?? "—"}`).join(", ")}
+            across {group.resourceCount} resource{group.resourceCount === 1 ? "" : "s"}
           </span>
         )}
+        {group.contracts.map((contract) => (
+          <span key={contract.resource} className="text-[11px] text-muted-foreground">
+            · {grouping === "terrain" ? `${contract.resource} ` : ""}contract{" "}
+            {contract.fields.map((f) => `${f.field} ${f.old ?? "—"} → ${f.new ?? "—"}`).join(", ")}
+          </span>
+        ))}
         <ChevronDown
           className={cn(
             "ml-auto h-3.5 w-3.5 shrink-0 self-center text-muted-foreground transition-transform",
@@ -293,6 +307,7 @@ function ResourceBlock({
             <thead className="text-muted-foreground">
               <tr className="border-b border-border/60">
                 <th className="py-1 pr-2 font-medium">Change</th>
+                {grouping === "terrain" && <th className="py-1 pr-2 font-medium">Resource</th>}
                 <th className="py-1 pr-2 font-medium">Project</th>
                 <th className="py-1 pr-2 font-medium">Well</th>
                 <th className="py-1 pr-2 font-medium">Activity</th>
@@ -315,6 +330,11 @@ function ResourceBlock({
               {rows.map((a) => (
                 <tr key={`${a.change}-${a.activity_id}`} className="border-b border-border/30 align-top">
                   <td className={cn("py-1 pr-2 font-semibold", changeTone(a))}>{changeLabel(a)}</td>
+                  {grouping === "terrain" && (
+                    <td className="py-1 pr-2 text-foreground/80">
+                      {a.rig_name ?? (a.hwu_name ? `HWU · ${a.hwu_name}` : "—")}
+                    </td>
+                  )}
                   <td className="py-1 pr-2 text-foreground/80">{a.well_project ?? "—"}</td>
                   <td className="py-1 pr-2 text-foreground/80">{a.well_name ?? "—"}</td>
                   <td className="py-1 pr-2 text-foreground/80">{a.activity_type}</td>
@@ -343,7 +363,7 @@ function ResourceBlock({
         </div>
       )}
 
-      {open && (readOnly ? (
+      {open && group.kind !== "unassigned" && (readOnly ? (
         initial.trim() ? (
           <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/40 px-2 py-1.5 text-sm text-foreground/90">
             {initial}
@@ -359,7 +379,13 @@ function ResourceBlock({
           rows={2}
           maxLength={4000}
           placeholder={
-            canEdit ? "What changed for this resource, and why…" : locked ? "Locked with the plan" : "No note"
+            canEdit
+              ? group.kind === "terrain"
+                ? "What changed in this terrain, and why…"
+                : "What changed for this resource, and why…"
+              : locked
+                ? "Locked with the plan"
+                : "No note"
           }
           className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring read-only:opacity-70 disabled:opacity-60"
         />

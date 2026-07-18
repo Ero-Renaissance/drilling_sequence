@@ -36,3 +36,20 @@ describe("ChangeNotesPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe("ChangeNotesPanel — terrain notes", () => {
+  it("labels terrain notes and leads with them", () => {
+    render(
+      <ChangeNotesPanel
+        notes={[
+          note({ kind: "rig", resource_name: "AAA_RIG", body: "Rig note." }),
+          note({ kind: "terrain", resource_name: "SWAMP", body: "Barge programme re-cut." }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Terrain · SWAMP")).toBeInTheDocument();
+    const cards = screen.getAllByText(/note\.|re-cut\./).map((el) => el.textContent);
+    // Terrain first despite "AAA_RIG" sorting alphabetically earlier.
+    expect(cards[0]).toBe("Barge programme re-cut.");
+  });
+});

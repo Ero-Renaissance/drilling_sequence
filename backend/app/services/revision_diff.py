@@ -37,6 +37,9 @@ def _label(activity: dict) -> dict:
         "activity_type": activity.get("activity_type") or "",
         "well_name": activity.get("well_name"),
         "well_project": activity.get("well_project"),
+        # Terrain of the activity — lets the compare view group changes by
+        # LAND/SWAMP/OFFSHORE instead of per rig when the fleet is large.
+        "location": activity.get("location"),
         "rig_name": activity.get("rig_name"),
         "hwu_name": activity.get("hwu_name"),
         "comment": activity.get("comment"),

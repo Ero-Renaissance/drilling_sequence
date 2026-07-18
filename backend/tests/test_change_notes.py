@@ -138,3 +138,35 @@ async def test_revision_detail_change_notes_empty_when_none(client: AsyncClient)
     detail = await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")
     assert detail.status_code == 200
     assert detail.json()["change_notes"] == []
+
+
+async def test_terrain_notes_upsert_and_allow_list(client: AsyncClient) -> None:
+    """Terrain-level notes (the by-terrain compare tab) are keyed to the
+    canonical terrain vocabulary — anything else is refused, never coerced."""
+    pid = await _project(client)
+
+    ok = await client.put(
+        f"/api/projects/{pid}/change-notes",
+        json={"kind": "terrain", "resource_name": "SWAMP", "body": "Barge moves re-sequenced."},
+    )
+    assert ok.status_code == 200, ok.text
+
+    listed = (await client.get(f"/api/projects/{pid}/change-notes")).json()
+    assert [(n["kind"], n["resource_name"], n["body"]) for n in listed] == [
+        ("terrain", "SWAMP", "Barge moves re-sequenced.")
+    ]
+
+    # Off the allow-list → 422 (a rig name is not a terrain).
+    bad = await client.put(
+        f"/api/projects/{pid}/change-notes",
+        json={"kind": "terrain", "resource_name": "RIG_1", "body": "nope"},
+    )
+    assert bad.status_code == 422
+
+    # Empty body deletes, same lifecycle as resource notes.
+    gone = await client.put(
+        f"/api/projects/{pid}/change-notes",
+        json={"kind": "terrain", "resource_name": "SWAMP", "body": ""},
+    )
+    assert gone.status_code == 200
+    assert (await client.get(f"/api/projects/{pid}/change-notes")).json() == []

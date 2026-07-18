@@ -1,7 +1,7 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
 
-export type ChangeNoteKind = "rig" | "hwu" | "general";
+export type ChangeNoteKind = "rig" | "hwu" | "general" | "terrain";
 
 export interface ChangeNote {
   kind: ChangeNoteKind;

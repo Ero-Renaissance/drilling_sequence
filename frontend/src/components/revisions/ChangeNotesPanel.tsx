@@ -1,6 +1,7 @@
 import type { ChangeNote } from "@/api/change-notes";
 
 function label(n: ChangeNote): string {
+  if (n.kind === "terrain") return `Terrain · ${n.resource_name ?? ""}`;
   if (n.kind === "hwu") return `HWU · ${n.resource_name ?? ""}`;
   if (n.kind === "general") return "General";
   return n.resource_name ?? "";
@@ -22,9 +23,14 @@ export function ChangeNotesPanel({
    *  narrow rails like the presentation sidebar. */
   layout?: "grid" | "list";
 }) {
+  // Terrain notes lead (the headline rollup), resource notes follow.
   const withNotes = notes
     .filter((n) => n.body.trim())
-    .sort((a, b) => label(a).localeCompare(label(b)));
+    .sort(
+      (a, b) =>
+        (a.kind === "terrain" ? 0 : 1) - (b.kind === "terrain" ? 0 : 1) ||
+        label(a).localeCompare(label(b)),
+    );
 
   if (withNotes.length === 0) {
     return emptyText ? <p className="text-sm text-muted-foreground">{emptyText}</p> : null;
