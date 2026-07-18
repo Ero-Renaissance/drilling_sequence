@@ -250,3 +250,39 @@ async def test_project_lock_summary_tracks_lifecycle(
 
     await client.post(f"/api/projects/{project_id}/revisions/reopen")
     assert (await lock())["locked"] is False
+
+
+@pytest.mark.asyncio
+async def test_project_detail_carries_the_approval_summary(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """The campaign header chip reads GET /projects/{id}.approval: "draft"
+    before any revision, signature progress while pending, then approved."""
+    project_id, _ = await _project_with_activity(client)
+
+    detail = (await client.get(f"/api/projects/{project_id}")).json()
+    assert detail["approval"] == {
+        "status": "draft", "rev_number": None, "rev_label": None,
+        "signed": 0, "approvers": 0,
+    }
+
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    revision_id = await _create_revision(client, project_id)
+
+    pending = (await client.get(f"/api/projects/{project_id}")).json()["approval"]
+    assert pending["status"] == "pending_approval"
+    assert pending["rev_number"] == 1
+    assert (pending["signed"], pending["approvers"]) == (0, 1)
+
+    signed = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Manager", "attested": True},
+    )
+    assert signed.status_code == 200
+
+    approved = (await client.get(f"/api/projects/{project_id}")).json()["approval"]
+    assert approved["status"] == "approved"
+    assert approved["rev_number"] == 1

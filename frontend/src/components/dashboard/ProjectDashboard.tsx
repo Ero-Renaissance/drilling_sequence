@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
 
@@ -11,37 +12,52 @@ const TONE: Record<Tone, string> = {
   bad: "text-destructive",
 };
 
+const TILE_CLASS = "rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm";
+// Tiles are doors: same card, plus hover/focus affordance and link semantics.
+const TILE_LINK_CLASS = `${TILE_CLASS} block transition-colors hover:border-primary/50 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`;
+
 function Tile({
   label,
   value,
   sub,
   tone = "neutral",
+  to,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: Tone;
+  /** Destination tab — every tile deep-links to the page that acts on it. */
+  to?: string;
 }) {
-  return (
-    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
+  const body = (
+    <>
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className={`mt-1 text-2xl font-semibold ${TONE[tone]}`}>{value}</p>
       {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
-    </div>
+    </>
   );
+  if (to) {
+    return (
+      <Link to={to} className={TILE_LINK_CLASS}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className={TILE_CLASS}>{body}</div>;
 }
 
 /** Fleet demand over the plan window as a 2×2: kind (rigs / HWUs) ×
  *  procurement (in use = procured · planned = no awarded unit yet). The four
  *  are disjoint and sum to the lanes the plan occupies. */
-function FleetTile({ rigs }: { rigs: DashboardResponse["rigs"] }) {
+function FleetTile({ rigs, to }: { rigs: DashboardResponse["rigs"]; to: string }) {
   const plannedHint =
     "Planned = capacity in the plan with no awarded unit behind it yet — procurement pending";
   // Rendered as a literal 2×2 (see docstring): one column per kind, each with
   // its in-use count on the shared baseline and its planned count beneath —
   // the columns keep both numbers and both sublines on the same grid tracks.
   return (
-    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-soft-sm">
+    <Link to={to} className={TILE_LINK_CLASS}>
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Fleet status
       </p>
@@ -69,27 +85,9 @@ function FleetTile({ rigs }: { rigs: DashboardResponse["rigs"] }) {
           </p>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "Draft",
-  pending_approval: "Pending approval",
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  rejected: "Rejected",
-  discarded: "Discarded",
-};
-
-const STATUS_TONE: Record<string, Tone> = {
-  approved: "good",
-  pending_approval: "warn",
-  changes_requested: "bad",
-  rejected: "bad",
-  draft: "neutral",
-  discarded: "neutral",
-};
 
 function readinessTone(pct: number | null): Tone {
   if (pct === null) return "neutral";
@@ -246,7 +244,8 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
   if (error) return <p className="py-12 text-center text-sm text-destructive">{error}</p>;
   if (!data) return <p className="py-12 text-center text-sm text-muted-foreground">Loading dashboard…</p>;
 
-  const { activities, readiness, rigs, contracts, approval } = data;
+  const { activities, readiness, rigs, contracts } = data;
+  const base = `/projects/${projectId}`;
 
   const contractsAtRisk = contracts.expired + contracts.critical + contracts.soon;
 
@@ -263,32 +262,23 @@ export function ProjectDashboard({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-6">
       {/* Hero tiles */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile
+          to={`${base}/data`}
           label="Completed YTD"
           value={String(activities.completed_ytd)}
           sub={`${activities.completed_this_quarter} this quarter`}
         />
         <Tile
+          to={`${base}/readiness`}
           label={`Readiness · ${horizonSuffix(horizon)}`}
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
           sub={`${readiness.ready}/${readiness.focus_count} ready · ${readiness.behind_cells} behind`}
           tone={readinessTone(readiness.overall_pct)}
         />
+        <FleetTile rigs={rigs} to={`${base}/fleet`} />
         <Tile
-          label="Approval"
-          value={STATUS_LABEL[approval.current_status] ?? approval.current_status}
-          sub={
-            approval.current_status === "pending_approval"
-              ? `${approval.signed}/${approval.approvers} signed`
-              : approval.approvers === 0
-                ? "No approvers configured"
-                : undefined
-          }
-          tone={STATUS_TONE[approval.current_status] ?? "neutral"}
-        />
-        <FleetTile rigs={rigs} />
-        <Tile
+          to={`${base}/fleet?focus=contracts`}
           label="Contracts at risk"
           value={String(contractsAtRisk)}
           sub={`${contracts.expired} expired · ${contracts.critical} critical · ${contracts.soon} soon`}

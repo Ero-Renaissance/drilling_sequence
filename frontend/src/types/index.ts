@@ -31,6 +31,16 @@ export interface ProjectMember {
 
 export type ReviewPolicy = "required" | "optional" | "off";
 
+export interface ProjectApprovalSummary {
+  /** Latest revision's status; "draft" = no revisions yet. */
+  status: string;
+  rev_number: number | null;
+  rev_label: string | null;
+  /** Approval-stage signatures landed / designated approvers. */
+  signed: number;
+  approvers: number;
+}
+
 export interface ProjectLock {
   locked: boolean;
   /** Why it's frozen: "pending" (in review/approval) or "approved" (revise to edit). */
@@ -54,6 +64,8 @@ export interface Project {
   cloned_from_project_id: string | null;
   /** Plan-lock summary — populated only by the detail endpoint (GET /projects/:id). */
   lock?: ProjectLock | null;
+  /** Plan state for the header chip (detail endpoint only). */
+  approval?: ProjectApprovalSummary | null;
 }
 
 export interface ProjectCreate {

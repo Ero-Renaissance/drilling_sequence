@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,6 +22,7 @@ from app.models.user import User
 from app.schemas.audit import AuditEntryResponse
 from app.schemas.project import (
     PlannerAdd,
+    ProjectApprovalSummary,
     ProjectClone,
     ProjectCreate,
     ProjectLock,
@@ -481,6 +482,48 @@ async def compute_project_lock(project_id: uuid.UUID, db: AsyncSession) -> Proje
     )
 
 
+async def compute_approval_summary(
+    project_id: uuid.UUID, db: AsyncSession
+) -> ProjectApprovalSummary:
+    """Plan state for the header chip/banner: latest revision's status, plus
+    approval-signature progress while pending. No revisions yet → "draft"."""
+    latest = (
+        await db.execute(
+            select(Revision)
+            .where(Revision.project_id == project_id)
+            .order_by(Revision.rev_number.desc())
+            .limit(1)
+            .options(selectinload(Revision.signatures))
+        )
+    ).scalar_one_or_none()
+    if latest is None:
+        return ProjectApprovalSummary(status="draft")
+    approvers = (
+        await db.execute(
+            select(func.count())
+            .select_from(ProjectApprover)
+            .where(
+                ProjectApprover.project_id == project_id,
+                ProjectApprover.kind == "approver",
+            )
+        )
+    ).scalar_one()
+    # Approval-stage signatures only — review signatures on a review-routed
+    # revision must not inflate the approval count.
+    signed = (
+        sum(1 for sig in latest.signatures if sig.stage == "approval")
+        if latest.status == "pending_approval"
+        else 0
+    )
+    return ProjectApprovalSummary(
+        status=latest.status,
+        rev_number=latest.rev_number,
+        rev_label=latest.label,
+        signed=signed,
+        approvers=approvers,
+    )
+
+
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
@@ -489,6 +532,7 @@ async def get_project(
     project = await _load_project_or_404(project_id, db)
     response = ProjectResponse.from_project(project)
     response.lock = await compute_project_lock(project_id, db)
+    response.approval = await compute_approval_summary(project_id, db)
     return response
 
 

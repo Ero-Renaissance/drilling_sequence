@@ -90,6 +90,22 @@ class ProjectLock(BaseModel):
     rev_label: str | None = None
 
 
+class ProjectApprovalSummary(BaseModel):
+    """Compact plan-state for the campaign header chip and the lock banner:
+    the latest revision's status plus approval-signature progress while one is
+    pending. Display-only — the Approvals tab remains the authority on signer
+    eligibility (separation of duties etc.)."""
+
+    # draft | pending_review | pending_approval | approved | changes_requested
+    # | rejected | discarded ("draft" = no revisions yet)
+    status: str
+    rev_number: int | None = None
+    rev_label: str | None = None
+    # Approval-stage signatures landed / designated approvers (kind="approver").
+    signed: int = 0
+    approvers: int = 0
+
+
 class ProjectResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -103,6 +119,7 @@ class ProjectResponse(BaseModel):
     members: list[ProjectMemberResponse] = []
     # Populated on the detail endpoint only (None in the list response).
     lock: ProjectLock | None = None
+    approval: ProjectApprovalSummary | None = None
 
     model_config = {"from_attributes": True}
 

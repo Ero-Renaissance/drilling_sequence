@@ -59,7 +59,22 @@ describe("ProjectDashboard", () => {
     expect(screen.getByText("Completed YTD")).toBeInTheDocument();
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     expect(screen.getByText("62%")).toBeInTheDocument();
-    expect(screen.getByText("Pending approval")).toBeInTheDocument();
+    // The Approval tile is retired — plan state lives in the header chip and
+    // the lock banner, not the KPI row.
+    expect(screen.queryByText("Approval")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pending approval")).not.toBeInTheDocument();
+  });
+
+  it("every tile is a door into the tab that acts on it", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    await screen.findByText("Fleet status");
+    const href = (label: string | RegExp) =>
+      screen.getByRole("link", { name: label }).getAttribute("href");
+    expect(href(/Completed YTD/)).toBe("/projects/p1/data");
+    expect(href(/Readiness ·/)).toBe("/projects/p1/readiness");
+    expect(href(/Fleet status/)).toBe("/projects/p1/fleet");
+    expect(href(/Contracts at risk/)).toBe("/projects/p1/fleet?focus=contracts");
   });
 
   it("splits the fleet tile by kind and procurement", async () => {

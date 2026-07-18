@@ -1,3 +1,4 @@
+import { PlanStateChip } from "@/components/PlanStateChip";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, NavLink, Outlet, Navigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { AlertTriangle, BarChart2, ChevronDown, ChevronUp, Table2, CheckSquare, PenSquare, ArrowLeft, RefreshCw, History, GitCompare, LayoutDashboard, Lock, MonitorPlay, FileDown, Drill, Settings2 } from "lucide-react";
@@ -63,10 +64,12 @@ export function PlanLockBanner({
   projectId,
   lock,
   canRevise,
+  approval,
 }: {
   projectId: string;
   lock: ProjectLock;
   canRevise: boolean;
+  approval?: import("@/types").ProjectApprovalSummary | null;
 }) {
   const [reopening, setReopening] = useState(false);
   if (!lock.locked || !lock.reason) return null;
@@ -103,8 +106,14 @@ export function PlanLockBanner({
         </>
       ) : (
         <span className="text-amber-800">
-          <span className="font-semibold">{rev} is awaiting approval.</span> The plan is locked
-          until the revision is resolved.
+          <span className="font-semibold">
+            {rev} is awaiting approval
+            {approval?.status === "pending_approval" && approval.approvers > 0
+              ? ` · ${approval.signed}/${approval.approvers} signed`
+              : ""}
+            .
+          </span>{" "}
+          The plan is locked until the revision is resolved.
         </span>
       )}
     </div>
@@ -161,9 +170,16 @@ export function ProjectDetail() {
           </NavLink>
         </Button>
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold tracking-tight">
-            {project?.name ?? "Loading…"}
-          </h1>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <h1 className="truncate text-xl font-semibold tracking-tight">
+              {project?.name ?? "Loading…"}
+            </h1>
+            {/* Plan state at identity level (every tab), replacing the retired
+                Overview "Approval" tile — clicks through to Approvals. */}
+            {projectId && (
+              <PlanStateChip projectId={projectId} approval={fetchedProject?.approval} />
+            )}
+          </div>
           {project && (project.field || project.region) && (
             <p className="truncate text-sm text-muted-foreground">
               {[project.field, project.region].filter(Boolean).join(" · ")}
@@ -173,7 +189,12 @@ export function ProjectDetail() {
       </div>
 
       {fetchedProject?.lock?.locked && (
-        <PlanLockBanner projectId={projectId} lock={fetchedProject.lock} canRevise={canRevise} />
+        <PlanLockBanner
+          projectId={projectId}
+          lock={fetchedProject.lock}
+          canRevise={canRevise}
+          approval={fetchedProject.approval}
+        />
       )}
 
       {/* Tabs */}
