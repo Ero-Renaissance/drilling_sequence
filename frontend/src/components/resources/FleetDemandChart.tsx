@@ -225,13 +225,7 @@ export function FleetDemandChart({
       data-testid="fleet-demand-chart"
     >
       <div className="mb-1.5 flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h4 className="text-sm font-semibold text-foreground">Fleet demand by year</h4>
-          <p className="text-xs text-muted-foreground">
-            Distinct {kind === "rig" ? "rigs" : "HWUs"} with scheduled work each year — amber slots
-            still need an awarded unit.
-          </p>
-        </div>
+        <h4 className="text-sm font-semibold text-foreground">Fleet demand by year</h4>
         <div className="flex flex-wrap items-center gap-2">
           <div
             className={cn(
