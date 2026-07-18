@@ -10,10 +10,7 @@ import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
 import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
-import {
-  classifyContract,
-  URGENCY_VISUAL,
-} from "@/lib/contract-urgency";
+import { URGENCY_VISUAL } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessRowsPerPage, type PrintYears } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
@@ -26,21 +23,21 @@ import type { Project } from "@/types";
 // the "expired" state — a signed document should record facts, not forecasts.
 // The interactive chart shows the full approaching gradient (soon/critical/
 // expired) for early warning, and the dashboard keeps the complete set.
-type DatedUrgency = "expired" | "critical" | "soon" | "healthy";
 
-/** Urgency of a rig's contract from the snapshot's denormalised fields.
- *  Historical snapshots may carry the retired workflow status — a "Draft"
- *  contract's dates were non-binding when that revision was approved, so
- *  stay faithful to it and suppress the marker. */
-function expiryUrgency(
+/** Whether a rig's contract gets its expiration-date marker. The marker is a
+ *  FACT (the date the contract ends, always the same red), not an urgency
+ *  alert — it matches the interactive chart. Historical snapshots may carry
+ *  the retired workflow status: a "Draft" contract's dates were non-binding
+ *  when that revision was approved, so stay faithful and suppress it. */
+function hasContractMarker(
   status: string | null | undefined,
   end: string | null | undefined,
-): DatedUrgency | null {
-  if (status === "Draft") return null;
-  const u = classifyContract({ contract_end: end ?? null });
-  // #5: flag EXPIRED contracts only.
-  return u === "expired" ? "expired" : null;
+): boolean {
+  return status !== "Draft" && !!end;
 }
+
+// The one red every expiration date wears (same as the interactive chart).
+const EXPIRY_HEX = URGENCY_VISUAL.expired.hex;
 
 const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"];
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
@@ -160,7 +157,7 @@ function StaticGantt({
   // is per-rig (denormalised onto every activity), so capture it once per row.
   const meta = new Map<
     string,
-    { loc: string | null; rig: string | null; contractEnd: string | null; urgency: DatedUrgency | null }
+    { loc: string | null; rig: string | null; contractEnd: string | null; marked: boolean }
   >();
   for (const a of acts) {
     const k = rowLabel(a.location, printResource(a) ?? a.activity_type);
@@ -169,7 +166,7 @@ function StaticGantt({
         loc: a.location,
         rig: a.rig_name,
         contractEnd: a.rig_contract_end ?? null,
-        urgency: expiryUrgency(a.rig_contract_status, a.rig_contract_end),
+        marked: hasContractMarker(a.rig_contract_status, a.rig_contract_end),
       });
     }
   }
@@ -347,14 +344,13 @@ function StaticGantt({
                 </div>
                 {pg.keys.map((key) => {
                   const m = meta.get(key);
-                  // Contract-expiry marker — only when the rig's in-force contract
-                  // ends inside this window; placed at that date along the row.
-                  const cEnd = m?.urgency ? parse(m.contractEnd) : null;
+                  // Contract expiration-date marker — any in-force contract
+                  // whose end date falls inside this window, at that date.
+                  const cEnd = m?.marked ? parse(m.contractEnd) : null;
                   const expiryPct =
                     cEnd && cEnd.getTime() >= winStart && cEnd.getTime() < w.to.getTime()
                       ? ((cEnd.getTime() - winStart) / winSpan) * 100
                       : null;
-                  const expiryHex = m?.urgency ? URGENCY_VISUAL[m.urgency].hex : undefined;
                   // Bars on this row, left→right, with their %-geometry — so each can
                   // see its neighbours' edges and place a spilled label in the gap
                   // without overrunning them.
@@ -527,24 +523,25 @@ function StaticGantt({
                             </Fragment>
                           );
                         })}
-                      {/* Contract-expiry marker: alarm at the expiry date + a faint
-                          tick down the row, coloured by urgency. */}
-                      {expiryPct !== null && expiryHex && (
+                      {/* Contract expiration-date marker: alarm badge at the
+                          date + a faint tick down the row — always the same red
+                          (a fact, not an urgency tier), matching the chart. */}
+                      {expiryPct !== null && (
                         <span
                           className="pointer-events-none absolute inset-y-0 z-10 flex flex-col items-center"
                           style={{ left: `${expiryPct}%`, transform: "translateX(-50%)" }}
-                          title={`Contract expired ${fmt(m!.contractEnd)}`}
+                          title={`Contract expiration ${fmt(m!.contractEnd)}`}
                         >
                           {/* Solid urgency-colored badge (white glyph) with a white ring —
                               the inverse of the old white-circle-red-outline, so it stays
                               prominent even where it crosses colored bars. */}
                           <span
                             className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ring-1 ring-white/80"
-                            style={{ backgroundColor: expiryHex }}
+                            style={{ backgroundColor: EXPIRY_HEX }}
                           >
                             <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
                           </span>
-                          <span className="w-px flex-1" style={{ backgroundColor: expiryHex, opacity: 0.7 }} />
+                          <span className="w-px flex-1" style={{ backgroundColor: EXPIRY_HEX, opacity: 0.7 }} />
                         </span>
                       )}
                     </div>
@@ -573,7 +570,7 @@ function StaticGantt({
 function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; showOrderKey?: boolean }) {
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
   // Show the contract-expiry key only when some rig has an in-force contract.
-  const hasExpiry = rows.some((r) => expiryUrgency(r.rig_contract_status, r.rig_contract_end) !== null);
+  const hasExpiry = rows.some((r) => hasContractMarker(r.rig_contract_status, r.rig_contract_end));
   const hasFlood = rows.some((r) => r.risk === "Flood Risk");
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
@@ -615,7 +612,7 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
             >
               <AlarmClock className="h-2 w-2 text-white" strokeWidth={2.5} />
             </span>
-            {URGENCY_VISUAL.expired.label}
+            Expiration date
           </span>
         </>
       )}

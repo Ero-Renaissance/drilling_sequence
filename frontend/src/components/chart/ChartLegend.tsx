@@ -26,7 +26,6 @@ interface ChartLegendProps {
 
 // Worst first, matching how the chart escalates. "Healthy" is deliberately
 // absent — a marker that appeared on every rig would stop meaning anything.
-const EXPIRY_LEGEND_ORDER = ["expired", "critical", "soon"] as const;
 
 function Section({
   label,
@@ -55,17 +54,6 @@ export function ChartLegend({
   showFloodRisk = false,
   className,
 }: ChartLegendProps) {
-  // Each tier gets a friendly name AND its numeric range so readers can connect
-  // the colored dot to both the urgency vocabulary and an absolute timeframe.
-  const expiryItems: Record<
-    (typeof EXPIRY_LEGEND_ORDER)[number],
-    { name: string; range: string }
-  > = {
-    expired: { name: "Expired", range: "end date passed" },
-    critical: { name: "Critical", range: "< 3 months" },
-    soon: { name: "Expiring soon", range: "3–6 months" },
-  };
-
   return (
     <div
       className={cn(
@@ -135,32 +123,23 @@ export function ChartLegend({
           <div className="flex min-w-0 flex-col gap-1.5 md:max-w-[13rem]">
             <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               <AlarmClock className="h-3 w-3" strokeWidth={2.25} />
-              Contract expiry
+              Contract expiration
             </span>
             <p className="text-[10px] text-muted-foreground">
-              A clock badge on a rig&apos;s row marks a contract at or past its end
-              date — colour shows urgency — with a line at the expiry date.
+              A clock badge on a rig&apos;s row marks its contract&apos;s expiration
+              date, with a line at the date. It states the date — urgency alerts
+              live on the Overview and Fleet pages.
             </p>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {EXPIRY_LEGEND_ORDER.map((key) => (
-                <span
-                  key={key}
-                  className="flex items-center gap-1.5 text-xs text-foreground"
-                >
-                  {/* The key IS the mark: the same solid badge the chart draws. */}
-                  <span
-                    className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full"
-                    style={{ backgroundColor: URGENCY_VISUAL[key].hex }}
-                  >
-                    <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
-                  </span>
-                  <span className="font-medium">{expiryItems[key].name}</span>
-                  <span className="text-muted-foreground">
-                    ({expiryItems[key].range})
-                  </span>
-                </span>
-              ))}
-            </div>
+            <span className="flex items-center gap-1.5 text-xs text-foreground">
+              {/* The key IS the mark: the same solid badge the chart draws. */}
+              <span
+                className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full"
+                style={{ backgroundColor: URGENCY_VISUAL.expired.hex }}
+              >
+                <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
+              </span>
+              <span className="font-medium">Expiration date</span>
+            </span>
           </div>
         </>
       )}

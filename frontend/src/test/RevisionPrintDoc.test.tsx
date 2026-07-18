@@ -78,10 +78,8 @@ describe("RevisionPrintDoc — readiness chart short-bar labels", () => {
 
 describe("RevisionPrintDoc — contract-expiry legend", () => {
   it("labels the contract-expiry key 'Contract Expiration'", () => {
-    // A rig whose contract is "Completed" with an end date in the PAST → an
-    // "expired" urgency → the contract-expiry key renders. #5: only expired
-    // contracts are flagged on the print. The far-past date keeps it expired no
-    // matter when the suite runs.
+    // Any in-force dated contract renders the key — the marker is the
+    // expiration DATE as a fact, not an urgency alert.
     const withContract: PrintRow[] = [
       { ...rows[1], rig_contract_status: "Completed", rig_contract_end: "2020-01-01" },
     ];
@@ -104,10 +102,10 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
     expect(header.className).toContain("uppercase");
   });
 
-  it("draws the expiry marker as a solid badge with a row tick", () => {
-    // The expiry must fall INSIDE the chart's fitted window to render a marker,
-    // and be in the past to classify as expired — so the whole fixture lives in
-    // 2020: the well drills Jan–Apr, the contract lapsed mid-February.
+  it("draws the expiration marker as a solid badge with a row tick", () => {
+    // The date must fall INSIDE the chart's fitted window to render a marker;
+    // the whole fixture lives in 2020: the well drills Jan–Apr, the contract
+    // ends mid-February.
     const past: PrintRow[] = [
       {
         ...rows[0],
@@ -129,9 +127,8 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
       />,
     );
 
-    // A SOLID badge (filled urgency circle, white glyph) with a row tick below —
-    // not the old white circle with a thin outline icon.
-    const marker = screen.getByTitle(/^Contract expired /);
+    // A SOLID badge (filled red circle, white glyph) with a row tick below.
+    const marker = screen.getByTitle(/^Contract expiration /);
     const badge = marker.firstElementChild as HTMLElement;
     expect(badge.style.backgroundColor).not.toBe("");
     expect(badge.className).toContain("rounded-full");
@@ -139,9 +136,36 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
     expect(tick.style.backgroundColor).not.toBe("");
   });
 
-  it("hides the contract-expiry key for a non-expired contract (#5)", () => {
-    // A "Completed" contract with a far-FUTURE end date → "healthy", not expired
-    // → the print flags nothing, so the key is absent.
+  it("marks a contract ending FAR IN THE FUTURE too — the date is a fact, not an alarm", () => {
+    // Pre-change, only expired contracts printed a marker; a healthy far-off
+    // contract must now mark its end date exactly the same way.
+    const future: PrintRow[] = [
+      {
+        ...rows[0],
+        start_date: "2090-01-05",
+        end_date: "2090-04-01",
+        rig_contract_status: "Completed",
+        rig_contract_end: "2090-02-15",
+      },
+    ];
+
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={future}
+        chart="readiness"
+        includeSchedule={false}
+        signatures="wetink"
+      />,
+    );
+    expect(screen.getByTitle(/^Contract expiration .*2090/)).toBeInTheDocument();
+  });
+
+  it("shows the contract-expiration key for a healthy dated contract too", () => {
+    // The retired #5 rule hid the key unless a contract had EXPIRED. The
+    // marker now states the expiration date for every in-force contract, so
+    // a far-future end date renders the key like any other.
     const healthy: PrintRow[] = [
       { ...rows[1], rig_contract_status: "Completed", rig_contract_end: "2099-12-31" },
     ];
@@ -156,8 +180,8 @@ describe("RevisionPrintDoc — contract-expiry legend", () => {
         signatures="wetink"
       />,
     );
-
-    expect(screen.queryByText("Contract Expiration")).not.toBeInTheDocument();
+    expect(screen.getByText("Contract Expiration")).toBeInTheDocument();
+    expect(screen.getByText("Expiration date")).toBeInTheDocument();
   });
 });
 

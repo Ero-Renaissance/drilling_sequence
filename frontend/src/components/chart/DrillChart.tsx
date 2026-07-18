@@ -23,7 +23,6 @@ import {
 } from "@/lib/check-icon-svg";
 import { STATUS_LABEL } from "@/components/readiness/check-meta";
 import {
-  classifyContract,
   daysUntilExpiry,
   URGENCY_VISUAL,
 } from "@/lib/contract-urgency";
@@ -773,16 +772,24 @@ export function DrillChart({
       const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${dd} ${MONTHS[mm - 1]} ${yy}`;
     };
+    // Humanised distance to the date — every dated contract is marked now
+    // (not just near-term ones), so "in 1826 days" must read as "in 5 years".
     const relExpiry = (days: number) => {
+      const span = (n: number) => {
+        if (n >= 365) {
+          const y = Math.floor(n / 365);
+          const m = Math.round((n % 365) / 30);
+          return m > 0 ? `${y}y ${m}m` : `${y} year${y === 1 ? "" : "s"}`;
+        }
+        if (n >= 60) return `${Math.round(n / 30)} months`;
+        return `${n} day${n === 1 ? "" : "s"}`;
+      };
       if (days === 0) return "today";
-      if (days > 0) return `in ${days} day${days === 1 ? "" : "s"}`;
-      const n = -days;
-      return `${n} day${n === 1 ? "" : "s"} ago`;
+      return days > 0 ? `in ${span(days)}` : `${span(-days)} ago`;
     };
     const contractMarkers: {
       value: [number, number];
-      hex: string;
-      contract: { kind: "rig" | "hwu"; name: string; date: string; rel: string; status: string };
+      contract: { kind: "rig" | "hwu"; name: string; date: string; rel: string };
     }[] = [];
     if (contractsByRig || rigContractsByLane || contractsByHwu) {
       categories.forEach((cat, i) => {
@@ -797,26 +804,19 @@ export function DrillChart({
             : rigContractsByLane?.get(rigLaneKey(res.terrain, res.name)) ??
               rigContractsByLane?.get(rigLaneKey("", res.name)) ??
               contractsByRig?.get(res.name);
-        const urgency = classifyContract(contract);
-        // The INTERACTIVE chart shows the whole approaching-expiry gradient
-        // (soon 3–6 months amber, critical <3 months orange, expired red — the
-        // tiers are keyed to the quarterly approval cadence, see
-        // contract-urgency.ts) so planners see a lapse coming in time to act.
-        // The formal PRINT stays expired-only (#5) — see expiryUrgency in
-        // RevisionPrintDoc.
-        if (
-          contract?.contract_end &&
-          (urgency === "expired" || urgency === "critical" || urgency === "soon")
-        ) {
+        // The marker is a FACT, not an alarm: every dated contract shows its
+        // expiration date in the same red, however far off — so work scheduled
+        // past a contract's end is visible at any distance. Urgency-graded
+        // alerts live on the Overview's Contracts-at-Risk tile and the Fleet
+        // tab (contract-urgency.ts), not the sequence.
+        if (contract?.contract_end) {
           contractMarkers.push({
             value: [new Date(contract.contract_end).getTime(), i],
-            hex: URGENCY_VISUAL[urgency].hex,
             contract: {
               kind: res?.kind ?? "rig",
               name: res?.name ?? "—",
               date: fmtExpiry(contract.contract_end),
               rel: relExpiry(daysUntilExpiry(contract) ?? 0),
-              status: URGENCY_VISUAL[urgency].label,
             },
           });
         }
@@ -873,11 +873,11 @@ export function DrillChart({
     }
 
     function renderContractMarker(
-      params: CustomSeriesRenderItemParams,
+      _params: CustomSeriesRenderItemParams,
       api: CustomSeriesRenderItemAPI,
     ): CustomSeriesRenderItemReturn {
       const [cx, cy] = api.coord([api.value(0), api.value(1)]);
-      const hex = contractMarkers[params.dataIndex]?.hex ?? URGENCY_VISUAL.healthy.hex;
+      const hex = URGENCY_VISUAL.expired.hex; // one red for every expiration date
       // An expiry is a DATE, so mark the position, not just a point: a solid
       // badge (white clock on an urgency-colored disc with a surface ring, so
       // it can't vanish against bars or the dark theme) at the TOP of the row
@@ -936,7 +936,7 @@ export function DrillChart({
           const params = p as {
             data: {
               hex?: string;
-              contract?: { kind: "rig" | "hwu"; name: string; date: string; rel: string; status: string };
+              contract?: { kind: "rig" | "hwu"; name: string; date: string; rel: string };
               tooltip?: {
                 activity: string;
                 well: string | null;
@@ -965,15 +965,15 @@ export function DrillChart({
               ? `<div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">${label}</span><span style="font-weight:500">${esc(val)}</span></div>`
               : "";
 
-          // Contract-expiry clock marker → a resource / date / urgency card.
+          // Contract clock marker → a factual resource/date card (no urgency
+          // tier — the marker states when the contract ends, nothing more).
           const c = params.data.contract;
           if (c) {
             return `
-              <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">Contract expiry</div>
+              <div style="font-weight:600;font-size:14px;margin-bottom:6px;color:${theme.tooltipText}">Contract expiration</div>
               ${row(c.kind === "hwu" ? "HWU" : "Rig", c.name)}
               ${row("Expires", c.date)}
               <div style="display:flex;gap:8px;margin-top:2px"><span style="min-width:60px"></span><span style="color:${theme.tooltipMuted}">${esc(c.rel)}</span></div>
-              <div style="display:flex;gap:8px;margin-top:4px"><span style="color:${theme.tooltipMuted};min-width:60px">Status</span><span style="font-weight:600;color:${params.data.hex ?? theme.tooltipText}">${esc(c.status)}</span></div>
             `;
           }
 
