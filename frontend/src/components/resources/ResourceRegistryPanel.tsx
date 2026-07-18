@@ -189,13 +189,23 @@ export function ResourceRegistryPanel({
   const matchesElsewhere = matched.length - activeUnits.length;
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        One row per <span className="font-medium text-foreground">physical unit</span>. Rigs are
-        terrain-locked — the same name on land and in swamp is two rigs, each on its own tab.{" "}
-        <span className="font-medium text-foreground">Planned</span> marks capacity with no awarded
-        unit behind it yet; rename it when the contract lands and its schedule and contract follow.
-      </p>
+    <div className="space-y-4 rounded-lg border border-border/70 bg-card p-4 shadow-soft-sm">
+      {/* Card header: what this list is, with the register action beside it */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">Fleet registry</h4>
+          <p className="mt-0.5 max-w-3xl text-xs text-muted-foreground">
+            One row per <span className="font-medium text-foreground">physical unit</span>. Rigs are
+            terrain-locked — the same name on land and in swamp is two rigs, each on its own tab.{" "}
+            <span className="font-medium text-foreground">Planned</span> marks capacity with no
+            awarded unit behind it yet; rename it when the contract lands and its schedule and
+            contract follow.
+          </p>
+        </div>
+        {canEdit && (
+          <AddResourceDialog projectId={projectId} disabled={locked} onCreated={reloadAfterMutation} />
+        )}
+      </div>
 
       {/* Toolbar: search + Planned toggle — both scope across ALL tabs */}
       <div className="flex flex-wrap items-center gap-2">
@@ -221,9 +231,6 @@ export function ResourceRegistryPanel({
         >
           Planned only
         </button>
-        {canEdit && (
-          <AddResourceDialog projectId={projectId} disabled={locked} onCreated={reloadAfterMutation} />
-        )}
         <button
           type="button"
           onClick={() => setAtRiskOnly((v) => !v)}

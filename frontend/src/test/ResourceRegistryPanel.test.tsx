@@ -248,6 +248,7 @@ describe("Add unit from the Fleet page", () => {
   it("shows the Add trigger to planners and hides it from readers", async () => {
     render(<ResourceRegistryPanel projectId="p" canEdit />);
     expect(await screen.findByTestId("add-resource")).toBeEnabled();
+    expect(screen.getByText("Fleet registry")).toBeInTheDocument();
 
     render(<ResourceRegistryPanel projectId="p" canEdit={false} />);
     await screen.findAllByLabelText("Search fleet");

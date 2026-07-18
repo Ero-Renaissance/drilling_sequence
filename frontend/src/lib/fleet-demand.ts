@@ -32,10 +32,15 @@ export function computeFleetDemand(
   kind: "rig" | "hwu",
   activities: Activity[],
   registry: ResourceRecord[],
+  opts: { terrain?: "LAND" | "SWAMP" | "OFFSHORE" } = {},
 ): FleetDemand {
+  // Terrain scoping applies to rigs only — HWUs are mobile (no terrain).
+  const terrain = kind === "rig" ? opts.terrain : undefined;
+
   const placeholderByLane = new Map<string, boolean>();
   for (const r of registry) {
     if (r.kind !== kind) continue;
+    if (terrain && r.terrain !== terrain) continue;
     placeholderByLane.set(laneOf(r.kind, r.name, r.terrain || null), r.is_placeholder);
   }
 
@@ -46,6 +51,7 @@ export function computeFleetDemand(
   for (const a of activities) {
     const name = kind === "rig" ? a.rig_name : a.hwu_name;
     if (!name) continue;
+    if (terrain && a.location !== terrain) continue;
     const sy = yearOf(a.start_date);
     const ey = yearOf(a.end_date);
     if (sy === null || ey === null) continue;
@@ -73,7 +79,8 @@ export function computeFleetDemand(
   }
 
   const unscheduled = registry
-    .filter((r) => r.kind === kind && !yearsByLane.has(laneOf(r.kind, r.name, r.terrain || null)))
+    .filter((r) => r.kind === kind && (!terrain || r.terrain === terrain))
+    .filter((r) => !yearsByLane.has(laneOf(r.kind, r.name, r.terrain || null)))
     .map((r) => (r.is_placeholder ? `${r.name} (planned)` : r.name))
     .sort((a, b) => a.localeCompare(b));
 

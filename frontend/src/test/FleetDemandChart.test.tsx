@@ -77,8 +77,8 @@ describe("FleetDemandChart", () => {
     const opt = captured.option as CapturedOption;
     expect(opt.xAxis.data).toEqual(["2026", "2027"]);
     const byName = new Map(opt.series.map((s) => [s.name, s.data.map((d) => d.value)]));
-    expect(byName.get("In use — awarded")).toEqual([1, 1]);
-    expect(byName.get("Planned slot (award needed)")).toEqual([0, 1]);
+    expect(byName.get("In use")).toEqual([1, 1]);
+    expect(byName.get("Planned")).toEqual([0, 1]);
 
     expect(screen.getByText(/Registered, not yet scheduled/)).toHaveTextContent("Spare Rig");
   });
@@ -100,5 +100,70 @@ describe("FleetDemandChart", () => {
     await waitFor(() =>
       expect(screen.getByText(/No dated HWU activities to chart/)).toBeInTheDocument(),
     );
+  });
+});
+
+describe("FleetDemandChart filters", () => {
+  const nowYear = new Date().getFullYear();
+
+  function mockData() {
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          activity({
+            rig_name: "Rig A",
+            location: "LAND",
+            start_date: `${nowYear}-01-10`,
+            end_date: `${nowYear + 4}-03-01`,
+          }),
+          activity({
+            rig_name: "Rig S",
+            location: "SWAMP",
+            start_date: `${nowYear}-02-01`,
+            end_date: `${nowYear}-09-01`,
+          }),
+        ]),
+      ),
+      http.get("/api/projects/:projectId/resources", () => HttpResponse.json([])),
+    );
+  }
+
+  it("scopes bars to the selected terrain and disables the filter on the HWU view", async () => {
+    mockData();
+    render(<FleetDemandChart projectId="p1" />);
+    await screen.findByTestId("echarts-instance");
+
+    let opt = captured.option as CapturedOption;
+    expect(opt.xAxis.data).toHaveLength(5);
+
+    await userEvent.click(screen.getByTestId("fleet-demand-terrain-swamp"));
+    await waitFor(() => {
+      opt = captured.option as CapturedOption;
+      expect(opt.xAxis.data).toEqual([String(nowYear)]);
+    });
+
+    await userEvent.click(screen.getByTestId("fleet-demand-hwu"));
+    expect(screen.getByTestId("fleet-demand-terrain-swamp")).toBeDisabled();
+    // Back on rigs: the terrain reset to All while on HWUs.
+    await userEvent.click(screen.getByTestId("fleet-demand-rig"));
+    await waitFor(() => {
+      opt = captured.option as CapturedOption;
+      expect(opt.xAxis.data).toHaveLength(5);
+    });
+  });
+
+  it("applies and persists the duration horizon", async () => {
+    window.localStorage.removeItem("ds.fleet-demand-horizon");
+    mockData();
+    render(<FleetDemandChart projectId="p1" />);
+    await screen.findByTestId("echarts-instance");
+
+    await userEvent.selectOptions(screen.getByLabelText("Demand horizon"), "3");
+    await waitFor(() => {
+      const opt = captured.option as CapturedOption;
+      expect(opt.xAxis.data).toEqual([String(nowYear), String(nowYear + 1), String(nowYear + 2)]);
+    });
+    expect(window.localStorage.getItem("ds.fleet-demand-horizon")).toBe("3");
+    window.localStorage.removeItem("ds.fleet-demand-horizon");
   });
 });

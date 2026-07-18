@@ -115,3 +115,31 @@ describe("computeFleetDemand", () => {
     expect(d.unscheduled).toEqual(["Rig A"]);
   });
 });
+
+describe("computeFleetDemand terrain scoping", () => {
+  it("scopes rig bars and the unscheduled list to one terrain", () => {
+    const activities = [
+      act({ rig_name: "Rig A", location: "LAND", start_date: "2026-01-01", end_date: "2026-06-01" }),
+      act({ rig_name: "Rig B", location: "SWAMP", start_date: "2026-02-01", end_date: "2026-08-01" }),
+    ];
+    const registry = [
+      unit({ name: "Rig A", terrain: "LAND" }),
+      unit({ name: "Rig B", terrain: "SWAMP" }),
+      unit({ name: "Spare Swamp", terrain: "SWAMP" }),
+    ];
+
+    const swamp = computeFleetDemand("rig", activities, registry, { terrain: "SWAMP" });
+    expect(swamp.awarded).toEqual([1]);
+    expect(swamp.unscheduled).toEqual(["Spare Swamp"]);
+
+    const land = computeFleetDemand("rig", activities, registry, { terrain: "LAND" });
+    expect(land.awarded).toEqual([1]);
+    expect(land.unscheduled).toEqual([]);
+  });
+
+  it("ignores the terrain option for HWUs (mobile units)", () => {
+    const activities = [act({ hwu_name: "HWU-1", start_date: "2026-01-01", end_date: "2026-03-01" })];
+    const d = computeFleetDemand("hwu", activities, [], { terrain: "LAND" });
+    expect(d.awarded).toEqual([1]);
+  });
+});
