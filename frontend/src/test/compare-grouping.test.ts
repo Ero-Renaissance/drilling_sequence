@@ -98,3 +98,4 @@ describe("buildResourceGroups", () => {
     expect(groups.find((g) => g.label === "HWU · Unit 5")!.kind).toBe("hwu");
   });
 });
+

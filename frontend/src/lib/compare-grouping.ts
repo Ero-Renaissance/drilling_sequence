@@ -74,7 +74,14 @@ export function buildResourceGroups(
   const ensure = (kind: ChangeNoteKind, name: string | null, label: string) => {
     const k = groupKey(kind, name);
     if (!groups.has(k)) {
-      groups.set(k, { kind, resourceName: name, label, activities: [], contracts: [], resourceCount: 0 });
+      groups.set(k, {
+        kind,
+        resourceName: name,
+        label,
+        activities: [],
+        contracts: [],
+        resourceCount: 0,
+      });
     }
     return groups.get(k)!;
   };
@@ -139,8 +146,7 @@ export function buildTerrainGroups(
   }
   if (!filterActive) {
     for (const n of notes) {
-      if (n.kind !== "terrain" || !n.resource_name) continue;
-      ensureTerrain(n.resource_name);
+      if (n.kind === "terrain" && n.resource_name) ensureTerrain(n.resource_name);
     }
   }
 

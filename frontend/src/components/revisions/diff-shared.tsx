@@ -93,18 +93,60 @@ export function SummaryBar({
   onClearFilters?: () => void;
 }) {
   const s = diff.summary;
+  // Removed lumps two very different stories: work genuinely dropped vs
+  // activities that COMPLETED and were dropped on clone (routine hygiene).
+  // Split them so "8 removed" can't read as scope-cutting when 6 finished.
+  const completedRemovals = diff.activities.filter(
+    (a) => a.change === "removed" && a.removal_reason === "completed",
+  ).length;
   const stats: {
     label: string;
     value: number;
     tone: string;
     kind: ChangeKindFilter | null;
+    sub?: string;
+    tip: string;
   }[] = [
-    { label: "Added", value: s.added, tone: "text-emerald-600 dark:text-emerald-400", kind: "added" },
-    { label: "Modified", value: s.modified, tone: "text-amber-600 dark:text-amber-400", kind: "modified" },
-    { label: "Removed", value: s.removed, tone: "text-red-600 dark:text-red-400", kind: "removed" },
-    { label: "Unchanged", value: s.unchanged, tone: "text-muted-foreground", kind: null },
+    {
+      label: "Added",
+      value: s.added,
+      tone: "text-emerald-600 dark:text-emerald-400",
+      kind: "added",
+      tip: "Activities in this version that are not in the baseline. Matched by lineage, so an activity moved to another rig counts as modified, not added.",
+    },
+    {
+      label: "Modified",
+      value: s.modified,
+      tone: "text-amber-600 dark:text-amber-400",
+      kind: "modified",
+      tip: "The same activity in both versions with changed fields (dates, rig, well, market…).",
+    },
+    {
+      label: "Removed",
+      value: s.removed,
+      tone: "text-red-600 dark:text-red-400",
+      kind: "removed",
+      sub: completedRemovals > 0 ? `${completedRemovals} completed` : undefined,
+      tip: "Activities in the baseline that are gone from this version — including finished work dropped on clone (counted separately below the number).",
+    },
+    {
+      label: "Unchanged",
+      value: s.unchanged,
+      tone: "text-muted-foreground",
+      kind: null,
+      tip: "Activities identical in both versions.",
+    },
   ];
   const changedTotal = s.added + s.modified + s.removed;
+  // Scale context: how many rigs/projects the changed set touches.
+  // (diff.activities carries changed rows only — unchanged aren't listed.)
+  const changed = diff.activities;
+  const changedRigs = new Set(
+    changed.map((a) => a.rig_name ?? (a.hwu_name ? `HWU · ${a.hwu_name}` : null)).filter(Boolean),
+  ).size;
+  const changedProjects = new Set(
+    changed.map((a) => a.well_project).filter(Boolean),
+  ).size;
   const filtered = shownCount !== undefined && shownCount !== changedTotal;
   const countDelta = s.target_count - s.base_count;
   const readinessDelta =
@@ -113,6 +155,18 @@ export function SummaryBar({
       : null;
   return (
     <div className="space-y-3">
+      {/* The tiles count ACTIVITIES — say so once, for all four. */}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          Activity changes
+        </span>
+        {changedTotal > 0 && (
+          <span className="text-[11px] text-muted-foreground">
+            across {changedRigs} rig{changedRigs === 1 ? "" : "s"} · {changedProjects} project
+            {changedProjects === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {stats.map((stat) => {
           const clickable = !!onFilterChange && stat.kind !== null;
@@ -125,12 +179,10 @@ export function SummaryBar({
                 ? {
                     type: "button" as const,
                     onClick: () => onFilterChange?.(active ? null : stat.kind),
-                    title: active
-                      ? "Clear this filter"
-                      : `Show only ${stat.label.toLowerCase()} activities`,
+                    title: active ? "Clear this filter" : stat.tip,
                     "data-testid": `diff-chip-${stat.kind}`,
                   }
-                : {})}
+                : { title: stat.tip })}
               className={cn(
                 "rounded-lg border border-border/70 bg-card px-3 py-2 text-center",
                 clickable && "transition-colors hover:border-primary/40",
@@ -143,6 +195,11 @@ export function SummaryBar({
               <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 {stat.label}
               </div>
+              {stat.sub && (
+                <div className="text-[10px] tabular-nums text-sky-600 dark:text-sky-400">
+                  {stat.sub}
+                </div>
+              )}
             </Tag>
           );
         })}
