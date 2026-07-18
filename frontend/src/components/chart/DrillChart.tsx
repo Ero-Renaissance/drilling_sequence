@@ -468,17 +468,35 @@ export function DrillChart({
 
 
 
-    // Alternating row stripes, one markArea per EVEN lane — deterministic,
-    // unlike the axis splitArea (see the yAxis comment). They ride the
-    // today-flag series so updateBands' imperative series[0] markArea merge
-    // (time bands) can never wipe them.
-    const rowStripeAreas = categories
-      .map((cat, i) => [cat, i] as const)
-      .filter(([, i]) => i % 2 === 0)
-      .map(([cat]) => [
-        { yAxis: cat, itemStyle: { color: theme.yStripe[0] } },
-        { yAxis: cat },
-      ]);
+    // Alternating row stripes, one rect per EVEN lane, drawn with the same
+    // renderItem machinery as the bars — deterministic, unlike the axis
+    // splitArea (see the yAxis comment), and unlike a category markArea,
+    // whose same-category start/end maps to the band CENTRE (zero height).
+    const rowStripeData = categories
+      .map((_, i) => i)
+      .filter((i) => i % 2 === 0)
+      .map((i) => [i]);
+
+    function renderRowStripe(
+      params: CustomSeriesRenderItemParams,
+      api: CustomSeriesRenderItemAPI,
+    ): CustomSeriesRenderItemReturn {
+      const lane = api.value(0) as number;
+      const yCenter = api.coord([0, lane])[1]; // x value irrelevant — y only
+      const rowH = (api.size!([0, 1]) as number[])[1];
+      const sys = params.coordSys as unknown as {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
+      return {
+        type: "rect",
+        silent: true,
+        shape: { x: sys.x, y: yCenter - rowH / 2, width: sys.width, height: rowH },
+        style: { fill: theme.yStripe[0] },
+      } as unknown as CustomSeriesRenderItemReturn;
+    }
 
     // Default bands for the current React render: same ≤800-days month/year
     // break the zoom-adaptive refine (updateBands) and the sticky strip use,
@@ -1172,19 +1190,17 @@ export function DrillChart({
           encode: { x: 0, y: 1 },
         },
         {
-          // Row stripes (see rowStripeAreas above): a dedicated data-less
-          // series so they sit at z 0 (UNDER the bars — the today-flag and
-          // marker series render at z 6-7) and clear of series[0], whose
-          // markArea is replaced wholesale by the zoom-adaptive band refresh.
+          // Row stripes (renderRowStripe above): a dedicated series at z 0 —
+          // UNDER the bars (today-flag and markers render at z 6-7) and clear
+          // of series[0], whose markArea the zoom-adaptive band refresh
+          // replaces wholesale.
           id: "row-stripes",
-          type: "line",
+          type: "custom",
           z: 0,
           silent: true,
-          data: [],
-          markArea: {
-            silent: true,
-            data: rowStripeAreas as never,
-          },
+          clip: true,
+          renderItem: renderRowStripe,
+          data: rowStripeData,
         },
         {
           // Contract-expiry alarm markers, on top of the bars; clipped to the
