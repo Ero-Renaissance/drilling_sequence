@@ -23,9 +23,10 @@ describe("buildContractBadgeSvg", () => {
 });
 
 describe("buildCheckSvg", () => {
-  it("renders the LLI gate as the casing joint (cylinder), stroke-colored by status", () => {
+  it("renders the LLI gate as the rotary table, stroke-colored by status", () => {
     const svg = buildCheckSvg("LLI", "Behind");
-    expect(svg).toContain("ellipse"); // the cylinder's top face
+    expect(svg).toContain('circle cx="12" cy="12" r="9"'); // the table rim
+    expect(svg).toContain('rect width="7"'); // the kelly-drive square
     expect(svg).toContain('stroke="#ef4444"'); // Behind → red
   });
 });

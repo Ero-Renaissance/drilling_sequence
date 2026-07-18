@@ -17,9 +17,16 @@ const LUCIDE_PATHS: Record<CheckCode, string> = {
     <path d="m6.49 12.85 11.02 6.3"/>
     <path d="M17.51 12.85 6.5 19.15"/>
   `,
+  // Rotary table (rim + kelly-drive square + drive ticks) — hand-drawn, not a
+  // lucide extraction; the React twin is readiness/rotary-table-icon.tsx (keep
+  // the two path sets identical).
   LLI: `
-    <ellipse cx="12" cy="5" rx="9" ry="3"/>
-    <path d="M3 5v14a9 3 0 0 0 18 0V5"/>
+    <circle cx="12" cy="12" r="9"/>
+    <rect width="7" height="7" x="8.5" y="8.5" rx="0.5"/>
+    <path d="M12 3v3"/>
+    <path d="M12 18v3"/>
+    <path d="M3 12h3"/>
+    <path d="M18 12h3"/>
   `,
   LOC: `
     <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>

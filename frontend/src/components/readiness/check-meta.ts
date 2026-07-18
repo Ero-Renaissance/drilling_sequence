@@ -1,6 +1,5 @@
 import {
   Banknote,
-  Cylinder,
   DraftingCompass,
   Gavel,
   LandPlot,
@@ -9,6 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
+import { RotaryTable } from "./rotary-table-icon";
 
 /**
  * Single source of truth for how each readiness check is presented.
@@ -16,9 +16,9 @@ import type { CheckCode, CheckStatus } from "@/api/readiness";
  */
 export const CHECK_META: Record<CheckCode, { label: string; icon: LucideIcon }> = {
   FDP: { label: "Field Development Plan", icon: LandPlot },
-  // Casing joint (cylinder) — the archetypal long-lead material — rather than a
-  // transport truck: the gate is about the tubulars themselves being secured.
-  LLI: { label: "Long Lead Items", icon: Cylinder },
+  // Rotary table (the drilling "rotary wheel") — per user request, the gate
+  // wears rig-floor iconography rather than a generic materials cylinder.
+  LLI: { label: "Long Lead Items", icon: RotaryTable },
   LOC: { label: "Location", icon: MapPin },
   FE: { label: "Wells Front End", icon: DraftingCompass },
   FID: { label: "Final Inv. Decision", icon: Gavel },
