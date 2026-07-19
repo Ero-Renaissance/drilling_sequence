@@ -52,8 +52,8 @@ import {
   isNearTerm,
   isOverdue,
   checksReady,
-  conflictingActivityIds,
 } from "@/lib/watchlist";
+import { detectResourceConflicts } from "@/lib/conflicts";
 import { EditableCell } from "./EditableCell";
 import { toast } from "@/components/ui/toaster";
 import { ActivityFormDialog, LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
@@ -228,13 +228,57 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     return m;
   }, [contracts]);
 
-  const conflictIds = useMemo(
-    () => (focus === "conflicts" ? conflictingActivityIds(activities) : new Set<string>()),
-    [focus, activities],
-  );
+  // The full conflict picture, always current: drives the toolbar chip (count),
+  // the clustered queue, per-row shift actions, and the save-time warning.
+  const conflicts = useMemo(() => detectResourceConflicts(activities), [activities]);
+  const conflictMeta = useMemo(() => {
+    const m = new Map<
+      string,
+      { lane: string; partners: { id: string; label: string; days: number; start: string; end: string }[] }
+    >();
+    for (const c of conflicts) {
+      for (const [self, other] of [
+        [c.a, c.b],
+        [c.b, c.a],
+      ] as const) {
+        const e = m.get(self.id) ?? { lane: c.resource, partners: [] };
+        e.partners.push({
+          id: other.id,
+          label: other.well_name || other.activity_type,
+          days: c.overlapDays,
+          start: other.start_date,
+          end: other.end_date,
+        });
+        m.set(self.id, e);
+      }
+    }
+    return m;
+  }, [conflicts]);
+  const laneSummaries = useMemo(() => {
+    const m = new Map<string, { pairs: number; worst: number }>();
+    for (const c of conflicts) {
+      const e = m.get(c.resource) ?? { pairs: 0, worst: 0 };
+      e.pairs += 1;
+      e.worst = Math.max(e.worst, c.overlapDays);
+      m.set(c.resource, e);
+    }
+    return m;
+  }, [conflicts]);
 
   const visibleActivities = useMemo(() => {
     if (!focus) return activities;
+    // The conflicts queue is CLUSTERED, not just filtered: members of the same
+    // lane sit adjacent, earliest first — fix the front of a lane and the ones
+    // behind it often resolve with it.
+    if (focus === "conflicts") {
+      return activities
+        .filter((a) => conflictMeta.has(a.id))
+        .sort((x, y) => {
+          const lx = conflictMeta.get(x.id)!.lane;
+          const ly = conflictMeta.get(y.id)!.lane;
+          return lx === ly ? x.start_date.localeCompare(y.start_date) : lx.localeCompare(ly);
+        });
+    }
     return activities.filter((a) => {
       if (a.completed_at) return false; // attention items are all live (incomplete) work
       switch (focus) {
@@ -242,8 +286,6 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           return isOverdue(a.end_date);
         case "flood-risk":
           return a.risk === "Flood Risk" && isNearTerm(a.start_date);
-        case "conflicts":
-          return conflictIds.has(a.id);
         case "past-contract": {
           const end = a.rig_name ? contractEndByRig.get(a.rig_name) : undefined;
           return !!end && a.end_date > end;
@@ -257,7 +299,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           return true;
       }
     });
-  }, [focus, activities, conflictIds, contractEndByRig, readinessByProject]);
+  }, [focus, activities, conflictMeta, contractEndByRig, readinessByProject]);
 
   function clearFocus() {
     searchParams.delete("focus");
@@ -282,6 +324,19 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           prev.updated_at,
         );
         setActivities((all) => all.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+        // Non-blocking heads-up when a date/resource edit double-books a unit —
+        // the same check the chart's edit dialog runs, at the place planners
+        // actually type. Submission would hard-block on this later anyway.
+        if (["start_date", "end_date", "rig_name", "hwu_name", "location"].includes(field)) {
+          const next = activities.map((a) => (a.id === id ? { ...a, ...updated } : a));
+          const hit = detectResourceConflicts(next).find((c) => c.a.id === id || c.b.id === id);
+          if (hit) {
+            const other = hit.a.id === id ? hit.b : hit.a;
+            toast.info(
+              `Heads-up: now overlaps ${other.well_name || other.activity_type} on ${hit.resource} by ${hit.overlapDays}d. The plan can't be submitted until resolved.`,
+            );
+          }
+        }
       } catch (err) {
         setActivities((all) => all.map((a) => (a.id === id ? prev : a)));
         if (err instanceof ConflictError) {
@@ -298,6 +353,52 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       }
     },
     [activities, projectId],
+  );
+
+  // One-click conflict resolution: move the LATER activity of a pair to start
+  // the day its earliest-clashing partner ends (same-day handover is not a
+  // conflict), duration preserved. Both dates travel in ONE PATCH — start alone
+  // could transiently violate end>=start. Knock-on overlaps simply re-flag in
+  // the queue; no cascade.
+  const shiftAfter = useCallback(
+    async (id: string) => {
+      const prev = activities.find((a) => a.id === id);
+      const meta = conflictMeta.get(id);
+      if (!prev || !meta) return;
+      const blockers = meta.partners.filter((p) => p.start <= prev.start_date);
+      if (blockers.length === 0) return;
+      // All math in UTC: local-midnight parsing + UTC serialising loses a day
+      // in any UTC+ timezone.
+      const day = (iso: string) => Math.floor(new Date(iso + "T00:00:00Z").getTime() / 86_400_000);
+      const plusDays = (iso: string, n: number) => {
+        const d = new Date(iso + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const ends = blockers.map((b) => b.end).sort();
+      const newStart = ends[ends.length - 1];
+      const duration = day(prev.end_date) - day(prev.start_date);
+      const newEnd = plusDays(newStart, duration);
+      setActivities((all) =>
+        all.map((a) => (a.id === id ? { ...a, start_date: newStart, end_date: newEnd } : a)),
+      );
+      try {
+        const updated = await updateActivity(
+          projectId,
+          id,
+          { start_date: newStart, end_date: newEnd },
+          prev.updated_at,
+        );
+        setActivities((all) => all.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+        toast.success(
+          `${prev.well_name || prev.activity_type} shifted to ${newStart} (duration kept).`,
+        );
+      } catch (err) {
+        setActivities((all) => all.map((a) => (a.id === id ? prev : a)));
+        toast.error(err instanceof Error ? err.message : "Failed to shift the activity.");
+      }
+    },
+    [activities, conflictMeta, projectId],
   );
 
   // Editing the resource name writes to whichever field is active (HWU if the
@@ -756,6 +857,29 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           <span className="ml-1.5">Refresh</span>
         </Button>
+        {conflicts.length > 0 && (
+          <button
+            type="button"
+            data-testid="conflicts-chip"
+            onClick={() => {
+              if (focus === "conflicts") {
+                clearFocus();
+              } else {
+                searchParams.set("focus", "conflicts");
+                setSearchParams(searchParams, { replace: true });
+              }
+            }}
+            title="Same-unit date overlaps — the plan can't be submitted until they're resolved"
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+              focus === "conflicts"
+                ? "border-amber-500/60 bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                : "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400",
+            )}
+          >
+            ⚠ Conflicts ({conflicts.length})
+          </button>
+        )}
 
         {isLocked && (
           <span
@@ -850,14 +974,41 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row, i) => (
+              table.getRowModel().rows.map((row, i, rows) => {
+                const meta = focus === "conflicts" ? conflictMeta.get(row.original.id) : undefined;
+                const prevLane =
+                  focus === "conflicts" && i > 0
+                    ? conflictMeta.get(rows[i - 1].original.id)?.lane
+                    : undefined;
+                const laneSummary = meta ? laneSummaries.get(meta.lane) : undefined;
+                const shiftBlockers = meta
+                  ? meta.partners.filter((p) => p.start <= row.original.start_date)
+                  : [];
+                return (
                 <React.Fragment key={row.id}>
+                  {meta && meta.lane !== prevLane && (
+                    <tr data-testid="conflict-cluster">
+                      <td
+                        colSpan={columns.length}
+                        className="border-y border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300"
+                      >
+                        {meta.lane}
+                        {laneSummary && (
+                          <span className="ml-2 font-normal text-amber-700/80 dark:text-amber-400/80">
+                            {laneSummary.pairs} overlap{laneSummary.pairs === 1 ? "" : "s"} · worst{" "}
+                            {laneSummary.worst}d
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                   <tr
                     className={cn(
                       "border-b border-border/40 transition-colors hover:bg-accent/30",
                       i % 2 === 1 && "bg-muted/15",
                       historyActivityId === row.original.id && "bg-primary/5",
                       row.original.completed_at && "opacity-55",
+                      meta && "bg-amber-500/[0.04]",
                     )}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -866,6 +1017,28 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                       </td>
                     ))}
                   </tr>
+                  {meta && (
+                    <tr className="bg-amber-500/[0.04]">
+                      <td colSpan={columns.length} className="px-3 pb-1.5 pt-0 text-xs text-muted-foreground">
+                        <span className="mr-2">
+                          ↳ overlaps{" "}
+                          {meta.partners
+                            .map((pt) => `${pt.label} by ${pt.days}d`)
+                            .join(", ")}
+                        </span>
+                        {shiftBlockers.length > 0 && !row.original.locked_by_revision_id && (
+                          <button
+                            type="button"
+                            data-testid={`shift-after-${row.original.id}`}
+                            onClick={() => shiftAfter(row.original.id)}
+                            className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+                          >
+                            Shift after {shiftBlockers[0].label} →
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                   {historyActivityId === row.original.id && historyActivity && (
                     <tr>
                       <td colSpan={columns.length} className="p-0">
@@ -879,7 +1052,8 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                     </tr>
                   )}
                 </React.Fragment>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

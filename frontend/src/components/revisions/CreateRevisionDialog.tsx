@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -135,9 +136,19 @@ export function CreateRevisionDialog({ projectId, onCreated }: CreateRevisionDia
           )}
 
           {error && (
-            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
-            </p>
+              {error.includes("Scheduling conflict") && (
+                <Link
+                  to={`/projects/${projectId}/data?focus=conflicts`}
+                  onClick={() => setOpen(false)}
+                  className="mt-1 block font-medium underline underline-offset-2"
+                  data-testid="view-conflicts-link"
+                >
+                  Review and resolve the conflicts →
+                </Link>
+              )}
+            </div>
           )}
 
           <div className="flex justify-end gap-2">

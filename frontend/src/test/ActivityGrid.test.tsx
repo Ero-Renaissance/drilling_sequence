@@ -288,3 +288,66 @@ describe("ActivityGrid", () => {
     });
   });
 });
+
+describe("Conflicts queue", () => {
+  const RIG_CONFLICTS = [
+    {
+      id: "c-1", project_id: PROJECT_ID, activity_type: "Oil Development",
+      start_date: "2026-01-01", end_date: "2026-03-01", well_name: "WELL_A",
+      rig_name: "Rig 9", hwu_name: null, well_project: null, project_group: null,
+      location: "LAND", risk: null, comment: null, plan_type: null, market: null,
+      readiness_required: true, completed_at: null, created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z", updated_by_name: null, locked_by_revision_id: null,
+    },
+    {
+      id: "c-2", project_id: PROJECT_ID, activity_type: "Oil Development",
+      start_date: "2026-02-01", end_date: "2026-04-01", well_name: "WELL_B",
+      rig_name: "Rig 9", hwu_name: null, well_project: null, project_group: null,
+      location: "LAND", risk: null, comment: null, plan_type: null, market: null,
+      readiness_required: true, completed_at: null, created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z", updated_by_name: null, locked_by_revision_id: null,
+    },
+  ];
+
+  it("chips the count, clusters the queue by lane, and badges the overlap", async () => {
+    server.use(
+      http.get("/api/projects/:projectId/activities", () => HttpResponse.json(RIG_CONFLICTS)),
+    );
+    renderGrid();
+
+    const chip = await screen.findByTestId("conflicts-chip");
+    expect(chip).toHaveTextContent("Conflicts (1)");
+
+    await userEvent.click(chip);
+    const cluster = await screen.findByTestId("conflict-cluster");
+    expect(cluster).toHaveTextContent("LAND – Rig 9");
+    expect(cluster).toHaveTextContent("1 overlap · worst 28d");
+    expect(screen.getAllByText(/overlaps WELL_/)).toHaveLength(2);
+  });
+
+  it("shift-after-previous moves both dates in one PATCH, duration kept", async () => {
+    let patched: Record<string, unknown> | null = null;
+    server.use(
+      http.get("/api/projects/:projectId/activities", () => HttpResponse.json(RIG_CONFLICTS)),
+      http.patch("/api/projects/:projectId/activities/:activityId", async ({ request, params }) => {
+        patched = (await request.json()) as Record<string, unknown>;
+        const base = RIG_CONFLICTS.find((a) => a.id === params.activityId)!;
+        return HttpResponse.json({ ...base, ...patched, updated_at: "2026-07-19T00:00:00Z" });
+      }),
+    );
+    renderGrid();
+    await userEvent.click(await screen.findByTestId("conflicts-chip"));
+
+    // Only the LATER activity (c-2) offers the shift.
+    expect(screen.queryByTestId("shift-after-c-1")).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByTestId("shift-after-c-2"));
+
+    await waitFor(() => expect(patched).not.toBeNull());
+    // 2026-02-01→2026-04-01 (59d) shifted to start at WELL_A's end.
+    expect(patched).toMatchObject({ start_date: "2026-03-01", end_date: "2026-04-29" });
+    // Queue empties once the overlap is gone.
+    await waitFor(() =>
+      expect(screen.queryByTestId("conflict-cluster")).not.toBeInTheDocument(),
+    );
+  });
+});
