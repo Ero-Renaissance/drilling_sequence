@@ -322,7 +322,12 @@ describe("Conflicts queue", () => {
     const cluster = await screen.findByTestId("conflict-cluster");
     expect(cluster).toHaveTextContent("LAND – Rig 9");
     expect(cluster).toHaveTextContent("1 overlap · worst 28d");
-    expect(screen.getAllByText(/overlaps WELL_/)).toHaveLength(2);
+    // Leftmost rail: the column exists only in the queue, context on the
+    // earlier row, action on the later.
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers[0]).toMatch(/Conflict/i);
+    expect(screen.getByText(/overlaps WELL_B · 28d/)).toBeInTheDocument();
+    expect(screen.getByTestId("shift-after-c-2")).toHaveTextContent("↷ After WELL_A");
   });
 
   it("shift-after-previous moves both dates in one PATCH, duration kept", async () => {
@@ -345,10 +350,19 @@ describe("Conflicts queue", () => {
     await waitFor(() => expect(patched).not.toBeNull());
     // 2026-02-01→2026-04-01 (59d) shifted to start at WELL_A's end.
     expect(patched).toMatchObject({ start_date: "2026-03-01", end_date: "2026-04-29" });
-    // Queue empties once the overlap is gone.
-    await waitFor(() =>
-      expect(screen.queryByTestId("conflict-cluster")).not.toBeInTheDocument(),
+    // Checklist, not vanish: both rows stay listed and ticked, the lane header
+    // reads resolved, and the banner turns green with the exit.
+    await waitFor(() => {
+      expect(screen.getByTestId("conflict-resolved-c-1")).toBeInTheDocument();
+      expect(screen.getByTestId("conflict-resolved-c-2")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("conflict-cluster")).toHaveTextContent("resolved ✓");
+    expect(screen.getByTestId("conflicts-progress")).toHaveTextContent(
+      "All scheduling conflicts resolved",
     );
+    expect(
+      screen.getByRole("button", { name: /show all activities/i }),
+    ).toBeInTheDocument();
   });
 });
 

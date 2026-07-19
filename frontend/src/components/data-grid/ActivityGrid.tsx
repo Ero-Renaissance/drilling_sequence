@@ -54,6 +54,14 @@ import {
   checksReady,
 } from "@/lib/watchlist";
 import { detectResourceConflicts } from "@/lib/conflicts";
+
+/** The activity's lane label, matching lib/conflicts resource labels — usable
+ *  for RESOLVED rows too, which no longer appear in the conflicts list. */
+function laneLabelOf(a: Activity): string | null {
+  if (a.rig_name) return a.location ? `${a.location} – ${a.rig_name}` : a.rig_name;
+  if (a.hwu_name) return a.hwu_name;
+  return null;
+}
 import { EditableCell } from "./EditableCell";
 import { toast } from "@/components/ui/toaster";
 import { ActivityFormDialog, LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
@@ -231,6 +239,11 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   // The full conflict picture, always current: drives the toolbar chip (count),
   // the clustered queue, per-row shift actions, and the save-time warning.
   const conflicts = useMemo(() => detectResourceConflicts(activities), [activities]);
+  // Session memory of the queue (checklist pattern): every id that was
+  // conflicted at any point while the filter was open. Resolved rows stay
+  // listed and ticked instead of vanishing; leaving the view forgets the
+  // session. A row that re-conflicts simply reads as open again — truth wins.
+  const [sessionIds, setSessionIds] = useState<Set<string>>(() => new Set());
   const conflictMeta = useMemo(() => {
     const m = new Map<
       string,
@@ -254,6 +267,24 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     }
     return m;
   }, [conflicts]);
+  useEffect(() => {
+    if (focus !== "conflicts") {
+      setSessionIds((prev) => (prev.size === 0 ? prev : new Set()));
+      return;
+    }
+    setSessionIds((prev) => {
+      let grew = false;
+      const next = new Set(prev);
+      for (const id of conflictMeta.keys()) {
+        if (!next.has(id)) {
+          next.add(id);
+          grew = true;
+        }
+      }
+      return grew ? next : prev;
+    });
+  }, [focus, conflictMeta]);
+
   const laneSummaries = useMemo(() => {
     const m = new Map<string, { pairs: number; worst: number }>();
     for (const c of conflicts) {
@@ -265,6 +296,11 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     return m;
   }, [conflicts]);
 
+  const sessionResolvedCount = useMemo(
+    () => [...sessionIds].filter((id) => !conflictMeta.has(id)).length,
+    [sessionIds, conflictMeta],
+  );
+
   const visibleActivities = useMemo(() => {
     if (!focus) return activities;
     // The conflicts queue is CLUSTERED, not just filtered: members of the same
@@ -272,10 +308,10 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     // behind it often resolve with it.
     if (focus === "conflicts") {
       return activities
-        .filter((a) => conflictMeta.has(a.id))
+        .filter((a) => conflictMeta.has(a.id) || sessionIds.has(a.id))
         .sort((x, y) => {
-          const lx = conflictMeta.get(x.id)!.lane;
-          const ly = conflictMeta.get(y.id)!.lane;
+          const lx = laneLabelOf(x) ?? "";
+          const ly = laneLabelOf(y) ?? "";
           return lx === ly ? x.start_date.localeCompare(y.start_date) : lx.localeCompare(ly);
         });
     }
@@ -299,7 +335,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           return true;
       }
     });
-  }, [focus, activities, conflictMeta, contractEndByRig, readinessByProject]);
+  }, [focus, activities, conflictMeta, sessionIds, contractEndByRig, readinessByProject]);
 
   function clearFocus() {
     searchParams.delete("focus");
@@ -782,9 +818,65 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
     [],
   );
 
+  // The queue's status-and-action rail: leftmost (the grid scrolls
+  // horizontally — a trailing action hides exactly when needed), and it only
+  // exists while the conflicts filter is on. Three cell states: the shift
+  // action (later row of a pair), the overlap context (earlier row), or the
+  // session's Resolved tick.
+  const conflictColumn = useMemo(
+    () =>
+      helper.display({
+        id: "conflict",
+        header: "Conflict",
+        size: 170,
+        cell: ({ row }: { row: { original: Activity } }) => {
+          const a = row.original;
+          const meta = conflictMeta.get(a.id);
+          if (!meta) {
+            return (
+              <span
+                className="inline-flex items-center gap-1 px-2 text-xs font-medium text-emerald-600 dark:text-emerald-400"
+                data-testid={`conflict-resolved-${a.id}`}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Resolved
+              </span>
+            );
+          }
+          const blockers = meta.partners.filter((p) => p.start <= a.start_date);
+          if (blockers.length > 0 && !a.locked_by_revision_id) {
+            const ends = blockers.map((b) => b.end).sort();
+            const newStart = ends[ends.length - 1];
+            const worst = blockers.reduce((m, b) => Math.max(m, b.days), 0);
+            return (
+              <button
+                type="button"
+                data-testid={`shift-after-${a.id}`}
+                onClick={() => shiftAfter(a.id)}
+                title={`Move start to ${newStart} (duration kept) — overlaps ${blockers[0].label} by ${worst}d`}
+                className="mx-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+              >
+                ↷ After {blockers[0].label}
+              </button>
+            );
+          }
+          const first = meta.partners[0];
+          return (
+            <span className="px-2 text-xs text-muted-foreground">
+              overlaps {first.label} · {first.days}d
+            </span>
+          );
+        },
+      }),
+    [conflictMeta, shiftAfter],
+  );
+  const tableColumns = useMemo(
+    () => (focus === "conflicts" ? [conflictColumn, ...columns] : columns),
+    [focus, conflictColumn, columns],
+  );
+
   const table = useReactTable({
     data: visibleActivities,
-    columns,
+    columns: tableColumns,
     state: { sorting, globalFilter },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
@@ -817,7 +909,48 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
 
   return (
     <div className="space-y-3">
-      {focus && (
+      {focus === "conflicts" ? (
+        conflicts.length > 0 ? (
+          <div
+            className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm"
+            data-testid="conflicts-progress"
+          >
+            <span>
+              <span className="font-semibold">{conflicts.length}</span> scheduling conflict
+              {conflicts.length === 1 ? "" : "s"} remaining
+              {sessionResolvedCount > 0 && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {sessionResolvedCount} fixed this session
+                </span>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={clearFocus}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Clear filter
+            </button>
+          </div>
+        ) : (
+          <div
+            className="flex items-center justify-between rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-sm"
+            data-testid="conflicts-progress"
+          >
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+              All scheduling conflicts resolved — the plan can be submitted.
+            </span>
+            <button
+              type="button"
+              onClick={clearFocus}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Show all activities
+            </button>
+          </div>
+        )
+      ) : focus ? (
         <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
           <span>
             <span className="font-semibold">{visibleActivities.length}</span> shown —{" "}
@@ -831,7 +964,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
             Clear filter
           </button>
         </div>
-      )}
+      ) : null}
       {/* Toolbar */}
       <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
         <ActivityFormDialog
@@ -963,7 +1096,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={tableColumns.length}
                   className="py-16 text-center text-sm text-muted-foreground"
                 >
                   {loading ? (
@@ -1002,29 +1135,33 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
               </tr>
             ) : (
               table.getRowModel().rows.map((row, i, rows) => {
-                const meta = focus === "conflicts" ? conflictMeta.get(row.original.id) : undefined;
+                const inQueue = focus === "conflicts";
+                const meta = inQueue ? conflictMeta.get(row.original.id) : undefined;
+                const lane = inQueue ? laneLabelOf(row.original) : null;
                 const prevLane =
-                  focus === "conflicts" && i > 0
-                    ? conflictMeta.get(rows[i - 1].original.id)?.lane
-                    : undefined;
-                const laneSummary = meta ? laneSummaries.get(meta.lane) : undefined;
-                const shiftBlockers = meta
-                  ? meta.partners.filter((p) => p.start <= row.original.start_date)
-                  : [];
+                  inQueue && i > 0 ? laneLabelOf(rows[i - 1].original) : undefined;
+                const laneSummary = lane ? laneSummaries.get(lane) : undefined;
                 return (
                 <React.Fragment key={row.id}>
-                  {meta && meta.lane !== prevLane && (
+                  {inQueue && lane && lane !== prevLane && (
                     <tr data-testid="conflict-cluster">
                       <td
-                        colSpan={columns.length}
-                        className="border-y border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300"
+                        colSpan={tableColumns.length}
+                        className={cn(
+                          "border-y px-3 py-1.5 text-xs font-semibold",
+                          laneSummary
+                            ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+                        )}
                       >
-                        {meta.lane}
-                        {laneSummary && (
+                        {lane}
+                        {laneSummary ? (
                           <span className="ml-2 font-normal text-amber-700/80 dark:text-amber-400/80">
                             {laneSummary.pairs} overlap{laneSummary.pairs === 1 ? "" : "s"} · worst{" "}
                             {laneSummary.worst}d
                           </span>
+                        ) : (
+                          <span className="ml-2 font-normal">resolved ✓</span>
                         )}
                       </td>
                     </tr>
@@ -1036,6 +1173,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                       historyActivityId === row.original.id && "bg-primary/5",
                       row.original.completed_at && "opacity-55",
                       meta && "bg-amber-500/[0.04]",
+                      inQueue && !meta && "opacity-70",
                     )}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -1044,31 +1182,9 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                       </td>
                     ))}
                   </tr>
-                  {meta && (
-                    <tr className="bg-amber-500/[0.04]">
-                      <td colSpan={columns.length} className="px-3 pb-1.5 pt-0 text-xs text-muted-foreground">
-                        <span className="mr-2">
-                          ↳ overlaps{" "}
-                          {meta.partners
-                            .map((pt) => `${pt.label} by ${pt.days}d`)
-                            .join(", ")}
-                        </span>
-                        {shiftBlockers.length > 0 && !row.original.locked_by_revision_id && (
-                          <button
-                            type="button"
-                            data-testid={`shift-after-${row.original.id}`}
-                            onClick={() => shiftAfter(row.original.id)}
-                            className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
-                          >
-                            Shift after {shiftBlockers[0].label} →
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )}
                   {historyActivityId === row.original.id && historyActivity && (
                     <tr>
-                      <td colSpan={columns.length} className="p-0">
+                      <td colSpan={tableColumns.length} className="p-0">
                         <HistoryPanel
                           projectId={projectId}
                           activityId={historyActivity.id}
