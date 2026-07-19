@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RevisionCommentCreate(BaseModel):
@@ -9,6 +9,14 @@ class RevisionCommentCreate(BaseModel):
     comment is the same kind of governance text, minus the state change."""
 
     body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def _non_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("A comment can't be blank.")
+        return stripped
 
 
 class RevisionCommentResponse(BaseModel):

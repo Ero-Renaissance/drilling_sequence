@@ -811,14 +811,26 @@ async def update_project(
         project_id, current_user, db, allowed_roles={ProjectRole.planner}
     )
 
-    if payload.name is not None:
-        project.name = payload.name
-    if payload.field is not None:
-        project.field = payload.field
-    if payload.region is not None:
-        project.region = payload.region
-    if payload.status is not None:
-        project.status = payload.status
+    # Record which metadata fields actually change — this is the campaign
+    # header/record, so name/field/region/status edits belong in the audit
+    # trail (review_policy keeps its own dedicated governance event below).
+    changed: list[str] = []
+    for field in ("name", "field", "region", "status"):
+        new_value = getattr(payload, field)
+        if new_value is not None and getattr(project, field) != new_value:
+            changed.append(field)
+            setattr(project, field, new_value)
+    if changed:
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_PROJECT,
+                entity_id=project_id,
+                action="project_updated",
+                detail=f"Updated: {', '.join(changed)}",
+            )
+        )
     if payload.review_policy is not None and payload.review_policy.value != project.review_policy:
         # Governance setting — record the change in the audit trail.
         old_policy = project.review_policy
@@ -849,4 +861,14 @@ async def archive_project(
         project_id, current_user, db, allowed_roles={ProjectRole.planner}
     )
     project.status = ProjectStatus.archived
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_PROJECT,
+            entity_id=project_id,
+            action="project_archived",
+            detail=f"Archived campaign {project.name}",
+        )
+    )
     await db.commit()

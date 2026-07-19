@@ -93,7 +93,7 @@ async def test_sign_and_approve_are_audited(
     # other@ is the required approver (the creator can't sign their own plan).
     await client.post(
         f"/api/projects/{project_id}/approvers",
-        json={"email": "other@company.com", "role_label": "Approver"},
+        json={"email": "other@company.com", "role_label": "Asset Manager"},
     )
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = r.json()["id"]
@@ -108,7 +108,9 @@ async def test_sign_and_approve_are_audited(
     signed = _find(entries, "revision", "signed")
     approved = _find(entries, "revision", "approved")
     assert signed is not None and signed["entity_id"] == revision_id
-    assert "Project Manager" in signed["new_value"]
+    # The audit line records the matrix title, not the client-sent one.
+    assert "Asset Manager" in signed["new_value"]
+    assert "Project Manager" not in signed["new_value"]
     assert approved is not None and approved["entity_id"] == revision_id
 
 

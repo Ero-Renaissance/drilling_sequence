@@ -59,6 +59,13 @@ class Revision(Base):
     review_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false(), default=False
     )
+    # Frozen at submit: the optional-policy planner chose to skip the endorsement
+    # stage. Stored (not derived from the live review_policy) so a later policy
+    # change can't retroactively rewrite whether a historical revision reads
+    # "skipped" — the approval record must not mutate.
+    review_skipped: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

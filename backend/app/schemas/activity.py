@@ -17,21 +17,28 @@ Risk = Literal["Flood Risk", "No Flood Risk"]
 Market = Literal["Oil", "Domestic Gas", "Export Gas", "Not Applicable"]
 
 # A required string that is trimmed and must be non-empty.
-NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
+
+
+# Free-text fields bounded to their DB column widths, so an over-length value
+# (a malformed import cell, a pasted blob) 422s here or is skipped by the import
+# with a clear row error — never a 500 from the database truncating/rejecting.
+Str256 = Annotated[str, StringConstraints(max_length=256)]
+Str512 = Annotated[str, StringConstraints(max_length=512)]
 
 
 class ActivityCreate(BaseModel):
-    activity_type: str
+    activity_type: Str256
     start_date: date
     end_date: date
-    well_name: str | None = None
-    rig_name: str | None = None
-    hwu_name: str | None = None
-    well_project: str | None = None
-    project_group: str | None = None
+    well_name: Str256 | None = None
+    rig_name: Str256 | None = None
+    hwu_name: Str256 | None = None
+    well_project: Str256 | None = None
+    project_group: Str256 | None = None
     location: Location | None = None
     risk: Risk | None = None
-    comment: str | None = None
+    comment: Str512 | None = None
     plan_type: PlanType | None = None
     market: Market | None = None
     readiness_required: bool = True

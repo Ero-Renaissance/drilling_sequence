@@ -140,7 +140,13 @@ async def test_sign_revision_approves_and_keeps_plan_locked(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:
     project_id, _ = await _create_project_with_activities(client)
-    await _add_approver(client, project_id)  # other@company.com signs
+    # Matrix title is authoritative — set a distinctive one to prove the client's
+    # role_label doesn't overwrite it.
+    r = await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Asset Manager"},
+    )
+    assert r.status_code == 201, r.text
     create_r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     revision_id = create_r.json()["id"]
 
@@ -152,7 +158,8 @@ async def test_sign_revision_approves_and_keeps_plan_locked(
     data = r.json()
     assert data["status"] == "approved"
     assert len(data["signatures"]) == 1
-    assert data["signatures"][0]["role_label"] == "Project Manager"
+    # The client sent "Project Manager"; the recorded title is the matrix's.
+    assert data["signatures"][0]["role_label"] == "Asset Manager"
     assert data["signatures"][0]["user_name"] == "Other User"
 
     # Plan stays LOCKED on approval (model B) — frozen until Revise Plan reopens it.
@@ -372,6 +379,12 @@ async def test_reject_requires_reason(
     r = await other_client.post(
         f"/api/projects/{project_id}/revisions/{revision_id}/reject",
         json={"reason": ""},
+    )
+    assert r.status_code == 422
+    # Whitespace-only is also empty — min_length alone would let it through.
+    r = await other_client.post(
+        f"/api/projects/{project_id}/revisions/{revision_id}/reject",
+        json={"reason": "   \n\t "},
     )
     assert r.status_code == 422
 

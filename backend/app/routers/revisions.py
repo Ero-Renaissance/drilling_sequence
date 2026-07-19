@@ -73,6 +73,33 @@ async def _get_required_reviewers(
     return list(result.scalars().all())
 
 
+async def _authoritative_role_label(
+    project_id: uuid.UUID,
+    kind: str,
+    user: User,
+    fallback: str,
+    db: AsyncSession,
+) -> str:
+    """A designated signer's recorded title is taken from the approval matrix,
+    not the client — a signer can't inscribe a false role (e.g. "Managing
+    Director") into the immutable signature, its audit line, and the printed
+    sign-off. An admin signing outside the matrix keeps the supplied label.
+    Email matched lowercased, as everywhere else."""
+    if user.email:
+        row = (
+            await db.execute(
+                select(ProjectApprover.role_label).where(
+                    ProjectApprover.project_id == project_id,
+                    ProjectApprover.kind == kind,
+                    ProjectApprover.email == user.email.lower(),
+                )
+            )
+        ).scalar_one_or_none()
+        if row:
+            return row
+    return fallback
+
+
 async def _fetch_signed_email_map(
     revision_id: uuid.UUID, db: AsyncSession, stage: str
 ) -> dict[str, Signature]:
@@ -140,8 +167,6 @@ async def _to_response(
     approval_sigs = await _fetch_signed_email_map(revision.id, db, "approval")
     review_sigs = await _fetch_signed_email_map(revision.id, db, "review")
     required_reviewers = await _get_required_reviewers(revision.project_id, db)
-    project = await db.get(Project, revision.project_id)
-    policy = project.review_policy if project else "optional"
     return {
         "id": revision.id,
         "project_id": revision.project_id,
@@ -150,9 +175,9 @@ async def _to_response(
         "status": revision.status,
         "stage": "review" if revision.status == "pending_review" else "approval",
         "review_required": revision.review_required,
-        # Review was available (optional policy) but the planner went straight to
-        # approval — surfaced so approvers can see it was bypassed.
-        "review_skipped": policy == "optional" and not revision.review_required,
+        # Frozen at submit (not derived from the live policy) so history can't
+        # be rewritten by a later review_policy change.
+        "review_skipped": revision.review_skipped,
         "created_by_name": revision.created_by_name,
         "created_at": revision.created_at,
         # The flat list stays the *binding* (approval-stage) signatures; review
@@ -449,6 +474,9 @@ async def create_revision(
         change_notes_json=json.dumps(change_notes) if change_notes else None,
         status="pending_review" if review_required else "pending_approval",
         review_required=review_required,
+        # Frozen now: skip = the optional policy was in force and review was not
+        # routed. Stored so a later policy change can't rewrite this revision.
+        review_skipped=(policy == "optional" and not review_required),
         created_by=current_user.id,
         created_at=datetime.now(timezone.utc),
     )
@@ -755,10 +783,13 @@ async def sign_revision(
             detail="Confirm you have reviewed this revision before signing.",
         )
 
+    role_label = await _authoritative_role_label(
+        project_id, "approver", current_user, payload.role_label, db
+    )
     sig = Signature(
         revision_id=revision.id,
         user_id=current_user.id,
-        role_label=payload.role_label,
+        role_label=role_label,
         stage="approval",
         attestation=await _attestation_text(revision, "approval", db),
         signed_at=datetime.now(timezone.utc),
@@ -771,7 +802,7 @@ async def sign_revision(
             entity_type=ENTITY_REVISION,
             entity_id=revision.id,
             action="signed",
-            detail=f"Signed Rev. {revision.rev_number:02d} as {payload.role_label}",
+            detail=f"Signed Rev. {revision.rev_number:02d} as {role_label}",
         )
     )
 
@@ -843,11 +874,14 @@ async def sign_review(
             detail="Confirm you have reviewed this revision before signing off.",
         )
 
+    role_label = await _authoritative_role_label(
+        project_id, "reviewer", current_user, payload.role_label, db
+    )
     db.add(
         Signature(
             revision_id=revision.id,
             user_id=current_user.id,
-            role_label=payload.role_label,
+            role_label=role_label,
             stage="review",
             attestation=await _attestation_text(revision, "review", db),
             signed_at=datetime.now(timezone.utc),
@@ -860,7 +894,7 @@ async def sign_review(
             entity_type=ENTITY_REVISION,
             entity_id=revision.id,
             action="review_signed",
-            detail=f"Reviewed Rev. {revision.rev_number:02d} as {payload.role_label}",
+            detail=f"Reviewed Rev. {revision.rev_number:02d} as {role_label}",
         )
     )
 

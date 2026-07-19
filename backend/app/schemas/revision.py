@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.approver import ApproverSignStatus
 
@@ -28,6 +28,16 @@ class SignRequest(BaseModel):
 
 class DecisionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def _non_blank(cls, v: str) -> str:
+        # min_length alone lets " " through; a governance reason must carry
+        # actual content. Strip and re-check so whitespace-only 422s.
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("A reason is required.")
+        return stripped
 
 
 class SignatureResponse(BaseModel):
