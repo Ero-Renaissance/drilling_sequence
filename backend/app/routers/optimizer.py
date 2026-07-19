@@ -27,6 +27,7 @@ from app.schemas.optimizer import (
     TerrainResultOut,
 )
 from app.services.rig_optimizer import Assumptions, Options, run
+from app.services.spreadsheet import neutralize_formula_cells
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,7 @@ async def export_rig_fleet(
             width = max((len(str(c.value)) for c in col if c.value is not None), default=8)
             sheet.column_dimensions[col[0].column_letter].width = min(width + 2, 40)
 
+    neutralize_formula_cells(wb)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

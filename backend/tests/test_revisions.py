@@ -228,6 +228,11 @@ async def test_rev_number_increments(
         json={"role_label": "Manager", "attested": True},
     )
 
+    # The approved freeze must be lifted through Revise Plan before the next
+    # cycle can submit (submit-over-approved is a 409 by design).
+    assert (
+        await client.post(f"/api/projects/{project_id}/revisions/reopen")
+    ).status_code == 204
     r2 = await client.post(f"/api/projects/{project_id}/revisions", json={})
     assert r2.status_code == 201, r2.text
     assert r2.json()["rev_number"] == 2

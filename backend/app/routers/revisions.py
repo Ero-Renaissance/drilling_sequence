@@ -307,6 +307,31 @@ async def create_revision(
             detail="A revision is already open. Resolve or discard it first.",
         )
 
+    # A plan frozen by an APPROVED revision reopens only through Revise Plan
+    # (planner-only, audited plan_reopened). Without this check, submit+discard
+    # would silently steal the approved freeze and unlock the plan with no
+    # audit trail — a complete bypass of the reopen path.
+    frozen_rev_id = (
+        await db.execute(
+            select(Activity.locked_by_revision_id)
+            .where(
+                Activity.project_id == project_id,
+                Activity.locked_by_revision_id.is_not(None),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if frozen_rev_id is not None:
+        frozen_rev = await db.get(Revision, frozen_rev_id)
+        if frozen_rev is not None and frozen_rev.status == "approved":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The plan is approved and locked. Use Revise Plan to reopen "
+                    "it before creating a new revision."
+                ),
+            )
+
     act_result = await db.execute(
         select(Activity)
         .where(Activity.project_id == project_id)

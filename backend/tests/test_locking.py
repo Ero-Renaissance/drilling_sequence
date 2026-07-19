@@ -345,3 +345,34 @@ async def test_key_notes_planner_only_lock_gated_and_audited(
 
     audit = (await client.get(f"/api/projects/{project_id}/audit")).json()
     assert any(e["field"] == "key_notes_updated" for e in audit)
+
+
+@pytest.mark.asyncio
+async def test_submit_blocked_while_frozen_by_approved(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """An approved freeze reopens ONLY through Revise Plan (audited). Creating
+    a new revision straight over it would steal the approved lock and, via
+    discard, unlock the plan with no plan_reopened event — refused 409."""
+    project_id, _activity_id = await _project_with_activity(client)
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    revision_id = await _create_revision(client, project_id)
+    signed = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Manager", "attested": True},
+    )
+    assert signed.status_code == 200
+    assert signed.json()["status"] == "approved"
+
+    # Frozen by the approved revision → submit is refused, pointing at Revise Plan.
+    r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    assert r.status_code == 409, r.text
+    assert "Revise Plan" in r.json()["detail"]
+
+    # The audited reopen path unfreezes; submitting then works again.
+    assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 204
+    r = await client.post(f"/api/projects/{project_id}/revisions", json={})
+    assert r.status_code == 201, r.text

@@ -48,6 +48,7 @@ from app.services.registry import (
     ensure_registered,
     lane_contract_rows,
 )
+from app.services.spreadsheet import neutralize_formula_cells
 
 router = APIRouter(prefix="/api/projects/{project_id}/activities", tags=["activities"])
 
@@ -148,6 +149,7 @@ async def export_activities(project_id: uuid.UUID, current_user: CurrentUser, db
         width = max((len(str(c.value)) for c in col if c.value is not None), default=10)
         ws.column_dimensions[col[0].column_letter].width = min(width + 2, 45)
 
+    neutralize_formula_cells(wb)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -276,6 +278,7 @@ async def download_import_template(project_id: uuid.UUID, current_user: CurrentU
     dropdown('"Oil,Domestic Gas,Export Gas,Not Applicable"', f"G2:G{last}")
     dropdown('"Flood Risk,No Flood Risk"', f"M2:M{last}")
 
+    neutralize_formula_cells(wb)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

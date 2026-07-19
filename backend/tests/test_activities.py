@@ -608,3 +608,36 @@ async def test_market_validated_on_create_and_edit(client: AsyncClient) -> None:
     )
     assert cleared.status_code == 200
     assert cleared.json()["market"] is None
+
+
+@pytest.mark.asyncio
+async def test_export_neutralizes_formula_injection(client: AsyncClient) -> None:
+    """Directive 2: user text woven into exports is contextually encoded. A
+    comment or name pasted from a hostile sheet must never leave the export as
+    a live Excel formula — the text survives verbatim, the executability dies."""
+    project = await _create_project(client, name="Injection Check")
+    pid = project["id"]
+    payload = '=HYPERLINK("http://attacker.example/x","open me")'
+    await _create_activity(
+        client, pid,
+        well_name="=2+2",
+        rig_name="=cmd|'/c calc'!A1",
+        comment=payload,
+    )
+
+    r = await client.get(f"/api/projects/{pid}/activities/export")
+    assert r.status_code == 200, r.text
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(r.content))
+    ws = wb["Rig Sequence"]
+    # Text preserved exactly…
+    values = [c.value for c in ws[2]]
+    assert "=2+2" in values
+    assert payload in values
+    # …but NO cell anywhere in the workbook is formula-typed.
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                assert cell.data_type != "f", f"live formula at {sheet.title}!{cell.coordinate}"
