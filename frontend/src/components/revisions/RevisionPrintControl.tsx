@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, FileSignature, Printer } from "lucide-react";
 
 import { getRevision, type Revision, type RevisionDetail } from "@/api/revisions";
@@ -114,6 +115,16 @@ export function RevisionPrintControl({
     [projectId, revision.id, detail],
   );
 
+  // While this control owns the print, mark <body> so the print stylesheet can
+  // hide EVERY other body child (the app root, Radix portals, toasts). The
+  // "only the document prints" rule is structural — it cannot depend on the
+  // host page sprinkling print:hidden on its own sections.
+  useEffect(() => {
+    if (!printing) return;
+    document.body.classList.add("ds-printing-revision");
+    return () => document.body.classList.remove("ds-printing-revision");
+  }, [printing]);
+
   // Print once the chosen document has painted; restore afterwards.
   useEffect(() => {
     if (nonce === 0) return;
@@ -206,11 +217,15 @@ export function RevisionPrintControl({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {printing && detail && (
-        <>
+      {printing && detail && createPortal(
+        <div className="ds-print-doc hidden print:block">
           {/* Print stylesheet — mounted only while this control owns the print. */}
           <style>{`
             @media print {
+              /* Exclusivity: everything except this document disappears —
+                 whatever page hosts the control, including portal'd menus. */
+              body.ds-printing-revision > *:not(.ds-print-doc) { display: none !important; }
+              .ds-print-doc { padding-bottom: 12mm; }
               @page { size: ${
                 chart === "readiness" ? readinessPageCss(years) : "A4 landscape"
               }; margin: 14mm 12mm; }
@@ -271,7 +286,8 @@ export function RevisionPrintControl({
               </span>
             )}
           </div>
-        </>
+        </div>,
+        document.body,
       )}
     </>
   );
