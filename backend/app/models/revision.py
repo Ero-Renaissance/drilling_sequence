@@ -5,11 +5,13 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     false,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +25,19 @@ class Revision(Base):
         # a read-max-then-insert, so the DB — not the app — must be the authority
         # that two concurrent submits can't mint the same number.
         UniqueConstraint("project_id", "rev_number", name="uq_revision_project_number"),
+        # At most ONE open (pending) revision per project. The submit handler's
+        # pending-check is a read-then-insert with a wide await window; under
+        # concurrency two submits could both pass it, so the DB is the authority.
+        # Filtered/partial unique index — approved/rejected/discarded rows don't
+        # collide (a project has many of those over its lifetime).
+        Index(
+            "uq_open_revision_per_project",
+            "project_id",
+            unique=True,
+            mssql_where=text("status IN ('pending_review', 'pending_approval')"),
+            sqlite_where=text("status IN ('pending_review', 'pending_approval')"),
+            postgresql_where=text("status IN ('pending_review', 'pending_approval')"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

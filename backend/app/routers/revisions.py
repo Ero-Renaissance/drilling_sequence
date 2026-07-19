@@ -285,6 +285,25 @@ async def list_revisions(
     ]
 
 
+async def _lock_revision(
+    project_id: uuid.UUID, revision_id: uuid.UUID, db: AsyncSession
+) -> Revision:
+    """Fetch the revision row FOR UPDATE (MSSQL UPDLOCK/ROWLOCK; a no-op on
+    SQLite, where the test suite is single-session anyway) so a status
+    transition serialises against concurrent ones. Callers re-check status
+    AFTER this returns — the lock guarantees they read post-commit state, so a
+    sign can't overwrite a concurrent reject, and two final signers can't both
+    miss the all-signed advancement. BOLA-scoped to the path project."""
+    revision = (
+        await db.execute(
+            select(Revision).where(Revision.id == revision_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if not revision or revision.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    return revision
+
+
 @router.post("", response_model=RevisionResponse, status_code=201)
 async def create_revision(
     project_id: uuid.UUID,
@@ -434,34 +453,37 @@ async def create_revision(
         created_at=datetime.now(timezone.utc),
     )
     db.add(revision)
-    await db.flush()
 
-    for a in activities:
-        a.locked_by_revision_id = revision.id
-
-    if review_required:
-        submit_detail = f"Submitted {revision.label} for review"
-    else:
-        submit_detail = f"Submitted {revision.label} for approval"
-        if policy == "optional":
-            submit_detail += " (review skipped)"
-    db.add(
-        governance_event(
-            project_id=project_id,
-            user_id=current_user.id,
-            entity_type=ENTITY_REVISION,
-            entity_id=revision.id,
-            action="submitted_for_review" if review_required else "submitted_for_approval",
-            detail=submit_detail,
-        )
-    )
-
+    # The INSERT (flush) is where MSSQL enforces the unique indexes, so it is
+    # inside the try alongside the commit: a concurrent submit that beat this
+    # one past the pre-checks trips uq_revision_project_number (same rev number)
+    # or uq_open_revision_per_project (second open revision) here, and must
+    # surface as a 409 — not a 500 from an uncaught flush.
     try:
+        await db.flush()
+
+        for a in activities:
+            a.locked_by_revision_id = revision.id
+
+        if review_required:
+            submit_detail = f"Submitted {revision.label} for review"
+        else:
+            submit_detail = f"Submitted {revision.label} for approval"
+            if policy == "optional":
+                submit_detail += " (review skipped)"
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_REVISION,
+                entity_id=revision.id,
+                action="submitted_for_review" if review_required else "submitted_for_approval",
+                detail=submit_detail,
+            )
+        )
         await db.commit()
     except IntegrityError:
-        # uq_revision_project_number: a concurrent submit won the same rev
-        # number — same outcome as the open-revision pre-check above, surfaced
-        # as the DB constraint because both requests passed the pre-check.
+        # One open revision wins the race; this one is told to resolve it.
         await db.rollback()
         raise HTTPException(
             status_code=409,
@@ -708,9 +730,7 @@ async def sign_revision(
     current_user: User = Depends(get_current_user),
 ) -> RevisionResponse:
     await assert_can_sign(project_id, current_user, db)
-    revision = await db.get(Revision, revision_id)
-    if not revision or revision.project_id != project_id:
-        raise HTTPException(status_code=404, detail="Revision not found")
+    revision = await _lock_revision(project_id, revision_id, db)
     if revision.status != "pending_approval":
         raise HTTPException(
             status_code=400, detail="Only a pending revision can be signed"
@@ -800,9 +820,7 @@ async def sign_review(
     """A designated reviewer signs the technical-review stage. When every required
     reviewer has signed, the revision advances to pending_approval."""
     await assert_can_review(project_id, current_user, db)
-    revision = await db.get(Revision, revision_id)
-    if not revision or revision.project_id != project_id:
-        raise HTTPException(status_code=404, detail="Revision not found")
+    revision = await _lock_revision(project_id, revision_id, db)
     if revision.status != "pending_review":
         raise HTTPException(
             status_code=400, detail="Only a revision in review can be signed off"
@@ -900,9 +918,7 @@ async def discard_revision(
     current_user: User = Depends(get_current_user),
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
-    revision = await db.get(Revision, revision_id)
-    if not revision or revision.project_id != project_id:
-        raise HTTPException(status_code=404, detail="Revision not found")
+    revision = await _lock_revision(project_id, revision_id, db)
     if revision.status == "approved":
         raise HTTPException(status_code=400, detail="Cannot discard an approved revision")
 
@@ -984,9 +1000,7 @@ async def _record_decision(
     """Shared body for reject / request-changes: a non-final approver decision
     that closes the revision with a reason and unlocks its activities."""
     await assert_can_sign(project_id, current_user, db)
-    revision = await db.get(Revision, revision_id)
-    if not revision or revision.project_id != project_id:
-        raise HTTPException(status_code=404, detail="Revision not found")
+    revision = await _lock_revision(project_id, revision_id, db)
     if revision.status != "pending_approval":
         raise HTTPException(
             status_code=400, detail="Only a pending revision can be actioned"
@@ -1095,9 +1109,7 @@ async def review_request_changes(
     request-changes, but gated to reviewers and only valid while `pending_review`.
     Reviewers can't terminally reject — that stays with approvers."""
     await assert_can_review(project_id, current_user, db)
-    revision = await db.get(Revision, revision_id)
-    if not revision or revision.project_id != project_id:
-        raise HTTPException(status_code=404, detail="Revision not found")
+    revision = await _lock_revision(project_id, revision_id, db)
     if revision.status != "pending_review":
         raise HTTPException(
             status_code=400, detail="Only a revision in review can be sent back"
