@@ -376,3 +376,58 @@ async def test_submit_blocked_while_frozen_by_approved(
     assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 204
     r = await client.post(f"/api/projects/{project_id}/revisions", json={})
     assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_reopened_plan_reads_revising_not_approved(
+    client: AsyncClient, other_client: AsyncClient
+) -> None:
+    """After Revise Plan, the campaign must not present as (still) Approved —
+    the header chip and the Campaigns-list card both read "revising"."""
+    project_id, _ = await _project_with_activity(client)
+    await client.post(
+        f"/api/projects/{project_id}/approvers",
+        json={"email": "other@company.com", "role_label": "Approver"},
+    )
+    revision_id = await _create_revision(client, project_id)
+    signed = await other_client.put(
+        f"/api/projects/{project_id}/revisions/{revision_id}/sign",
+        json={"role_label": "Manager", "attested": True},
+    )
+    assert signed.status_code == 200
+
+    # Frozen-by-approved: both the detail and the list say approved.
+    assert (await client.get(f"/api/projects/{project_id}")).json()["approval"]["status"] == "approved"
+    listed = next(
+        p for p in (await client.get("/api/projects")).json() if p["id"] == project_id
+    )
+    assert listed["approval"]["status"] == "approved"
+    assert listed["approval"]["rev_number"] == 1
+
+    # Revise Plan → live edits in flight → "revising" everywhere.
+    assert (await client.post(f"/api/projects/{project_id}/revisions/reopen")).status_code == 204
+    assert (await client.get(f"/api/projects/{project_id}")).json()["approval"]["status"] == "revising"
+    listed = next(
+        p for p in (await client.get("/api/projects")).json() if p["id"] == project_id
+    )
+    assert listed["approval"]["status"] == "revising"
+
+
+@pytest.mark.asyncio
+async def test_campaign_list_carries_summaries_and_clone_lineage(
+    client: AsyncClient,
+) -> None:
+    """The Campaigns-list cards read plan state + lineage straight off the list
+    response — a draft campaign, and a clone naming its source."""
+    project_id, _ = await _project_with_activity(client)
+    r = await client.post(
+        f"/api/projects/{project_id}/clone", json={"name": "Q2 drilling sequence"}
+    )
+    assert r.status_code == 201, r.text
+    clone_id = r.json()["id"]
+
+    listed = {p["id"]: p for p in (await client.get("/api/projects")).json()}
+    assert listed[project_id]["approval"]["status"] == "draft"
+    assert listed[clone_id]["approval"]["status"] == "draft"
+    assert listed[clone_id]["cloned_from_name"] is not None
+    assert listed[project_id]["cloned_from_name"] is None

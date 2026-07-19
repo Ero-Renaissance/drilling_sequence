@@ -27,6 +27,13 @@ export function planStateLabel(a: ProjectApprovalSummary): {
         : { label: `Pending approval · ${a.signed}/${a.approvers} signed`, tone: "amber" };
     case "pending_review":
       return { label: "Pending endorsement", tone: "amber" };
+    case "revising":
+      // Approved but reopened via Revise Plan — live edits are in flight, so
+      // the campaign must not read as (still) Approved.
+      return {
+        label: a.rev_number != null ? `Revising · after Rev ${a.rev_number}` : "Revising",
+        tone: "neutral",
+      };
     case "changes_requested":
       return { label: "Changes requested", tone: "amber" };
     case "rejected":
@@ -57,6 +64,7 @@ export function PlanStateChip({
     <Link
       to={`/projects/${projectId}/signatures`}
       title="Open the Approvals tab"
+      onClick={(e) => e.stopPropagation()}
       className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${TONE_STYLES[tone]}`}
     >
       {label}

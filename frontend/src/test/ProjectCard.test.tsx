@@ -65,3 +65,62 @@ describe("ProjectCard", () => {
     expect(screen.getByText("North Sea Campaign")).toBeInTheDocument();
   });
 });
+
+describe("ProjectCard plan state + lineage", () => {
+  it("shows the plan-state chip and the clone lineage caption", () => {
+    render(
+      <MemoryRouter future={routerFuture}>
+        <ProjectCard
+          project={{
+            ...mockProject,
+            approval: {
+              status: "approved",
+              rev_number: 2,
+              rev_label: null,
+              signed: 0,
+              approvers: 1,
+              your_action: null,
+            },
+            cloned_from_name: "Q1 drilling sequence",
+          }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Approved · Rev 2")).toBeInTheDocument();
+    expect(screen.getByText("Cloned from Q1 drilling sequence")).toBeInTheDocument();
+  });
+
+  it("navigates to Approvals from the chip without triggering the card's own navigation", () => {
+    render(
+      <MemoryRouter future={routerFuture}>
+        <ProjectCard
+          project={{
+            ...mockProject,
+            approval: {
+              status: "revising",
+              rev_number: 2,
+              rev_label: null,
+              signed: 0,
+              approvers: 1,
+              your_action: null,
+            },
+          }}
+        />
+      </MemoryRouter>,
+    );
+    const chip = screen.getByText("Revising · after Rev 2");
+    expect(chip.closest("a")).toHaveAttribute(
+      "href",
+      `/projects/${mockProject.id}/signatures`,
+    );
+  });
+
+  it("renders no chip when the list has no approval summary", () => {
+    render(
+      <MemoryRouter future={routerFuture}>
+        <ProjectCard project={{ ...mockProject, approval: undefined }} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/Approved|Draft|Revising|Pending/)).not.toBeInTheDocument();
+  });
+});

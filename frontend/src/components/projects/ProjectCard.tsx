@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { CloneProjectDialog } from "@/components/projects/CloneProjectDialog";
+import { PlanStateChip } from "@/components/PlanStateChip";
 import { useAuthStore } from "@/store/auth";
 import type { Project } from "@/types";
 
@@ -40,6 +41,7 @@ export function ProjectCard({ project, onArchive }: ProjectCardProps) {
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-base font-semibold tracking-tight">{project.name}</h3>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <PlanStateChip projectId={project.id} approval={project.approval} />
               {project.field && (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="h-3 w-3" />
@@ -91,6 +93,12 @@ export function ProjectCard({ project, onArchive }: ProjectCardProps) {
             {formatDate(project.created_at)}
           </span>
         </div>
+
+        {project.cloned_from_name && (
+          <p className="-mt-2 text-[11px] text-muted-foreground/80">
+            Cloned from {project.cloned_from_name}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

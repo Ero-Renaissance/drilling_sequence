@@ -52,3 +52,9 @@ describe("PlanStateChip", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+  it("reads a reopened plan as Revising, never as still-Approved", () => {
+    const { label, tone } = planStateLabel(summary({ status: "revising", rev_number: 2 }));
+    expect(label).toBe("Revising · after Rev 2");
+    expect(tone).toBe("neutral");
+  });

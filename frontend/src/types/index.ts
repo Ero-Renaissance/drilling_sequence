@@ -71,6 +71,8 @@ export interface Project {
   members: ProjectMember[];
   /** Set when this project was cloned from another (the previous quarter). */
   cloned_from_project_id: string | null;
+  /** Source campaign's name — list endpoint only ("Cloned from Q1 …"). */
+  cloned_from_name?: string | null;
   /** Plan-lock summary — populated only by the detail endpoint (GET /projects/:id). */
   lock?: ProjectLock | null;
   /** Plan state for the header chip (detail endpoint only). */

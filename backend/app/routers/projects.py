@@ -18,7 +18,7 @@ from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
 from app.models.readiness import ProjectReadiness
 from app.models.resource_registry import ResourceRecord
-from app.models.revision import Revision
+from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
 from app.models.user import User
 from app.schemas.audit import AuditEntryResponse
@@ -84,7 +84,28 @@ async def list_projects(current_user: CurrentUser, db: DB) -> list[ProjectRespon
         .order_by(Project.created_at.desc())
     )
     projects = result.scalars().all()
-    return [ProjectResponse.from_project(p) for p in projects]
+
+    # One batched pass for the card chips + clone lineage — never per-campaign.
+    summaries = await compute_approval_summaries([p.id for p in projects], db)
+    source_ids = {p.cloned_from_project_id for p in projects if p.cloned_from_project_id}
+    source_names: dict[uuid.UUID, str] = {}
+    if source_ids:
+        source_names = dict(
+            (
+                await db.execute(
+                    select(Project.id, Project.name).where(Project.id.in_(source_ids))
+                )
+            ).all()
+        )
+
+    responses = []
+    for p in projects:
+        resp = ProjectResponse.from_project(p)
+        resp.approval = summaries.get(p.id)
+        if p.cloned_from_project_id:
+            resp.cloned_from_name = source_names.get(p.cloned_from_project_id)
+        responses.append(resp)
+    return responses
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -486,6 +507,116 @@ async def compute_project_lock(project_id: uuid.UUID, db: AsyncSession) -> Proje
     )
 
 
+async def compute_approval_summaries(
+    project_ids: list[uuid.UUID], db: AsyncSession
+) -> dict[uuid.UUID, ProjectApprovalSummary]:
+    """Plan state for MANY campaigns at once — the Campaigns-list cards. Same
+    vocabulary as compute_approval_summary but batched (a fixed number of
+    grouped queries, never one per campaign) and without the per-viewer
+    `your_action` (the list has no signer banner)."""
+    if not project_ids:
+        return {}
+
+    # Latest revision per project (rev numbers are per-project sequential).
+    latest_num = (
+        select(
+            Revision.project_id.label("pid"),
+            func.max(Revision.rev_number).label("max_rev"),
+        )
+        .where(Revision.project_id.in_(project_ids))
+        .group_by(Revision.project_id)
+        .subquery()
+    )
+    latest_rows = (
+        await db.execute(
+            select(Revision).join(
+                latest_num,
+                (Revision.project_id == latest_num.c.pid)
+                & (Revision.rev_number == latest_num.c.max_rev),
+            )
+        )
+    ).scalars().all()
+    latest_by_project = {r.project_id: r for r in latest_rows}
+
+    # Approver headcount per campaign (chip shows x/y while pending).
+    approver_counts = dict(
+        (
+            await db.execute(
+                select(ProjectApprover.project_id, func.count())
+                .where(
+                    ProjectApprover.project_id.in_(project_ids),
+                    ProjectApprover.kind == "approver",
+                )
+                .group_by(ProjectApprover.project_id)
+            )
+        ).all()
+    )
+
+    # Approval-stage signature counts, only for revisions still pending approval.
+    pending_ids = [r.id for r in latest_rows if r.status == "pending_approval"]
+    signed_counts: dict[uuid.UUID, int] = {}
+    if pending_ids:
+        signed_counts = dict(
+            (
+                await db.execute(
+                    select(Signature.revision_id, func.count())
+                    .where(
+                        Signature.revision_id.in_(pending_ids),
+                        Signature.stage == "approval",
+                    )
+                    .group_by(Signature.revision_id)
+                )
+            ).all()
+        )
+
+    # Lock + any-activities state, for the approved-vs-revising distinction.
+    locked_projects = {
+        row[0]
+        for row in (
+            await db.execute(
+                select(Activity.project_id)
+                .where(
+                    Activity.project_id.in_(project_ids),
+                    Activity.locked_by_revision_id.is_not(None),
+                )
+                .distinct()
+            )
+        ).all()
+    }
+    projects_with_activities = {
+        row[0]
+        for row in (
+            await db.execute(
+                select(Activity.project_id)
+                .where(Activity.project_id.in_(project_ids))
+                .distinct()
+            )
+        ).all()
+    }
+
+    out: dict[uuid.UUID, ProjectApprovalSummary] = {}
+    for pid in project_ids:
+        latest = latest_by_project.get(pid)
+        if latest is None:
+            out[pid] = ProjectApprovalSummary(status="draft")
+            continue
+        status = latest.status
+        if (
+            status == "approved"
+            and pid not in locked_projects
+            and pid in projects_with_activities
+        ):
+            status = "revising"
+        out[pid] = ProjectApprovalSummary(
+            status=status,
+            rev_number=latest.rev_number,
+            rev_label=latest.label,
+            signed=signed_counts.get(latest.id, 0),
+            approvers=approver_counts.get(pid, 0),
+        )
+    return out
+
+
 async def compute_approval_summary(
     project_id: uuid.UUID, db: AsyncSession, viewer: User | None = None
 ) -> ProjectApprovalSummary:
@@ -520,8 +651,31 @@ async def compute_approval_summary(
         if latest.status == "pending_approval"
         else 0
     )
+    status = latest.status
+    if status == "approved":
+        # Approved but UNLOCKED = the planner ran Revise Plan: live edits are
+        # in flight and the campaign must not still present as Approved.
+        has_locked = (
+            await db.execute(
+                select(Activity.id)
+                .where(
+                    Activity.project_id == project_id,
+                    Activity.locked_by_revision_id.is_not(None),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        has_activities = has_locked is not None or (
+            await db.execute(
+                select(Activity.id).where(Activity.project_id == project_id).limit(1)
+            )
+        ).scalar_one_or_none()
+        # An empty plan can't carry a lock — only call it "revising" when there
+        # are activities that could have stayed locked but didn't.
+        if has_locked is None and has_activities is not None:
+            status = "revising"
     return ProjectApprovalSummary(
-        status=latest.status,
+        status=status,
         rev_number=latest.rev_number,
         rev_label=latest.label,
         signed=signed,

@@ -96,7 +96,10 @@ class ProjectApprovalSummary(BaseModel):
     pending. Display-only — the Approvals tab remains the authority on signer
     eligibility (separation of duties etc.)."""
 
-    # draft | pending_review | pending_approval | approved | changes_requested
+    # draft | pending_review | pending_approval | approved | revising |
+    # changes_requested — "revising" = the latest revision is approved but the
+    # plan has been reopened (Revise Plan): live edits are in flight, so the
+    # campaign must not present itself as (still) Approved.
     # | rejected | discarded ("draft" = no revisions yet)
     status: str
     rev_number: int | None = None
@@ -157,3 +160,7 @@ class ProjectResponse(BaseModel):
             cloned_from_project_id=project.cloned_from_project_id,
             members=[ProjectMemberResponse.from_member(m) for m in project.members],
         )
+
+    # Lineage caption for the Campaigns list ("Cloned from Q1 …"), resolved in
+    # bulk by the list endpoint; None when the campaign wasn't cloned.
+    cloned_from_name: str | None = None
