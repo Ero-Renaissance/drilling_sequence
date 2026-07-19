@@ -351,3 +351,37 @@ describe("Conflicts queue", () => {
     );
   });
 });
+
+describe("Conflicts queue empty state", () => {
+  it("celebrates a cleared queue instead of claiming there are no activities", async () => {
+    // 53 activities, none conflicted — the queue reached via URL is empty.
+    const acts = Array.from({ length: 3 }, (_, i) => ({
+      id: `ok-${i}`, project_id: PROJECT_ID, activity_type: "Oil Development",
+      start_date: `2026-0${i + 1}-01`, end_date: `2026-0${i + 1}-20`, well_name: `W${i}`,
+      rig_name: `Rig ${i}`, hwu_name: null, well_project: null, project_group: null,
+      location: "LAND", risk: null, comment: null, plan_type: null, market: null,
+      readiness_required: true, completed_at: null, created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z", updated_by_name: null, locked_by_revision_id: null,
+    }));
+    server.use(
+      http.get("/api/projects/:projectId/activities", () => HttpResponse.json(acts)),
+    );
+    render(
+      <MemoryRouter
+        future={routerFuture}
+        initialEntries={[`/projects/${PROJECT_ID}/data?focus=conflicts`]}
+      >
+        <Routes>
+          <Route path="/projects/:projectId/data" element={<ActivityGrid projectId={PROJECT_ID} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const done = await screen.findByTestId("conflicts-resolved");
+    expect(done).toHaveTextContent("All scheduling conflicts resolved");
+    expect(screen.queryByText(/No activities yet/)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /show all 3 activities/i }));
+    expect(await screen.findByText("W0")).toBeInTheDocument();
+  });
+});

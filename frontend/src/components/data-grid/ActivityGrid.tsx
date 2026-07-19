@@ -966,11 +966,38 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
                   colSpan={columns.length}
                   className="py-16 text-center text-sm text-muted-foreground"
                 >
-                  {loading
-                    ? "Loading…"
-                    : globalFilter
-                      ? `No activities match "${globalFilter}".`
-                      : "No activities yet. Add one above or import a CSV file."}
+                  {loading ? (
+                    "Loading…"
+                  ) : focus === "conflicts" && activities.length > 0 ? (
+                    // The queue just emptied — say so, and hand back the grid.
+                    <div className="space-y-2" data-testid="conflicts-resolved">
+                      <p className="font-medium text-emerald-600 dark:text-emerald-400">
+                        All scheduling conflicts resolved — the plan can be submitted.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={clearFocus}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Show all {activities.length} activities
+                      </button>
+                    </div>
+                  ) : focus && activities.length > 0 ? (
+                    <div className="space-y-2">
+                      <p>Nothing matches — {FOCUS_LABEL[focus]}.</p>
+                      <button
+                        type="button"
+                        onClick={clearFocus}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Show all activities
+                      </button>
+                    </div>
+                  ) : globalFilter ? (
+                    `No activities match "${globalFilter}".`
+                  ) : (
+                    "No activities yet. Add one above or import a CSV file."
+                  )}
                 </td>
               </tr>
             ) : (
