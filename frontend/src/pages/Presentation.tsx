@@ -60,7 +60,10 @@ export function Presentation() {
 
   return (
     <div className="fixed inset-0 z-20 overflow-auto bg-background">
-      <div className="mx-auto max-w-[1600px] space-y-4 p-6">
+      {/* Present mode exists to fill the room's screen: cap at laptop widths for
+          sane density, then use EVERYTHING on large displays — a Gantt + notes
+          rail has no prose line-length to protect. */}
+      <div className="mx-auto max-w-[1600px] space-y-4 p-6 2xl:max-w-none 2xl:px-10">
         <header className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild className="text-muted-foreground">
             <NavLink to={`/projects/${projectId}/chart`} aria-label="Exit presentation">
