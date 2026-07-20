@@ -371,22 +371,41 @@ export function DrillChart({
     return visibleActivities.filter((a) => keptLanes.has(activityLaneLabel(a)));
   }, [visibleActivities, selectedProjects, selectedActivities]);
 
-  // Distinct activity types among the VISIBLE rows — the Activity checklist
-  // (from visibleActivities, not chartActivities, so the list never shrinks
-  // to only what's already selected).
-  const activityTypeOptions = useMemo(
-    () => [...new Set(visibleActivities.map((a) => a.activity_type))].sort((x, y) => x.localeCompare(y)),
+  // Faceted checklists: each list is narrowed by the OTHER filters (location +
+  // the other bar dimension) but NEVER by itself — that asymmetry is what
+  // breaks the circular dependency and lets a selection always be broadened.
+  // Options you already picked never vanish from their own list either, or you
+  // couldn't unselect your way back out of a dead combination.
+  const activityTypeOptions = useMemo(() => {
+    const matchesProjects = (a: Activity) =>
+      selectedProjects.size === 0 ||
+      (!!a.well_project && selectedProjects.has(a.well_project));
+    const s = new Set<string>();
+    for (const a of visibleActivities) if (matchesProjects(a)) s.add(a.activity_type);
+    for (const t of selectedActivities) s.add(t);
+    return [...s].sort((x, y) => x.localeCompare(y));
+  }, [visibleActivities, selectedProjects, selectedActivities]);
+
+  const projects = useMemo(() => {
+    const matchesTypes = (a: Activity) =>
+      selectedActivities.size === 0 || selectedActivities.has(a.activity_type);
+    const s = new Set<string>();
+    for (const a of visibleActivities)
+      if (a.well_project && matchesTypes(a)) s.add(a.well_project);
+    for (const pName of selectedProjects) s.add(pName);
+    return [...s].sort((x, y) => x.localeCompare(y));
+  }, [visibleActivities, selectedActivities, selectedProjects]);
+
+  // Control VISIBILITY stays keyed to the location-scoped totals, so using one
+  // filter can never make the other's control disappear mid-interaction.
+  const projectControlVisible = useMemo(
+    () => new Set(visibleActivities.map((a) => a.well_project).filter(Boolean)).size > 1,
     [visibleActivities],
   );
-
-  // Distinct, sorted project names among the VISIBLE rows — drives the project
-  // filter's checklist (so it never offers a project the location filter has
-  // already removed, which would otherwise dim the whole chart).
-  const projects = useMemo(() => {
-    const s = new Set<string>();
-    for (const a of visibleActivities) if (a.well_project) s.add(a.well_project);
-    return Array.from(s).sort((x, y) => x.localeCompare(y));
-  }, [visibleActivities]);
+  const activityControlVisible = useMemo(
+    () => new Set(visibleActivities.map((a) => a.activity_type)).size > 1,
+    [visibleActivities],
+  );
 
   // Distinct locations (terrains) in domain order (LAND → SWAMP → OFFSHORE),
   // any unknown value sorted last then alphabetically — drives the location
@@ -1425,16 +1444,40 @@ export function DrillChart({
           className="pointer-events-none absolute inset-x-0 top-0 h-14"
         />
       )}
-      <ReactECharts
-        echarts={echarts}
-        ref={chartRef}
-        option={option}
-        style={{ height: chartHeight, minWidth: 700 }}
-        notMerge
-        lazyUpdate
-        opts={{ renderer: "canvas", devicePixelRatio: window.devicePixelRatio }}
-        onEvents={onEvents}
-      />
+      {enableFilters &&
+      categories.length === 0 &&
+      (selectedProjects.size > 0 || selectedActivities.size > 0) ? (
+        // A dead filter combination (e.g. a project with none of the selected
+        // activity types, picked mid-edit) collapses every lane — say so
+        // instead of presenting a silently empty chart.
+        <div
+          className="flex h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"
+          data-testid="chart-filters-empty"
+        >
+          <p>No activities match the current filters.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedProjects(new Set());
+              setSelectedActivities(new Set());
+            }}
+            className="font-medium text-primary hover:underline"
+          >
+            Clear project & activity filters
+          </button>
+        </div>
+      ) : (
+        <ReactECharts
+          echarts={echarts}
+          ref={chartRef}
+          option={option}
+          style={{ height: chartHeight, minWidth: 700 }}
+          notMerge
+          lazyUpdate
+          opts={{ renderer: "canvas", devicePixelRatio: window.devicePixelRatio }}
+          onEvents={onEvents}
+        />
+      )}
     </div>
   );
   const legendEl = (
@@ -1455,7 +1498,8 @@ export function DrillChart({
       className="flex w-full flex-col gap-3"
     >
       {(years.length > 1 ||
-        (enableFilters && (projects.length > 1 || locations.length > 1))) && (
+        (enableFilters &&
+          (projectControlVisible || activityControlVisible || locations.length > 1))) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {years.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1494,7 +1538,7 @@ export function DrillChart({
               })}
             </div>
           )}
-          {enableFilters && projects.length > 1 && (
+          {enableFilters && projectControlVisible && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-xs font-medium text-muted-foreground">
                 Projects
@@ -1508,7 +1552,7 @@ export function DrillChart({
               />
             </div>
           )}
-          {enableFilters && activityTypeOptions.length > 1 && (
+          {enableFilters && activityControlVisible && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-xs font-medium text-muted-foreground">
                 Activity
