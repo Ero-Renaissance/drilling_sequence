@@ -174,7 +174,7 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
         <ReactECharts
           echarts={echarts}
           option={option}
-          style={{ height: 320 }}
+          style={{ height: "clamp(320px, 30vh, 440px)" }}
           notMerge
           lazyUpdate
           opts={{ renderer: "canvas" }}

@@ -336,7 +336,7 @@ export function FleetDemandChart({
           echarts={echarts}
           option={option}
           onEvents={onEvents}
-          style={{ height: 260 }}
+          style={{ height: "clamp(260px, 26vh, 400px)" }}
           notMerge
           lazyUpdate
           opts={{ renderer: "canvas" }}
