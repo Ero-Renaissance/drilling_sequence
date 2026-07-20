@@ -8,7 +8,7 @@
  * browser (there is no shared app-level config store today).
  */
 
-export type SpudClass = "oil" | "gas" | "exclude";
+export type SpudClass = "oil" | "gas" | "exploration" | "exclude";
 
 /** Per-activity-type overrides of the name-based default. */
 export type SpudMap = Record<string, SpudClass>;
@@ -26,6 +26,10 @@ export function defaultSpudClass(activityType: string): SpudClass {
   const t = activityType.toLowerCase();
   if (NON_SPUD.some((k) => t.includes(k))) return "exclude";
   if (!SPUD.some((k) => t.includes(k))) return "exclude";
+  // Exploration outranks the oil/gas keyword: an exploration well is
+  // prospecting — it has no committed market, so oil AND gas exploration
+  // combine into one category instead of distorting the production lines.
+  if (t.includes("exploration")) return "exploration";
   if (t.includes("gas")) return "gas";
   if (t.includes("oil")) return "oil";
   return "exclude"; // a spud we can't attribute to oil or gas — the planner can set it
@@ -46,7 +50,7 @@ export function loadSpudMap(): SpudMap {
     if (!parsed || typeof parsed !== "object") return {};
     const out: SpudMap = {};
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (v === "oil" || v === "gas" || v === "exclude") out[k] = v;
+      if (v === "oil" || v === "gas" || v === "exploration" || v === "exclude") out[k] = v;
     }
     return out;
   } catch {

@@ -161,3 +161,22 @@ describe("windowCapacity (horizon filter)", () => {
     expect(data.years).toEqual([2026, 2027, 2028, 2029, 2030]);
   });
 });
+
+describe("exploration spuds", () => {
+  it("moves exploration wells out of the oil/gas market lines — no double count", async () => {
+    const { aggregateCapacity } = await import("@/lib/campaign-capacity");
+    const acts = [
+      { well_name: "X-1", activity_type: "Oil Exploration", start_date: "2026-02-01", end_date: "2026-04-01", location: "LAND", rig_name: "R1", well_project: "P1", market: "Oil" },
+      { well_name: "X-2", activity_type: "Gas Exploration (Including HPHT)", start_date: "2026-03-01", end_date: "2026-05-01", location: "LAND", rig_name: "R1", well_project: "P2", market: "Export Gas" },
+      { well_name: "D-1", activity_type: "Oil Development", start_date: "2026-06-01", end_date: "2026-08-01", location: "LAND", rig_name: "R1", well_project: "P1", market: "Oil" },
+    ] as never[];
+    const d = aggregateCapacity(acts, {});
+    expect(d.explorationSpuds).toEqual([2]);
+    expect(d.oilSpuds).toEqual([1]);
+    // The gas-exploration well is NOT in any gas/market line despite its
+    // project's Export Gas market.
+    expect(d.exportGasSpuds).toEqual([0]);
+    expect(d.domesticGasSpuds).toEqual([0]);
+    expect(d.unassignedGasSpuds).toEqual([0]);
+  });
+});

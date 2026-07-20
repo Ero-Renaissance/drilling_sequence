@@ -12,7 +12,7 @@ describe("defaultSpudClass", () => {
     expect(defaultSpudClass("Oil Development")).toBe("oil");
     expect(defaultSpudClass("Oil Appraisal")).toBe("oil");
     expect(defaultSpudClass("Gas Development")).toBe("gas");
-    expect(defaultSpudClass("Gas Exploration (including HPHT)")).toBe("gas");
+    expect(defaultSpudClass("Gas Exploration (including HPHT)")).toBe("exploration");
   });
 
   it("excludes workovers, testing and other non-drilling work", () => {
@@ -50,5 +50,23 @@ describe("loadSpudMap / saveSpudMap", () => {
   it("returns empty on malformed storage", () => {
     window.localStorage.setItem("ds.spud-map", "{not json");
     expect(loadSpudMap()).toEqual({});
+  });
+});
+
+describe("exploration class", () => {
+  it("routes oil AND gas exploration to the combined exploration class", async () => {
+    const { defaultSpudClass } = await import("@/lib/spud-classification");
+    expect(defaultSpudClass("Oil Exploration")).toBe("exploration");
+    expect(defaultSpudClass("Gas Exploration (Including HPHT)")).toBe("exploration");
+    // Appraisal deliberately stays oil/gas — only exploration combines.
+    expect(defaultSpudClass("Gas Appraisal")).toBe("gas");
+    expect(defaultSpudClass("Oil Development")).toBe("oil");
+  });
+
+  it("round-trips an exploration override through storage", async () => {
+    const { loadSpudMap, saveSpudMap } = await import("@/lib/spud-classification");
+    saveSpudMap({ "Some Type": "exploration" });
+    expect(loadSpudMap()["Some Type"]).toBe("exploration");
+    window.localStorage.removeItem("ds.spud-map");
   });
 });

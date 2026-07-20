@@ -21,6 +21,9 @@ export interface CapacityData {
   rigsByLocation: Record<CapacityLocation, number[]>;
   /** Distinct wells whose first oil-spud activity starts each year. */
   oilSpuds: number[];
+  /** Exploration spuds — oil and gas exploration combined (no market split:
+   *  a prospecting well has no committed market). */
+  explorationSpuds: number[];
   /** Gas spuds split by the project's Market assignment (Domestic vs Export).
    *  A gas spud whose project carries no gas market (unset, Oil or Not
    *  Applicable) lands in `unassignedGasSpuds` — shown, never guessed. */
@@ -43,6 +46,7 @@ const empty = (): CapacityData => ({
   years: [],
   rigsByLocation: { LAND: [], SWAMP: [], OFFSHORE: [] },
   oilSpuds: [],
+  explorationSpuds: [],
   domesticGasSpuds: [],
   exportGasSpuds: [],
   unassignedGasSpuds: [],
@@ -109,7 +113,7 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     }
   }
 
-  const wellSpud = new Map<string, { year: number; cls: "oil" | "gas"; gas: GasKind }>();
+  const wellSpud = new Map<string, { year: number; cls: "oil" | "gas" | "exploration"; gas: GasKind }>();
   for (const a of activities) {
     if (!a.well_name) continue;
     const cls = resolveSpudClass(a.activity_type, spudMap);
@@ -122,6 +126,7 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     }
   }
   const oilSpuds = years.map(() => 0);
+  const explorationSpuds = years.map(() => 0);
   const domesticGasSpuds = years.map(() => 0);
   const exportGasSpuds = years.map(() => 0);
   const unassignedGasSpuds = years.map(() => 0);
@@ -129,6 +134,7 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     const i = idxOf.get(year);
     if (i === undefined) continue;
     if (cls === "oil") oilSpuds[i] += 1;
+    else if (cls === "exploration") explorationSpuds[i] += 1;
     else if (gas === "domestic") domesticGasSpuds[i] += 1;
     else if (gas === "export") exportGasSpuds[i] += 1;
     else unassignedGasSpuds[i] += 1;
@@ -138,6 +144,7 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     years,
     rigsByLocation,
     oilSpuds,
+    explorationSpuds,
     domesticGasSpuds,
     exportGasSpuds,
     unassignedGasSpuds,
@@ -159,6 +166,7 @@ export function windowCapacity(data: CapacityData, horizon: number | null): Capa
       OFFSHORE: cut(data.rigsByLocation.OFFSHORE),
     },
     oilSpuds: cut(data.oilSpuds),
+    explorationSpuds: cut(data.explorationSpuds),
     domesticGasSpuds: cut(data.domesticGasSpuds),
     exportGasSpuds: cut(data.exportGasSpuds),
     unassignedGasSpuds: cut(data.unassignedGasSpuds),

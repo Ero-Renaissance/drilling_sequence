@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 const CHOICES: { key: SpudClass; label: string; active: string }[] = [
   { key: "oil", label: "Oil", active: "bg-red-600 text-white" },
   { key: "gas", label: "Gas", active: "bg-green-600 text-white" },
+  { key: "exploration", label: "Exploration", active: "bg-violet-600 text-white" },
   { key: "exclude", label: "Exclude", active: "bg-muted-foreground/80 text-white" },
 ];
 

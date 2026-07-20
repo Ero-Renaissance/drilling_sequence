@@ -16,6 +16,7 @@ const OIL_COLOR = "#dc2626";
 const DOMESTIC_GAS_COLOR = "#16a34a";
 const EXPORT_GAS_COLOR = "#06b6d4";
 const UNASSIGNED_GAS_COLOR = "#94a3b8";
+const EXPLORATION_COLOR = "#8b5cf6";
 
 interface TipParam {
   seriesName?: string;
@@ -90,6 +91,12 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
     const lineDefs = [
       { name: "Well spuds — Oil", color: OIL_COLOR, values: data.oilSpuds, dashed: false },
       {
+        name: "Well spuds — Exploration",
+        color: EXPLORATION_COLOR,
+        values: data.explorationSpuds,
+        dashed: false,
+      },
+      {
         name: "Well spuds — Domestic Gas",
         color: DOMESTIC_GAS_COLOR,
         values: data.domesticGasSpuds,
@@ -107,7 +114,14 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
         values: data.unassignedGasSpuds,
         dashed: true,
       },
-    ].filter((s) => s.name !== "Well spuds — Gas (no market)" || s.values.some((v) => v > 0));
+      // Conditional lines: present only while they carry data — no-market gas
+      // is a nudge to assign, exploration appears once exploration wells exist.
+    ].filter(
+      (s) =>
+        (s.name !== "Well spuds — Gas (no market)" &&
+          s.name !== "Well spuds — Exploration") ||
+        s.values.some((v) => v > 0),
+    );
 
     const lineSeries: LineSeriesOption[] = lineDefs.map((s) => ({
       name: s.name,
