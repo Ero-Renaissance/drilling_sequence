@@ -12,7 +12,7 @@ import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
-import { activitiesToChartData, type ReadinessMap } from "@/lib/chart-utils";
+import { activitiesToChartData, activityLaneLabel, type ReadinessMap } from "@/lib/chart-utils";
 import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
 import { terrainRank } from "@/lib/gantt-rows";
 import { rigLaneKey } from "@/lib/resource-identity";
@@ -71,9 +71,10 @@ interface DrillChartProps {
    *  the chart already filtered. */
   initialProjects?: string[];
   initialLocations?: string[];
+  initialActivityTypes?: string[];
   /** Fires when the project/location filters change, so a parent can carry the
    *  current selection (e.g. into the presentation link). */
-  onFiltersChange?: (filters: { projects: string[]; locations: string[] }) => void;
+  onFiltersChange?: (filters: { projects: string[]; locations: string[]; activities: string[] }) => void;
   /** Where the legend sits relative to the chart. "right" is for the wide
    *  presentation view (aligned with the chart, below the filters); "bottom"
    *  (default) everywhere else. */
@@ -291,6 +292,7 @@ export function DrillChart({
   enableFilters = false,
   initialProjects,
   initialLocations,
+  initialActivityTypes,
   onFiltersChange,
   legendPosition = "bottom",
   stickyScale = false,
@@ -310,6 +312,11 @@ export function DrillChart({
   }, [focusYears]);
   // Selected projects to single out — empty Set means "no filter" (all vivid).
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(() => new Set(initialProjects));
+  // Selected activity TYPES — same dim semantics as projects (bar-level
+  // attribute: removal would fabricate idle gaps in busy lanes).
+  const [selectedActivities, setSelectedActivities] = useState<Set<string>>(
+    () => new Set(initialActivityTypes),
+  );
   // Selected locations (terrains) — empty Set means "no filter"; otherwise only
   // rows in these terrains are shown (the rest are removed, not dimmed).
   const [selectedLocations, setSelectedLocations] = useState<Set<string>>(() => new Set(initialLocations));
@@ -317,8 +324,12 @@ export function DrillChart({
   // Surface filter changes so a parent can carry the selection (e.g. into the
   // presentation link). Fires on the initial selection too.
   useEffect(() => {
-    onFiltersChange?.({ projects: [...selectedProjects], locations: [...selectedLocations] });
-  }, [selectedProjects, selectedLocations, onFiltersChange]);
+    onFiltersChange?.({
+      projects: [...selectedProjects],
+      locations: [...selectedLocations],
+      activities: [...selectedActivities],
+    });
+  }, [selectedProjects, selectedLocations, selectedActivities, onFiltersChange]);
 
   // Distinct calendar years the campaign spans — drives the focus-year strip.
   const years = useMemo(() => {
@@ -344,6 +355,28 @@ export function DrillChart({
         ? activities
         : activities.filter((a) => a.location && selectedLocations.has(a.location)),
     [activities, selectedLocations],
+  );
+
+  // Bar-level filters (projects + activity types) DIM matching-less bars; a
+  // lane with ZERO matching bars carries no signal at all, so it collapses —
+  // honest cleanup (whole irrelevant rigs go) without fabricating idle gaps
+  // inside busy lanes the way per-bar removal would.
+  const chartActivities = useMemo(() => {
+    if (selectedProjects.size === 0 && selectedActivities.size === 0) return visibleActivities;
+    const matches = (a: Activity) =>
+      (selectedProjects.size === 0 ||
+        (!!a.well_project && selectedProjects.has(a.well_project))) &&
+      (selectedActivities.size === 0 || selectedActivities.has(a.activity_type));
+    const keptLanes = new Set(visibleActivities.filter(matches).map(activityLaneLabel));
+    return visibleActivities.filter((a) => keptLanes.has(activityLaneLabel(a)));
+  }, [visibleActivities, selectedProjects, selectedActivities]);
+
+  // Distinct activity types among the VISIBLE rows — the Activity checklist
+  // (from visibleActivities, not chartActivities, so the list never shrinks
+  // to only what's already selected).
+  const activityTypeOptions = useMemo(
+    () => [...new Set(visibleActivities.map((a) => a.activity_type))].sort((x, y) => x.localeCompare(y)),
+    [visibleActivities],
   );
 
   // Distinct, sorted project names among the VISIBLE rows — drives the project
@@ -412,8 +445,8 @@ export function DrillChart({
   );
 
   const { categories, data, activityTypes, categoryToResource } = useMemo(
-    () => activitiesToChartData(visibleActivities, readinessMap),
-    [visibleActivities, readinessMap],
+    () => activitiesToChartData(chartActivities, readinessMap),
+    [chartActivities, readinessMap],
   );
 
   const completedIds = useMemo(
@@ -591,10 +624,12 @@ export function DrillChart({
       // outline / label / icons / marker.
       const project = api.value(8) as string | null;
       const risk = api.value(7) as string | null;
+      const barType = api.value(3) as string | null;
+      // A bar dims when it fails ANY active bar-level dimension.
       const dimmed =
         enableFilters &&
-        selectedProjects.size > 0 &&
-        (!project || !selectedProjects.has(project));
+        ((selectedProjects.size > 0 && (!project || !selectedProjects.has(project))) ||
+          (selectedActivities.size > 0 && (!barType || !selectedActivities.has(barType))));
 
       const children: Array<Record<string, unknown>> = [
         {
@@ -1218,7 +1253,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, enableFilters]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -1470,6 +1505,20 @@ export function DrillChart({
                 onChange={setSelectedProjects}
                 allLabel="All projects"
                 filterLabel="Filter by project"
+              />
+            </div>
+          )}
+          {enableFilters && activityTypeOptions.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                Activity
+              </span>
+              <MultiSelectFilter
+                items={activityTypeOptions}
+                selected={selectedActivities}
+                onChange={setSelectedActivities}
+                allLabel="All activities"
+                filterLabel="Filter by activity"
               />
             </div>
           )}

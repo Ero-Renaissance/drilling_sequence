@@ -350,10 +350,14 @@ function ResourceConflictBanner({ conflicts }: { conflicts: ResourceConflict[] }
   );
 }
 
-function presentTo(projectId: string, filters: { projects: string[]; locations: string[] }): string {
+function presentTo(
+  projectId: string,
+  filters: { projects: string[]; locations: string[]; activities: string[] },
+): string {
   const params = new URLSearchParams();
   filters.projects.forEach((p) => params.append("projects", p));
   filters.locations.forEach((l) => params.append("locations", l));
+  filters.activities.forEach((t) => params.append("activities", t));
   const query = params.toString();
   return `/projects/${projectId}/present${query ? `?${query}` : ""}`;
 }
@@ -378,9 +382,14 @@ export function ChartTab() {
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
   const [notes, setNotes] = useState<ChangeNote[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [chartFilters, setChartFilters] = useState<{ projects: string[]; locations: string[] }>({
+  const [chartFilters, setChartFilters] = useState<{
+    projects: string[];
+    locations: string[];
+    activities: string[];
+  }>({
     projects: [],
     locations: [],
+    activities: [],
   });
 
   const conflicts = useMemo(

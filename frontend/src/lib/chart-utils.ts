@@ -87,6 +87,11 @@ function getLabel(a: Activity): string {
   return a.location ? `${a.location} – ${second}` : second;
 }
 
+/** The activity's chart-lane identity (the Y-axis category it renders on) —
+ *  exported so the chart's lane-collapse can group activities exactly the way
+ *  the axis does. */
+export const activityLaneLabel = getLabel;
+
 function sortActivities(activities: Activity[]): Activity[] {
   return [...activities].sort((a, b) => {
     const locDiff = terrainRank(a.location) - terrainRank(b.location);

@@ -491,3 +491,48 @@ describe("ImportDialog", () => {
     expect(onImported).toHaveBeenCalledWith(1);
   });
 });
+
+describe("Activity-type filter + lane collapse", () => {
+  // FILTER_ACTIVITIES: act-pa = Oil Development on OFFSHORE – Rig Alpha
+  // (Project Alpha), act-pb = Gas Development on LAND – Rig Beta (Project Beta)
+  // — two lanes, two types, two projects.
+
+  it("offers the Activity filter only with >1 distinct type", () => {
+    render(<DrillChart activities={[FILTER_ACTIVITIES[0]]} enableFilters />);
+    expect(screen.queryByRole("button", { name: /All activities/i })).not.toBeInTheDocument();
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    expect(screen.getByRole("button", { name: /All activities/i })).toBeInTheDocument();
+  });
+
+  it("collapses lanes with no matching activity type", async () => {
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    let opt = captured.option as { yAxis: Array<{ data?: string[] }> | { data?: string[] } };
+    const axisData = (o: typeof opt) => (Array.isArray(o.yAxis) ? o.yAxis[0].data : o.yAxis.data) ?? [];
+    expect(axisData(opt)).toHaveLength(2);
+
+    await userEvent.click(screen.getByRole("button", { name: /All activities/i }));
+    await userEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Oil Development" }),
+    );
+    await userEvent.keyboard("{Escape}");
+
+    opt = captured.option as typeof opt;
+    // Rig Beta's lane has zero Oil Development bars → whole lane collapses.
+    expect(axisData(opt)).toHaveLength(1);
+    expect(axisData(opt)[0]).toContain("Rig Alpha");
+  });
+
+  it("the project filter now collapses empty lanes too", async () => {
+    render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    await userEvent.click(screen.getByRole("button", { name: /All projects/i }));
+    await userEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Project Beta" }),
+    );
+    await userEvent.keyboard("{Escape}");
+
+    const opt = captured.option as { yAxis: Array<{ data?: string[] }> | { data?: string[] } };
+    const axisData = (Array.isArray(opt.yAxis) ? opt.yAxis[0].data : opt.yAxis.data) ?? [];
+    expect(axisData).toHaveLength(1);
+    expect(axisData[0]).toContain("Rig Beta");
+  });
+});
