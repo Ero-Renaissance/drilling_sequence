@@ -36,6 +36,21 @@ class AssumptionsIn(BaseModel):
     project_move_days_swamp: int = Field(default=30, ge=0, le=365)
     project_move_days_swo: int = Field(default=30, ge=0, le=365)
     rig_months_per_year: int = Field(default=12, ge=1, le=12)
+    # Per-year COMPLETION cutoff: year → month (1–12) by whose end that year's
+    # last well must be finished drilling. Unlisted years = full year.
+    last_completion_month_by_year: dict[int, int] = Field(default_factory=dict)
+
+    @field_validator("last_completion_month_by_year")
+    @classmethod
+    def _bounded_cutoffs(cls, v: dict[int, int]) -> dict[int, int]:
+        if len(v) > 50:
+            raise ValueError("At most 50 year cutoffs")
+        for year, month in v.items():
+            if not (2000 <= year <= 2100):
+                raise ValueError(f"Year {year} out of range 2000–2100")
+            if not (1 <= month <= 12):
+                raise ValueError(f"Month {month} out of range 1–12")
+        return v
 
 
 class OptionsIn(BaseModel):

@@ -61,6 +61,13 @@ class Assumptions:
     project_move_days_swamp: int = 30
     project_move_days_swo: int = 30
     rig_months_per_year: int = 12  # <12 inserts maintenance at each year start
+    # Per-year calendar cutoff for COMPLETION: year → month (1–12) by whose end
+    # that year's last well must be FINISHED drilling. Bounding the latest
+    # completion bounds them all. Unlisted years (or month 12) behave as today.
+    # A HARD operational date (flood season, security window, shutdown):
+    # allow_slip_days never relaxes it, and it binds even under spudded
+    # delivery — the spudded leniency applies only to uncut years.
+    last_completion_month_by_year: dict[int, int] = field(default_factory=dict)
 
     def project_move_days(self, terrain: str) -> int:
         return {
@@ -138,6 +145,12 @@ def _year_end(year: int) -> date:
     return date(year, 12, 31)
 
 
+def _month_end(year: int, month: int) -> date:
+    if month >= 12:
+        return date(year, 12, 31)
+    return date(year, month + 1, 1) - timedelta(days=1)
+
+
 def _maintenance_days(assumptions: Assumptions) -> int:
     idle_months = max(0, 12 - assumptions.rig_months_per_year)
     return round(idle_months * 30.44)
@@ -192,6 +205,13 @@ def _candidate(
             return None
     else:  # finished in-year (default)
         if start + timedelta(days=assumptions.well_duration_days) > deadline:
+            return None
+    # Per-year completion cutoff: a HARD calendar bound on the FINISH.
+    # Enforced regardless of delivery policy and never relaxed by slip.
+    cutoff = assumptions.last_completion_month_by_year.get(well.year)
+    if cutoff and cutoff < 12:
+        hard_end = _month_end(well.year, cutoff)
+        if start + timedelta(days=assumptions.well_duration_days) > hard_end:
             return None
     return start, gap_days, gap_kind, batch_reset
 

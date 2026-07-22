@@ -43,6 +43,7 @@ const DEFAULT_OPTIONS: OptimizerOptions = {
 };
 
 const DEFAULT_YEARS = [2027, 2028, 2029, 2030, 2031];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 interface GridRow {
   terrain: Terrain;
@@ -89,6 +90,9 @@ export function RigOptimizer() {
   const [assumptions, setAssumptions] = useState(DEFAULT_ASSUMPTIONS);
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [years, setYears] = useState<number[]>(DEFAULT_YEARS);
+  // Per-year completion cutoff (month by whose end the year's last well must
+  // FINISH). 12 = no cutoff; only <12 entries are sent.
+  const [cutoffs, setCutoffs] = useState<Record<number, number>>({});
   const [rows, setRows] = useState<GridRow[]>([emptyRow()]);
   const [issues, setIssues] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
@@ -173,7 +177,15 @@ export function RigOptimizer() {
     }
     setRunning(true);
     try {
-      const res = await optimizerApi.run({ demand, assumptions, options });
+      const cutoffEntries = Object.entries(cutoffs).filter(([, m]) => m && m < 12);
+      const res = await optimizerApi.run({
+        demand,
+        assumptions: {
+          ...assumptions,
+          last_completion_month_by_year: Object.fromEntries(cutoffEntries),
+        },
+        options,
+      });
       setResult(res);
       if (res.warning) toast.info(res.warning);
     } catch (err: unknown) {
@@ -363,6 +375,33 @@ export function RigOptimizer() {
           </div>
         )}
 
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 px-4 py-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Completion cutoff
+            <span className="ml-1 font-normal text-muted-foreground/70">
+              — each year's last well must finish by this month
+            </span>
+          </span>
+          {years.map((y) => (
+            <label key={y} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              {y}
+              <select
+                value={cutoffs[y] ?? 12}
+                onChange={(e) =>
+                  setCutoffs((c) => ({ ...c, [y]: Number(e.target.value) }))
+                }
+                className="rounded-md border border-border bg-background px-1.5 py-1 text-xs text-foreground"
+                data-testid={`cutoff-${y}`}
+              >
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}{i === 11 ? " (none)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
         <div className="overflow-x-auto p-4">
           <table className="w-full text-sm">
             <thead>

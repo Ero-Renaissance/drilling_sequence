@@ -85,6 +85,14 @@ def _days_in_year(year: int) -> int:
     return (date(year, 12, 31) - date(year, 1, 1)).days + 1
 
 
+def _completion_window_days(year: int, month: int | None) -> int:
+    """Days from 1 January through the last day of `month` — the window inside
+    which the year's wells must COMPLETE. None / 12 = the full year."""
+    if not month or month >= 12:
+        return _days_in_year(year)
+    return (date(year, month + 1, 1) - date(year, 1, 1)).days
+
+
 def _pack_year(
     project_counts: dict[str, int], capacity: int, move: int, a: Assumptions
 ) -> dict[str, int] | None:
@@ -225,7 +233,10 @@ def _optimize_terrain_milp(
     infeasible: list[dict] = []
     for y in years:
         counts = {p: demand[p][y] for p in demand if demand[p].get(y, 0) > 0}
-        capacity = _days_in_year(y) - _maintenance_days(a)
+        # A year's usable window ends at its completion cutoff (full year when
+        # none is set) — every well, gaps included, must fit inside it.
+        window = _completion_window_days(y, a.last_completion_month_by_year.get(y))
+        capacity = window - _maintenance_days(a)
         packed = _pack_year(counts, capacity, move, a)
         if packed is None:
             for p in counts:

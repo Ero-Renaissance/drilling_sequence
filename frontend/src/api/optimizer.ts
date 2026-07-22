@@ -13,6 +13,9 @@ export interface OptimizerAssumptions {
   project_move_days_swamp: number;
   project_move_days_swo: number;
   rig_months_per_year: number;
+  /** Per-year COMPLETION cutoff: year → month (1–12) by whose end that year's
+   *  last well must be finished drilling. Unlisted years run the full year. */
+  last_completion_month_by_year?: Record<number, number>;
 }
 
 export interface OptimizerOptions {

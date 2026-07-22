@@ -469,3 +469,70 @@ async def test_create_campaign_requires_planner_grant(noplan_client: AsyncClient
         },
     )
     assert r.status_code == 403, r.text
+
+
+# ---------------------------------------------------------------------------
+# Per-year completion cutoff (each year's last well must FINISH by its month)
+# ---------------------------------------------------------------------------
+
+
+def _all_ends(result) -> list:
+    return [w.end for rig in result.rigs for w in rig.wells]
+
+
+def test_completion_cutoff_bounds_every_finish_heuristic() -> None:
+    """With a June cutoff on 2027, every 2027 well FINISHES by 30 June — and the
+    squeezed window needs more rigs than the free year (the point: realism)."""
+    a_cut = Assumptions(last_completion_month_by_year={2027: 6})
+    free = optimize_terrain("Land", {"P1": {2027: 4}}, A, STRICT)
+    cut = optimize_terrain("Land", {"P1": {2027: 4}}, a_cut, STRICT)
+    assert free.feasible and cut.feasible
+    assert all(e.month <= 6 for e in _all_ends(cut))
+    assert cut.rig_count >= free.rig_count
+
+
+def test_completion_cutoff_is_per_year() -> None:
+    """Only the listed year is squeezed: 2027 ends by June, 2028 runs free."""
+    a_cut = Assumptions(last_completion_month_by_year={2027: 6})
+    r = optimize_terrain("Land", {"P1": {2027: 2, 2028: 4}}, a_cut, STRICT)
+    assert r.feasible
+    for rig in r.rigs:
+        for w in rig.wells:
+            if w.year == 2027:
+                assert w.end.month <= 6
+    # 2028 wells may finish after June (the free year keeps full capacity).
+    assert any(w.year == 2028 and w.end.month > 6 for rig in r.rigs for w in rig.wells)
+
+
+def test_completion_cutoff_is_hard_against_slip() -> None:
+    """allow_slip_days relaxes the ordinary 31-December deadline, never an
+    explicit cutoff — a flood window doesn't negotiate."""
+    a_cut = Assumptions(last_completion_month_by_year={2027: 6})
+    slippy = Options(allow_slip_days=60)
+    r = optimize_terrain("Land", {"P1": {2027: 4}}, a_cut, slippy)
+    assert r.feasible
+    assert all(e.month <= 6 for e in _all_ends(r) )
+
+
+def test_completion_cutoff_milp_matches() -> None:
+    pytest.importorskip("ortools")
+    from app.services.rig_optimizer_milp import optimize_milp
+
+    a_cut = Assumptions(last_completion_month_by_year={2027: 6})
+    f_tr = optimize_milp([_single_project("Land", {2027: 4})], A, STRICT)[0]
+    c_tr = optimize_milp([_single_project("Land", {2027: 4})], a_cut, STRICT)[0]
+    assert f_tr.feasible and c_tr.feasible
+    assert all(w.end.month <= 6 for rig in c_tr.rigs for w in rig.wells)
+    assert c_tr.rig_count >= f_tr.rig_count
+    # The exact engine never needs more rigs than the greedy heuristic.
+    heur = optimize_terrain("Land", {"P1": {2027: 4}}, a_cut, STRICT)
+    assert c_tr.rig_count <= heur.rig_count
+
+
+def test_completion_cutoff_infeasibility_is_reported() -> None:
+    """A window shorter than one well's drilling time can't finish anything —
+    reported as infeasible, never silently dropped."""
+    a_hard = Assumptions(last_completion_month_by_year={2027: 2})  # 59 days < 76
+    r = optimize_terrain("Land", {"P1": {2027: 1}}, a_hard, STRICT)
+    assert not r.feasible
+    assert r.infeasible_wells
