@@ -29,19 +29,23 @@ To bulk-load activities, use **Import CSV / Excel** in the app and click
 cd backend
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env            # dev defaults: SQLite + DEV_MODE=true (no Azure needed)
-uvicorn app.main:app --reload
+printf 'DEV_MODE=true\nDATABASE_URL=sqlite+aiosqlite:///./drilling_sequence.db\n' > .env
+uvicorn app.main:app --reload   # dev settings above: SQLite + auth bypass (no Azure needed)
 
 # Frontend (http://localhost:5173)
 cd frontend
 npm install
-cp .env.example .env.local      # VITE_DEV_MODE=true
+printf 'VITE_DEV_MODE=true\n' > .env.local
 npm run dev
 ```
 
+The full list of backend settings lives in `backend/app/config.py` (each field
+reads from the matching env var); production values are documented in the
+[deployment guide](docs/deployment-guide.md).
+
 > **On Windows:** activate the venv with `.venv\Scripts\Activate.ps1` (PowerShell)
-> or `.venv\Scripts\activate.bat` (cmd), and use `copy` instead of `cp`. Everything
-> else is identical. For **production on Windows Server**, see
+> or `.venv\Scripts\activate.bat` (cmd), and create the two env files above with
+> any text editor (same contents). Everything else is identical. For **production on Windows Server**, see
 > [deployment guide Appendix B](docs/deployment-guide.md#appendix-b--deploying-on-windows-server).
 
 In dev mode, sign in with **"Continue as Dev User"** — no Azure AD required.

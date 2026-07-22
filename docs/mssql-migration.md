@@ -22,7 +22,8 @@ Done in this pass (works on PostgreSQL/SQLite today, MSSQL-ready):
 - `pyproject.toml` + `requirements.txt`: added `aioodbc==0.5.0`, `pyodbc==5.2.0`
   (transitive closure = just those two). **`asyncpg` retained** for the transition.
 - `Dockerfile`: installs Microsoft ODBC Driver 18 + unixODBC (Debian 12).
-- `.env.example`: documented MSSQL `DATABASE_URL`.
+- Env docs: MSSQL `DATABASE_URL` documented (now in the deployment guide §4a —
+  the `.env.example` template has since been removed from the repo).
 
 Still pending (cannot be done without a live instance / IT input):
 - IT review of the new deps + the OS ODBC driver (supply chain).

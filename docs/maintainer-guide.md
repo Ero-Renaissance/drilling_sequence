@@ -83,9 +83,13 @@ drilling_sequence/
 cd backend
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"           # installs runtime + dev (pytest, ruff, aiosqlite)
-cp .env.example .env              # defaults are dev-safe: SQLite + DEV_MODE=true
+printf 'DEV_MODE=true\nDATABASE_URL=sqlite+aiosqlite:///./drilling_sequence.db\n' > .env
 uvicorn app.main:app --reload     # http://localhost:8000  (docs at /api/docs)
 ```
+
+The two `.env` lines above are all local dev needs. The canonical settings list
+is `backend/app/config.py` (every field reads the matching env var); production
+values are documented in the deployment guide §4a.
 In dev (`DEV_MODE=true`) Azure AD is bypassed and a fake **Dev User** (admin) is
 injected, so you can work without Azure. SQLite tables are auto-created on startup
 (`main.py` lifespan) — no migrations needed locally.
@@ -94,7 +98,7 @@ injected, so you can work without Azure. SQLite tables are auto-created on start
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local        # VITE_DEV_MODE=true
+printf 'VITE_DEV_MODE=true\n' > .env.local
 npm run dev                        # http://localhost:5173
 ```
 The dev server proxies/serves the SPA; it calls the backend at `/api` (run the

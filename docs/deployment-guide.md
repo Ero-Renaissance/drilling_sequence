@@ -113,8 +113,9 @@ in Step 5 (`alembic upgrade head`).
 ## 4. Configure and build the backend
 
 ### 4a. Create the backend environment file
-On the server, in `backend/`, create a file named `.env` (copy `.env.example` and
-edit). Production values:
+On the server, in `backend/`, create a file named `.env` with the production
+values below (the canonical list of settings is `backend/app/config.py` — every
+field reads the matching env var):
 
 ```ini
 # Turns on fail-closed safety checks. With this set, the app REFUSES to start if
