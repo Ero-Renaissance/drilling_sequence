@@ -274,3 +274,56 @@ describe("RevisionPrintDoc — years per page", () => {
     expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(1);
   });
 });
+
+describe("Terrain-major sections", () => {
+  const terrainRows: PrintRow[] = [
+    { id: "o1", activity_type: "Drilling", start_date: "2033-02-01", end_date: "2033-05-01",
+      well_name: "OFF-1", well_project: null, rig_name: "Deep Rig", location: "OFFSHORE",
+      plan_type: null, risk: null, readiness: {} },
+    { id: "l1", activity_type: "Drilling", start_date: "2033-01-05", end_date: "2033-04-01",
+      well_name: "LAND-1", well_project: null, rig_name: "RIG1", location: "LAND",
+      plan_type: null, risk: null, readiness: {} },
+    { id: "s1", activity_type: "Drilling", start_date: "2033-03-01", end_date: "2033-06-01",
+      well_name: "SW-1", well_project: null, rig_name: "Barge 2", location: "SWAMP",
+      plan_type: null, risk: null, readiness: {} },
+  ];
+
+  it("prints the complete Land terrain, then Swamp, then Offshore — old Sequence heading gone", () => {
+    render(
+      <RevisionPrintDoc revision={revision} project={null} rows={terrainRows} chart="standard" />,
+    );
+    const heads = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    const land = heads.indexOf("Land terrain");
+    const swamp = heads.indexOf("Swamp terrain");
+    const offshore = heads.indexOf("Offshore terrain");
+    expect(land).toBeGreaterThanOrEqual(0);
+    expect(swamp).toBeGreaterThan(land);
+    expect(offshore).toBeGreaterThan(swamp);
+    // The superseded chart headings are gone.
+    expect(heads).not.toContain("Sequence");
+    expect(heads).not.toContain("Sequence readiness");
+  });
+
+  it("skips empty terrains and adds Unassigned only when location-less rows exist", () => {
+    const landOnly = terrainRows.filter((r) => r.location === "LAND");
+    const { unmount } = render(
+      <RevisionPrintDoc revision={revision} project={null} rows={landOnly} chart="standard" />,
+    );
+    let heads = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(heads).toContain("Land terrain");
+    expect(heads).not.toContain("Swamp terrain");
+    expect(heads).not.toContain("Unassigned");
+    unmount();
+
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={[...landOnly, { ...landOnly[0], id: "u1", rig_name: "Float", location: null }]}
+        chart="standard"
+      />,
+    );
+    heads = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(heads).toContain("Unassigned");
+  });
+});

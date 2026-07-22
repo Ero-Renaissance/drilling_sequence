@@ -131,6 +131,7 @@ function FloodDrop({ className, onBar = false }: { className?: string; onBar?: b
 }
 
 function StaticGantt({
+  sectionLabel = "Sequence",
   rows,
   index,
   windowYears = WINDOW_YEARS,
@@ -140,6 +141,7 @@ function StaticGantt({
 }: {
   rows: PrintRow[];
   index: Map<string, number>;
+  sectionLabel?: string;
   windowYears?: number;
   rowsPerPage?: number;
   /** Render the 8 readiness icons in a strip beneath each bar (taller rows). */
@@ -281,7 +283,7 @@ function StaticGantt({
           <div key={pi} className={cn("mt-3 print:break-inside-avoid", pi > 0 && "break-before-page")}>
             {pi > 0 && (
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Sequence (continued) · {span}
+                {sectionLabel} (continued) · {span}
                 {rigRange}
               </p>
             )}
@@ -566,6 +568,24 @@ function StaticGantt({
 }
 
 // ── Legends — chart colours go with the chart; readiness icons with the table ──
+
+/** Terrain-major print grouping: Land → Swamp → Offshore, with a trailing
+ *  Unassigned section only when location-less rows exist. Empty terrains are
+ *  skipped entirely — no empty sections. */
+function partitionByTerrain(rows: PrintRow[]): { label: string; rows: PrintRow[] }[] {
+  const buckets: { key: string | null; label: string; rows: PrintRow[] }[] = [
+    { key: "LAND", label: "Land terrain", rows: [] },
+    { key: "SWAMP", label: "Swamp terrain", rows: [] },
+    { key: "OFFSHORE", label: "Offshore terrain", rows: [] },
+    { key: null, label: "Unassigned", rows: [] },
+  ];
+  for (const r of rows) {
+    const loc = (r.location ?? "").trim().toUpperCase();
+    const b = buckets.find((x) => x.key === loc) ?? buckets[buckets.length - 1];
+    b.rows.push(r);
+  }
+  return buckets.filter((b) => b.rows.length > 0);
+}
 
 function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; showOrderKey?: boolean }) {
   const types = Array.from(new Set(rows.map((r) => r.activity_type).filter(Boolean))).sort();
@@ -1028,21 +1048,29 @@ export function RevisionPrintDoc({
         </div>
       </div>
 
-      {/* Sequence — each chart page carries its own legends (in StaticGantt). The
-          readiness view zooms to one year per page and shows the icons on the chart. */}
-      <h2 className="mt-3 text-sm font-semibold">{isReadiness ? "Sequence readiness" : "Sequence"}</h2>
-      {isReadiness ? (
-        <StaticGantt
-          rows={rows}
-          index={index}
-          windowYears={readinessYears}
-          rowsPerPage={readinessRowsPerPage(readinessYears)}
-          showReadiness
-          dropEmptyRows
-        />
-      ) : (
-        <StaticGantt rows={rows} index={index} />
-      )}
+      {/* Terrain-major sections: the COMPLETE Land terrain (all its fitted time
+          windows and pages) finishes before Swamp begins, then Offshore — a
+          reader consumes one terrain's whole story contiguously, and each
+          section fits its OWN date span (a short swamp campaign prints short).
+          Each chart page carries its own legends (in StaticGantt). */}
+      {partitionByTerrain(rows).map((g, gi) => (
+        <div key={g.label} className={gi > 0 ? "break-before-page" : undefined}>
+          <h2 className="mt-3 text-sm font-semibold">{g.label}</h2>
+          {isReadiness ? (
+            <StaticGantt
+              rows={g.rows}
+              index={index}
+              sectionLabel={g.label}
+              windowYears={readinessYears}
+              rowsPerPage={readinessRowsPerPage(readinessYears)}
+              showReadiness
+              dropEmptyRows
+            />
+          ) : (
+            <StaticGantt rows={g.rows} index={index} sectionLabel={g.label} />
+          )}
+        </div>
+      ))}
 
       {/* Activity schedule — optional; on its own page when present. */}
       {includeSchedule && (
