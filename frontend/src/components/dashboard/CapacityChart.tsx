@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react/lib/core";
 import type { EChartsOption, BarSeriesOption, LineSeriesOption } from "echarts";
 
 import { useThemeStore } from "@/store/theme";
 import { echarts } from "@/lib/echarts";
-import type { CapacityData } from "@/lib/campaign-capacity";
+import { composeSpuds, type CapacityData, type CapacityLocation } from "@/lib/campaign-capacity";
 
 // Locations stack dark → light (Land at the base), matching the Excel one-sheet.
 const LOCATION_COLORS: Record<"LAND" | "SWAMP" | "OFFSHORE", string> = {
@@ -41,6 +41,12 @@ function tooltipRows(params: unknown): string {
  * and gas well-spud lines (right axis), by year. Reused per campaign so two can be
  * stacked for comparison.
  */
+const LOC_META: { key: CapacityLocation; name: string; labelColor: string }[] = [
+  { key: "LAND", name: "Land", labelColor: "#ffffff" },
+  { key: "SWAMP", name: "Swamp", labelColor: "#ffffff" },
+  { key: "OFFSHORE", name: "Offshore", labelColor: "#334155" },
+];
+
 export function CapacityChart({ title, data }: { title: string; data: CapacityData }) {
   const dark = useThemeStore((s) => s.resolved) === "dark";
   const axisLabel = dark ? "#94a3b8" : "#64748b";
@@ -48,19 +54,32 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
   const splitLine = dark ? "rgba(255,255,255,0.06)" : "#f1f5f9";
   const totalLabel = dark ? "#e2e8f0" : "#0f172a";
 
-  const option = useMemo<EChartsOption>(() => {
-    const totals = data.years.map(
-      (_, i) =>
-        data.rigsByLocation.LAND[i] +
-        data.rigsByLocation.SWAMP[i] +
-        data.rigsByLocation.OFFSHORE[i],
-    );
+  // The legend is a genuine FILTER here, not a cosmetic hide: deselecting a
+  // terrain re-counts the spud lines and the bar-total labels for the
+  // remaining terrains, so we own the selection state and rebuild the option.
+  // (Absent key = selected, matching echarts' own semantics.)
+  const [legendSelected, setLegendSelected] = useState<Record<string, boolean>>({});
+  // Stable identity — echarts-for-react disposes/recreates the chart when
+  // onEvents changes, killing listeners (see FleetTab).
+  const onEvents = useMemo(
+    () => ({
+      legendselectchanged: (e: { selected: Record<string, boolean> }) =>
+        setLegendSelected({ ...e.selected }),
+    }),
+    [],
+  );
 
-    const locMeta: { key: "LAND" | "SWAMP" | "OFFSHORE"; name: string; labelColor: string }[] = [
-      { key: "LAND", name: "Land", labelColor: "#ffffff" },
-      { key: "SWAMP", name: "Swamp", labelColor: "#ffffff" },
-      { key: "OFFSHORE", name: "Offshore", labelColor: "#334155" },
-    ];
+  const option = useMemo<EChartsOption>(() => {
+    const locMeta = LOC_META;
+    const selectedLocs = locMeta
+      .filter((m) => legendSelected[m.name] !== false)
+      .map((m) => m.key);
+    // Spud lines + bar totals re-count over the SELECTED terrains only
+    // (unlocated wells always count — they belong to no terrain).
+    const spuds = composeSpuds(data, selectedLocs);
+    const totals = data.years.map((_, i) =>
+      selectedLocs.reduce((acc, k) => acc + data.rigsByLocation[k][i], 0),
+    );
 
     const barSeries: BarSeriesOption[] = locMeta.map((m) => ({
       name: m.name,
@@ -89,39 +108,39 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
     // Gas is split by the project's Market. The no-market line only appears
     // while unassigned gas spuds exist — a nudge to assign, not a fixture.
     const lineDefs = [
-      { name: "Well spuds — Oil", color: OIL_COLOR, values: data.oilSpuds, dashed: false },
+      { name: "Well spuds — Oil", color: OIL_COLOR, values: spuds.oilSpuds, exists: true, dashed: false },
       {
         name: "Well spuds — Exploration",
         color: EXPLORATION_COLOR,
-        values: data.explorationSpuds,
+        values: spuds.explorationSpuds,
+        // Conditional lines key their EXISTENCE on the all-terrain totals so a
+        // terrain toggle narrows their values without dropping them from the
+        // legend mid-interaction.
+        exists: data.explorationSpuds.some((v) => v > 0),
         dashed: false,
       },
       {
         name: "Well spuds — Domestic Gas",
         color: DOMESTIC_GAS_COLOR,
-        values: data.domesticGasSpuds,
+        values: spuds.domesticGasSpuds,
+        exists: true,
         dashed: false,
       },
       {
         name: "Well spuds — Export Gas",
         color: EXPORT_GAS_COLOR,
-        values: data.exportGasSpuds,
+        values: spuds.exportGasSpuds,
+        exists: true,
         dashed: false,
       },
       {
         name: "Well spuds — Gas (no market)",
         color: UNASSIGNED_GAS_COLOR,
-        values: data.unassignedGasSpuds,
+        values: spuds.unassignedGasSpuds,
+        exists: data.unassignedGasSpuds.some((v) => v > 0),
         dashed: true,
       },
-      // Conditional lines: present only while they carry data — no-market gas
-      // is a nudge to assign, exploration appears once exploration wells exist.
-    ].filter(
-      (s) =>
-        (s.name !== "Well spuds — Gas (no market)" &&
-          s.name !== "Well spuds — Exploration") ||
-        s.values.some((v) => v > 0),
-    );
+    ].filter((s) => s.exists);
 
     const lineSeries: LineSeriesOption[] = lineDefs.map((s) => ({
       name: s.name,
@@ -144,6 +163,7 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
         textStyle: { color: axisLabel, fontSize: 12 },
         // Omit the "total" helper series from the legend.
         data: ["Land", "Swamp", "Offshore", ...lineDefs.map((s) => s.name)],
+        selected: legendSelected,
       },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: tooltipRows },
       xAxis: {
@@ -173,7 +193,7 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
       ],
       series: [...barSeries, totalSeries, ...lineSeries],
     };
-  }, [data, axisLabel, axisLine, splitLine, totalLabel]);
+  }, [data, legendSelected, axisLabel, axisLine, splitLine, totalLabel]);
 
   return (
     <div className="rounded-lg border border-border/70 bg-card p-3 shadow-soft-sm">
@@ -188,6 +208,7 @@ export function CapacityChart({ title, data }: { title: string; data: CapacityDa
         <ReactECharts
           echarts={echarts}
           option={option}
+          onEvents={onEvents}
           style={{ height: "clamp(320px, 30vh, 440px)" }}
           notMerge
           lazyUpdate

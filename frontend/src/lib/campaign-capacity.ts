@@ -14,6 +14,23 @@ import { resolveSpudClass, type SpudMap } from "./spud-classification";
 export const CAPACITY_LOCATIONS = ["LAND", "SWAMP", "OFFSHORE"] as const;
 export type CapacityLocation = (typeof CAPACITY_LOCATIONS)[number];
 
+/** One spud-line family (arrays parallel to `years`). */
+export interface SpudBuckets {
+  oilSpuds: number[];
+  explorationSpuds: number[];
+  domesticGasSpuds: number[];
+  exportGasSpuds: number[];
+  unassignedGasSpuds: number[];
+}
+
+const SPUD_KEYS = [
+  "oilSpuds",
+  "explorationSpuds",
+  "domesticGasSpuds",
+  "exportGasSpuds",
+  "unassignedGasSpuds",
+] as const;
+
 export interface CapacityData {
   /** Contiguous year axis, min start year … max end year across all activities. */
   years: number[];
@@ -30,6 +47,13 @@ export interface CapacityData {
   domesticGasSpuds: number[];
   exportGasSpuds: number[];
   unassignedGasSpuds: number[];
+  /** The same spud counts split by the WELL's terrain (its earliest spud
+   *  activity's location) — feeds the chart's terrain-legend filtering. The
+   *  top-level arrays above are always the all-terrain totals. */
+  spudsByLocation: Record<CapacityLocation, SpudBuckets>;
+  /** Spuds of wells outside the three terrains (no/unknown location). They
+   *  belong to no terrain, so no terrain toggle can remove them. */
+  spudsUnlocated: SpudBuckets;
 }
 
 function yearOf(iso: string | null): number | null {
@@ -42,14 +66,20 @@ function isCapacityLocation(loc: string | null): loc is CapacityLocation {
   return loc === "LAND" || loc === "SWAMP" || loc === "OFFSHORE";
 }
 
-const empty = (): CapacityData => ({
-  years: [],
-  rigsByLocation: { LAND: [], SWAMP: [], OFFSHORE: [] },
+const emptyBuckets = (): SpudBuckets => ({
   oilSpuds: [],
   explorationSpuds: [],
   domesticGasSpuds: [],
   exportGasSpuds: [],
   unassignedGasSpuds: [],
+});
+
+const empty = (): CapacityData => ({
+  years: [],
+  rigsByLocation: { LAND: [], SWAMP: [], OFFSHORE: [] },
+  ...emptyBuckets(),
+  spudsByLocation: { LAND: emptyBuckets(), SWAMP: emptyBuckets(), OFFSHORE: emptyBuckets() },
+  spudsUnlocated: emptyBuckets(),
 });
 
 type GasKind = "domestic" | "export" | "unassigned";
@@ -122,7 +152,15 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     }
   }
 
-  const wellSpud = new Map<string, { year: number; cls: "oil" | "gas" | "exploration"; gas: GasKind }>();
+  const wellSpud = new Map<
+    string,
+    {
+      year: number;
+      cls: "oil" | "gas" | "exploration";
+      gas: GasKind;
+      loc: CapacityLocation | null;
+    }
+  >();
   for (const a of activities) {
     if (!a.well_name) continue;
     const cls = resolveSpudClass(a.activity_type, spudMap);
@@ -131,32 +169,76 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     if (y === null) continue;
     const prev = wellSpud.get(a.well_name);
     if (!prev || y < prev.year) {
-      wellSpud.set(a.well_name, { year: y, cls, gas: gasKindOf(a, marketByProject) });
+      wellSpud.set(a.well_name, {
+        year: y,
+        cls,
+        gas: gasKindOf(a, marketByProject),
+        loc: isCapacityLocation(a.location) ? a.location : null,
+      });
     }
   }
-  const oilSpuds = years.map(() => 0);
-  const explorationSpuds = years.map(() => 0);
-  const domesticGasSpuds = years.map(() => 0);
-  const exportGasSpuds = years.map(() => 0);
-  const unassignedGasSpuds = years.map(() => 0);
-  for (const { year, cls, gas } of wellSpud.values()) {
+  const zeros = () => years.map(() => 0);
+  const bucketsFor = (): SpudBuckets => ({
+    oilSpuds: zeros(),
+    explorationSpuds: zeros(),
+    domesticGasSpuds: zeros(),
+    exportGasSpuds: zeros(),
+    unassignedGasSpuds: zeros(),
+  });
+  const spudsByLocation: Record<CapacityLocation, SpudBuckets> = {
+    LAND: bucketsFor(),
+    SWAMP: bucketsFor(),
+    OFFSHORE: bucketsFor(),
+  };
+  const spudsUnlocated = bucketsFor();
+  for (const { year, cls, gas, loc } of wellSpud.values()) {
     const i = idxOf.get(year);
     if (i === undefined) continue;
-    if (cls === "oil") oilSpuds[i] += 1;
-    else if (cls === "exploration") explorationSpuds[i] += 1;
-    else if (gas === "domestic") domesticGasSpuds[i] += 1;
-    else if (gas === "export") exportGasSpuds[i] += 1;
-    else unassignedGasSpuds[i] += 1;
+    const bucket = loc ? spudsByLocation[loc] : spudsUnlocated;
+    if (cls === "oil") bucket.oilSpuds[i] += 1;
+    else if (cls === "exploration") bucket.explorationSpuds[i] += 1;
+    else if (gas === "domestic") bucket.domesticGasSpuds[i] += 1;
+    else if (gas === "export") bucket.exportGasSpuds[i] += 1;
+    else bucket.unassignedGasSpuds[i] += 1;
   }
+
+  // Top-level totals stay the all-terrain view (existing consumers + the
+  // legend's "does this line exist at all" checks).
+  const parts = [...CAPACITY_LOCATIONS.map((l) => spudsByLocation[l]), spudsUnlocated];
+  const totalsOf = (key: keyof SpudBuckets) =>
+    years.map((_, i) => parts.reduce((acc, b) => acc + b[key][i], 0));
 
   return {
     years,
     rigsByLocation,
-    oilSpuds,
-    explorationSpuds,
-    domesticGasSpuds,
-    exportGasSpuds,
-    unassignedGasSpuds,
+    oilSpuds: totalsOf("oilSpuds"),
+    explorationSpuds: totalsOf("explorationSpuds"),
+    domesticGasSpuds: totalsOf("domesticGasSpuds"),
+    exportGasSpuds: totalsOf("exportGasSpuds"),
+    unassignedGasSpuds: totalsOf("unassignedGasSpuds"),
+    spudsByLocation,
+    spudsUnlocated,
+  };
+}
+
+/**
+ * Sum the spud lines over the SELECTED terrains (the chart's terrain-legend
+ * filter). Unlocated wells belong to no terrain and are always included, so
+ * with all three terrains selected this equals the top-level totals.
+ */
+export function composeSpuds(
+  data: CapacityData,
+  selected: readonly CapacityLocation[],
+): SpudBuckets {
+  const parts = [...selected.map((l) => data.spudsByLocation[l]), data.spudsUnlocated];
+  const sum = (key: keyof SpudBuckets) =>
+    data.years.map((_, i) => parts.reduce((acc, b) => acc + (b[key][i] ?? 0), 0));
+  return {
+    oilSpuds: sum("oilSpuds"),
+    explorationSpuds: sum("explorationSpuds"),
+    domesticGasSpuds: sum("domesticGasSpuds"),
+    exportGasSpuds: sum("exportGasSpuds"),
+    unassignedGasSpuds: sum("unassignedGasSpuds"),
   };
 }
 
@@ -167,6 +249,8 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
 export function windowCapacity(data: CapacityData, horizon: number | null): CapacityData {
   if (horizon === null || data.years.length <= horizon) return data;
   const cut = <T,>(arr: T[]) => arr.slice(0, horizon);
+  const cutBuckets = (b: SpudBuckets): SpudBuckets =>
+    Object.fromEntries(SPUD_KEYS.map((k) => [k, cut(b[k])])) as unknown as SpudBuckets;
   return {
     years: cut(data.years),
     rigsByLocation: {
@@ -179,5 +263,11 @@ export function windowCapacity(data: CapacityData, horizon: number | null): Capa
     domesticGasSpuds: cut(data.domesticGasSpuds),
     exportGasSpuds: cut(data.exportGasSpuds),
     unassignedGasSpuds: cut(data.unassignedGasSpuds),
+    spudsByLocation: {
+      LAND: cutBuckets(data.spudsByLocation.LAND),
+      SWAMP: cutBuckets(data.spudsByLocation.SWAMP),
+      OFFSHORE: cutBuckets(data.spudsByLocation.OFFSHORE),
+    },
+    spudsUnlocated: cutBuckets(data.spudsUnlocated),
   };
 }

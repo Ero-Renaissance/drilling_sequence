@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { aggregateCapacity, windowCapacity } from "@/lib/campaign-capacity";
+import { aggregateCapacity, composeSpuds, windowCapacity } from "@/lib/campaign-capacity";
 import type { Activity } from "@/api/activities";
 
 let seq = 0;
@@ -206,5 +206,54 @@ describe("mobilisation-only rig-years", () => {
     ] as never[];
     const d = aggregateCapacity(acts, {});
     expect(d.rigsByLocation.LAND).toEqual([1]);
+  });
+});
+
+describe("per-terrain spud split (terrain-legend filtering)", () => {
+  const acts = [
+    act({ well_name: "W-L", location: "LAND", activity_type: "Oil Development" }),
+    act({ well_name: "W-S", location: "SWAMP", activity_type: "Oil Development" }),
+    act({
+      well_name: "W-O",
+      location: "OFFSHORE",
+      activity_type: "Gas Development",
+      market: "Domestic Gas",
+    } as Partial<Activity>),
+    // No location — belongs to no terrain, must survive every terrain toggle.
+    act({ well_name: "W-X", location: null, activity_type: "Oil Development" }),
+  ];
+
+  it("splits each well into its terrain bucket; unlocated wells go aside", () => {
+    const d = aggregateCapacity(acts, {});
+    expect(d.spudsByLocation.LAND.oilSpuds).toEqual([1]);
+    expect(d.spudsByLocation.SWAMP.oilSpuds).toEqual([1]);
+    expect(d.spudsByLocation.OFFSHORE.domesticGasSpuds).toEqual([1]);
+    expect(d.spudsUnlocated.oilSpuds).toEqual([1]);
+    // Top-level arrays stay the all-terrain totals.
+    expect(d.oilSpuds).toEqual([3]);
+    expect(d.domesticGasSpuds).toEqual([1]);
+  });
+
+  it("composeSpuds sums the selected terrains and always keeps unlocated wells", () => {
+    const d = aggregateCapacity(acts, {});
+    // Land off → its oil well drops; the unlocated well never does.
+    expect(composeSpuds(d, ["SWAMP", "OFFSHORE"]).oilSpuds).toEqual([2]);
+    expect(composeSpuds(d, ["SWAMP", "OFFSHORE"]).domesticGasSpuds).toEqual([1]);
+    // Offshore off → the domestic-gas line loses its only well.
+    expect(composeSpuds(d, ["LAND", "SWAMP"]).domesticGasSpuds).toEqual([0]);
+    // All selected = the top-level totals; none selected = unlocated only.
+    expect(composeSpuds(d, ["LAND", "SWAMP", "OFFSHORE"]).oilSpuds).toEqual(d.oilSpuds);
+    expect(composeSpuds(d, []).oilSpuds).toEqual([1]);
+  });
+
+  it("windowCapacity slices the nested terrain buckets in step", () => {
+    const spread = [
+      act({ well_name: "W1", location: "LAND", start_date: "2026-02-01", end_date: "2026-05-01" }),
+      act({ well_name: "W2", location: "LAND", start_date: "2027-02-01", end_date: "2027-05-01" }),
+    ];
+    const d = windowCapacity(aggregateCapacity(spread, {}), 1);
+    expect(d.years).toEqual([2026]);
+    expect(d.spudsByLocation.LAND.oilSpuds).toEqual([1]);
+    expect(d.spudsUnlocated.oilSpuds).toEqual([0]);
   });
 });
