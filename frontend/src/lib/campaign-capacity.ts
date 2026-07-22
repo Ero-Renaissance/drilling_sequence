@@ -87,8 +87,17 @@ export function aggregateCapacity(activities: Activity[], spudMap: SpudMap): Cap
     SWAMP: years.map(() => new Set<string>()),
     OFFSHORE: years.map(() => new Set<string>()),
   };
+  // Mobilisation / intake is preparation, not deployed drilling capacity: a
+  // rig whose ONLY presence in a year is mobilisation (the classic Nov–Dec
+  // move before a January spud) must not inflate that year's rig count. Such
+  // activities simply don't contribute rig-years; a rig that also drills in
+  // the year is still counted through its other activities. Deliberately
+  // scoped to THIS chart — the Fleet views answer "is the unit occupied/on
+  // contract?", where mobilisation rightly counts.
+  const isMobilisation = (t: string) => /mobilis|mobiliz|intake/i.test(t);
   for (const a of activities) {
     if (!a.rig_name || !isCapacityLocation(a.location)) continue;
+    if (isMobilisation(a.activity_type)) continue;
     const sy = yearOf(a.start_date);
     const ey = yearOf(a.end_date);
     if (sy === null || ey === null) continue;

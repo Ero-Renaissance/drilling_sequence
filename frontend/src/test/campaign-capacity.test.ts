@@ -180,3 +180,31 @@ describe("exploration spuds", () => {
     expect(d.unassignedGasSpuds).toEqual([0]);
   });
 });
+
+describe("mobilisation-only rig-years", () => {
+  const base = {
+    well_name: null, well_project: null, market: null, location: "LAND", rig_name: "RIG_1",
+  };
+
+  it("excludes a rig whose only presence in a year is mobilisation (Nov–Dec move, Jan spud)", async () => {
+    const { aggregateCapacity } = await import("@/lib/campaign-capacity");
+    const acts = [
+      { ...base, activity_type: "Rig Mobilisation & Intake", start_date: "2026-11-01", end_date: "2026-12-20" },
+      { ...base, activity_type: "Oil Development", start_date: "2027-01-05", end_date: "2027-04-01", well_name: "W-1" },
+    ] as never[];
+    const d = aggregateCapacity(acts, {});
+    expect(d.years).toEqual([2026, 2027]);
+    // 2026 was mobilisation-only → the rig does NOT count that year.
+    expect(d.rigsByLocation.LAND).toEqual([0, 1]);
+  });
+
+  it("still counts the rig when mobilisation AND drilling share a year", async () => {
+    const { aggregateCapacity } = await import("@/lib/campaign-capacity");
+    const acts = [
+      { ...base, activity_type: "Rig Mobilization", start_date: "2026-01-10", end_date: "2026-02-10" },
+      { ...base, activity_type: "Gas Development", start_date: "2026-03-01", end_date: "2026-06-01", well_name: "W-2" },
+    ] as never[];
+    const d = aggregateCapacity(acts, {});
+    expect(d.rigsByLocation.LAND).toEqual([1]);
+  });
+});

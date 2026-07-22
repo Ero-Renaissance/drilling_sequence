@@ -43,6 +43,7 @@ const schema = z
     start_date: z.string().min(1, "Required"),
     end_date: z.string().min(1, "Required"),
     well_name: z.string().min(1, "Required"),
+    well_project: z.string().optional(),
     no_resource: z.boolean(),
     resource_type: z.enum(["Rig", "HWU"]),
     resource_name: z.string().optional(),
@@ -146,6 +147,7 @@ export function ActivityChartEditDialog({
       start_date: activity.start_date,
       end_date: activity.end_date,
       well_name: activity.well_name ?? "",
+      well_project: activity.well_project ?? "",
       no_resource: !activity.rig_name && !activity.hwu_name,
       resource_type: activity.hwu_name ? "HWU" : "Rig",
       resource_name: activity.hwu_name ?? activity.rig_name ?? "",
@@ -171,6 +173,7 @@ export function ActivityChartEditDialog({
       start_date: activity.start_date,
       end_date: activity.end_date,
       well_name: activity.well_name ?? "",
+      well_project: activity.well_project ?? "",
       no_resource: !activity.rig_name && !activity.hwu_name,
       resource_type: activity.hwu_name ? "HWU" : "Rig",
       resource_name: activity.hwu_name ?? activity.rig_name ?? "",
@@ -190,6 +193,16 @@ export function ActivityChartEditDialog({
   }, [activity, readiness, reset]);
 
   // ── Derived: resource suggestions (existing rigs/HWUs of the chosen type) ────
+  // Existing field-project names — a datalist nudge toward consistent spelling
+  // (the project drives readiness anchoring, market grouping and the filter).
+  const projectSuggestions = useMemo(
+    () =>
+      [...new Set((allActivities ?? []).map((a) => a.well_project).filter((v): v is string => !!v))].sort(
+        (x, y) => x.localeCompare(y),
+      ),
+    [allActivities],
+  );
+
   const resourceSuggestions = useMemo(() => {
     const isHwu = watchedResourceType === "HWU";
     const set = new Set<string>();
@@ -263,6 +276,7 @@ export function ActivityChartEditDialog({
         start_date: values.start_date,
         end_date: values.end_date,
         well_name: values.well_name || null,
+        well_project: values.well_project?.trim() || null,
         rig_name:
           !values.no_resource && values.resource_type === "Rig" ? values.resource_name || null : null,
         hwu_name:
@@ -468,6 +482,20 @@ export function ActivityChartEditDialog({
                     </option>
                   ))}
                 </select>
+              </Field>
+              <Field label="Project" error={errors.well_project?.message}>
+                <Input
+                  {...register("well_project")}
+                  list="project-suggestions"
+                  placeholder="e.g. Bonga Phase 3"
+                  spellCheck
+                  disabled={locked}
+                />
+                <datalist id="project-suggestions">
+                  {projectSuggestions.map((pName) => (
+                    <option key={pName} value={pName} />
+                  ))}
+                </datalist>
               </Field>
               <Field label="Market" error={errors.market?.message}>
                 <select {...register("market")} className={selectClass} disabled={locked}>
