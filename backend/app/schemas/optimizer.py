@@ -66,6 +66,13 @@ class DemandRow(BaseModel):
     terrain: Terrain
     project: str = Field(min_length=1, max_length=200)
     wells_by_year: dict[int, int]
+    # Value volumes per project (display + future prioritization; the engines
+    # do not consume them yet). Units are DISPLAY-ONLY — the planned priority
+    # objective is lexicographic per stream and never compares oil with gas,
+    # so no barrels-vs-scf conversion exists anywhere. Oil ~ MMbbl, gas ~ Bscf.
+    oil_volume: float = Field(default=0, ge=0, le=1_000_000)
+    domestic_gas_volume: float = Field(default=0, ge=0, le=1_000_000)
+    export_gas_volume: float = Field(default=0, ge=0, le=1_000_000)
 
     @field_validator("project")
     @classmethod

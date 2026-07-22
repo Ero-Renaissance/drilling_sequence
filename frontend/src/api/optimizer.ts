@@ -29,6 +29,11 @@ export interface DemandRow {
   terrain: Terrain;
   project: string;
   wells_by_year: Record<string, number>;
+  /** Display-only value volumes (oil ~ MMbbl, gas ~ Bscf); the future priority
+   *  objective ranks per stream and never converts across them. */
+  oil_volume?: number;
+  domestic_gas_volume?: number;
+  export_gas_volume?: number;
 }
 
 export interface ScheduledWell {

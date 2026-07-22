@@ -78,10 +78,16 @@ describe("RigOptimizer", () => {
     fireEvent.change(screen.getByPlaceholderText("Project name"), {
       target: { value: "P1" },
     });
-    // 2027 is the first year column input in the row
+    // Volume inputs carry data-testids; the remaining centered spinbuttons are
+    // the year columns (2027 first).
+    fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
     const yearInputs = screen
       .getAllByRole("spinbutton")
-      .filter((el) => (el as HTMLInputElement).className.includes("text-center"));
+      .filter(
+        (el) =>
+          (el as HTMLInputElement).className.includes("text-center") &&
+          !(el as HTMLElement).getAttribute("data-testid"),
+      );
     fireEvent.change(yearInputs[0], { target: { value: "5" } });
 
     fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
@@ -91,7 +97,14 @@ describe("RigOptimizer", () => {
       demand: { project: string; wells_by_year: Record<string, number> }[];
     };
     expect(payload.demand).toEqual([
-      { terrain: "Land", project: "P1", wells_by_year: { "2027": 5 } },
+      {
+        terrain: "Land",
+        project: "P1",
+        oil_volume: 12,
+        domestic_gas_volume: 0,
+        export_gas_volume: 0,
+        wells_by_year: { "2027": 5 },
+      },
     ]);
 
     // KPI card: terrain label + rig count + binding constraint.
@@ -139,7 +152,11 @@ describe("RigOptimizer", () => {
     });
     const yearInputs = screen
       .getAllByRole("spinbutton")
-      .filter((el) => (el as HTMLInputElement).className.includes("text-center"));
+      .filter(
+        (el) =>
+          (el as HTMLInputElement).className.includes("text-center") &&
+          !(el as HTMLElement).getAttribute("data-testid"),
+      );
     fireEvent.change(yearInputs[0], { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
 

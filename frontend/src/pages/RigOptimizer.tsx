@@ -49,10 +49,16 @@ interface GridRow {
   terrain: Terrain;
   project: string;
   wells: Record<number, number | "">;
+  oil_volume: number | "";
+  domestic_gas_volume: number | "";
+  export_gas_volume: number | "";
 }
 
 function emptyRow(): GridRow {
-  return { terrain: "Land", project: "", wells: {} };
+  return {
+    terrain: "Land", project: "", wells: {},
+    oil_volume: "", domestic_gas_volume: "", export_gas_volume: "",
+  };
 }
 
 
@@ -138,6 +144,9 @@ export function RigOptimizer() {
         parsed.demand.map((d: DemandRow) => ({
           terrain: d.terrain,
           project: d.project,
+          oil_volume: "" as const,
+          domestic_gas_volume: "" as const,
+          export_gas_volume: "" as const,
           wells: Object.fromEntries(
             Object.entries(d.wells_by_year).map(([y, n]) => [Number(y), n]),
           ),
@@ -160,6 +169,9 @@ export function RigOptimizer() {
       .map((r) => ({
         terrain: r.terrain,
         project: r.project.trim(),
+        oil_volume: Number(r.oil_volume) || 0,
+        domestic_gas_volume: Number(r.domestic_gas_volume) || 0,
+        export_gas_volume: Number(r.export_gas_volume) || 0,
         wells_by_year: Object.fromEntries(
           years
             .filter((y) => Number(r.wells[y]) > 0)
@@ -408,6 +420,9 @@ export function RigOptimizer() {
               <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="pb-2 pr-2">Terrain</th>
                 <th className="pb-2 pr-2">Project</th>
+                <th className="pb-2 pr-1 text-center" title="Oil volume (MMbbl)">Oil vol</th>
+                <th className="pb-2 pr-1 text-center" title="Domestic gas volume (Bscf)">Dom gas</th>
+                <th className="pb-2 pr-1 text-center" title="Export gas volume (Bscf)">Exp gas</th>
                 {years.map((y) => (
                   <th key={y} className="pb-2 pr-1 text-center">
                     <span className="inline-flex items-center gap-1">
@@ -454,6 +469,24 @@ export function RigOptimizer() {
                       className="h-8 min-w-36 text-sm"
                     />
                   </td>
+                  {(["oil_volume", "domestic_gas_volume", "export_gas_volume"] as const).map(
+                    (vk) => (
+                      <td key={vk} className="px-1 py-1.5 text-center">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={row[vk] ?? ""}
+                          onChange={(e) =>
+                            updateRow(i, {
+                              [vk]: e.target.value === "" ? "" : Number(e.target.value),
+                            } as Partial<GridRow>)
+                          }
+                          className="h-8 w-20 text-center text-sm"
+                          data-testid={`${vk}-${i}`}
+                        />
+                      </td>
+                    ),
+                  )}
                   {years.map((y) => (
                     <td key={y} className="px-1 py-1.5 text-center">
                       <Input

@@ -182,12 +182,20 @@ async def export_rig_fleet(
 
     demand_ws = wb.create_sheet("Demand")
     years = sorted({int(y) for row in payload.demand for y in row.wells_by_year})
-    demand_ws.append(["Terrain", "Project", *[str(y) for y in years]])
+    demand_ws.append([
+        "Terrain", "Project", "Oil vol (MMbbl)", "Dom gas vol (Bscf)",
+        "Exp gas vol (Bscf)", *[str(y) for y in years],
+    ])
     for c in demand_ws[1]:
         c.font = bold
     for row in payload.demand:
         demand_ws.append(
-            [row.terrain.value, row.project, *[row.wells_by_year.get(y) for y in years]]
+            [
+                row.terrain.value, row.project,
+                row.oil_volume or None, row.domestic_gas_volume or None,
+                row.export_gas_volume or None,
+                *[row.wells_by_year.get(y) for y in years],
+            ]
         )
 
     for sheet in wb.worksheets:

@@ -536,3 +536,68 @@ def test_completion_cutoff_infeasibility_is_reported() -> None:
     r = optimize_terrain("Land", {"P1": {2027: 1}}, a_hard, STRICT)
     assert not r.feasible
     assert r.infeasible_wells
+
+
+# ---------------------------------------------------------------------------
+# Project volumes (capture + display only — the objective is untouched)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_volumes_are_accepted_and_do_not_change_the_answer(client: AsyncClient) -> None:
+    base = {
+        "assumptions": {}, "options": {},
+        "demand": [{"terrain": "Land", "project": "P1", "wells_by_year": {"2028": 4}}],
+    }
+    with_vols = {
+        "assumptions": {}, "options": {},
+        "demand": [{
+            "terrain": "Land", "project": "P1", "wells_by_year": {"2028": 4},
+            "oil_volume": 42.5, "domestic_gas_volume": 3, "export_gas_volume": 0,
+        }],
+    }
+    r1 = await client.post("/api/optimizer/rig-fleet", json=base)
+    r2 = await client.post("/api/optimizer/rig-fleet", json=with_vols)
+    assert r1.status_code == 200 and r2.status_code == 200
+    # Capture-only: identical rig answer with or without volumes.
+    assert r1.json()["results"][0]["rig_count"] == r2.json()["results"][0]["rig_count"]
+
+
+@pytest.mark.asyncio
+async def test_volume_bounds_are_enforced(client: AsyncClient) -> None:
+    bad = {
+        "assumptions": {}, "options": {},
+        "demand": [{
+            "terrain": "Land", "project": "P1", "wells_by_year": {"2028": 1},
+            "oil_volume": -5,
+        }],
+    }
+    r = await client.post("/api/optimizer/rig-fleet", json=bad)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_export_carries_the_volume_columns(client: AsyncClient) -> None:
+    import io
+
+    from openpyxl import load_workbook
+
+    payload = {
+        "assumptions": {}, "options": {},
+        "demand": [{
+            "terrain": "Land", "project": "P1", "wells_by_year": {"2028": 2},
+            "oil_volume": 12, "domestic_gas_volume": 0, "export_gas_volume": 7,
+        }],
+    }
+    run = await client.post("/api/optimizer/rig-fleet", json=payload)
+    r = await client.post(
+        "/api/optimizer/rig-fleet/export",
+        json={**payload, "results": run.json()["results"]},
+    )
+    assert r.status_code == 200, r.text
+    wb = load_workbook(io.BytesIO(r.content))
+    ws = wb["Demand"]
+    headers = [c.value for c in ws[1]]
+    assert "Oil vol (MMbbl)" in headers
+    row = [c.value for c in ws[2]]
+    assert 12 in row and 7 in row
