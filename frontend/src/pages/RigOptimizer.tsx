@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Calculator, FileDown, FileUp, FolderPlus, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { toast } from "@/components/ui/toaster";
 import { optimizerApi, type DemandRow, type OptimizerAssumptions, type OptimizerOptions, type OptimizationResponse, type RunPayload, type StreamKey, type Terrain, type TerrainResult } from "@/api/optimizer";
 import { DrillChart } from "@/components/chart/DrillChart";
@@ -112,27 +113,37 @@ function emptyRow(): GridRow {
 }
 
 
-/** Assumption field with a label — numbers only, bounds enforced server-side too. */
+/** Assumption field with a label — digits only (owned NumericInput), bounds
+ *  mirroring the server's so garbage can't even be typed. Always holds a
+ *  number: emptying the field restores the previous value on blur. */
 function NumberField({
   label,
   value,
   onChange,
   suffix,
+  min = 0,
+  max,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   suffix?: string;
+  min?: number;
+  max?: number;
 }) {
   return (
     <label className="flex flex-col gap-1 text-xs text-muted-foreground">
       <span>{label}</span>
       <span className="flex items-center gap-1.5">
-        <Input
-          type="number"
+        <NumericInput
+          integer
           value={value}
-          min={0}
-          onChange={(e) => onChange(Number(e.target.value))}
+          min={min}
+          max={max}
+          allowEmpty={false}
+          onValueChange={(v) => {
+            if (v !== "") onChange(v);
+          }}
           className="h-8 w-24 text-sm"
         />
         {suffix && <span className="text-[11px]">{suffix}</span>}
@@ -177,12 +188,9 @@ export function RigOptimizer() {
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   }
 
-  function setWell(i: number, year: number, value: string) {
-    const parsed = value === "" ? "" : Math.max(0, Math.floor(Number(value)));
+  function setWell(i: number, year: number, value: number | "") {
     setRows((rs) =>
-      rs.map((r, j) =>
-        j === i ? { ...r, wells: { ...r.wells, [year]: parsed as number | "" } } : r,
-      ),
+      rs.map((r, j) => (j === i ? { ...r, wells: { ...r.wells, [year]: value } } : r)),
     );
   }
 
@@ -328,49 +336,60 @@ export function RigOptimizer() {
           <NumberField
             label="Well duration"
             value={assumptions.well_duration_days}
+            min={1}
+            max={730}
             onChange={(v) => setA({ well_duration_days: v })}
             suffix="days (76 ≈ 2.5 months)"
           />
           <NumberField
             label="Gap between wells"
             value={assumptions.inter_well_gap_days}
+            max={365}
             onChange={(v) => setA({ inter_well_gap_days: v })}
             suffix="days"
           />
           <NumberField
             label="Batch size"
             value={assumptions.batch_size}
+            min={1}
+            max={50}
             onChange={(v) => setA({ batch_size: v })}
             suffix="wells"
           />
           <NumberField
             label="Gap after batch"
             value={assumptions.batch_gap_days}
+            max={365}
             onChange={(v) => setA({ batch_gap_days: v })}
             suffix="days (replaces the well gap)"
           />
           <NumberField
             label="Project move (Land)"
             value={assumptions.project_move_days_land}
+            max={365}
             onChange={(v) => setA({ project_move_days_land: v })}
             suffix="days"
           />
           <NumberField
             label="Project move (Swamp)"
             value={assumptions.project_move_days_swamp}
+            max={365}
             onChange={(v) => setA({ project_move_days_swamp: v })}
             suffix="days"
           />
           <NumberField
             label="Project move (Offshore)"
             value={assumptions.project_move_days_swo}
+            max={365}
             onChange={(v) => setA({ project_move_days_swo: v })}
             suffix="days"
           />
           <NumberField
             label="Rig availability"
             value={assumptions.rig_months_per_year}
-            onChange={(v) => setA({ rig_months_per_year: Math.min(12, v) })}
+            min={1}
+            max={12}
+            onChange={(v) => setA({ rig_months_per_year: v })}
             suffix="months/year"
           />
         </div>
@@ -388,11 +407,14 @@ export function RigOptimizer() {
           </label>
           <label className="flex items-center gap-1.5">
             Slip allowance
-            <Input
-              type="number"
-              min={0}
+            <NumericInput
+              integer
+              max={365}
               value={options.allow_slip_days}
-              onChange={(e) => setO({ allow_slip_days: Math.max(0, Number(e.target.value)) })}
+              allowEmpty={false}
+              onValueChange={(v) => {
+                if (v !== "") setO({ allow_slip_days: v });
+              }}
               className="h-7 w-16 text-xs"
             />
             days
@@ -557,15 +579,10 @@ export function RigOptimizer() {
                   {(["oil_volume", "domestic_gas_volume", "export_gas_volume"] as const).map(
                     (vk) => (
                       <td key={vk} className="px-1 py-1.5 text-center">
-                        <Input
-                          type="number"
-                          min={0}
+                        <NumericInput
+                          max={1_000_000}
                           value={row[vk] ?? ""}
-                          onChange={(e) =>
-                            updateRow(i, {
-                              [vk]: e.target.value === "" ? "" : Number(e.target.value),
-                            } as Partial<GridRow>)
-                          }
+                          onValueChange={(v) => updateRow(i, { [vk]: v } as Partial<GridRow>)}
                           className="h-8 w-20 text-center text-sm"
                           data-testid={`${vk}-${i}`}
                         />
@@ -574,11 +591,11 @@ export function RigOptimizer() {
                   )}
                   {years.map((y) => (
                     <td key={y} className="px-1 py-1.5 text-center">
-                      <Input
-                        type="number"
-                        min={0}
+                      <NumericInput
+                        integer
+                        max={100}
                         value={row.wells[y] ?? ""}
-                        onChange={(e) => setWell(i, y, e.target.value)}
+                        onValueChange={(v) => setWell(i, y, v)}
                         className="h-8 w-16 text-center text-sm"
                       />
                     </td>

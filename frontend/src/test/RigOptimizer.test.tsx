@@ -82,7 +82,7 @@ describe("RigOptimizer", () => {
     // the year columns (2027 first).
     fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
     const yearInputs = screen
-      .getAllByRole("spinbutton")
+      .getAllByRole("textbox")
       .filter(
         (el) =>
           (el as HTMLInputElement).className.includes("text-center") &&
@@ -151,7 +151,7 @@ describe("RigOptimizer", () => {
       target: { value: "P9" },
     });
     const yearInputs = screen
-      .getAllByRole("spinbutton")
+      .getAllByRole("textbox")
       .filter(
         (el) =>
           (el as HTMLInputElement).className.includes("text-center") &&
@@ -169,7 +169,7 @@ describe("RigOptimizer", () => {
       target: { value: project },
     });
     const yearInputs = screen
-      .getAllByRole("spinbutton")
+      .getAllByRole("textbox")
       .filter(
         (el) =>
           (el as HTMLInputElement).className.includes("text-center") &&
@@ -177,6 +177,32 @@ describe("RigOptimizer", () => {
       );
     fireEvent.change(yearInputs[0], { target: { value: wells } });
   }
+
+  it("rejects non-numeric text in volume fields — no silent zero, no desync", async () => {
+    run.mockResolvedValue({ run_id: "rx", engine: "heuristic", warning: null, results: [] });
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    fillRow();
+
+    // "e5" used to sit visibly in the box while the state read empty — the
+    // priority control stayed greyed and the run silently sent 0. Now the
+    // characters never land at all.
+    const oil = screen.getByTestId("oil_volume-0");
+    fireEvent.change(oil, { target: { value: "e5" } });
+    expect(oil).toHaveValue("");
+    expect(screen.getByTestId("priority-hint")).toBeInTheDocument();
+
+    fireEvent.change(oil, { target: { value: "-50" } });
+    expect(oil).toHaveValue("");
+
+    fireEvent.change(oil, { target: { value: "12" } });
+    expect(oil).toHaveValue("12");
+    expect(screen.queryByTestId("priority-hint")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    const payload = run.mock.calls[0][0] as { demand: { oil_volume: number }[] };
+    expect(payload.demand[0].oil_volume).toBe(12);
+  });
 
   it("greys value priority behind a hint until a volume is captured", () => {
     render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
