@@ -62,12 +62,19 @@ async def optimize_rig_fleet(
                 "terrain": row.terrain.value,
                 "project": row.project,
                 "wells_by_year": row.wells_by_year,
+                "oil_volume": row.oil_volume,
+                "domestic_gas_volume": row.domestic_gas_volume,
+                "export_gas_volume": row.export_gas_volume,
             }
             for row in payload.demand
         ],
         assumptions=Assumptions(**payload.assumptions.model_dump()),
         options=Options(**payload.options.model_dump()),
         engine=settings.optimizer_engine,
+        priority_by_terrain={
+            t.value: order for t, order in payload.stream_priority_by_terrain.items()
+        }
+        or None,
     )
 
     run_id = uuid.uuid4()
@@ -99,6 +106,7 @@ async def optimize_rig_fleet(
                 utilization_per_rig=r.utilization_per_rig,
                 binding=r.binding,
                 infeasible_wells=r.infeasible_wells,
+                priority_used=r.priority_used,
             )
             for r in results
         ],
@@ -120,12 +128,19 @@ async def export_rig_fleet(
                 "terrain": row.terrain.value,
                 "project": row.project,
                 "wells_by_year": row.wells_by_year,
+                "oil_volume": row.oil_volume,
+                "domestic_gas_volume": row.domestic_gas_volume,
+                "export_gas_volume": row.export_gas_volume,
             }
             for row in payload.demand
         ],
         assumptions=Assumptions(**payload.assumptions.model_dump()),
         options=Options(**payload.options.model_dump()),
         engine=settings.optimizer_engine,
+        priority_by_terrain={
+            t.value: order for t, order in payload.stream_priority_by_terrain.items()
+        }
+        or None,
     )
 
     from openpyxl import Workbook  # already a vetted dependency (Excel import)

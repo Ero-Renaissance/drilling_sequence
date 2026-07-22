@@ -42,11 +42,13 @@ from app.services.rig_optimizer import (
     _TERRAIN_ORDER,
     Assumptions,
     Options,
+    ProjectVolumes,
     RigPlan,
     ScheduledWell,
     TerrainResult,
     _maintenance_days,
     _year_start,
+    priority_sort_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,8 @@ def _materialize(
     year: int,
     assignment: dict[str, list[int]],
     a: Assumptions,
+    volumes: ProjectVolumes | None = None,
+    priority: list[str] | None = None,
 ) -> None:
     """Lay a year's per-rig assignment onto real dates and append to the shared
     RigPlan objects (keyed by rig index, so a rig accrues wells across years)."""
@@ -176,7 +180,18 @@ def _materialize(
     for r, plan in plans.items():
         cursor = _year_start(year) + timedelta(days=maint)
         first_project = True
-        for project in sorted(assignment):
+        # Sequencing only: the bin-packing above fixed WHICH wells share a rig
+        # (volume-blind, so the rig count is provably priority-independent);
+        # the value ordering decides WHO on the rig goes first.
+        project_order = sorted(
+            assignment,
+            key=(
+                (lambda p: (*priority_sort_key(p, volumes or {}, priority), p))
+                if priority
+                else (lambda p: p)
+            ),
+        )
+        for project in project_order:
             count = assignment[project][r] if r < len(assignment[project]) else 0
             if count == 0:
                 continue
@@ -222,10 +237,13 @@ def _optimize_terrain_milp(
     demand: dict[str, dict[int, int]],  # project -> {year: wells}
     a: Assumptions,
     options: Options,
+    volumes: ProjectVolumes | None = None,
+    priority: list[str] | None = None,
 ) -> TerrainResult:
     years = sorted({y for by in demand.values() for y in by if by[y]})
     if not years:
-        return TerrainResult(terrain, True, 0, [], {}, {}, None, [])
+        used = list(priority) if priority else None
+        return TerrainResult(terrain, True, 0, [], {}, {}, None, [], used)
 
     move = a.project_move_days(terrain)
     bins_per_year: dict[int, int] = {}
@@ -249,13 +267,14 @@ def _optimize_terrain_milp(
         logger.warning(
             "rig optimization (milp) infeasible terrain=%s wells=%d", terrain, len(infeasible)
         )
-        return TerrainResult(terrain, False, 0, [], {}, {}, None, infeasible)
+        used = list(priority) if priority else None
+        return TerrainResult(terrain, False, 0, [], {}, {}, None, infeasible, used)
 
     rig_count = max(bins_per_year.values(), default=0)
     prefix = _RIG_NAME_PREFIX.get(terrain, f"{terrain} Rig")
     plans = {r: RigPlan(name=f"{prefix} {r + 1}") for r in range(rig_count)}
     for y in years:
-        _materialize(terrain, plans, y, assignments[y], a)
+        _materialize(terrain, plans, y, assignments[y], a, volumes, priority)
 
     horizon_start = _year_start(years[0])
     horizon_days = (date(years[-1], 12, 31) - horizon_start).days + 1
@@ -282,21 +301,38 @@ def _optimize_terrain_milp(
         utilization_per_rig=utilization,
         binding=binding,
         infeasible_wells=[],
+        priority_used=list(priority) if priority else None,
     )
 
 
 def optimize_milp(
-    demand_rows: list[dict], assumptions: Assumptions, options: Options
+    demand_rows: list[dict],
+    assumptions: Assumptions,
+    options: Options,
+    priority_by_terrain: dict[str, list[str]] | None = None,
 ) -> list[TerrainResult]:
     """Exact per-terrain optimization. Raises SolverUnavailable if OR-Tools is
     missing (caller falls back to the heuristic)."""
     by_terrain: dict[str, dict[str, dict[int, int]]] = {}
+    volumes_by_terrain: dict[str, ProjectVolumes] = {}
     for row in demand_rows:
         by_terrain.setdefault(row["terrain"], {})[row["project"]] = {
             int(y): int(n) for y, n in row["wells_by_year"].items() if int(n) > 0
         }
+        volumes_by_terrain.setdefault(row["terrain"], {})[row["project"]] = (
+            float(row.get("oil_volume") or 0),
+            float(row.get("domestic_gas_volume") or 0),
+            float(row.get("export_gas_volume") or 0),
+        )
     return [
-        _optimize_terrain_milp(terrain, projects, assumptions, options)
+        _optimize_terrain_milp(
+            terrain,
+            projects,
+            assumptions,
+            options,
+            volumes=volumes_by_terrain.get(terrain),
+            priority=(priority_by_terrain or {}).get(terrain),
+        )
         for terrain, projects in sorted(
             by_terrain.items(), key=lambda kv: (_TERRAIN_ORDER.get(kv[0], 99), kv[0])
         )

@@ -121,6 +121,26 @@ class TerrainResult:
     utilization_per_rig: dict[str, float]  # drilling days / horizon days
     binding: dict | None  # {"project", "year"} that forced the last rig
     infeasible_wells: list[dict]  # populated when feasible=False
+    # Echo of the value-stream ordering this terrain was sequenced with (None
+    # when no prioritization was requested) — results self-describe.
+    priority_used: list[str] | None = None
+
+
+# Value streams in field order of the per-project volume triple.
+STREAMS = ("oil", "domestic_gas", "export_gas")
+_STREAM_IDX = {s: i for i, s in enumerate(STREAMS)}
+
+ProjectVolumes = dict[str, tuple[float, float, float]]  # project → (oil, dom, exp)
+
+
+def priority_sort_key(
+    project: str, volumes: ProjectVolumes, priority: list[str]
+):
+    """Lexicographic value key: rank by the highest-priority stream's volume,
+    ties broken down the ordering. Streams are NEVER compared with each other
+    (no barrels-vs-scf conversion) — only within-stream volumes compete."""
+    v = volumes.get(project, (0.0, 0.0, 0.0))
+    return tuple(-v[_STREAM_IDX[s]] for s in priority)
 
 
 @dataclass
@@ -280,24 +300,37 @@ def optimize_terrain(
     demand: dict[str, dict[int, int]],  # project -> {year: wells}
     assumptions: Assumptions,
     options: Options,
+    volumes: ProjectVolumes | None = None,
+    priority: list[str] | None = None,
 ) -> TerrainResult:
     """Find the minimum rig fleet for one terrain (spec §3, §6)."""
     years = sorted({y for by_year in demand.values() for y in by_year if by_year[y]})
     if not years:
-        return TerrainResult(terrain, True, 0, [], {}, {}, None, [])
+        used = list(priority) if priority else None
+        return TerrainResult(terrain, True, 0, [], {}, {}, None, [], used)
     horizon_start = _year_start(years[0])
     horizon_end = _year_end(years[-1])
     horizon_days = (horizon_end - horizon_start).days + 1
 
-    # Well list: by committed year, longest project first (LPT) so big chains
-    # start early, then stable by project name for determinism.
+    # Well list: by committed year; within a year, the value-priority key when
+    # an ordering is active (higher-priority-stream volume first — earlier rig
+    # slots go to the projects the business ranks first), then longest project
+    # first (LPT) so big chains start early, then stable by name. Rig count
+    # remains the primary objective: the fleet-size search below still finds
+    # the smallest feasible fleet under this sequencing.
     totals = {p: sum(by_year.values()) for p, by_year in demand.items()}
+    if priority:
+        vol_key = lambda p: priority_sort_key(p, volumes or {}, priority)  # noqa: E731
+    else:
+        vol_key = lambda p: ()  # noqa: E731
     wells: list[WellDemand] = []
-    for project in sorted(demand, key=lambda p: (-totals[p], p)):
+    for project in sorted(demand, key=lambda p: (*vol_key(p), -totals[p], p)):
         for year in sorted(demand[project]):
             for seq in range(demand[project][year]):
                 wells.append(WellDemand(project=project, year=year, sequence=seq + 1))
-    wells.sort(key=lambda w: (w.year, -totals[w.project], w.project, w.sequence))
+    wells.sort(
+        key=lambda w: (w.year, *vol_key(w.project), -totals[w.project], w.project, w.sequence)
+    )
 
     binding: dict | None = None
     previous_missed: list[dict] = []
@@ -328,6 +361,7 @@ def optimize_terrain(
             utilization_per_rig=utilization,
             binding=binding,
             infeasible_wells=[],
+            priority_used=list(priority) if priority else None,
         )
 
     # Even one rig per well can't meet some deadline: structurally infeasible.
@@ -346,6 +380,7 @@ def optimize_terrain(
         utilization_per_rig={},
         binding=None,
         infeasible_wells=missed,
+        priority_used=list(priority) if priority else None,
     )
 
 
@@ -353,15 +388,29 @@ def optimize(
     demand_rows: list[dict],  # [{terrain, project, wells_by_year}]
     assumptions: Assumptions,
     options: Options,
+    priority_by_terrain: dict[str, list[str]] | None = None,
 ) -> list[TerrainResult]:
     """Solve each terrain independently (rigs never cross terrains, spec §3.1)."""
     by_terrain: dict[str, dict[str, dict[int, int]]] = {}
+    volumes_by_terrain: dict[str, ProjectVolumes] = {}
     for row in demand_rows:
         by_terrain.setdefault(row["terrain"], {})[row["project"]] = {
             int(y): int(n) for y, n in row["wells_by_year"].items() if int(n) > 0
         }
+        volumes_by_terrain.setdefault(row["terrain"], {})[row["project"]] = (
+            float(row.get("oil_volume") or 0),
+            float(row.get("domestic_gas_volume") or 0),
+            float(row.get("export_gas_volume") or 0),
+        )
     return [
-        optimize_terrain(terrain, projects, assumptions, options)
+        optimize_terrain(
+            terrain,
+            projects,
+            assumptions,
+            options,
+            volumes=volumes_by_terrain.get(terrain),
+            priority=(priority_by_terrain or {}).get(terrain),
+        )
         for terrain, projects in sorted(
             by_terrain.items(), key=lambda kv: (_TERRAIN_ORDER.get(kv[0], 99), kv[0])
         )
@@ -373,6 +422,7 @@ def run(
     assumptions: Assumptions,
     options: Options,
     engine: str = "heuristic",
+    priority_by_terrain: dict[str, list[str]] | None = None,
 ) -> tuple[list[TerrainResult], str, str | None]:
     """Run the requested engine, returning (results, engine_used, warning).
 
@@ -383,24 +433,28 @@ def run(
     """
     engine = (engine or "heuristic").strip().lower()
     if engine != "milp":
-        return optimize(demand_rows, assumptions, options), "heuristic", None
+        return optimize(demand_rows, assumptions, options, priority_by_terrain), "heuristic", None
 
     from app.services import rig_optimizer_milp as milp
 
     ok, unsupported = milp.supports(options)
     if not ok:
         return (
-            optimize(demand_rows, assumptions, options),
+            optimize(demand_rows, assumptions, options, priority_by_terrain),
             "heuristic",
             f"The exact engine doesn't model {', '.join(unsupported)}; "
             "results computed with the heuristic engine.",
         )
     try:
-        return milp.optimize_milp(demand_rows, assumptions, options), "milp", None
+        return (
+            milp.optimize_milp(demand_rows, assumptions, options, priority_by_terrain),
+            "milp",
+            None,
+        )
     except milp.SolverUnavailable:
         logger.warning("optimizer_engine=milp requested but OR-Tools missing")
         return (
-            optimize(demand_rows, assumptions, options),
+            optimize(demand_rows, assumptions, options, priority_by_terrain),
             "heuristic",
             "MILP engine is configured but OR-Tools is not installed; "
             "results computed with the heuristic engine.",

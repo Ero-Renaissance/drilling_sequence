@@ -4,7 +4,7 @@ import { Calculator, FileDown, FileUp, FolderPlus, Loader2, Plus, Trash2, Triang
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toaster";
-import { optimizerApi, type DemandRow, type OptimizerAssumptions, type OptimizerOptions, type OptimizationResponse, type Terrain, type TerrainResult } from "@/api/optimizer";
+import { optimizerApi, type DemandRow, type OptimizerAssumptions, type OptimizerOptions, type OptimizationResponse, type RunPayload, type StreamKey, type Terrain, type TerrainResult } from "@/api/optimizer";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { optimizerResultsToActivities } from "@/lib/optimizer-chart";
@@ -44,6 +44,56 @@ const DEFAULT_OPTIONS: OptimizerOptions = {
 
 const DEFAULT_YEARS = [2027, 2028, 2029, 2030, 2031];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const STREAM_LABEL: Record<StreamKey, string> = {
+  oil: "Oil",
+  domestic_gas: "Domestic gas",
+  export_gas: "Export gas",
+};
+
+/** All six orderings of the three value streams — a select over these beats a
+ *  drag-and-drop for a 3-item list. Encoded as comma-joined keys. */
+const PRIORITY_CHOICES: StreamKey[][] = [
+  ["oil", "domestic_gas", "export_gas"],
+  ["oil", "export_gas", "domestic_gas"],
+  ["domestic_gas", "oil", "export_gas"],
+  ["domestic_gas", "export_gas", "oil"],
+  ["export_gas", "oil", "domestic_gas"],
+  ["export_gas", "domestic_gas", "oil"],
+];
+
+const priorityKeyOf = (order: StreamKey[]) => order.join(",");
+const priorityLabelOf = (order: StreamKey[]) =>
+  order.map((s) => STREAM_LABEL[s]).join(" › ");
+
+function PrioritySelect({
+  value,
+  onChange,
+  disabled,
+  testId,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  testId: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      data-testid={testId}
+      className="h-7 rounded-md border border-border bg-background px-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <option value="">None — largest schedule first</option>
+      {PRIORITY_CHOICES.map((order) => (
+        <option key={priorityKeyOf(order)} value={priorityKeyOf(order)}>
+          {priorityLabelOf(order)}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 interface GridRow {
   terrain: Terrain;
@@ -99,6 +149,13 @@ export function RigOptimizer() {
   // Per-year completion cutoff (month by whose end the year's last well must
   // FINISH). 12 = no cutoff; only <12 entries are sent.
   const [cutoffs, setCutoffs] = useState<Record<number, number>>({});
+  // Stream priority: one global ordering ("" = off) with an optional
+  // per-terrain override; overrides prefill from the global when opened.
+  const [priorityKey, setPriorityKey] = useState("");
+  const [perTerrainPriority, setPerTerrainPriority] = useState(false);
+  const [terrainPriorityKeys, setTerrainPriorityKeys] = useState<Record<Terrain, string>>({
+    Land: "", Swamp: "", SWO: "",
+  });
   const [rows, setRows] = useState<GridRow[]>([emptyRow()]);
   const [issues, setIssues] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
@@ -181,6 +238,42 @@ export function RigOptimizer() {
       .filter((r) => Object.keys(r.wells_by_year).length > 0);
   }
 
+  // Priority is meaningless until at least one volume is captured — the
+  // control greys out with a hint instead of silently doing nothing.
+  const hasVolumes = rows.some(
+    (r) =>
+      Number(r.oil_volume) > 0 ||
+      Number(r.domestic_gas_volume) > 0 ||
+      Number(r.export_gas_volume) > 0,
+  );
+
+  /** Resolved terrain → ordering map, only for terrains present in the demand.
+   *  Per-terrain "None" (empty key) leaves that terrain on the default sort. */
+  function buildPriority(demand: DemandRow[]): RunPayload["stream_priority_by_terrain"] {
+    if (!hasVolumes) return undefined;
+    const terrains = [...new Set(demand.map((d) => d.terrain))];
+    const entries = terrains
+      .map((t) => [t, perTerrainPriority ? terrainPriorityKeys[t] : priorityKey] as const)
+      .filter(([, key]) => key !== "")
+      .map(([t, key]) => [t, key.split(",") as StreamKey[]] as const);
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+
+  /** One payload for run + Excel export so the workbook always reflects the
+   *  same cutoffs and priority as the on-screen result. */
+  function buildRunPayload(demand: DemandRow[]): RunPayload {
+    const cutoffEntries = Object.entries(cutoffs).filter(([, m]) => m && m < 12);
+    return {
+      demand,
+      assumptions: {
+        ...assumptions,
+        last_completion_month_by_year: Object.fromEntries(cutoffEntries),
+      },
+      options,
+      stream_priority_by_terrain: buildPriority(demand),
+    };
+  }
+
   async function run() {
     const demand = buildDemand();
     if (demand.length === 0) {
@@ -189,15 +282,7 @@ export function RigOptimizer() {
     }
     setRunning(true);
     try {
-      const cutoffEntries = Object.entries(cutoffs).filter(([, m]) => m && m < 12);
-      const res = await optimizerApi.run({
-        demand,
-        assumptions: {
-          ...assumptions,
-          last_completion_month_by_year: Object.fromEntries(cutoffEntries),
-        },
-        options,
-      });
+      const res = await optimizerApi.run(buildRunPayload(demand));
       setResult(res);
       if (res.warning) toast.info(res.warning);
     } catch (err: unknown) {
@@ -214,7 +299,7 @@ export function RigOptimizer() {
       return;
     }
     try {
-      const blob = await optimizerApi.exportExcel({ demand, assumptions, options });
+      const blob = await optimizerApi.exportExcel(buildRunPayload(demand));
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -522,6 +607,57 @@ export function RigOptimizer() {
             <Plus className="h-3.5 w-3.5" />
             Add project
           </Button>
+
+          {/* Stream priority — which value stream the sequencing favours. Never
+              changes the rig count; it only orders projects within each fleet. */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">Value priority</span>
+            {!perTerrainPriority && (
+              <PrioritySelect
+                value={priorityKey}
+                onChange={setPriorityKey}
+                disabled={!hasVolumes}
+                testId="priority-global"
+              />
+            )}
+            {perTerrainPriority &&
+              TERRAINS.map((t) => (
+                <label key={t} className="flex items-center gap-1.5">
+                  {TERRAIN_LABEL[t]}
+                  <PrioritySelect
+                    value={terrainPriorityKeys[t]}
+                    onChange={(v) =>
+                      setTerrainPriorityKeys((m) => ({ ...m, [t]: v }))
+                    }
+                    disabled={!hasVolumes}
+                    testId={`priority-${t}`}
+                  />
+                </label>
+              ))}
+            {hasVolumes ? (
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={perTerrainPriority}
+                  onChange={(e) => {
+                    setPerTerrainPriority(e.target.checked);
+                    if (e.target.checked) {
+                      setTerrainPriorityKeys({
+                        Land: priorityKey, Swamp: priorityKey, SWO: priorityKey,
+                      });
+                    }
+                  }}
+                  data-testid="priority-per-terrain-toggle"
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                Adjust per terrain
+              </label>
+            ) : (
+              <span data-testid="priority-hint">
+                Enter oil or gas volumes above to enable value priority.
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -563,6 +699,11 @@ export function RigOptimizer() {
                         .map(([y, n]) => `${y}: ${n}`)
                         .join(" · ")}
                     </div>
+                    {tr.priority_used && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Priority: {priorityLabelOf(tr.priority_used)}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>

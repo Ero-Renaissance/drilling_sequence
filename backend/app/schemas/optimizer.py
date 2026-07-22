@@ -53,6 +53,9 @@ class AssumptionsIn(BaseModel):
         return v
 
 
+_VALID_STREAMS = {"oil", "domestic_gas", "export_gas"}
+
+
 class OptionsIn(BaseModel):
     """Relaxations — all default to the strict reading."""
 
@@ -101,6 +104,20 @@ class OptimizationRequest(BaseModel):
     demand: list[DemandRow] = Field(min_length=1, max_length=MAX_PROJECTS)
     assumptions: AssumptionsIn = AssumptionsIn()
     options: OptionsIn = OptionsIn()
+    # Per-terrain value-stream ordering (each list a permutation of oil /
+    # domestic_gas / export_gas). Missing terrain or empty map = no
+    # prioritization. Sequencing only — never changes the rig count.
+    stream_priority_by_terrain: dict[Terrain, list[str]] = Field(default_factory=dict)
+
+    @field_validator("stream_priority_by_terrain")
+    @classmethod
+    def _valid_orderings(cls, v: dict) -> dict:
+        for terrain, order in v.items():
+            if sorted(order) != sorted(_VALID_STREAMS):
+                raise ValueError(
+                    f"{terrain}: priority must order exactly oil, domestic_gas, export_gas"
+                )
+        return v
 
 
 class ScheduledWellOut(BaseModel):
@@ -153,6 +170,7 @@ class TerrainResultOut(BaseModel):
     utilization_per_rig: dict[str, float]
     binding: dict | None = None
     infeasible_wells: list[dict] = []
+    priority_used: list[str] | None = None
 
 
 class OptimizationResponse(BaseModel):

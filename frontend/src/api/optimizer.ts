@@ -29,12 +29,14 @@ export interface DemandRow {
   terrain: Terrain;
   project: string;
   wells_by_year: Record<string, number>;
-  /** Display-only value volumes (oil ~ MMbbl, gas ~ Bscf); the future priority
-   *  objective ranks per stream and never converts across them. */
+  /** Value volumes (oil ~ MMbbl, gas ~ Bscf). The priority objective ranks
+   *  lexicographically per stream and never converts across them. */
   oil_volume?: number;
   domestic_gas_volume?: number;
   export_gas_volume?: number;
 }
+
+export type StreamKey = "oil" | "domestic_gas" | "export_gas";
 
 export interface ScheduledWell {
   project: string;
@@ -60,6 +62,8 @@ export interface TerrainResult {
   utilization_per_rig: Record<string, number>;
   binding: { project: string; year: number } | null;
   infeasible_wells: { project: string; year: number }[];
+  /** Echo of the stream ordering the engine sequenced this terrain with. */
+  priority_used?: StreamKey[] | null;
 }
 
 export interface OptimizationResponse {
@@ -85,23 +89,25 @@ export interface CreateCampaignPayload {
   results: TerrainResult[];
 }
 
+export interface RunPayload {
+  demand: DemandRow[];
+  assumptions: OptimizerAssumptions;
+  options: OptimizerOptions;
+  /** Terrain → stream ordering (a permutation of all three streams). Omitted
+   *  terrains keep the default largest-schedule-first sequencing. */
+  stream_priority_by_terrain?: Partial<Record<Terrain, StreamKey[]>>;
+}
+
 export const optimizerApi = {
-  run: (payload: {
-    demand: DemandRow[];
-    assumptions: OptimizerAssumptions;
-    options: OptimizerOptions;
-  }) => api.post<OptimizationResponse>("/api/optimizer/rig-fleet", payload),
+  run: (payload: RunPayload) =>
+    api.post<OptimizationResponse>("/api/optimizer/rig-fleet", payload),
 
   createCampaign: (payload: CreateCampaignPayload) =>
     api.post<{ id: string; name: string }>("/api/optimizer/create-campaign", payload),
 
   /** Excel export of a run — same payload as `run`; returns the workbook blob.
    *  Bypasses the JSON client (binary response) but mirrors its auth + errors. */
-  exportExcel: async (payload: {
-    demand: DemandRow[];
-    assumptions: OptimizerAssumptions;
-    options: OptimizerOptions;
-  }): Promise<Blob> => {
+  exportExcel: async (payload: RunPayload): Promise<Blob> => {
     const token = await getAccessToken();
     const resp = await fetch("/api/optimizer/rig-fleet/export", {
       method: "POST",

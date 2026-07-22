@@ -163,4 +163,115 @@ describe("RigOptimizer", () => {
     await screen.findByText("Infeasible");
     expect(screen.getByText(/P9 \(2028\)/)).toBeInTheDocument();
   });
+
+  function fillRow(project = "P1", wells = "2") {
+    fireEvent.change(screen.getByPlaceholderText("Project name"), {
+      target: { value: project },
+    });
+    const yearInputs = screen
+      .getAllByRole("spinbutton")
+      .filter(
+        (el) =>
+          (el as HTMLInputElement).className.includes("text-center") &&
+          !(el as HTMLElement).getAttribute("data-testid"),
+      );
+    fireEvent.change(yearInputs[0], { target: { value: wells } });
+  }
+
+  it("greys value priority behind a hint until a volume is captured", () => {
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    expect(screen.getByTestId("priority-global")).toBeDisabled();
+    expect(screen.getByTestId("priority-hint")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("domestic_gas_volume-0"), {
+      target: { value: "30" },
+    });
+    expect(screen.getByTestId("priority-global")).toBeEnabled();
+    expect(screen.queryByTestId("priority-hint")).not.toBeInTheDocument();
+  });
+
+  it("sends the global ordering for each terrain in the demand", async () => {
+    run.mockResolvedValue({ run_id: "r3", engine: "heuristic", warning: null, results: [] });
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    fillRow();
+    fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
+    fireEvent.change(screen.getByTestId("priority-global"), {
+      target: { value: "domestic_gas,export_gas,oil" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    const payload = run.mock.calls[0][0] as {
+      stream_priority_by_terrain?: Record<string, string[]>;
+    };
+    expect(payload.stream_priority_by_terrain).toEqual({
+      Land: ["domestic_gas", "export_gas", "oil"],
+    });
+  });
+
+  it("per-terrain override prefills from the global and sends the adjusted order", async () => {
+    run.mockResolvedValue({ run_id: "r4", engine: "heuristic", warning: null, results: [] });
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    fillRow();
+    fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
+    fireEvent.change(screen.getByTestId("priority-global"), {
+      target: { value: "oil,domestic_gas,export_gas" },
+    });
+    fireEvent.click(screen.getByTestId("priority-per-terrain-toggle"));
+
+    // Expanded selects replace the global one, prefilled from it.
+    expect(screen.queryByTestId("priority-global")).not.toBeInTheDocument();
+    expect(screen.getByTestId("priority-Land")).toHaveValue("oil,domestic_gas,export_gas");
+    fireEvent.change(screen.getByTestId("priority-Land"), {
+      target: { value: "export_gas,oil,domestic_gas" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    const payload = run.mock.calls[0][0] as {
+      stream_priority_by_terrain?: Record<string, string[]>;
+    };
+    // Only Land is in the demand — Swamp/Offshore selects don't leak in.
+    expect(payload.stream_priority_by_terrain).toEqual({
+      Land: ["export_gas", "oil", "domestic_gas"],
+    });
+  });
+
+  it("omits priority entirely when no ordering is chosen", async () => {
+    run.mockResolvedValue({ run_id: "r5", engine: "heuristic", warning: null, results: [] });
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    fillRow();
+    fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    const payload = run.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.stream_priority_by_terrain).toBeUndefined();
+  });
+
+  it("echoes the priority the engine used on the terrain card", async () => {
+    run.mockResolvedValue({
+      run_id: "r6",
+      engine: "milp",
+      warning: null,
+      results: [
+        {
+          terrain: "Land",
+          feasible: true,
+          rig_count: 1,
+          rigs: [],
+          rigs_active_per_year: { 2027: 1 },
+          utilization_per_rig: {},
+          binding: null,
+          infeasible_wells: [],
+          priority_used: ["export_gas", "domestic_gas", "oil"],
+        },
+      ],
+    });
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    fillRow();
+    fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
+
+    await screen.findByText("Priority: Export gas › Domestic gas › Oil");
+  });
 });

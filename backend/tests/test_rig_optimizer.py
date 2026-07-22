@@ -601,3 +601,94 @@ async def test_export_carries_the_volume_columns(client: AsyncClient) -> None:
     assert "Oil vol (MMbbl)" in headers
     row = [c.value for c in ws[2]]
     assert 12 in row and 7 in row
+
+
+# ---------------------------------------------------------------------------
+# Stream priority (per-terrain, lexicographic — sequencing only)
+# ---------------------------------------------------------------------------
+
+VOLS = {"P-OIL": (100.0, 0.0, 0.0), "P-DOM": (0.0, 80.0, 0.0)}
+TWO_PROJECTS = {"P-OIL": {2027: 2}, "P-DOM": {2027: 2}}
+
+
+def _first_project(result) -> str:
+    wells = [w for rig in result.rigs for w in rig.wells]
+    return min(wells, key=lambda w: (w.start, w.project)).project
+
+
+def test_priority_sequences_heuristic_and_never_changes_the_rig_count() -> None:
+    base = optimize_terrain("Land", TWO_PROJECTS, A, STRICT)
+    oil_first = optimize_terrain(
+        "Land", TWO_PROJECTS, A, STRICT,
+        volumes=VOLS, priority=["oil", "domestic_gas", "export_gas"],
+    )
+    dom_first = optimize_terrain(
+        "Land", TWO_PROJECTS, A, STRICT,
+        volumes=VOLS, priority=["domestic_gas", "export_gas", "oil"],
+    )
+    assert oil_first.rig_count == dom_first.rig_count == base.rig_count
+    assert _first_project(oil_first) == "P-OIL"
+    assert _first_project(dom_first) == "P-DOM"
+    assert oil_first.priority_used == ["oil", "domestic_gas", "export_gas"]
+    assert base.priority_used is None
+
+
+def test_priority_sequences_milp_and_rig_count_is_provably_unaffected() -> None:
+    pytest.importorskip("ortools")
+    from app.services.rig_optimizer_milp import optimize_milp
+
+    # One well per project → both fit on a single rig, so the sequential order
+    # (not parallel rig assignment) is what the assertion observes.
+    rows = [
+        {"terrain": "Land", "project": p, "wells_by_year": {2027: 1},
+         "oil_volume": VOLS[p][0], "domestic_gas_volume": VOLS[p][1], "export_gas_volume": VOLS[p][2]}
+        for p in TWO_PROJECTS
+    ]
+    base = optimize_milp(rows, A, STRICT)[0]
+    oil_first = optimize_milp(
+        rows, A, STRICT, {"Land": ["oil", "domestic_gas", "export_gas"]}
+    )[0]
+    dom_first = optimize_milp(
+        rows, A, STRICT, {"Land": ["domestic_gas", "export_gas", "oil"]}
+    )[0]
+    assert base.rig_count == oil_first.rig_count == dom_first.rig_count
+    assert _first_project(oil_first) == "P-OIL"
+    assert _first_project(dom_first) == "P-DOM"
+
+
+def test_priority_is_terrain_specific() -> None:
+    """Land ranks oil first while Swamp ranks domestic first — sealed fleets,
+    independent orderings."""
+    rows = [
+        {"terrain": "Land", "project": "P-OIL", "wells_by_year": {"2027": 1}, "oil_volume": 9},
+        {"terrain": "Land", "project": "P-DOM", "wells_by_year": {"2027": 1}, "domestic_gas_volume": 9},
+        {"terrain": "Swamp", "project": "P-OIL", "wells_by_year": {"2027": 1}, "oil_volume": 9},
+        {"terrain": "Swamp", "project": "P-DOM", "wells_by_year": {"2027": 1}, "domestic_gas_volume": 9},
+    ]
+    results = optimize(
+        rows, A, STRICT,
+        {"Land": ["oil", "domestic_gas", "export_gas"],
+         "Swamp": ["domestic_gas", "export_gas", "oil"]},
+    )
+    by_terrain = {r.terrain: r for r in results}
+    assert _first_project(by_terrain["Land"]) == "P-OIL"
+    assert _first_project(by_terrain["Swamp"]) == "P-DOM"
+
+
+@pytest.mark.asyncio
+async def test_priority_api_validation_and_echo(client: AsyncClient) -> None:
+    body = {
+        "assumptions": {}, "options": {},
+        "demand": [
+            {"terrain": "Land", "project": "P-OIL", "wells_by_year": {"2027": 1}, "oil_volume": 5},
+            {"terrain": "Land", "project": "P-DOM", "wells_by_year": {"2027": 1}, "domestic_gas_volume": 5},
+        ],
+        "stream_priority_by_terrain": {"Land": ["oil", "domestic_gas", "export_gas"]},
+    }
+    r = await client.post("/api/optimizer/rig-fleet", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["priority_used"] == ["oil", "domestic_gas", "export_gas"]
+
+    bad = {**body, "stream_priority_by_terrain": {"Land": ["oil", "oil", "export_gas"]}}
+    r = await client.post("/api/optimizer/rig-fleet", json=bad)
+    assert r.status_code == 422
