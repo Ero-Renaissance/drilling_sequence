@@ -353,7 +353,21 @@ export function ActivityChartEditDialog({
               Schedule
             </p>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Project" error={errors.well_project?.message}>
+                <Input
+                  {...register("well_project")}
+                  list="project-suggestions"
+                  placeholder="e.g. Bonga Phase 3"
+                  spellCheck
+                  disabled={locked}
+                />
+                <datalist id="project-suggestions">
+                  {projectSuggestions.map((pName) => (
+                    <option key={pName} value={pName} />
+                  ))}
+                </datalist>
+              </Field>
               <Field label="Activity Type *" error={errors.activity_type?.message}>
                 <Input
                   {...register("activity_type")}
@@ -368,23 +382,9 @@ export function ActivityChartEditDialog({
                   ))}
                 </datalist>
               </Field>
-              <Field label="Start Date *" error={errors.start_date?.message}>
-                <Input type="date" {...register("start_date")} disabled={locked} />
-              </Field>
-              <Field label="End Date *" error={errors.end_date?.message}>
-                <Input type="date" {...register("end_date")} disabled={locked} />
-              </Field>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Well Name *" error={errors.well_name?.message}>
-                <Input
-                  {...register("well_name")}
-                  placeholder="Well-A1"
-                  spellCheck
-                  disabled={locked}
-                />
-              </Field>
               <Field label="Resource *" error={errors.resource_name?.message}>
                 <div className="flex gap-2">
                   <select
@@ -421,41 +421,6 @@ export function ActivityChartEditDialog({
                   No resource needed
                 </label>
               </Field>
-            </div>
-
-            {/* Warnings — live, non-blocking */}
-            {(contractImpactWarning || conflictWarning) && (
-              <div className="space-y-1.5">
-                {contractImpactWarning && (
-                  <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{contractImpactWarning}</span>
-                  </div>
-                )}
-                {conflictWarning && (
-                  <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{conflictWarning}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Project" error={errors.well_project?.message}>
-                <Input
-                  {...register("well_project")}
-                  list="project-suggestions"
-                  placeholder="e.g. Bonga Phase 3"
-                  spellCheck
-                  disabled={locked}
-                />
-                <datalist id="project-suggestions">
-                  {projectSuggestions.map((pName) => (
-                    <option key={pName} value={pName} />
-                  ))}
-                </datalist>
-              </Field>
               <Field label="Market" error={errors.market?.message}>
                 <select {...register("market")} className={selectClass} disabled={locked}>
                   <option value="">Select…</option>
@@ -466,6 +431,26 @@ export function ActivityChartEditDialog({
                   ))}
                 </select>
               </Field>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Start Date *" error={errors.start_date?.message}>
+                <Input type="date" {...register("start_date")} disabled={locked} />
+              </Field>
+              <Field label="End Date *" error={errors.end_date?.message}>
+                <Input type="date" {...register("end_date")} disabled={locked} />
+              </Field>
+              <Field label="Well Name *" error={errors.well_name?.message}>
+                <Input
+                  {...register("well_name")}
+                  placeholder="Well-A1"
+                  spellCheck
+                  disabled={locked}
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
               <Field label="Location *" error={errors.location?.message}>
                 <select {...register("location")} className={selectClass} disabled={locked}>
                   <option value="">Select…</option>
@@ -497,6 +482,24 @@ export function ActivityChartEditDialog({
                 </select>
               </Field>
             </div>
+
+            {/* Warnings — live, non-blocking */}
+            {(contractImpactWarning || conflictWarning) && (
+              <div className="space-y-1.5">
+                {contractImpactWarning && (
+                  <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{contractImpactWarning}</span>
+                  </div>
+                )}
+                {conflictWarning && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{conflictWarning}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {!noResource && watchedResourceName && (
               <ResourceContractSection
