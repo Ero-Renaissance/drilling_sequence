@@ -441,18 +441,31 @@ export function ActivityChartEditDialog({
               </div>
             )}
 
-            {!noResource && watchedResourceName && (
-              <ResourceContractSection
-                ref={contractRef}
-                projectId={projectId}
-                resourceName={watchedResourceName}
-                kind={watchedResourceType === "HWU" ? "hwu" : "rig"}
-                terrain={watch("location")}
-                locked={locked}
-              />
-            )}
-
             <div className="grid grid-cols-3 gap-3">
+              <Field label="Project" error={errors.well_project?.message}>
+                <Input
+                  {...register("well_project")}
+                  list="project-suggestions"
+                  placeholder="e.g. Bonga Phase 3"
+                  spellCheck
+                  disabled={locked}
+                />
+                <datalist id="project-suggestions">
+                  {projectSuggestions.map((pName) => (
+                    <option key={pName} value={pName} />
+                  ))}
+                </datalist>
+              </Field>
+              <Field label="Market" error={errors.market?.message}>
+                <select {...register("market")} className={selectClass} disabled={locked}>
+                  <option value="">Select…</option>
+                  {MARKETS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Location *" error={errors.location?.message}>
                 <select {...register("location")} className={selectClass} disabled={locked}>
                   <option value="">Select…</option>
@@ -483,31 +496,19 @@ export function ActivityChartEditDialog({
                   ))}
                 </select>
               </Field>
-              <Field label="Project" error={errors.well_project?.message}>
-                <Input
-                  {...register("well_project")}
-                  list="project-suggestions"
-                  placeholder="e.g. Bonga Phase 3"
-                  spellCheck
-                  disabled={locked}
-                />
-                <datalist id="project-suggestions">
-                  {projectSuggestions.map((pName) => (
-                    <option key={pName} value={pName} />
-                  ))}
-                </datalist>
-              </Field>
-              <Field label="Market" error={errors.market?.message}>
-                <select {...register("market")} className={selectClass} disabled={locked}>
-                  <option value="">Select…</option>
-                  {MARKETS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </Field>
             </div>
+
+            {!noResource && watchedResourceName && (
+              <ResourceContractSection
+                ref={contractRef}
+                projectId={projectId}
+                resourceName={watchedResourceName}
+                kind={watchedResourceType === "HWU" ? "hwu" : "rig"}
+                terrain={watch("location")}
+                locked={locked}
+              />
+            )}
+
 
             <Field label="Comment">
               <Input
