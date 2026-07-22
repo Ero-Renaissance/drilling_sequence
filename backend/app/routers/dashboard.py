@@ -23,6 +23,8 @@ async def get_dashboard(
     db: DB,
     # Readiness focus window in months; 0 = all projects.
     readiness_horizon_months: int = 12,
+    # Activity-type mix window in months; 0 = the whole plan (historical view).
+    mix_horizon_months: int = 0,
 ) -> DashboardResponse:
     """Read-only KPI summary for the project. Reads are org-wide: any
     authenticated user may view it. No side effects."""
@@ -34,7 +36,15 @@ async def get_dashboard(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="readiness_horizon_months must be one of 0, 6, 12, 24",
         )
+    if mix_horizon_months not in (0, 6, 12, 24):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="mix_horizon_months must be one of 0, 6, 12, 24",
+        )
     # Reads are org-wide: any authenticated user may view campaign data.
     return await build_dashboard(
-        project_id, db, readiness_horizon_months=readiness_horizon_months
+        project_id,
+        db,
+        readiness_horizon_months=readiness_horizon_months,
+        mix_horizon_months=mix_horizon_months,
     )

@@ -126,8 +126,16 @@ function BreakdownCard({
 }
 
 /** Label · proportional bar · count, sorted by the caller. */
-function BarList({ items, max }: { items: { label: string; value: number; color: string }[]; max: number }) {
-  if (items.length === 0) return <p className="text-xs text-muted-foreground">No data yet.</p>;
+function BarList({
+  items,
+  max,
+  empty = "No data yet.",
+}: {
+  items: { label: string; value: number; color: string }[];
+  max: number;
+  empty?: string;
+}) {
+  if (items.length === 0) return <p className="text-xs text-muted-foreground">{empty}</p>;
   return (
     <div className="space-y-1.5">
       {items.map((it) => (
@@ -188,8 +196,9 @@ function GateRow({ gate }: { gate: GateBreakdown }) {
   );
 }
 
-// Readiness focus-window presets, mirrored by the backend's allow-list.
-const READINESS_HORIZONS = [
+// Focus-window presets, mirrored by the backend's allow-list. Shared by the
+// readiness block and the activity-type mix card.
+const HORIZON_OPTIONS = [
   { value: 6, label: "Next 6 months" },
   { value: 12, label: "Next 12 months" },
   { value: 24, label: "Next 24 months" },
@@ -233,6 +242,26 @@ export function ProjectDashboard({
       // storage unavailable — the in-session choice still applies
     }
   }
+  // Activity-mix window — same viewing-habit treatment, own key. Defaults to
+  // the whole plan (0), the card's historical behaviour.
+  const [mixHorizon, setMixHorizon] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem("ds.activity-mix-horizon");
+      if (raw === null) return 0;
+      const v = Number(raw);
+      return v === 0 || v === 6 || v === 12 || v === 24 ? v : 0;
+    } catch {
+      return 0;
+    }
+  });
+  function updateMixHorizon(next: number) {
+    setMixHorizon(next);
+    try {
+      window.localStorage.setItem("ds.activity-mix-horizon", String(next));
+    } catch {
+      // storage unavailable — the in-session choice still applies
+    }
+  }
 
   // Blank the page only when switching CAMPAIGN — a horizon change refetches
   // in place, keeping the current numbers up instead of flashing "Loading".
@@ -241,13 +270,13 @@ export function ProjectDashboard({
   useEffect(() => {
     let active = true;
     setError(null);
-    fetchDashboard(projectId, horizon)
+    fetchDashboard(projectId, horizon, mixHorizon)
       .then((d) => active && setData(d))
       .catch(() => active && setError("Couldn't load the dashboard."));
     return () => {
       active = false;
     };
-  }, [projectId, horizon]);
+  }, [projectId, horizon, mixHorizon]);
 
   if (error) return <p className="py-12 text-center text-sm text-destructive">{error}</p>;
   if (!data) return <p className="py-12 text-center text-sm text-muted-foreground">Loading dashboard…</p>;
@@ -310,7 +339,7 @@ export function ProjectDashboard({
                 onChange={(e) => updateHorizon(Number(e.target.value))}
                 className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
               >
-                {READINESS_HORIZONS.map((h) => (
+                {HORIZON_OPTIONS.map((h) => (
                   <option key={h.value} value={String(h.value)}>
                     {h.label}
                   </option>
@@ -334,8 +363,32 @@ export function ProjectDashboard({
             )}
           </BreakdownCard>
 
-          <BreakdownCard title="Activity-type mix">
-            <BarList items={typeItems} max={typeMax} />
+          <BreakdownCard
+            title={`Activity-type mix · ${horizonSuffix(mixHorizon)}`}
+            action={
+              <select
+                aria-label="Activity mix horizon"
+                value={String(mixHorizon)}
+                onChange={(e) => updateMixHorizon(Number(e.target.value))}
+                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+              >
+                {HORIZON_OPTIONS.map((h) => (
+                  <option key={h.value} value={String(h.value)}>
+                    {h.label}
+                  </option>
+                ))}
+              </select>
+            }
+          >
+            <BarList
+              items={typeItems}
+              max={typeMax}
+              empty={
+                mixHorizon === 0
+                  ? "No data yet."
+                  : "No activities starting in this window."
+              }
+            />
           </BreakdownCard>
         </div>
       </div>

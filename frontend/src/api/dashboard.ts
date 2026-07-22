@@ -84,9 +84,12 @@ async function authHeaders(): Promise<HeadersInit> {
 export async function fetchDashboard(
   projectId: string,
   readinessHorizonMonths = 12, // 0 = no window (all duration); backend allow-lists 0/6/12/24
+  mixHorizonMonths = 0, // activity-type mix window; 0 = whole plan
 ): Promise<DashboardResponse> {
   const resp = await fetch(
-    `/api/projects/${projectId}/dashboard?readiness_horizon_months=${readinessHorizonMonths}`,
+    `/api/projects/${projectId}/dashboard` +
+      `?readiness_horizon_months=${readinessHorizonMonths}` +
+      `&mix_horizon_months=${mixHorizonMonths}`,
     { headers: await authHeaders() },
   );
   if (!resp.ok) await throwApiError(resp, "Failed to load dashboard");

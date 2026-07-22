@@ -61,23 +61,30 @@ _SOON_DAYS = 180
 _PROCUREMENT_LOOKAHEAD_DAYS = 270
 
 
-# Readiness horizon presets (months → days). 0 = no window (all projects).
-# 12 keeps the historical FOCUS_WINDOW_DAYS behaviour.
-READINESS_HORIZONS = {6: 183, 12: FOCUS_WINDOW_DAYS, 24: 730}
+# Focus-window presets (months → days), shared by the readiness block and the
+# activity-type mix. 0 = no window; 12 keeps the historical FOCUS_WINDOW_DAYS.
+HORIZON_DAYS = {6: 183, 12: FOCUS_WINDOW_DAYS, 24: 730}
 
 
 async def build_dashboard(
     project_id: uuid.UUID,
     db: AsyncSession,
     readiness_horizon_months: int = 12,
+    mix_horizon_months: int = 0,
 ) -> DashboardResponse:
     today = date.today()
     near_term_end = today + timedelta(days=NEAR_TERM_DAYS)
-    # The readiness focus window — the router allow-lists the months value, and
-    # the .get() below fails closed to the 12-month default rather than open.
-    horizon_days = READINESS_HORIZONS.get(readiness_horizon_months, FOCUS_WINDOW_DAYS)
+    # The focus windows — the router allow-lists both months values, and the
+    # .get() below fails closed to the 12-month default rather than open.
+    horizon_days = HORIZON_DAYS.get(readiness_horizon_months, FOCUS_WINDOW_DAYS)
     focus_end = (
         None if readiness_horizon_months == 0 else today + timedelta(days=horizon_days)
+    )
+    # The activity-mix window (defaults to the whole plan, the historical view).
+    mix_end = (
+        None
+        if mix_horizon_months == 0
+        else today + timedelta(days=HORIZON_DAYS.get(mix_horizon_months, FOCUS_WINDOW_DAYS))
     )
 
     activities = (
@@ -178,6 +185,11 @@ async def build_dashboard(
     for a in activities:
         plan_key = a.plan_type or "Unspecified"
         by_plan_type[plan_key] = by_plan_type.get(plan_key, 0) + 1
+        # The mix follows its own focus window, mirroring readiness: a horizon
+        # counts in-flight + upcoming work STARTING by the window's end (done
+        # work drops out); 0 = the whole plan, completed included.
+        if mix_end is not None and (done(a) or a.start_date > mix_end):
+            continue
         by_activity_type[a.activity_type] = by_activity_type.get(a.activity_type, 0) + 1
     activity_stats = ActivityStats(
         total=len(activities),

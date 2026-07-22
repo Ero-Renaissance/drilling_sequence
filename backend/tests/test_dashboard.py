@@ -304,3 +304,59 @@ async def test_readiness_horizon_widens_and_narrows_the_focus_set(
     # Off the allow-list → refused by validation, not silently coerced.
     bad = await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=7")
     assert bad.status_code == 422
+
+
+async def test_activity_mix_horizon_filters_the_type_counts(client: AsyncClient) -> None:
+    """The mix_horizon_months filter narrows by_activity_type to in-flight +
+    upcoming work starting inside the window (completed work drops out); 0 —
+    the default — keeps the historical whole-plan mix. Off-list values are
+    refused. by_plan_type deliberately stays whole-plan."""
+    pid = await _project(client)
+
+    async def typed_activity(activity_type: str, start: date) -> dict:
+        r = await client.post(
+            f"/api/projects/{pid}/activities",
+            json={
+                "activity_type": activity_type,
+                "start_date": _iso(start), "end_date": _iso(start + timedelta(days=60)),
+                "rig_name": "R1", "well_name": f"W-{activity_type}-{start}",
+                "well_project": "MixProj", "location": "LAND",
+                "plan_type": "Firm", "risk": "No Flood Risk",
+            },
+        )
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    near = await typed_activity("Gas Development", TODAY + timedelta(days=30))
+    await typed_activity("Oil Development", TODAY + timedelta(days=300))
+    await typed_activity("Exploration - Oil", TODAY + timedelta(days=900))
+
+    async def mix(horizon: int | None) -> dict[str, int]:
+        url = f"/api/projects/{pid}/dashboard"
+        if horizon is not None:
+            url += f"?mix_horizon_months={horizon}"
+        r = await client.get(url)
+        assert r.status_code == 200, r.text
+        return r.json()["activities"]["by_activity_type"]
+
+    assert await mix(6) == {"Gas Development": 1}
+    assert await mix(12) == {"Gas Development": 1, "Oil Development": 1}
+    assert await mix(0) == {
+        "Gas Development": 1, "Oil Development": 1, "Exploration - Oil": 1,
+    }
+    # Default (no param) = whole plan — existing clients see no change.
+    assert await mix(None) == await mix(0)
+
+    # Completing the near activity removes it from any WINDOWED mix but keeps
+    # it in the whole-plan view.
+    done = await client.post(f"/api/projects/{pid}/activities/{near['id']}/complete")
+    assert done.status_code == 200, done.text
+    assert await mix(6) == {}
+    assert "Gas Development" in await mix(0)
+
+    # The plan-type split ignores the mix window (other consumers read it).
+    r = await client.get(f"/api/projects/{pid}/dashboard?mix_horizon_months=6")
+    assert r.json()["activities"]["by_plan_type"] == {"Firm": 3}
+
+    bad = await client.get(f"/api/projects/{pid}/dashboard?mix_horizon_months=9")
+    assert bad.status_code == 422

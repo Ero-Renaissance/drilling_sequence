@@ -50,7 +50,11 @@ function renderDash() {
 }
 
 describe("ProjectDashboard", () => {
-  beforeEach(() => vi.mocked(fetchDashboard).mockReset());
+  beforeEach(() => {
+    vi.mocked(fetchDashboard).mockReset();
+    // Both horizons persist as viewing habits — isolate tests from each other.
+    window.localStorage.clear();
+  });
 
   it("renders hero tiles from the dashboard data", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
@@ -113,26 +117,44 @@ describe("ProjectDashboard", () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
     await screen.findByText("Fleet status");
-    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12);
+    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
     expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "6" } });
     await waitFor(() =>
-      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 6),
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 6, 0),
     );
     expect(await screen.findByText(/Readiness · next 6 months/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "0" } });
     await waitFor(() =>
-      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 0),
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 0, 0),
     );
     expect(await screen.findByText(/Readiness · all duration/i)).toBeInTheDocument();
+  });
+
+  it("activity-mix horizon select refetches with its own window and relabels", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    await screen.findByText("Fleet status");
+    // Defaults: readiness 12, mix 0 (whole plan — the card's historical view).
+    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
+    expect(screen.getByText(/Activity-type mix · all duration/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Activity mix horizon"), { target: { value: "6" } });
+    await waitFor(() =>
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 6),
+    );
+    expect(await screen.findByText(/Activity-type mix · next 6 months/i)).toBeInTheDocument();
+    // The readiness block keeps its own window — the two filters are independent.
+    expect(screen.getByText(/Readiness by gate · next 12 months/i)).toBeInTheDocument();
+    expect(window.localStorage.getItem("ds.activity-mix-horizon")).toBe("6");
   });
 
   it("renders the breakdown panel (plan firmness and idle gaps retired)", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
-    expect(await screen.findByText("Activity-type mix")).toBeInTheDocument();
+    expect(await screen.findByText(/Activity-type mix · all duration/i)).toBeInTheDocument();
     expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
     expect(screen.getByText("Oil Development")).toBeInTheDocument();
     expect(screen.queryByText("Plan firmness")).not.toBeInTheDocument();
