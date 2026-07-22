@@ -394,3 +394,78 @@ async def test_export_returns_workbook_with_expected_sheets(client: AsyncClient)
 async def test_export_denied_without_grant(noplan_client: AsyncClient) -> None:
     r = await noplan_client.post("/api/optimizer/rig-fleet/export", json=_REQUEST)
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_create_campaign_from_result(client: AsyncClient, db) -> None:
+    """The optimizer→campaign bridge: a NEW Draft campaign with activities from
+    the scheduled wells, rigs registered as PLANNED slots, provenance in the
+    key notes, and a governance audit entry."""
+    payload = {
+        "name": "Q3 2027 — optimized draft",
+        "default_activity_type": "Oil Development",
+        "engine": "heuristic",
+        "results": [
+            {
+                "terrain": "Land",
+                "feasible": True,
+                "rig_count": 1,
+                "rigs": [
+                    {
+                        "name": "LAND Opt Rig 1",
+                        "wells": [
+                            {"project": "P-Alpha", "year": 2027, "label": "P-Alpha · WELL_1",
+                             "start": "2027-01-10", "end": "2027-03-27", "gap_before_days": 0, "gap_kind": "none"},
+                            {"project": "P-Alpha", "year": 2027, "label": "P-Alpha · WELL_2",
+                             "start": "2027-04-10", "end": "2027-06-25", "gap_before_days": 14, "gap_kind": "inter_well"},
+                        ],
+                    }
+                ],
+                "rigs_active_per_year": {"2027": 1},
+                "utilization_per_rig": {"LAND Opt Rig 1": 0.8},
+            }
+        ],
+    }
+    r = await client.post("/api/optimizer/create-campaign", json=payload)
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+
+    acts = (await client.get(f"/api/projects/{pid}/activities")).json()
+    assert len(acts) == 2
+    assert {a["well_name"] for a in acts} == {"WELL_1", "WELL_2"}
+    assert all(a["rig_name"] == "LAND Opt Rig 1" for a in acts)
+    assert all(a["well_project"] == "P-Alpha" for a in acts)
+    assert all(a["location"] == "LAND" for a in acts)
+    assert all(a["activity_type"] == "Oil Development" for a in acts)
+
+    # The optimizer's hypothetical rig is a PLANNED slot in the registry.
+    units = (await client.get(f"/api/projects/{pid}/resources")).json()
+    slot = next(u for u in units if u["name"] == "LAND Opt Rig 1")
+    assert slot["is_placeholder"] is True
+
+    # Provenance: key notes + governance audit entry.
+    detail = (await client.get(f"/api/projects/{pid}")).json()
+    assert "rig optimization" in detail["key_notes"]["body"]
+    audit = (await client.get(f"/api/projects/{pid}/audit")).json()
+    assert any("from rig optimization" in (e.get("new_value") or "") for e in audit)
+
+
+@pytest.mark.asyncio
+async def test_create_campaign_requires_planner_grant(noplan_client: AsyncClient) -> None:
+    r = await noplan_client.post(
+        "/api/optimizer/create-campaign",
+        json={"name": "X", "default_activity_type": "Oil Development", "results": []},
+    )
+    # Empty results 422s at the schema; use a minimal valid body for the 403.
+    assert r.status_code in (403, 422)
+    r = await noplan_client.post(
+        "/api/optimizer/create-campaign",
+        json={
+            "name": "X", "default_activity_type": "Oil Development",
+            "results": [{"terrain": "Land", "feasible": True, "rig_count": 1,
+                         "rigs": [{"name": "R", "wells": [{"project": "P", "year": 2027, "label": "P · W",
+                                   "start": "2027-01-01", "end": "2027-02-01", "gap_before_days": 0, "gap_kind": "none"}]}],
+                         "rigs_active_per_year": {}, "utilization_per_rig": {}}],
+        },
+    )
+    assert r.status_code == 403, r.text

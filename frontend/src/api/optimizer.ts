@@ -67,12 +67,25 @@ export interface ParsedSchedule {
   issues: string[];
 }
 
+
+export interface CreateCampaignPayload {
+  name: string;
+  field?: string | null;
+  region?: string | null;
+  default_activity_type: string;
+  engine?: string | null;
+  results: TerrainResult[];
+}
+
 export const optimizerApi = {
   run: (payload: {
     demand: DemandRow[];
     assumptions: OptimizerAssumptions;
     options: OptimizerOptions;
   }) => api.post<OptimizationResponse>("/api/optimizer/rig-fleet", payload),
+
+  createCampaign: (payload: CreateCampaignPayload) =>
+    api.post<{ id: string; name: string }>("/api/optimizer/create-campaign", payload),
 
   /** Excel export of a run — same payload as `run`; returns the workbook blob.
    *  Bypasses the JSON client (binary response) but mirrors its auth + errors. */

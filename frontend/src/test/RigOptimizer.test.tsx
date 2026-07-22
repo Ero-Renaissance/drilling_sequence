@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -33,7 +34,7 @@ describe("RigOptimizer", () => {
   });
 
   it("renders assumptions with the agreed Scenario 1 defaults", () => {
-    render(<RigOptimizer />);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
     expect(screen.getByDisplayValue("76")).toBeInTheDocument(); // well duration
     expect(screen.getByDisplayValue("45")).toBeInTheDocument(); // project move
     expect(screen.getByDisplayValue("28")).toBeInTheDocument(); // batch gap
@@ -72,7 +73,7 @@ describe("RigOptimizer", () => {
         },
       ],
     });
-    render(<RigOptimizer />);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
 
     fireEvent.change(screen.getByPlaceholderText("Project name"), {
       target: { value: "P1" },
@@ -132,7 +133,7 @@ describe("RigOptimizer", () => {
         },
       ],
     });
-    render(<RigOptimizer />);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
     fireEvent.change(screen.getByPlaceholderText("Project name"), {
       target: { value: "P9" },
     });

@@ -1,16 +1,10 @@
 import { useRef, useState } from "react";
-import { Calculator, FileDown, FileUp, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Calculator, FileDown, FileUp, FolderPlus, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toaster";
-import {
-  optimizerApi,
-  type DemandRow,
-  type OptimizerAssumptions,
-  type OptimizerOptions,
-  type OptimizationResponse,
-  type Terrain,
-} from "@/api/optimizer";
+import { optimizerApi, type DemandRow, type OptimizerAssumptions, type OptimizerOptions, type OptimizationResponse, type Terrain, type TerrainResult } from "@/api/optimizer";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { optimizerResultsToActivities } from "@/lib/optimizer-chart";
@@ -91,6 +85,7 @@ function NumberField({
 }
 
 export function RigOptimizer() {
+  const navigate = useNavigate();
   const [assumptions, setAssumptions] = useState(DEFAULT_ASSUMPTIONS);
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [years, setYears] = useState<number[]>(DEFAULT_YEARS);
@@ -461,6 +456,11 @@ export function RigOptimizer() {
       {/* Results */}
       {result && (
         <div className="space-y-4">
+          <CreateCampaignPanel
+            results={result.results}
+            engine={result.engine ?? null}
+            onCreated={(id) => navigate(`/projects/${id}/data`)}
+          />
           {/* KPI bar: total rigs per terrain, at a glance */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {result.results.map((tr) => (
@@ -536,3 +536,114 @@ export function RigOptimizer() {
     </div>
   );
 }
+
+/** The optimizer→campaign bridge: turn this run's schedule into a NEW Draft
+ *  campaign (planner-refined afterwards; full governance applies). The rigs
+ *  land in the fleet registry as planned slots. */
+function CreateCampaignPanel({
+  results,
+  engine,
+  onCreated,
+}: {
+  results: TerrainResult[];
+  engine: string | null;
+  onCreated: (projectId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [field, setField] = useState("");
+  const [defaultType, setDefaultType] = useState("Oil Development");
+  const [creating, setCreating] = useState(false);
+
+  const feasible = results.filter((r) => r.feasible && r.rigs.some((rig) => rig.wells.length > 0));
+  const wellTotal = feasible.reduce(
+    (n, tr) => n + tr.rigs.reduce((m, rig) => m + rig.wells.length, 0),
+    0,
+  );
+  if (feasible.length === 0) return null;
+
+  async function create() {
+    if (!name.trim()) {
+      toast.error("Give the campaign a name.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await optimizerApi.createCampaign({
+        name: name.trim(),
+        field: field.trim() || null,
+        default_activity_type: defaultType.trim() || "Oil Development",
+        engine,
+        results: feasible,
+      });
+      toast.success(
+        `Campaign "${created.name}" created — review activity types, wells and markets.`,
+      );
+      onCreated(created.id);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to create the campaign");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 shadow-soft-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">
+            Turn this result into a campaign
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Creates a Draft campaign with {wellTotal} scheduled wells; the optimizer's rigs join
+            the fleet registry as planned slots. You refine types, wells and markets afterwards —
+            the normal endorsement &amp; approval flow applies.
+          </p>
+        </div>
+        {!open && (
+          <Button size="sm" onClick={() => setOpen(true)} data-testid="create-campaign-open">
+            <FolderPlus className="h-4 w-4" />
+            <span className="ml-1.5">Create campaign…</span>
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="space-y-1 text-xs font-medium text-muted-foreground">
+            Campaign name *
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Q3 2027 Rig Sequence (optimized)"
+              className="w-72"
+              maxLength={256}
+              data-testid="create-campaign-name"
+            />
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted-foreground">
+            Field (optional)
+            <Input value={field} onChange={(e) => setField(e.target.value)} className="w-44" maxLength={256} />
+          </label>
+          <label className="space-y-1 text-xs font-medium text-muted-foreground">
+            Default activity type
+            <Input
+              value={defaultType}
+              onChange={(e) => setDefaultType(e.target.value)}
+              className="w-52"
+              maxLength={256}
+            />
+          </label>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={create} disabled={creating} data-testid="create-campaign-submit">
+              {creating ? "Creating…" : "Create Draft campaign"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={creating}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

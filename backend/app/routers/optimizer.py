@@ -8,17 +8,24 @@ revision, approval, or governance state is touched (spec §8).
 import io
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.auth import get_current_user
 from app.core.rbac import assert_can_plan
+from app.database import get_db
+from app.models.activity import Activity
+from app.models.project import Project, ProjectMember, ProjectRole
 from app.models.user import User
 from app.schemas.optimizer import (
     MAX_PROJECTS,
+    CreateCampaignFromResult,
     DemandRow,
     OptimizationRequest,
     OptimizationResponse,
@@ -26,6 +33,10 @@ from app.schemas.optimizer import (
     Terrain,
     TerrainResultOut,
 )
+from app.schemas.project import ProjectResponse
+from app.services.activity_types import canonicalize_activity_type
+from app.services.audit import ENTITY_PROJECT, governance_event
+from app.services.registry import ensure_registered
 from app.services.rig_optimizer import Assumptions, Options, run
 from app.services.spreadsheet import neutralize_formula_cells
 
@@ -309,3 +320,108 @@ async def parse_schedule(file: UploadFile, current_user: CurrentUser) -> ParsedS
     return ParsedScheduleResponse(
         demand=demand, years=sorted(set(year_cols.values())), issues=issues
     )
+
+
+@router.post("/create-campaign", status_code=status.HTTP_201_CREATED)
+async def create_campaign_from_result(
+    payload: CreateCampaignFromResult,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db=Depends(get_db),
+) -> ProjectResponse:
+    """The optimizer→campaign bridge: turn a run's schedule into a NEW Draft
+    campaign the planner refines through the normal tabs. Never merges into an
+    existing campaign; the full governance flow applies to the result like any
+    other draft. Rigs land in the fleet registry as PLANNED slots (they are
+    hypothetical until awarded), so the demand chart and procurement watchlist
+    read correctly from minute one."""
+    assert_can_plan(current_user)
+
+    # Canonicalize the default type exactly like every other write path.
+    a_type = canonicalize_activity_type(payload.default_activity_type) or (
+        payload.default_activity_type.strip()
+    )
+
+    project = Project(
+        name=payload.name.strip(),
+        field=payload.field.strip() if payload.field else None,
+        region=payload.region.strip() if payload.region else None,
+        created_by=current_user.id,
+    )
+    db.add(project)
+    await db.flush()
+    db.add(
+        ProjectMember(
+            project_id=project.id, user_id=current_user.id, role=ProjectRole.planner
+        )
+    )
+
+    # The optimizer's terrain classes map onto the campaign's location enum the
+    # same way the on-screen preview maps them (lib/optimizer-chart.ts): SWO
+    # (shallow offshore) rides the OFFSHORE band.
+    terrain_location = {"Land": "LAND", "Swamp": "SWAMP", "SWO": "OFFSHORE"}
+
+    well_count = 0
+    rig_count = 0
+    for tr in payload.results:
+        terrain = terrain_location[tr.terrain.value]
+        for rig in tr.rigs:
+            # ensure_registered creates new units as PLANNED slots by default.
+            await ensure_registered(
+                db, project.id, kind="rig", name=rig.name,
+                location=terrain, user_id=current_user.id,
+            )
+            rig_count += 1
+            for w in rig.wells:
+                # The optimizer's display label is "PROJECT · WELL"; keep the
+                # well part as the placeholder name the planner renames.
+                well_name = (w.label.split("·")[-1].strip() or w.label.strip())[:256]
+                db.add(
+                    Activity(
+                        project_id=project.id,
+                        activity_type=a_type,
+                        start_date=w.start,
+                        end_date=w.end,
+                        well_name=well_name,
+                        rig_name=rig.name,
+                        well_project=w.project,
+                        location=terrain,
+                        plan_type="Firm",
+                        risk="No Flood Risk",
+                        updated_by=current_user.id,
+                    )
+                )
+                well_count += 1
+
+    # Provenance in the campaign bulletin — planner-editable like any key note.
+    stamp = datetime.now(timezone.utc).date().isoformat()
+    engine_note = f" ({payload.engine} engine)" if payload.engine else ""
+    project.key_notes = (
+        f"- Created from rig optimization on {stamp}{engine_note}\n"
+        f"- {well_count} wells across {rig_count} planned rigs — review activity "
+        f"types, well names, markets and risks before submitting"
+    )
+    project.key_notes_updated_at = datetime.now(timezone.utc)
+    project.key_notes_updated_by = current_user.id
+
+    db.add(
+        governance_event(
+            project_id=project.id,
+            user_id=current_user.id,
+            entity_type=ENTITY_PROJECT,
+            entity_id=project.id,
+            action="created",
+            detail=(
+                f"Created campaign '{project.name}' from rig optimization "
+                f"({well_count} wells, {rig_count} planned rigs)"
+            ),
+        )
+    )
+    await db.commit()
+
+    result = await db.execute(
+        select(Project)
+        .where(Project.id == project.id)
+        .options(selectinload(Project.members).selectinload(ProjectMember.user))
+    )
+    return ProjectResponse.from_project(result.scalar_one())
+

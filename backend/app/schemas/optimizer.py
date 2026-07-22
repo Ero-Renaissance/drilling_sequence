@@ -96,6 +96,32 @@ class RigPlanOut(BaseModel):
     wells: list[ScheduledWellOut]
 
 
+class CreateCampaignFromResult(BaseModel):
+    """Turn an optimization result into a NEW Draft campaign. The result is
+    client-held state (same trust level as a CSV import), so it re-validates
+    through the same bounded schemas the optimizer emits; a total-well cap
+    bounds the insert."""
+
+    name: str = Field(min_length=1, max_length=256)
+    field: str | None = Field(default=None, max_length=256)
+    region: str | None = Field(default=None, max_length=256)
+    # One default work type for every created activity — the planner refines
+    # per-activity in the grid afterwards (canonicalized server-side).
+    default_activity_type: str = Field(min_length=1, max_length=256)
+    engine: str | None = Field(default=None, max_length=32)
+    results: list["TerrainResultOut"] = Field(min_length=1, max_length=3)
+
+    @field_validator("results")
+    @classmethod
+    def _cap_total_wells(cls, v: list["TerrainResultOut"]) -> list["TerrainResultOut"]:
+        total = sum(len(r.wells) for tr in v for r in tr.rigs)
+        if total == 0:
+            raise ValueError("The result contains no scheduled wells")
+        if total > 2000:
+            raise ValueError("Too many wells to import (max 2000)")
+        return v
+
+
 class TerrainResultOut(BaseModel):
     terrain: Terrain
     feasible: bool
