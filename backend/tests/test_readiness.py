@@ -77,6 +77,37 @@ async def test_readiness_one_row_per_field_project(client: AsyncClient) -> None:
         assert set(row["checks"].keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"}
 
 
+@pytest.mark.asyncio
+async def test_readiness_focus_start_tracks_earliest_pending_activity(client: AsyncClient) -> None:
+    """focus_start is the earliest start of a NOT-done, readiness-REQUIRED activity
+    under the field project — the signal the readiness page uses to replicate the
+    Overview KPI's "next N months" window. It advances as work completes, and is
+    null for a project with no pending readiness-required work."""
+    project = await _create_project(client)
+    # Bonga Phase 3: two pending activities — the earlier start wins.
+    await _create_activity(client, project["id"], well_name="W-1",
+                           start_date="2026-04-01", end_date="2026-05-01")
+    early = await _create_activity(client, project["id"], well_name="W-2",
+                                   start_date="2026-01-01", end_date="2026-02-01")
+    # Egina North: only an opt-out activity (readiness_required=False) — no pending
+    # readiness work, so it never falls inside a focus window.
+    await _create_activity(client, project["id"], well_name="W-3",
+                           well_project="Egina North", rig_name="Rig Beta",
+                           start_date="2026-03-01", end_date="2026-04-01",
+                           readiness_required=False)
+
+    rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
+    by_project = {r["well_project"]: r for r in rows}
+    assert by_project["Bonga Phase 3"]["focus_start"] == "2026-01-01"
+    assert by_project["Egina North"]["focus_start"] is None
+
+    # Completing the earliest activity advances the window to the next pending one.
+    await client.post(f"/api/projects/{project['id']}/activities/{early['id']}/complete")
+    rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
+    by_project = {r["well_project"]: r for r in rows}
+    assert by_project["Bonga Phase 3"]["focus_start"] == "2026-04-01"
+
+
 # ── PUT /readiness/{well_project}/{check_code} ───────────────────────────────
 
 

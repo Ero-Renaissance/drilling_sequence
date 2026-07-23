@@ -148,4 +148,72 @@ describe("ReadinessGrid", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  // ── Time-window (horizon) filter ────────────────────────────────────────────
+
+  const mkChecks = () =>
+    Object.fromEntries(
+      CHECK_CODES.map((c) => [c, { status: "On Track", notes: null, updated_at: null }]),
+    );
+
+  function isoInDays(days: number): string {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // Near = starts in ~1 month (inside every window); Far = ~13 months out
+  // (outside 6/12mo); Done = no pending readiness work (focus_start null → never
+  // in a window).
+  function useWindowFixture() {
+    server.use(
+      http.get("/api/projects/:projectId/readiness", () =>
+        HttpResponse.json([
+          { well_project: "Near Field", activity_count: 2, checks: mkChecks(), focus_start: isoInDays(30) },
+          { well_project: "Far Field", activity_count: 1, checks: mkChecks(), focus_start: isoInDays(400) },
+          { well_project: "Done Field", activity_count: 1, checks: mkChecks(), focus_start: null },
+        ]),
+      ),
+    );
+  }
+
+  function renderAt(entry: string) {
+    return render(
+      <MemoryRouter future={routerFuture} initialEntries={[entry]}>
+        <ReadinessGrid projectId={PROJECT_ID} />
+      </MemoryRouter>,
+    );
+  }
+
+  it("arriving with ?horizon=6 shows only field projects inside that window", async () => {
+    useWindowFixture();
+    renderAt("/?horizon=6");
+    await waitFor(() => screen.getByText("Near Field"));
+    // Only the near-term project falls inside 6 months.
+    expect(screen.queryByText("Far Field")).not.toBeInTheDocument();
+    expect(screen.queryByText("Done Field")).not.toBeInTheDocument();
+    // Banner explains the active window so the count matches the source KPI.
+    expect(
+      screen.getByText(/readiness-required work starting in the next 6 months/i),
+    ).toBeInTheDocument();
+  });
+
+  it("narrows via the window select and restores on Clear filter", async () => {
+    useWindowFixture();
+    renderAt("/");
+    await waitFor(() => screen.getByText("Near Field"));
+    // No window → all three field projects show.
+    expect(screen.getByText("Far Field")).toBeInTheDocument();
+    expect(screen.getByText("Done Field")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "6");
+    await waitFor(() => expect(screen.queryByText("Far Field")).not.toBeInTheDocument());
+    expect(screen.getByText("Near Field")).toBeInTheDocument();
+    expect(screen.queryByText("Done Field")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
+    await waitFor(() => screen.getByText("Far Field"));
+    expect(screen.getByText("Done Field")).toBeInTheDocument();
+  });
 });

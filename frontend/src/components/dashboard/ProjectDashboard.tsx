@@ -307,7 +307,9 @@ export function ProjectDashboard({
           sub={`${activities.completed_this_quarter} this quarter`}
         />
         <Tile
-          to={`${base}/readiness`}
+          to={`${base}/readiness${
+            horizon === 6 || horizon === 12 || horizon === 24 ? `?horizon=${horizon}` : ""
+          }`}
           label={`Readiness · ${horizonSuffix(horizon)}`}
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
           sub={`${readiness.ready}/${readiness.focus_count} ready · ${readiness.behind_cells} behind`}

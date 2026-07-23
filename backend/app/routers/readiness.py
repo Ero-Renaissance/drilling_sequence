@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -68,6 +69,25 @@ async def list_readiness(
     }
     locked = await _campaign_locked(project_id, db)
 
+    # Earliest not-done, readiness-required activity start per field project — the
+    # same signal the Overview readiness KPI uses for its focus window, so the
+    # page can filter to exactly the projects a "next N months" card counted.
+    # completed_at IS NULL = not done; the bare readiness_required column compiles
+    # to ``= 1`` on SQL Server (``.is_(True)`` would be a syntax error there).
+    focus_result = await db.execute(
+        select(Activity.well_project, func.min(Activity.start_date))
+        .where(
+            Activity.project_id == project_id,
+            Activity.well_project.is_not(None),
+            Activity.completed_at.is_(None),
+            Activity.readiness_required,
+        )
+        .group_by(Activity.well_project)
+    )
+    focus_start_by_project: dict[str, date] = {
+        wp: d for wp, d in focus_result.all() if wp and d is not None
+    }
+
     def _state(well_project: str, code: str) -> CheckState:
         gate = by_gate.get((well_project, code))
         if gate is not None:
@@ -80,6 +100,7 @@ async def list_readiness(
             checks={code: _state(wp, code) for code in CHECK_CODES},
             activity_count=n,
             locked=locked,
+            focus_start=focus_start_by_project.get(wp),
         )
         for wp, n in project_counts
     ]

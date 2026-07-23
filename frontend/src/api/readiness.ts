@@ -25,6 +25,12 @@ export interface ProjectReadiness {
   activity_count: number;
   /** Frozen while a revision is awaiting approval — the dots are disabled. */
   locked?: boolean;
+  /** Earliest start (ISO date) of a not-done, readiness-required activity under
+   *  this field project — the same signal the Overview readiness KPI uses. Drives
+   *  the page's time filter: a project is "in the next N months" iff
+   *  `focus_start <= today + N`. Null when the project has no pending readiness
+   *  work (all done or opt-out), so it never falls inside a window. */
+  focus_start?: string | null;
 }
 
 async function authHeaders(): Promise<HeadersInit> {

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -40,3 +40,9 @@ class ProjectReadiness(BaseModel):
     # Frozen while a revision is awaiting approval (the readiness PUT 423s) — lets
     # the grid disable the controls up front, matching the campaign plan lock.
     locked: bool = False
+    # Earliest start date of a not-done, readiness-required activity under this
+    # field project. Lets the readiness page apply the same focus window the
+    # Overview KPI uses — a project is "in the next N months" iff
+    # ``focus_start <= today + N``. None when the project has no pending
+    # readiness-required work (all done or opt-out): it never falls in a window.
+    focus_start: date | None = None

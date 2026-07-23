@@ -20,6 +20,24 @@ import { CHECK_META, STATUS_DOT } from "./check-meta";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
+// Focus-window day counts — identical to the dashboard's HORIZON_DAYS so the
+// page's "next N months" matches the Overview readiness KPI's window exactly
+// (6mo≈183d, 12mo=365d, 24mo=730d), rather than drifting on calendar months.
+const HORIZON_DAYS: Record<number, number> = { 6: 183, 12: 365, 24: 730 };
+
+/** True when a field project falls inside the N-month focus window: it has
+ *  pending readiness work (`focus_start` set) that starts on/before today + N.
+ *  Mirrors the backend focus filter the readiness KPI uses. */
+function inHorizon(focusStart: string | null | undefined, months: number): boolean {
+  if (!focusStart) return false;
+  const days = HORIZON_DAYS[months];
+  if (!days) return true;
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() + days);
+  return new Date(`${focusStart}T00:00:00`).getTime() <= cutoff.getTime();
+}
+
 // ── Legend ───────────────────────────────────────────────────────────────────
 
 function Legend() {
@@ -209,22 +227,36 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   );
 
   const q = search.trim().toLowerCase();
-  const textRows = q
-    ? rows.filter((r) => r.well_project.toLowerCase().includes(q))
-    : rows;
-  // Watchlist drill-through: ?focus=not-ready narrows to the not-yet-ready field
-  // projects (there is no per-project start date, so the near-term half of the
-  // dashboard's filter can't apply here — readiness is what this view tracks).
+  // Drill-through filters, composed with the text search:
+  //  • ?focus=not-ready → only field projects that aren't yet ready.
+  //  • ?horizon=6|12|24 → only projects whose earliest not-done, readiness-
+  //    required activity starts within N months (focus_start), matching the
+  //    Overview readiness KPI's window so the page shows exactly what it counted.
   const notReadyFocus = searchParams.get("focus") === "not-ready";
-  const filteredRows = notReadyFocus
-    ? textRows.filter((r) => !checksReady(r.checks))
-    : textRows;
+  const horizonParam = searchParams.get("horizon");
+  const horizon =
+    horizonParam === "6" || horizonParam === "12" || horizonParam === "24"
+      ? Number(horizonParam)
+      : 0; // 0 = all field projects (no window)
+  const filteredRows = rows.filter((r) => {
+    if (q && !r.well_project.toLowerCase().includes(q)) return false;
+    if (notReadyFocus && checksReady(r.checks)) return false;
+    if (horizon !== 0 && !inHorizon(r.focus_start, horizon)) return false;
+    return true;
+  });
+  const filtering = Boolean(q) || notReadyFocus || horizon !== 0;
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visibleRows = filteredRows.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
 
   function clearFocus() {
     searchParams.delete("focus");
+    setSearchParams(searchParams, { replace: true });
+  }
+
+  function setHorizon(next: number) {
+    if (next === 0) searchParams.delete("horizon");
+    else searchParams.set("horizon", String(next));
     setSearchParams(searchParams, { replace: true });
   }
 
@@ -243,6 +275,21 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           <button
             type="button"
             onClick={clearFocus}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
+      {horizon !== 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+          <span>
+            <span className="font-semibold">{filteredRows.length}</span> shown — field
+            projects with readiness-required work starting in the next {horizon} months
+          </span>
+          <button
+            type="button"
+            onClick={() => setHorizon(0)}
             className="text-xs font-medium text-primary hover:underline"
           >
             Clear filter
@@ -275,6 +322,20 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         )}
 
         <div className="ml-auto flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="whitespace-nowrap">Window</span>
+            <select
+              aria-label="Readiness time window"
+              value={String(horizon)}
+              onChange={(e) => setHorizon(Number(e.target.value))}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+            >
+              <option value="0">All field projects</option>
+              <option value="6">Next 6 months</option>
+              <option value="12">Next 12 months</option>
+              <option value="24">Next 24 months</option>
+            </select>
+          </label>
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -283,7 +344,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             testId="readiness-search"
           />
           <span className="text-xs tabular-nums text-muted-foreground">
-            {q
+            {filtering
               ? `${filteredRows.length} of ${rows.length}`
               : `${rows.length} ${rows.length === 1 ? "project" : "projects"}`}
           </span>
@@ -320,7 +381,15 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         </div>
       ) : filteredRows.length === 0 ? (
         <div className="flex h-48 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
-          <p className="text-sm">No field projects match &ldquo;{search}&rdquo;.</p>
+          <p className="text-sm">
+            {q ? (
+              <>No field projects match &ldquo;{search}&rdquo;.</>
+            ) : horizon !== 0 ? (
+              `No field projects have readiness-required work starting in the next ${horizon} months.`
+            ) : (
+              "No field projects match the current filter."
+            )}
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
