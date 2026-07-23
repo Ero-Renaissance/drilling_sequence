@@ -216,11 +216,21 @@ async def clone_project(
             well_name=src.well_name,
             rig_name=src.rig_name,
             hwu_name=src.hwu_name,
+            # The field-development project (the "Project" column) the well
+            # belongs to — must carry over, else the clone's grid Project column
+            # is blank and the copied readiness gates (keyed by well_project)
+            # match nothing.
+            well_project=src.well_project,
             project_group=src.project_group,
             location=src.location,
             risk=src.risk,
             comment=src.comment,
             plan_type=src.plan_type,
+            # Project-level attributes denormalised onto the row the same way
+            # well_project is: the market assignment and the readiness opt-out
+            # both belong to the next quarter's plan.
+            market=src.market,
+            readiness_required=src.readiness_required,
             updated_by=current_user.id,
         )
         db.add(new_activity)

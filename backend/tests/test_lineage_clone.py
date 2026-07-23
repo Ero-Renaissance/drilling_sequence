@@ -57,6 +57,34 @@ async def test_clone_drops_completed_activities(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_clone_carries_project_level_activity_fields(client: AsyncClient) -> None:
+    """well_project (the "Project" column), market, and the readiness opt-out are
+    denormalised onto activity rows and must survive a clone — otherwise the new
+    quarter's grid Project column is blank, market grouping breaks, and copied
+    readiness gates (keyed by well_project) match nothing."""
+    pid = await _project(client, "Q1")
+    await _activity(
+        client,
+        pid,
+        well_name="W-1",
+        well_project="Gbaran 31/30",
+        market="Export Gas",
+        readiness_required=False,
+    )
+
+    clone = await client.post(f"/api/projects/{pid}/clone", json={"name": "Q2"})
+    assert clone.status_code == 201, clone.text
+    q2 = clone.json()["id"]
+
+    acts = (await client.get(f"/api/projects/{q2}/activities")).json()
+    assert len(acts) == 1
+    carried = acts[0]
+    assert carried["well_project"] == "Gbaran 31/30"
+    assert carried["market"] == "Export Gas"
+    assert carried["readiness_required"] is False
+
+
+@pytest.mark.asyncio
 async def test_cross_compare_matches_by_lineage(client: AsyncClient) -> None:
     # Q1 with two wells; complete one so it drops from the clone.
     q1 = await _project(client, "Q1")
