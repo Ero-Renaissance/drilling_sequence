@@ -86,7 +86,13 @@ async def list_readiness(
 
 
 @router.put(
-    "/readiness/{well_project}/{check_code}",
+    # ``well_project`` is user data (e.g. the block "Gbaran 31/30") and can contain
+    # slashes. The frontend percent-encodes it, but uvicorn/Starlette decode %2F
+    # back to "/" BEFORE routing, so a plain ``{well_project}`` segment would split
+    # on the slash and 404. The ``:path`` converter lets it span slashes; the
+    # trailing ``{check_code}`` stays a single clean segment (a fixed enum,
+    # validated below).
+    "/readiness/{well_project:path}/{check_code}",
     response_model=CheckUpsertResponse,
 )
 async def upsert_readiness_check(

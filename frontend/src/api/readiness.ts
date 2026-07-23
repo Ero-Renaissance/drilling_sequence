@@ -41,9 +41,11 @@ export async function listReadiness(projectId: string): Promise<ProjectReadiness
 }
 
 /**
- * Set ONE readiness gate for a whole field project. `wellProject` is a plain
- * path segment on the backend and can contain spaces/slashes, so it must be
- * URL-encoded here.
+ * Set ONE readiness gate for a whole field project. `wellProject` can contain
+ * spaces and slashes (e.g. the block "Gbaran 31/30"), so it is percent-encoded
+ * here AND the backend matches it with a `:path` route converter. Encoding alone
+ * is not enough: the server decodes %2F back to "/" before routing, which would
+ * otherwise split the segment and 404.
  */
 export async function upsertCheck(
   projectId: string,

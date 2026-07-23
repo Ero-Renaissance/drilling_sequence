@@ -116,6 +116,29 @@ async def test_upsert_updates_existing_gate(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_upsert_gate_well_project_with_slash(client: AsyncClient) -> None:
+    """Real well_project values carry slashes (e.g. the block "Gbaran 31/30").
+    The PUT route uses a ``:path`` converter so the decoded slash doesn't split
+    routing into a 404 — regression guard for the encoded-slash bug."""
+    project = await _create_project(client)
+    await _create_activity(client, project["id"], well_project="Gbaran 31/30")
+
+    resp = await client.put(
+        _url(project["id"], "Gbaran 31/30", "LLI"),
+        json={"status": "Completed"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["well_project"] == "Gbaran 31/30"
+    assert body["check_code"] == "LLI"
+
+    rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
+    assert len(rows) == 1
+    assert rows[0]["well_project"] == "Gbaran 31/30"
+    assert rows[0]["checks"]["LLI"]["status"] == "Completed"
+
+
+@pytest.mark.asyncio
 async def test_upsert_unknown_project_404s(client: AsyncClient) -> None:
     """BOLA: gates can only be set for a field project that has activities in
     THIS campaign — no inventing readiness rows for arbitrary names."""
