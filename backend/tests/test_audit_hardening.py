@@ -41,6 +41,17 @@ async def test_project_update_and_archive_are_audited(client: AsyncClient) -> No
 
 
 @pytest.mark.asyncio
+async def test_rename_rejects_out_of_bounds_name(client: AsyncClient) -> None:
+    """Campaign name is bounded to the column width (256) and must be non-empty —
+    both are clean 422s at the schema boundary, never a DB-layer 500."""
+    pid = await _project(client)
+    too_long = await client.patch(f"/api/projects/{pid}", json={"name": "x" * 257})
+    assert too_long.status_code == 422, too_long.text
+    blank = await client.patch(f"/api/projects/{pid}", json={"name": "   "})
+    assert blank.status_code == 422, blank.text
+
+
+@pytest.mark.asyncio
 async def test_signature_title_comes_from_the_matrix_not_the_client(
     client: AsyncClient, other_client: AsyncClient
 ) -> None:

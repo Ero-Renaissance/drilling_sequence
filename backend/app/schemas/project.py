@@ -8,7 +8,10 @@ from app.models.project import ProjectRole, ProjectStatus, ReviewPolicy
 
 
 class ProjectCreate(BaseModel):
-    name: str
+    # Bounded to the Project.name column (String(256)) so an over-long name is a
+    # clean 422, not a DB-layer 500. The validator additionally trims + rejects
+    # whitespace-only.
+    name: str = Field(max_length=256)
     field: str | None = None
     region: str | None = None
 
@@ -23,7 +26,7 @@ class ProjectCreate(BaseModel):
 class ProjectClone(BaseModel):
     """Create a new project from an existing one. field/region default to the source's."""
 
-    name: str
+    name: str = Field(max_length=256)
     field: str | None = None
     region: str | None = None
 
@@ -36,7 +39,7 @@ class ProjectClone(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=256)
     field: str | None = None
     region: str | None = None
     status: ProjectStatus | None = None

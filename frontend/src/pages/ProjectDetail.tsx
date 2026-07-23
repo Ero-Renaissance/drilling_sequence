@@ -32,6 +32,7 @@ import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { KeyNotesCard } from "@/components/dashboard/KeyNotesCard";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { PlannersPanel } from "@/components/projects/PlannersPanel";
+import { RenameCampaignDialog } from "@/components/projects/RenameCampaignDialog";
 import { CampaignCapacitySection } from "@/components/dashboard/CampaignCapacitySection";
 import { ApproverSettings } from "@/components/revisions/ApproverSettings";
 import { ReviewSettings } from "@/components/revisions/ReviewSettings";
@@ -219,6 +220,15 @@ export function ProjectDetail() {
                 Overview "Approval" tile — clicks through to Approvals. */}
             {projectId && (
               <PlanStateChip projectId={projectId} approval={fetchedProject?.approval} />
+            )}
+            {/* Rename the campaign — planner/admin only (mirrors the backend
+                Planner gate on PATCH /projects/{id}). */}
+            {canRevise && project && (
+              <RenameCampaignDialog
+                projectId={project.id}
+                currentName={project.name}
+                onRenamed={refreshLock}
+              />
             )}
           </div>
           {project && (project.field || project.region) && (
