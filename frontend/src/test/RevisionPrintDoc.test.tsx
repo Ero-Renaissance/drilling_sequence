@@ -327,3 +327,49 @@ describe("Terrain-major sections", () => {
     expect(heads).toContain("Unassigned");
   });
 });
+
+describe("completed activities render grey — the frozen at-submit status", () => {
+  const withCompleted: PrintRow[] = [
+    { ...rows[0], id: "done", well_name: "Done Well", completed_at: "2033-01-21T00:00:00Z" },
+    { ...rows[1], id: "open", well_name: "Open Well" },
+  ];
+
+  it("greys a completed bar, keeps the open bar's legend colour, and keys the legend", () => {
+    const { container } = render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={withCompleted}
+        chart="standard"
+        includeSchedule={false}
+        signatures="wetink"
+      />,
+    );
+
+    const bars = [...container.querySelectorAll<HTMLElement>("span[title]")];
+    const done = bars.find((b) => b.title.includes("Done Well"));
+    const open = bars.find((b) => b.title.includes("Open Well"));
+    expect(done?.style.backgroundColor).toBe("rgb(148, 163, 184)"); // #94a3b8
+    expect(done?.title).toContain("· completed");
+    expect(open?.style.backgroundColor).not.toBe("rgb(148, 163, 184)");
+    expect(open?.title).not.toContain("· completed");
+
+    // The legend decodes the grey; nothing was dropped from the record.
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(done).toBeDefined();
+  });
+
+  it("shows no Completed legend when nothing is completed", () => {
+    render(
+      <RevisionPrintDoc
+        revision={revision}
+        project={null}
+        rows={rows}
+        chart="standard"
+        includeSchedule={false}
+        signatures="wetink"
+      />,
+    );
+    expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+  });
+});

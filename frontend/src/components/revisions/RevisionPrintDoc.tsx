@@ -90,6 +90,21 @@ export interface PrintRow {
   readiness_required?: boolean;
   rig_contract_status?: string | null;
   rig_contract_end?: string | null;
+  /** Set when the activity is finished — renders grey (same slate as the
+   *  on-screen chart) in BOTH documents: live status on the working copy,
+   *  the frozen at-submit status on the formal record. */
+  completed_at?: string | null;
+}
+
+// The exact grey the interactive chart uses for completed bars — one rule
+// everywhere: completed = grey, on screen and on paper.
+const COMPLETED_FILL = "#94a3b8";
+
+const isDone = (r: PrintRow): boolean => !!r.completed_at;
+
+/** A bar's fill: its activity colour, or the completed grey. */
+function barFill(r: PrintRow): string {
+  return isDone(r) ? COMPLETED_FILL : getActivityColor(r.activity_type);
 }
 
 function parse(d: string | null | undefined): Date | null {
@@ -443,9 +458,9 @@ function StaticGantt({
                                   {/* Colored bar; the well name rides INSIDE only when the bar is
                                       wide enough — otherwise it spills beside the bar (below). */}
                                   <span
-                                    title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
+                                    title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}${isDone(a) ? " · completed" : ""}`}
                                     className="absolute top-[0.55rem] flex h-[0.95rem] items-center justify-center overflow-hidden rounded px-0.5 text-[6px] font-medium text-white"
-                                    style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
+                                    style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: barFill(a) }}
                                   >
                                     {namePlacement.side === "inside" && a.well_name ? (
                                       <span className="truncate">{a.well_name}</span>
@@ -503,9 +518,9 @@ function StaticGantt({
                                     </span>
                                   )}
                                   <span
-                                    title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}`}
+                                    title={`#${n ?? "?"} · ${a.activity_type}${a.well_name ? ` · ${a.well_name}` : ""}${a.well_project ? ` · ${a.well_project}` : ""}${isDone(a) ? " · completed" : ""}`}
                                     className="absolute top-[0.5rem] flex h-6 items-center justify-center gap-1 overflow-hidden rounded px-1 text-[6.5px] font-semibold text-white"
-                                    style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: getActivityColor(a.activity_type) }}
+                                    style={{ left: `${l}%`, width: `${wpct}%`, minWidth: "1.15rem", backgroundColor: barFill(a) }}
                                   >
                                     {/* Order number as a white "index badge" — its own
                                         container + mono digits read as a marker into the
@@ -592,6 +607,7 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
   // Show the contract-expiry key only when some rig has an in-force contract.
   const hasExpiry = rows.some((r) => hasContractMarker(r.rig_contract_status, r.rig_contract_end));
   const hasFlood = rows.some((r) => r.risk === "Flood Risk");
+  const hasCompleted = rows.some(isDone);
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <span className="font-semibold uppercase tracking-wider text-muted-foreground">Activity</span>
@@ -601,6 +617,12 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
           {t}
         </span>
       ))}
+      {hasCompleted && (
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: COMPLETED_FILL }} />
+          Completed
+        </span>
+      )}
       {showOrderKey && (
         <>
           <span className="mx-0.5 h-3 w-px bg-border" />

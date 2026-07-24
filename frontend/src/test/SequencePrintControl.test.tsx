@@ -41,6 +41,7 @@ function act(over: Partial<Activity>): Activity {
 const ACTIVITIES = [
   act({}),
   act({ location: "SWAMP", rig_name: "Rig 2", well_name: "W-2" }),
+  act({ well_name: "W-Done", completed_at: "2026-02-01T00:00:00Z" }),
 ];
 
 describe("SequencePrintControl", () => {
@@ -87,6 +88,15 @@ describe("SequencePrintControl", () => {
     // Terrain-major sections from the live activities.
     expect(bundle.textContent).toContain("Land terrain");
     expect(bundle.textContent).toContain("Swamp terrain");
+
+    // Completed work stays IN the working copy, greyed like the screen —
+    // never dropped, and the legend decodes it.
+    const doneBar = [...bundle.querySelectorAll("span[title]")].find((b) =>
+      (b as HTMLElement).title.includes("W-Done"),
+    ) as HTMLElement | undefined;
+    expect(doneBar?.style.backgroundColor).toBe("rgb(148, 163, 184)");
+    expect(doneBar?.title).toContain("· completed");
+    expect(bundle.textContent).toContain("Completed");
 
     await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1));
     window.dispatchEvent(new Event("afterprint"));

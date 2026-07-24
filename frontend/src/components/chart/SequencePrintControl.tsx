@@ -156,6 +156,7 @@ export function SequencePrintControl({
           readiness_required: a.readiness_required,
           rig_contract_status: null,
           rig_contract_end: contract?.contract_end ?? null,
+          completed_at: a.completed_at,
         };
       }),
     [activities, readinessMap, rigContractsByLane],
