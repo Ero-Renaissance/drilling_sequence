@@ -1150,15 +1150,10 @@ export function WorkingCopyPrintDoc({
     .slice(0, 5)}`;
 
   return (
+    // No watermark — the title ("Working Copy"), the unapproved-plan stamp with
+    // its as-of time, and the footer carry the not-the-record marking; the page
+    // itself stays clean.
     <div className="relative hidden px-[6mm] py-[4mm] text-foreground print:block">
-      {/* Watermark — neutral grey (red is the JV draft's warning): a legitimate
-          working document that must never read as approved. */}
-      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
-        <span className="rotate-[-28deg] text-center text-[64px] font-black uppercase leading-none tracking-widest text-zinc-500/10">
-          Working copy
-        </span>
-      </div>
-
       {/* Title block */}
       <div className="flex items-end justify-between gap-6">
         <img src="/raec-logo.png" alt="Renaissance Africa Energy" className="h-11 w-auto" />
