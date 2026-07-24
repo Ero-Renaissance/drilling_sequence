@@ -1,0 +1,43 @@
+# Dependency update automation — see docs/maintainer-guide.md §14.
+#
+# Security ALERTS and security-update PRs are enabled in the repo settings
+# (Settings → Advanced Security) and need no config here — they fire the day
+# an advisory publishes, against the lockfiles.
+#
+# This file adds the ROUTINE lane: monthly, grouped patch/minor update PRs per
+# ecosystem, so ordinary drift arrives as one reviewable PR a month instead of
+# a stream. Majors are deliberately excluded — they go through the §10
+# dependency-governance process by hand.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      npm-safe-updates:
+        applies-to: version-updates
+        update-types: ["patch", "minor"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      pip-safe-updates:
+        applies-to: version-updates
+        update-types: ["patch", "minor"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2

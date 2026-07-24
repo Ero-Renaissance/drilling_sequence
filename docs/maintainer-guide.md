@@ -24,11 +24,18 @@ doubt about a trade-off, choose the more defensible/auditable option.
 drilling_sequence/
 ├─ CLAUDE.md                 # THE RULES — read this. Security + business logic.
 ├─ docker-compose.yml        # LOCAL DEV ONLY (Postgres + dev_mode, hot reload).
+├─ .githooks/pre-push        # The local gate: typecheck + both suites + ruff.
+│                            # Enable once: git config core.hooksPath .githooks
+├─ .github/workflows/ci.yml  # Post-push tripwire re-running the same checks.
 ├─ docs/
 │   ├─ deployment-guide.md   # How to deploy on the internal server.
 │   ├─ user-guide.md         # End-user guide.
 │   ├─ maintainer-guide.md   # (this file)
 │   ├─ rbac-reference.md     # Access model as enforced (roles, helpers, approvers).
+│   ├─ review-approval-workflow-spec.md  # Two-stage endorse→approve model.
+│   ├─ rig-optimization-spec.md          # Optimizer feature spec (+ engines).
+│   ├─ rig-registry-spec.md              # Fleet registry / planned slots.
+│   ├─ project-dashboard-spec.md         # Overview KPI definitions.
 │   └─ mssql-migration.md    # DB decision + Postgres→MSSQL notes.
 ├─ backend/
 │   ├─ app/
@@ -37,13 +44,17 @@ drilling_sequence/
 │   │   ├─ database.py       # Async engine + session; SQLite vs server-DB handling.
 │   │   ├─ core/
 │   │   │   ├─ auth.py       # Azure AD auth; get_current_user; dev_mode bypass.
-│   │   │   ├─ rbac.py       # assert_member / assert_can_sign — USE THESE.
-│   │   │   └─ locks.py      # Pending-approval lock helpers (HTTP 423).
+│   │   │   ├─ rbac.py       # assert_member / assert_can_sign / assert_can_review
+│   │   │   │                # / assert_can_plan — USE THESE.
+│   │   │   ├─ locks.py      # Plan-lock helpers (HTTP 423).
+│   │   │   └─ logging_config.py  # Structured logging + request correlation.
 │   │   ├─ models/           # SQLAlchemy ORM models (the schema).
 │   │   ├─ schemas/          # Pydantic v2 request/response models (validation).
 │   │   ├─ routers/          # API endpoints, one module per resource.
 │   │   └─ services/         # Domain logic: audit, conflicts, snapshot,
-│   │                        # revision_diff, email, data_processor.
+│   │                        # revision_diff, email, data_processor, dashboard,
+│   │                        # readiness, registry, integrity, spreadsheet,
+│   │                        # activity_types, rig_optimizer(+_milp).
 │   ├─ alembic/              # Migrations (versions/) + env.py.
 │   ├─ tests/                # pytest suite (runs on in-memory SQLite).
 │   ├─ pyproject.toml        # Direct deps (pinned exact) + tooling config.
@@ -53,9 +64,10 @@ drilling_sequence/
     └─ src/
         ├─ main.tsx, App.tsx # Entry + router.
         ├─ api/              # One module per backend resource (fetch wrappers).
-        ├─ pages/            # Route-level screens (Dashboard, ProjectDetail, ...).
-        ├─ components/       # Reusable UI (chart/, layout/, grids, dialogs).
-        ├─ lib/              # Pure helpers (conflicts, chart-utils, chart-colors).
+        ├─ pages/            # Route-level screens (Dashboard, ProjectDetail,
+        │                    # RigOptimizer, ...).
+        ├─ components/       # Reusable UI (chart/, layout/, dashboard/, grids).
+        ├─ lib/              # Pure helpers (conflicts, chart-utils, capacity).
         ├─ store/            # zustand stores (theme, auth, ...).
         ├─ types/            # Shared TS types.
         └─ test/             # vitest + Testing Library specs.
@@ -68,8 +80,8 @@ drilling_sequence/
 - **Backend:** Python 3.11, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Alembic,
   `fastapi-azure-auth`. ASGI server: uvicorn.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind, Radix UI, zustand, ECharts
-  (`echarts-for-react`), React Router.
-- **DB:** MSSQL in prod (via `aioodbc`/`pyodbc` + ODBC Driver 17 or 18); SQLite
+  (`echarts-for-react`), React Router v7.
+- **DB:** MSSQL in prod (via `aioodbc`/`pyodbc` + ODBC Driver 18); SQLite
   (`aiosqlite`) for dev/tests. Postgres (`asyncpg`) retained through the MSSQL
   transition only — see `mssql-migration.md`.
 - **Auth:** Microsoft Entra ID (Azure AD) SSO; MSAL on the frontend.
@@ -114,14 +126,20 @@ compose is **not** a production setup.
 
 | | Command (from the package dir) | What it checks |
 |---|---|---|
-| Backend tests | `pytest -q` | 160+ tests, on in-memory SQLite. |
+| Backend tests | `pytest -q` | 400+ tests, on in-memory SQLite. |
 | Backend lint | `ruff check app/ alembic/` | style + imports (`E`, `F`, `I`). |
-| Frontend types | `npm run lint` (`tsc --noEmit`) | TypeScript type errors. |
+| Frontend types | `npm run lint` (`tsc -b`) | TypeScript type errors. |
 | Frontend tests | `npm test` (`vitest run`) | component + lib unit tests. |
 
-There is **no CI pipeline configured yet** (no `.github/`). Until there is, these are
-manual pre-commit gates. **Adding CI that runs all four on PRs is the single highest-
-value maintenance improvement** — recommended.
+These run automatically at two layers:
+
+- **The gate — `.githooks/pre-push`** runs all four before any push and refuses a
+  broken tree. It's per-clone opt-in; enable it once after cloning:
+  `git config core.hooksPath .githooks` (emergency bypass: `git push --no-verify`).
+- **The tripwire — `.github/workflows/ci.yml`** re-runs the same checks in a clean
+  environment on every push to `main`, catching `--no-verify` pushes and
+  works-on-my-machine breakage. Direct-to-main means it runs *after* the push —
+  the hook is the gate, CI is the backstop.
 
 ---
 
@@ -276,24 +294,51 @@ This app must pass IT security review, so dependencies are treated as liabilitie
   injects a dev user and is rejected in production. Tokens are validated against the
   tenant/audience configured by `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`.
 - **Roles are per project** (`planner`/`reviewer`/`approver`/`viewer`); the only
-  **global** role is `admin`.
+  **global** role is `admin`. Roles gate editing/visibility only — sign-off
+  authority lives in the email matrices below, not the roles.
+- **Campaign creation and planner powers are gated by the admin-curated
+  `can_plan` grant** (`assert_can_plan`); everyone else in the org has read-only
+  access to everything.
 - **Admin is resolved additively at login** — a manual `is_admin` flag, additively
   granted from the Azure `roles` claim or the `ADMIN_EMAILS` allowlist. Never
   auto-revoke admin from those sources.
-- **Designated approvers are email-based** (`ProjectApprover`), orthogonal to project
-  membership, and may be external to the project. Match by **lowercased** email.
+- **Designated signers are email-based** (`ProjectApprover`, `kind` = `approver`
+  or `reviewer` — two independent required-signature matrices), orthogonal to
+  project membership, and may be external to the project. Match by **lowercased**
+  email. `assert_can_sign` (approval) / `assert_can_review` (endorsement) admit
+  only a global admin or a designated signer of that kind — never a plain member.
 
 ---
 
 ## 12. Approval workflow rules (don't break these)
 
-- A revision **auto-approves only when ≥1 designated approver is configured AND all
-  have signed.** Zero approvers → signing leaves it `pending_approval` (never
-  auto-approve).
-- Two decline outcomes, both requiring a **non-empty reason (1–2000 chars; empty →
-  422)** and both unlocking the revision's activities:
-  `rejected` (terminal) and `changes_requested` (back for revision). Only valid while
-  the revision is `pending`.
+Full model: `docs/review-approval-workflow-spec.md`; binding rules: `CLAUDE.md`.
+The compressed version:
+
+- **Two stages: review → approval.** UI vocabulary says **Endorse** (Endorsers,
+  "Pending endorsement"); code/DB/audit keep `review` (`pending_review`,
+  `Signature.stage="review"`, `kind="reviewer"`) — never rename the internals.
+  `Project.review_policy` (`required`/`optional`/`off`, default `optional`)
+  decides routing at submit; a skipped optional review is flagged
+  `review_skipped` (frozen at submit). A review-routed revision advances to
+  `pending_approval` only when **all** designated reviewers sign.
+- Approval requires **≥1 designated approver AND all signed** — zero approvers
+  never auto-approves.
+- **Separation of duties (no admin bypass):** the revision's creator may not
+  sign, endorse, reject, or request changes on it — only discard. Submit is
+  refused (409) when the submitter would be the only eligible signer of a
+  required stage.
+- Two decline outcomes, both requiring a **non-empty reason (1–2000 chars;
+  empty → 422)** and both unlocking the plan: `changes_requested` (either
+  stage; the only reviewer decline) and `rejected` (terminal, approval stage
+  only).
+- **Approval keeps the plan LOCKED** — the approved `snapshot_json` is the
+  immutable record. A planner reopens explicitly via **Revise Plan**
+  (`POST .../revisions/reopen`, audited `plan_reopened`); next quarter's plan
+  is a **clone** of the campaign, never an edit of the approved one.
+- **Concurrency is DB-enforced:** a filtered unique index allows one OPEN
+  revision per campaign, and every status transition takes a
+  `with_for_update()` row lock — keep both when touching the lifecycle.
 - Readiness codes (FDP/LLI/LOC/FE/FID/EIA/BUD/CON), plan types, and contract
   semantics are domain enums — validate against the canonical lists, don't accept
   free-form equivalents.
@@ -327,7 +372,35 @@ This app must pass IT security review, so dependencies are treated as liabilitie
 
 ---
 
-## 14. Where to look when you're stuck
+## 14. Security maintenance cadence
+
+Advisories publish continuously — a schedule alone can't flag them "on time".
+The model is **event-driven alerts + a light routine**:
+
+- **Continuous (automated):** GitHub **Dependabot alerts + security updates**
+  watch both lockfiles (`frontend/package-lock.json`,
+  `backend/requirements.txt` + `pyproject.toml`) and raise an alert/PR the day
+  an advisory publishes. Repo Settings → *Advanced Security* → enable
+  "Dependabot alerts" and "Dependabot security updates".
+  `.github/dependabot.yml` additionally opens **monthly, grouped** patch/minor
+  update PRs per ecosystem — review them like any change; never merge blind.
+- **On alert:** patch highs/criticals immediately — in-range
+  `npm audit fix` / pinned-version bump, run the §5 gates, push.
+- **Monthly (~20 min):** `npm audit` in `frontend/`; `pip-audit -r
+  backend/requirements.txt` (run via `pipx`/`uv tool run` — a dev tool, not an
+  app dependency). Apply in-range patches; anything major goes through §10.
+- **Quarterly (with the campaign cadence):** review minor bumps of direct deps,
+  revisit parked decisions (advisories accepted as not-applicable, pending
+  major upgrades, OR-Tools approval), and check the Docker base image + ODBC
+  driver for patches.
+- **Residual-risk decisions are documented in the commit that makes them**
+  (e.g. an advisory whose vulnerable code path can't execute in this
+  architecture). Re-validate them at the quarterly pass — "not applicable"
+  can rot as the stack changes.
+
+---
+
+## 15. Where to look when you're stuck
 
 1. **[`CLAUDE.md`](../CLAUDE.md)** — the authoritative rules (security + business
    logic). If this guide and `CLAUDE.md` ever disagree, `CLAUDE.md` wins.
