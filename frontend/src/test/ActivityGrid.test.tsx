@@ -19,13 +19,11 @@ vi.mock("@/components/ui/toaster", () => ({
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { server } from "./mocks/server";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
 function renderGrid() {
   return render(
     <MemoryRouter
-      future={routerFuture}
       initialEntries={[`/projects/${PROJECT_ID}/data`]}
     >
       <Routes>
@@ -382,7 +380,6 @@ describe("Conflicts queue empty state", () => {
     );
     render(
       <MemoryRouter
-        future={routerFuture}
         initialEntries={[`/projects/${PROJECT_ID}/data?focus=conflicts`]}
       >
         <Routes>

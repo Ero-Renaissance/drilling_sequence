@@ -11,13 +11,11 @@ vi.mock("@/lib/auth", () => ({
 
 import { RevisionList } from "@/components/revisions/RevisionList";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
 function renderList() {
   return render(
     <MemoryRouter
-      future={routerFuture}
       initialEntries={[`/projects/${PROJECT_ID}/signatures`]}
     >
       <Routes>

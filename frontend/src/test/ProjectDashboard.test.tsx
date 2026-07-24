@@ -7,8 +7,6 @@ vi.mock("@/api/dashboard", () => ({ fetchDashboard: vi.fn() }));
 import { fetchDashboard, type DashboardResponse } from "@/api/dashboard";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
-
 function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse {
   return {
     generated_at: "2026-05-31",
@@ -43,7 +41,7 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
 
 function renderDash() {
   return render(
-    <MemoryRouter future={routerFuture}>
+    <MemoryRouter>
       <ProjectDashboard projectId="p1" />
     </MemoryRouter>,
   );

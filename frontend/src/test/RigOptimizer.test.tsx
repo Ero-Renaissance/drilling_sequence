@@ -34,7 +34,7 @@ describe("RigOptimizer", () => {
   });
 
   it("renders assumptions with the agreed Scenario 1 defaults", () => {
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     expect(screen.getByDisplayValue("76")).toBeInTheDocument(); // well duration
     expect(screen.getByDisplayValue("45")).toBeInTheDocument(); // project move
     expect(screen.getByDisplayValue("28")).toBeInTheDocument(); // batch gap
@@ -73,7 +73,7 @@ describe("RigOptimizer", () => {
         },
       ],
     });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
 
     fireEvent.change(screen.getByPlaceholderText("Project name"), {
       target: { value: "P1" },
@@ -146,7 +146,7 @@ describe("RigOptimizer", () => {
         },
       ],
     });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     fireEvent.change(screen.getByPlaceholderText("Project name"), {
       target: { value: "P9" },
     });
@@ -180,7 +180,7 @@ describe("RigOptimizer", () => {
 
   it("rejects non-numeric text in volume fields — no silent zero, no desync", async () => {
     run.mockResolvedValue({ run_id: "rx", engine: "heuristic", warning: null, results: [] });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     fillRow();
 
     // "e5" used to sit visibly in the box while the state read empty — the
@@ -205,7 +205,7 @@ describe("RigOptimizer", () => {
   });
 
   it("greys value priority behind a hint until a volume is captured", () => {
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     expect(screen.getByTestId("priority-global")).toBeDisabled();
     expect(screen.getByTestId("priority-hint")).toBeInTheDocument();
 
@@ -218,7 +218,7 @@ describe("RigOptimizer", () => {
 
   it("sends the global ordering for each terrain in the demand", async () => {
     run.mockResolvedValue({ run_id: "r3", engine: "heuristic", warning: null, results: [] });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     fillRow();
     fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
     fireEvent.change(screen.getByTestId("priority-global"), {
@@ -237,7 +237,7 @@ describe("RigOptimizer", () => {
 
   it("per-terrain override prefills from the global and sends the adjusted order", async () => {
     run.mockResolvedValue({ run_id: "r4", engine: "heuristic", warning: null, results: [] });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     fillRow();
     fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
     fireEvent.change(screen.getByTestId("priority-global"), {
@@ -265,7 +265,7 @@ describe("RigOptimizer", () => {
 
   it("omits priority entirely when no ordering is chosen", async () => {
     run.mockResolvedValue({ run_id: "r5", engine: "heuristic", warning: null, results: [] });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     fillRow();
     fireEvent.change(screen.getByTestId("oil_volume-0"), { target: { value: "12" } });
     fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
@@ -294,7 +294,7 @@ describe("RigOptimizer", () => {
         },
       ],
     });
-    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RigOptimizer /></MemoryRouter>);
+    render(<MemoryRouter><RigOptimizer /></MemoryRouter>);
     fillRow();
     fireEvent.click(screen.getByRole("button", { name: /optimize/i }));
 

@@ -13,8 +13,6 @@ vi.mock("@/lib/auth", () => ({
 import { CreateRevisionDialog } from "@/components/revisions/CreateRevisionDialog";
 import { server } from "./mocks/server";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
-
 describe("CreateRevisionDialog", () => {
   it("links a scheduling-conflict 409 straight to the conflicts queue", async () => {
     server.use(
@@ -30,7 +28,7 @@ describe("CreateRevisionDialog", () => {
     );
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter>
         <CreateRevisionDialog projectId="p1" onCreated={() => {}} />
       </MemoryRouter>,
     );

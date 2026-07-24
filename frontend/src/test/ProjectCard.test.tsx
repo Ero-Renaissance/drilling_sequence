@@ -5,8 +5,6 @@ import { ProjectCard } from "@/components/projects/ProjectCard";
 import { useAuthStore } from "@/store/auth";
 import { mockProject, mockUser } from "./mocks/handlers";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
-
 // The card's clone/archive affordances are planner-gated: signed in as the
 // campaign's planner (mockUser holds the grant and the planner role).
 beforeEach(() => {
@@ -15,7 +13,7 @@ beforeEach(() => {
 
 function renderCard(onArchive?: (id: string) => void) {
   return render(
-    <MemoryRouter future={routerFuture}>
+    <MemoryRouter>
       <ProjectCard project={mockProject} onArchive={onArchive} />
     </MemoryRouter>,
   );
@@ -69,7 +67,7 @@ describe("ProjectCard", () => {
 describe("ProjectCard plan state + lineage", () => {
   it("shows the plan-state chip and the clone lineage caption", () => {
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter>
         <ProjectCard
           project={{
             ...mockProject,
@@ -92,7 +90,7 @@ describe("ProjectCard plan state + lineage", () => {
 
   it("navigates to Approvals from the chip without triggering the card's own navigation", () => {
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter>
         <ProjectCard
           project={{
             ...mockProject,
@@ -117,7 +115,7 @@ describe("ProjectCard plan state + lineage", () => {
 
   it("renders no chip when the list has no approval summary", () => {
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter>
         <ProjectCard project={{ ...mockProject, approval: undefined }} />
       </MemoryRouter>,
     );

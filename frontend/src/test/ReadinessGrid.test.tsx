@@ -14,12 +14,11 @@ import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { CHECK_CODES } from "@/api/readiness";
 import { server } from "./mocks/server";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
 function renderGrid() {
   return render(
-    <MemoryRouter future={routerFuture}>
+    <MemoryRouter>
       <ReadinessGrid projectId={PROJECT_ID} />
     </MemoryRouter>,
   );
@@ -180,7 +179,7 @@ describe("ReadinessGrid", () => {
 
   function renderAt(entry: string) {
     return render(
-      <MemoryRouter future={routerFuture} initialEntries={[entry]}>
+      <MemoryRouter initialEntries={[entry]}>
         <ReadinessGrid projectId={PROJECT_ID} />
       </MemoryRouter>,
     );

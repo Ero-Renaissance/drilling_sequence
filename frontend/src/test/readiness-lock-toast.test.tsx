@@ -14,7 +14,6 @@ import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { Toaster } from "@/components/ui/toaster";
 import { server } from "./mocks/server";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
 describe("Readiness change while the campaign is locked", () => {
@@ -35,7 +34,7 @@ describe("Readiness change while the campaign is locked", () => {
     );
 
     render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter>
         <ReadinessGrid projectId={PROJECT_ID} />
         <Toaster />
       </MemoryRouter>,

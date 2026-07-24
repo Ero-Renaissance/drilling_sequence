@@ -25,8 +25,6 @@ import { DrillChart } from "@/components/chart/DrillChart";
 import { ImportDialog } from "@/components/chart/ImportDialog";
 import { server } from "./mocks/server";
 
-const routerFuture = { v7_startTransition: true, v7_relativeSplatPath: true };
-
 const MOCK_ACTIVITIES: Activity[] = [
   {
     id: "act-001",
@@ -389,7 +387,7 @@ describe("ImportDialog", () => {
 
   function renderDialog(onImported = vi.fn()) {
     return render(
-      <MemoryRouter future={routerFuture}>
+      <MemoryRouter>
         <ImportDialog projectId={projectId} onImported={onImported} />
       </MemoryRouter>,
     );
