@@ -1094,3 +1094,99 @@ export function RevisionPrintDoc({
     </div>
   );
 }
+
+// ── Working copy — the LIVE plan, printed without a revision ───────────────────
+
+/**
+ * The working-copy printout: the live sequence as it stands right now, printed
+ * WITHOUT creating a revision. Same terrain-major layout as the formal record,
+ * but unmistakably not it — a neutral "Working copy" watermark, an as-of
+ * timestamp instead of a Rev number, and NO signature blocks, doc ref, or
+ * Document ID, so a printed live plan can never circulate as an approved one.
+ */
+export function WorkingCopyPrintDoc({
+  project,
+  rows,
+  chart = "standard",
+  includeSchedule = true,
+  readinessYears = 3,
+  asOf,
+}: {
+  project: Project | null;
+  rows: PrintRow[];
+  chart?: "standard" | "readiness";
+  includeSchedule?: boolean;
+  readinessYears?: PrintYears;
+  /** Capture time of the live plan — the working copy's date of truth. */
+  asOf: Date;
+}) {
+  const isReadiness = chart === "readiness";
+  const ordered = orderRows(rows);
+  const index = new Map(ordered.map((r, i) => [r.id, i + 1]));
+  const stamp = `${formatDate(asOf.toISOString().slice(0, 10))}, ${asOf
+    .toTimeString()
+    .slice(0, 5)}`;
+
+  return (
+    <div className="relative hidden px-[6mm] py-[4mm] text-foreground print:block">
+      {/* Watermark — neutral grey (red is the JV draft's warning): a legitimate
+          working document that must never read as approved. */}
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center">
+        <span className="rotate-[-28deg] text-center text-[64px] font-black uppercase leading-none tracking-widest text-zinc-500/10">
+          Working copy
+        </span>
+      </div>
+
+      {/* Title block */}
+      <div className="flex items-end justify-between gap-6">
+        <img src="/raec-logo.png" alt="Renaissance Africa Energy" className="h-11 w-auto" />
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Renaissance Africa Energy Company Limited
+          </p>
+          <h1 className="text-xl font-bold tracking-tight">Rig Sequence — Working Copy</h1>
+        </div>
+      </div>
+      <img src="/raec-linebar.png" alt="" className="mt-1.5 h-[5px] w-full object-cover" />
+      <div className="mt-2 flex items-start justify-between gap-6 text-xs">
+        <div>
+          <p className="text-base font-semibold">{project?.name ?? "Drilling Sequence"}</p>
+          <p className="text-muted-foreground">
+            {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="font-medium text-muted-foreground">Working copy — unapproved plan</p>
+          <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">As of {stamp}</p>
+        </div>
+      </div>
+
+      {/* Terrain-major sections — identical treatment to the formal record. */}
+      {partitionByTerrain(rows).map((g, gi) => (
+        <div key={g.label} className={gi > 0 ? "break-before-page" : undefined}>
+          <h2 className="mt-3 text-sm font-semibold">{g.label}</h2>
+          {isReadiness ? (
+            <StaticGantt
+              rows={g.rows}
+              index={index}
+              sectionLabel={g.label}
+              windowYears={readinessYears}
+              rowsPerPage={readinessRowsPerPage(readinessYears)}
+              showReadiness
+              dropEmptyRows
+            />
+          ) : (
+            <StaticGantt rows={g.rows} index={index} sectionLabel={g.label} />
+          )}
+        </div>
+      ))}
+
+      {includeSchedule && (
+        <>
+          <h2 className="mt-4 break-before-page text-sm font-semibold">Activity schedule</h2>
+          <ScheduleTable rows={ordered} index={index} />
+        </>
+      )}
+    </div>
+  );
+}

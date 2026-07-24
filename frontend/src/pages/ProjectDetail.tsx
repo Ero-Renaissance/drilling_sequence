@@ -22,6 +22,7 @@ import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { DrillChart } from "@/components/chart/DrillChart";
+import { SequencePrintControl } from "@/components/chart/SequencePrintControl";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ImportDialog } from "@/components/chart/ImportDialog";
 import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDialog";
@@ -517,6 +518,14 @@ export function ChartTab() {
             <FileDown className="h-4 w-4" />
             <span className="ml-1.5">Export Excel</span>
           </Button>
+        )}
+        {projectId && activities && activities.length > 0 && (
+          <SequencePrintControl
+            projectId={projectId}
+            activities={activities}
+            readinessMap={readinessMap}
+            rigContractsByLane={rigContractsByLane}
+          />
         )}
         {activities !== null && (
           <span className="text-xs tabular-nums text-muted-foreground">

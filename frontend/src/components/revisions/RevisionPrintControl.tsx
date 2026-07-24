@@ -19,11 +19,9 @@ import {
 import { toast } from "@/components/ui/toaster";
 import { RevisionPrintDoc, type PrintRow } from "@/components/revisions/RevisionPrintDoc";
 import { buildDocRef } from "@/lib/doc-id";
+import { PRINT_CLAIM_EVENT } from "@/lib/print-css";
+import { printDocCss } from "@/lib/print-css";
 import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
-
-// Only one revision's print document may be mounted at a time — a second
-// instance claiming the printer tells every other instance to stand down.
-const CLAIM_EVENT = "ds-revision-print-claim";
 
 function statusLabel(status: Revision["status"]): string {
   switch (status) {
@@ -89,13 +87,13 @@ export function RevisionPrintControl({
     const onClaim = (e: Event) => {
       if ((e as CustomEvent<string>).detail !== revision.id) setPrinting(null);
     };
-    window.addEventListener(CLAIM_EVENT, onClaim);
-    return () => window.removeEventListener(CLAIM_EVENT, onClaim);
+    window.addEventListener(PRINT_CLAIM_EVENT, onClaim);
+    return () => window.removeEventListener(PRINT_CLAIM_EVENT, onClaim);
   }, [revision.id]);
 
   const print = useCallback(
     async (mode: "system" | "wetink") => {
-      window.dispatchEvent(new CustomEvent(CLAIM_EVENT, { detail: revision.id }));
+      window.dispatchEvent(new CustomEvent(PRINT_CLAIM_EVENT, { detail: revision.id }));
       let d = detail;
       if (!d) {
         setFetching(true);
@@ -219,47 +217,8 @@ export function RevisionPrintControl({
 
       {printing && detail && createPortal(
         <div className="ds-print-doc hidden print:block">
-          {/* Print stylesheet — mounted only while this control owns the print. */}
-          <style>{`
-            @media print {
-              /* Exclusivity: everything except this document disappears —
-                 whatever page hosts the control, including portal'd menus. */
-              body.ds-printing-revision > *:not(.ds-print-doc) { display: none !important; }
-              .ds-print-doc { padding-bottom: 12mm; }
-              @page { size: ${
-                chart === "readiness" ? readinessPageCss(years) : "A4 landscape"
-              }; margin: 14mm 12mm; }
-              /* Force light document tokens so a dark-mode user still gets a clean,
-                 readable PDF (dark text on white), not light text on white. */
-              :root, .dark {
-                --background: 0 0% 100%;
-                --foreground: 222 24% 12%;
-                --card: 0 0% 100%;
-                --card-foreground: 222 24% 12%;
-                --muted: 220 14% 95%;
-                --muted-foreground: 220 9% 40%;
-                --border: 220 13% 85%;
-              }
-              body { background: white !important; }
-              aside, header, .print\\:hidden { display: none !important; }
-              main { overflow: visible !important; }
-              /* Unclip scroll containers + height caps so content paginates across
-                 pages and the chart legend (below the Gantt) isn't cut off. */
-              .overflow-auto, .overflow-y-auto { overflow: visible !important; }
-              .h-full, .h-screen { height: auto !important; }
-              .shadow-soft-sm, .shadow-soft-md, .shadow-soft-lg { box-shadow: none !important; }
-              /* Preserve brand colours (gradient linebar, status badges) in print. */
-              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-              /* Room for the fixed confidentiality footer. */
-              main > div { padding-bottom: 12mm; }
-              /* The schedule table: repeat the header on every page, keep rows whole,
-                 and give clean horizontal rules so it reads as a formal schedule. */
-              thead { display: table-header-group; }
-              tbody tr { break-inside: avoid; }
-              th, td { border-bottom: 1px solid hsl(220 13% 88%) !important; }
-              h2 { break-after: avoid; }
-            }
-          `}</style>
+          {/* Print stylesheet (shared) — mounted only while this control owns the print. */}
+          <style>{printDocCss(chart === "readiness" ? readinessPageCss(years) : "A4 landscape")}</style>
 
           <RevisionPrintDoc
             revision={detail}
