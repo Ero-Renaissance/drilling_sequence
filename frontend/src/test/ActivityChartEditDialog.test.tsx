@@ -54,3 +54,57 @@ describe("ActivityChartEditDialog — project field", () => {
     expect(patched).toMatchObject({ well_project: "Bonga Phase 3" });
   });
 });
+
+describe("ActivityChartEditDialog — warning severity colours", () => {
+  // Colour tracks what happens at SUBMIT, not how the dialog behaves (both
+  // warnings are non-blocking here): amber = advisory, red = will be refused.
+  const CONTRACT = {
+    id: "c1", project_id: "proj-001", rig_name: "Rig A", terrain: "LAND",
+    contract_start: "2026-01-01", contract_end: "2026-02-01",
+    notes: null, updated_at: "2026-01-01T00:00:00Z",
+  } as never;
+
+  it("past-contract work is AMBER — advisory, the plan still submits", async () => {
+    render(
+      <ActivityChartEditDialog
+        projectId="proj-001"
+        activity={ACTIVITY}
+        readiness={null}
+        allActivities={[ACTIVITY]}
+        contractsByRig={new Map([["Rig A", CONTRACT]])}
+        open
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    // ACTIVITY ends 2026-03-01, the contract ends 2026-02-01 → warned.
+    const warning = await screen.findByTestId("contract-impact-warning");
+    expect(warning).toHaveTextContent(/past the contract end/i);
+    expect(warning.className).toContain("amber");
+    expect(warning.className).not.toContain("red");
+  });
+
+  it("a rig double-booking is RED — submit hard-blocks it (409)", async () => {
+    const overlapping = {
+      ...ACTIVITY, id: "act-2", well_name: "W-2",
+      start_date: "2026-02-01", end_date: "2026-04-01",
+    } as Activity;
+    render(
+      <ActivityChartEditDialog
+        projectId="proj-001"
+        activity={ACTIVITY}
+        readiness={null}
+        allActivities={[ACTIVITY, overlapping]}
+        open
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    const warning = await screen.findByTestId("conflict-warning");
+    expect(warning).toHaveTextContent(/overlaps/i);
+    expect(warning.className).toContain("red");
+    expect(warning.className).not.toContain("amber");
+  });
+});
