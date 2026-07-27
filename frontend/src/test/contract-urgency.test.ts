@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyContract, URGENCY_VISUAL } from "@/lib/contract-urgency";
+import { classifyContract, CONTRACT_MARKER_HEX, URGENCY_VISUAL } from "@/lib/contract-urgency";
 
 /** Tiers are keyed to the QUARTERLY approval cadence: soon = two approval
  *  cycles left (3–6 months), critical = less than one cycle (< 3 months) —
@@ -43,5 +43,22 @@ describe("classifyContract — cadence-keyed thresholds", () => {
   it("labels speak the cadence, not stale day counts", () => {
     expect(URGENCY_VISUAL.critical.label).toBe("Critical (< 3 months)");
     expect(URGENCY_VISUAL.soon.label).toBe("Expiring soon");
+  });
+});
+
+describe("the contract-expiration DATE MARKER is one fixed red", () => {
+  // The marker states a fact — the date this rig's contract ends — so it must
+  // NOT take an urgency tint. A far-off expiry that rendered amber/orange would
+  // hide exactly the long-range wall a planner is scanning for. Urgency grading
+  // stays on the contract's own status chip (URGENCY_VISUAL).
+  it("is red, and is the SAME red whether the date is past or years away", () => {
+    expect(CONTRACT_MARKER_HEX).toBe("#dc2626");
+    expect(CONTRACT_MARKER_HEX).toBe(URGENCY_VISUAL.expired.hex);
+  });
+
+  it("never borrows a milder tier's colour", () => {
+    expect(CONTRACT_MARKER_HEX).not.toBe(URGENCY_VISUAL.soon.hex); // amber
+    expect(CONTRACT_MARKER_HEX).not.toBe(URGENCY_VISUAL.critical.hex); // orange
+    expect(CONTRACT_MARKER_HEX).not.toBe(URGENCY_VISUAL.healthy.hex); // green
   });
 });

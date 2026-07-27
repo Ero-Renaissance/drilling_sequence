@@ -84,6 +84,20 @@ export const URGENCY_VISUAL: Record<
   },
 };
 
+/**
+ * The contract-expiration DATE MARKER on the sequence chart and the printed
+ * sequence — ALWAYS this one red, whether the contract has expired or is years
+ * out. The mark states a FACT (the date this rig's contract ends), so it must
+ * not shift colour with proximity: a planner scanning the sequence has to spot
+ * the wall at any distance, and a marker that fades to a "milder" colour when
+ * the date is far away hides exactly the long-range case worth catching.
+ *
+ * Urgency GRADING (green→amber→orange→red by time remaining) belongs to
+ * URGENCY_VISUAL above, which colours a CONTRACT's own status chip on the
+ * Fleet tab and the Overview's Contracts-at-Risk tile — not this date marker.
+ */
+export const CONTRACT_MARKER_HEX = URGENCY_VISUAL.expired.hex;
+
 /** Returns days until contract_end (negative if expired). Null if no date. */
 export function daysUntilExpiry(
   contract: ContractLike | null | undefined,

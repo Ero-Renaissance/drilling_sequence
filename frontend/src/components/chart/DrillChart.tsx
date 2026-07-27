@@ -24,7 +24,7 @@ import {
 import { STATUS_LABEL } from "@/components/readiness/check-meta";
 import {
   daysUntilExpiry,
-  URGENCY_VISUAL,
+  CONTRACT_MARKER_HEX,
 } from "@/lib/contract-urgency";
 import { useThemeStore } from "@/store/theme";
 import {
@@ -974,9 +974,9 @@ export function DrillChart({
       api: CustomSeriesRenderItemAPI,
     ): CustomSeriesRenderItemReturn {
       const [cx, cy] = api.coord([api.value(0), api.value(1)]);
-      const hex = URGENCY_VISUAL.expired.hex; // one red for every expiration date
+      const hex = CONTRACT_MARKER_HEX; // one red for every expiration date
       // An expiry is a DATE, so mark the position, not just a point: a solid
-      // badge (white clock on an urgency-colored disc with a surface ring, so
+      // badge (white clock on a red disc with a surface ring, so
       // it can't vanish against bars or the dark theme) at the TOP of the row
       // — out of the bar lane — plus a tick through this rig's row only. The
       // row-scoped tick also keeps it distinct from the full-height dashed

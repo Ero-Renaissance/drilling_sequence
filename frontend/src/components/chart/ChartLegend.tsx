@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { CHECK_CODES, type CheckStatus } from "@/api/readiness";
 import { CHECK_META, STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
-import { URGENCY_VISUAL } from "@/lib/contract-urgency";
+import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
@@ -125,7 +125,7 @@ export function ChartLegend({
               {/* The key IS the mark: the same solid badge the chart draws. */}
               <span
                 className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full"
-                style={{ backgroundColor: URGENCY_VISUAL.expired.hex }}
+                style={{ backgroundColor: CONTRACT_MARKER_HEX }}
               >
                 <AlarmClock className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
               </span>

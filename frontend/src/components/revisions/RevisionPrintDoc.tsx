@@ -10,7 +10,7 @@ import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
 import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { getActivityColor } from "@/lib/chart-colors";
-import { URGENCY_VISUAL } from "@/lib/contract-urgency";
+import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessRowsPerPage, type PrintYears } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
@@ -37,7 +37,7 @@ function hasContractMarker(
 }
 
 // The one red every expiration date wears (same as the interactive chart).
-const EXPIRY_HEX = URGENCY_VISUAL.expired.hex;
+const EXPIRY_HEX = CONTRACT_MARKER_HEX;
 
 const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"];
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
@@ -549,7 +549,7 @@ function StaticGantt({
                           style={{ left: `${expiryPct}%`, transform: "translateX(-50%)" }}
                           title={`Contract expiration ${fmt(m!.contractEnd)}`}
                         >
-                          {/* Solid urgency-colored badge (white glyph) with a white ring —
+                          {/* Solid red badge (white glyph) with a white ring —
                               the inverse of the old white-circle-red-outline, so it stays
                               prominent even where it crosses colored bars. */}
                           <span
@@ -647,7 +647,7 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
             {/* The key IS the mark: the same solid badge drawn on the chart. */}
             <span
               className="inline-flex h-3 w-3 items-center justify-center rounded-full"
-              style={{ backgroundColor: URGENCY_VISUAL.expired.hex }}
+              style={{ backgroundColor: EXPIRY_HEX }}
             >
               <AlarmClock className="h-2 w-2 text-white" strokeWidth={2.5} />
             </span>
