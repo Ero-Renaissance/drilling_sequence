@@ -99,8 +99,9 @@ export function Admin() {
           can create campaigns and manage the plans they hold the planner role on.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Admins granted via the email allowlist (marked) or an Azure AD role can&apos;t be revoked
-          here — update the allowlist or the AD role instead.
+          Admins granted via the allowlist (marked) — the user&apos;s email or Windows
+          username in <code>ADMIN_EMAILS</code> — can&apos;t be revoked here; update the
+          allowlist instead.
         </p>
       </div>
 

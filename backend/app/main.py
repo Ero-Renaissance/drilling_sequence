@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.core.auth import get_current_user
 from app.core.logging_config import RequestIdMiddleware, configure_logging
+from app.core.security import SameOriginMiddleware
 from app.database import Base, _is_sqlite, engine
 from app.models import approver as _approver_models  # noqa: F401
 from app.models import audit as _audit_models  # noqa: F401
@@ -70,6 +71,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Block cross-site state-changing requests. Under ambient Windows auth the
+# browser attaches the user's SSO to any request to this host, so a same-origin
+# gate (Sec-Fetch-Site) is what stops a hostile page forging a no-body POST.
+app.add_middleware(SameOriginMiddleware)
 # Correlate every request's logs (sets a contextvar; echoes X-Request-ID).
 app.add_middleware(RequestIdMiddleware)
 

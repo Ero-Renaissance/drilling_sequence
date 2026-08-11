@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
+import { SIGNED_OUT_KEY } from "@/lib/auth";
 
 export function Login() {
   const navigate = useNavigate();
@@ -14,13 +15,26 @@ export function Login() {
   // Dev-only: /login?preview lets you view this page without dev mode auto
   // signing you in and bouncing to the dashboard.
   const previewMode = isDev && searchParams.has("preview");
+  // Consume the just-signed-out marker once, so a deliberate logout lands on
+  // the signed-out screen instead of an instant re-auth loop.
+  const [signedOut] = useState(() => {
+    try {
+      if (sessionStorage.getItem(SIGNED_OUT_KEY) === "1") {
+        sessionStorage.removeItem(SIGNED_OUT_KEY);
+        return true;
+      }
+    } catch {
+      /* storage unavailable — fall through to auto sign-in */
+    }
+    return false;
+  });
 
   useEffect(() => {
     return initTheme();
   }, [initTheme]);
 
   useEffect(() => {
-    if (previewMode) {
+    if (previewMode || signedOut) {
       clear(); // render the login UI (no user, not loading) without auto sign-in
     } else {
       // Windows Integrated Auth: the reverse proxy has already authenticated the
@@ -28,7 +42,7 @@ export function Login() {
       // In dev mode the backend injects a dev user, so this works there too.
       fetchMe();
     }
-  }, [fetchMe, clear, previewMode]);
+  }, [fetchMe, clear, previewMode, signedOut]);
 
   useEffect(() => {
     if (!loading && user && !previewMode) navigate("/dashboard", { replace: true });
@@ -110,12 +124,16 @@ export function Login() {
           ) : !user ? (
             <div className="space-y-3">
               <Button className="w-full" size="lg" onClick={() => fetchMe()}>
-                {isDev ? "Continue as Dev User" : "Retry sign-in"}
+                {isDev ? "Continue as Dev User" : signedOut ? "Sign in" : "Retry sign-in"}
               </Button>
               {isDev ? (
                 <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground/90 dark:text-warning">
                   Development mode — auth is bypassed.
                 </div>
+              ) : signedOut ? (
+                <p className="text-xs text-muted-foreground">
+                  You&apos;ve been signed out. Sign in to continue.
+                </p>
               ) : (
                 <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground/90 dark:text-warning">
                   We couldn't sign you in automatically. Check that you're on the

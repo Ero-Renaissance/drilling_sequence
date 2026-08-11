@@ -18,3 +18,11 @@
 export async function getAccessToken(): Promise<string | null> {
   return null;
 }
+
+/**
+ * sessionStorage marker set by an explicit Sign out. Windows Integrated Auth
+ * has no browser session to end, so without it the Login page would auto-resolve
+ * /api/auth/me and bounce the user straight back in. Login consumes it once on
+ * mount; the next full page load auto-signs-in again.
+ */
+export const SIGNED_OUT_KEY = "ds-signed-out";
