@@ -44,3 +44,29 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
       - run: python -m pytest -q
+
+  # The tests above install the editable pyproject, NOT requirements.txt — so a
+  # lockfile that Dependabot (or a hand edit) desyncs from the pinned deps would
+  # pass tests yet break the Docker build. This job is the missing gate: a
+  # clean-room install of requirements.txt on the Docker base Python (3.11),
+  # which fails on any resolution conflict (e.g. pydantic vs its hard-pinned
+  # pydantic-core). Docker installs the same file via uv; a plain-pip resolve is
+  # enough to catch the conflict class without adding a third-party action.
+  backend-lockfile:
+    name: Backend · requirements.txt installs (Docker parity)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: System ODBC headers (for the pyodbc dependency)
+        run: sudo apt-get update && sudo apt-get install -y unixodbc-dev
+      - name: requirements.txt resolves and installs cleanly
+        run: |
+          python -m venv /tmp/lockcheck
+          /tmp/lockcheck/bin/pip install --upgrade pip
+          /tmp/lockcheck/bin/pip install -r requirements.txt
