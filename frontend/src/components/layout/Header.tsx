@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore, type Theme } from "@/store/theme";
+import { SIGNED_OUT_KEY } from "@/lib/auth";
 import { Breadcrumbs } from "./Breadcrumbs";
 
 function initials(name: string): string {
@@ -37,8 +38,14 @@ export function Header() {
   const setTheme = useThemeStore((s) => s.setTheme);
 
   const handleLogout = () => {
-    // Windows Integrated Auth has no browser-side session to end; clearing local
-    // state returns to the login screen (a fresh load re-authenticates via SSO).
+    // Windows Integrated Auth has no browser-side session to end. Mark the
+    // deliberate sign-out so Login shows the signed-out screen instead of
+    // instantly re-authenticating via /api/auth/me and bouncing back in.
+    try {
+      sessionStorage.setItem(SIGNED_OUT_KEY, "1");
+    } catch {
+      /* storage unavailable — worst case Login auto-signs back in */
+    }
     clear();
   };
 
