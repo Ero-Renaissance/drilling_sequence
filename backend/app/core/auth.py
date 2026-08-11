@@ -2,18 +2,22 @@
 Authentication dependency.
 
 Dev mode (DEV_MODE=true):  any request is accepted; a "Dev User" is auto-created/returned.
-Production:                Bearer token is validated against Azure AD via fastapi-azure-auth;
-                           the user is upserted on first login.
+Production:                the request is authenticated by a reverse proxy (IIS/ARR doing
+                           Windows Integrated Auth) that injects the authenticated Windows
+                           account into a trusted header (settings.proxy_user_header). The
+                           user is upserted on first login. The header is trusted only
+                           because the app is reachable solely via the proxy (uvicorn bound
+                           to loopback) and, optionally, a shared secret.
 
-Tests override get_current_user via app.dependency_overrides — no token needed.
+Tests override get_current_user via app.dependency_overrides — no header needed.
 """
 
+import hmac
 import logging
-from functools import lru_cache
+import re
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import SecurityScopes
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,92 +27,120 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
+# Header carrying the optional proxy shared secret (settings.proxy_shared_secret).
+_PROXY_SECRET_HEADER = "X-Proxy-Auth"
+
+# A normalized Windows account name: letters, digits, and . _ - only, length-
+# bounded and anchored so a malformed/hostile header value can't slip through.
+_USERNAME_RE = re.compile(r"^[a-z0-9._-]{1,256}$")
+
 _DEV_CLAIMS = {
     "oid": "00000000-0000-0000-0000-000000000001",
     "name": "Dev User",
     "preferred_username": "dev@company.com",
+    "username": "dev",
 }
 
 
-@lru_cache(maxsize=1)
-def _azure_scheme():
-    """Build the Azure AD bearer validator once and reuse it.
+def _identity_from_header(raw: str) -> tuple[str, str, str] | None:
+    """Parse the proxy's user header into (username, email, display).
 
-    The validator lazily fetches and caches the tenant's OpenID config + JWKS on
-    its instance, so constructing it per request would defeat that cache and hit
-    Azure AD on every authenticated call. lru_cache pins a single instance for the
-    process; it does not cache the ImportError, so an unconfigured install retries.
+    Accepts DOMAIN\\user, DOMAIN/user, a UPN (user@domain), or a bare username.
+    Returns None when the value is empty or not a valid account name. username is
+    the lowercased key; display keeps original case for the UI; email is the UPN
+    when one was supplied, else synthesized from settings.user_email_domain.
     """
-    from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer  # type: ignore
+    value = (raw or "").strip()
+    if not value:
+        return None
 
-    # The package logs the raw bearer token at WARNING when it's malformed;
-    # credentials must never reach our logs — cap its logger at ERROR. We log
-    # the (token-free) rejection reason ourselves in _extract_claims.
-    logging.getLogger("fastapi_azure_auth").setLevel(logging.ERROR)
+    email = ""
+    if "@" in value and "\\" not in value and "/" not in value:
+        # UPN (user@domain): keep it as the email, local part seeds the username.
+        display = value.split("@", 1)[0].strip()
+        email = value.lower()
+    else:
+        # DOMAIN\user or DOMAIN/user (optionally with a stray UPN suffix).
+        for sep in ("\\", "/"):
+            if sep in value:
+                value = value.rsplit(sep, 1)[1]
+                break
+        if "@" in value:
+            value = value.split("@", 1)[0]
+        display = value.strip()
 
-    return SingleTenantAzureAuthorizationCodeBearer(
-        app_client_id=settings.azure_client_id,
-        tenant_id=settings.azure_tenant_id,
-        # Guests are rejected with 403 unless explicitly allowed (fail closed).
-        allow_guest_users=settings.azure_allow_guest_users,
-    )
+    username = display.lower()
+    if not _USERNAME_RE.match(username):
+        return None
+    if not email:
+        email = (
+            f"{username}@{settings.user_email_domain}"
+            if settings.user_email_domain
+            else username
+        )
+    return username, email, display
 
 
 async def _extract_claims(request: Request) -> dict:
-    """Return token claims dict. In dev mode returns fixed dev claims."""
+    """Return an identity claims dict. In dev mode returns fixed dev claims;
+    otherwise derives identity from the trusted reverse-proxy header."""
     if settings.dev_mode:
         return _DEV_CLAIMS
 
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    # Optional shared secret: reject anything that doesn't present it, so a forged
+    # user header can't be trusted even if the app is reached directly. Constant-
+    # time compare so the secret can't be recovered via response timing.
+    if settings.proxy_shared_secret:
+        presented = request.headers.get(_PROXY_SECRET_HEADER, "")
+        if not hmac.compare_digest(presented, settings.proxy_shared_secret):
+            logger.warning(
+                "Proxy shared-secret missing/mismatched (%s %s)",
+                request.method,
+                request.url.path,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            )
 
-    try:
-        azure_scheme = _azure_scheme()
-    except ImportError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="fastapi-azure-auth is not installed",
-        )
-
-    # fastapi-azure-auth validates the token signature, audience, and expiry.
-    # Its __call__ is written for FastAPI dependency injection and requires a
-    # SecurityScopes argument; we call it manually, so pass an empty one (scope
-    # enforcement stays off — audience checking already ties tokens to this API).
-    try:
-        user_claims = await azure_scheme(request, SecurityScopes())  # raises 401 on invalid token
-    except HTTPException as exc:
-        # The client gets the validator's generic 401; record WHY it failed
-        # server-side so a misconfiguration (wrong audience, v1 token, expired
-        # JWKS, …) is diagnosable from the app log. Never log the token itself.
+    header_name = settings.proxy_user_header
+    identity = (
+        _identity_from_header(request.headers.get(header_name, "")) if header_name else None
+    )
+    if identity is None:
+        # Never reveal whether the header was absent vs malformed, and never log
+        # the value itself — just that this request couldn't be attributed.
         logger.warning(
-            "Azure AD token validation failed (%s %s): %s",
+            "Proxy user header missing/invalid (%s %s)",
             request.method,
             request.url.path,
-            exc.detail,
         )
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    username, email, display = identity
     return {
-        "oid": user_claims.oid,
-        "name": user_claims.name,
-        "preferred_username": user_claims.preferred_username,
-        "roles": getattr(user_claims, "roles", None) or [],
+        "oid": username,  # stable subject key (single-domain assumption)
+        "name": display,
+        "preferred_username": email,
+        "username": username,
     }
 
 
-def _resolve_admin(email: str, claims: dict) -> bool:
+def _resolve_admin(email: str, username: str) -> bool:
     """Decide whether a logging-in user is a global admin.
 
-    Dev mode trusts the dev user. In production, an Azure AD app role (admin_role)
-    in the token's "roles" claim is authoritative; admin_emails is a bootstrap
-    allowlist for before that role is wired up.
+    Dev mode trusts the dev user. In production, admin is granted when the user's
+    email OR their Windows username appears in the admin_emails allowlist. Sign-in
+    carries no role claims, so the allowlist is the sole login-time source; grants
+    made on the Admin page are additive and preserved by get_current_user.
     """
     if settings.dev_mode:
         return True
-    if email and email.lower() in settings.admin_emails_list:
+    allow = settings.admin_emails_list  # already lowercased
+    if email and email.lower() in allow:
         return True
-    roles = claims.get("roles") or []
-    return bool(settings.admin_role) and settings.admin_role in roles
+    return bool(username) and username.lower() in allow
 
 
 async def get_current_user(
@@ -119,7 +151,7 @@ async def get_current_user(
     oid = claims["oid"]
     name = claims.get("name", "Unknown User")
     email = claims.get("preferred_username", "")
-    is_admin = _resolve_admin(email, claims)
+    is_admin = _resolve_admin(email, claims.get("username", ""))
 
     result = await db.execute(select(User).where(User.ad_object_id == oid))
     user = result.scalar_one_or_none()

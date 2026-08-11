@@ -7,9 +7,8 @@ name = "drilling-sequence-api"
 version = "2.0.0"
 requires-python = ">=3.11"
 # Direct dependencies are pinned to exact versions for reproducible, audit-friendly
-# builds (no floating specs). Runtime pins match the tested environment; the
-# prod-only auth packages (fastapi-azure-auth, python-jose) are pinned to the
-# current stable releases. Bump deliberately, not incidentally.
+# builds (no floating specs). Runtime pins match the tested environment. Bump
+# deliberately, not incidentally.
 dependencies = [
     "fastapi==0.136.3",
     "uvicorn[standard]==0.48.0",
@@ -28,11 +27,9 @@ dependencies = [
     "alembic==1.18.4",
     "pydantic[email]==2.13.4",
     "pydantic-settings==2.14.1",
-    "fastapi-azure-auth==5.2.0",
     "python-multipart==0.0.29",
     "pandas==3.0.3",
     "openpyxl==3.1.5",
-    "python-jose[cryptography]==3.5.0",
     "httpx==0.28.1",
 ]
 

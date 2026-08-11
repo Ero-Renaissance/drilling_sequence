@@ -6,7 +6,7 @@ readiness, and route plan versions through a signed, audited approval workflow.
 
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Pydantic v2 (backend) · React 18 +
 TypeScript + Vite (frontend) · Microsoft SQL Server (prod) / SQLite (dev & tests) ·
-Microsoft Entra ID (Azure AD) SSO.
+Windows Integrated Auth SSO (via an IIS reverse proxy).
 
 ## Documentation
 
@@ -30,7 +30,7 @@ cd backend
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 printf 'DEV_MODE=true\nDATABASE_URL=sqlite+aiosqlite:///./drilling_sequence.db\n' > .env
-uvicorn app.main:app --reload   # dev settings above: SQLite + auth bypass (no Azure needed)
+uvicorn app.main:app --reload   # dev settings above: SQLite + auth bypass (no proxy needed)
 
 # Frontend (http://localhost:5173)
 cd frontend
@@ -48,7 +48,7 @@ reads from the matching env var); production values are documented in the
 > any text editor (same contents). Everything else is identical. For **production on Windows Server**, see
 > [deployment guide Appendix B](docs/deployment-guide.md#appendix-b--deploying-on-windows-server).
 
-In dev mode, sign in with **"Continue as Dev User"** — no Azure AD required.
+In dev mode, sign in with **"Continue as Dev User"** — no Windows sign-in required.
 For everything else, start with the [Maintainer Guide](docs/maintainer-guide.md).
 
 ## Repository layout

@@ -35,8 +35,10 @@ Three pieces talk to each other:
         │  Microsoft SQL Server  (existing IT DB)│
         └──────────────────────────────────────┘
 
-   Sign-in is handled by Microsoft Entra ID (Azure AD) — no passwords are
-   stored in this app.
+   Sign-in is handled by the company Windows domain (Kerberos/NTLM) at the reverse
+   proxy: users are signed in automatically with their Windows login and this app
+   stores no passwords. The proxy passes the authenticated username to the backend
+   in a trusted header. (See §2 for why this replaced the original Azure AD design.)
 ```
 
 **The single most important rule:** the frontend calls the backend using
@@ -49,12 +51,14 @@ right and everything works; get it wrong and the app loads but every action fail
 
 ## 1. What you need before you start (checklist)
 
-- [ ] A Linux server on the internal network (Ubuntu 22.04 / Debian 12 recommended)
-      with **Docker** installed. *(Windows alternative: see Appendix B.)*
+- [ ] A **Windows Server** on the internal network with **IIS** (recommended — IIS
+      performs the Windows Integrated Auth; see Appendix B). *(A Linux/nginx host is
+      possible only if the proxy is configured for Kerberos/SPNEGO — see §6.)*
 - [ ] **Microsoft SQL Server** reachable from that server on port 1433, plus a
       database and a login (your DBA provides these — see Step 3).
-- [ ] Two **Microsoft Entra ID (Azure AD) app registrations** (Step 2). Your Azure
-      AD administrator does this.
+- [ ] A front door that can perform **Windows Integrated Authentication** — in
+      practice **IIS on Windows Server** (Step 2 / Appendix B). Your Windows/AD
+      administrator enables it, plus a **domain service account** to run the app.
 - [ ] A **DNS name** for the app, e.g. `drilling.renaissanceafrica.com`, and a
       **TLS certificate** for it (internal CA is fine).
 - [ ] The application source code on the server (`git clone` or a release zip).
@@ -63,32 +67,40 @@ right and everything works; get it wrong and the app loads but every action fail
 
 ---
 
-## 2. Set up Microsoft Entra ID (Azure AD) sign-in
+## 2. Set up Windows Integrated Authentication (sign-in)
 
-This is the part most likely to need your Azure admin. You create **two** app
-registrations: one for the **API (backend)** and one for the **web app (frontend
-SPA)**.
+**Why this design.** The original build used Microsoft Entra ID (Azure AD) SSO, but
+company IT does not support Azure sign-in for this app. Instead, authentication is
+delegated to the **reverse proxy** (IIS on Windows), which authenticates each user
+against the **Windows domain** using **Integrated Authentication (Negotiate →
+Kerberos, with NTLM fallback)** — the same silent sign-on staff already get from
+other internal sites. There are no passwords, tokens, app registrations, or redirect
+URIs to manage.
 
-### 2a. API app registration (backend)
-1. Entra ID → **App registrations** → **New registration**. Name it
-   `Drilling Sequence API`. Single tenant.
-2. **Expose an API** → set the Application ID URI (accept the default
-   `api://<api-client-id>`) → **Add a scope** named e.g. `access_as_user`.
-3. (Optional but recommended) **App roles** → create an app role named `Admin`
-   (value `Admin`) → assigned to Users/Groups. This is how you grant global
-   admins through Azure rather than the email allowlist.
-4. Write down: **Directory (tenant) ID** and **Application (client) ID**.
+**How it works (the trust boundary).** The proxy authenticates the browser and then
+forwards each `/api` request to the backend with the signed-in Windows account in a
+trusted header (default `X-Remote-User`). The backend reads that header, upserts the
+user on first sight, and applies the same role checks as before. Because a header is
+only as trustworthy as whoever can set it, three things protect it:
 
-### 2b. Web app (SPA) registration (frontend)
-1. **New registration** → `Drilling Sequence Web` → Single tenant.
-2. **Authentication** → Add platform → **Single-page application** → Redirect URI =
-   `https://<your-app-dns>` (your production URL, exactly).
-3. **API permissions** → Add a permission → My APIs → `Drilling Sequence API` →
-   pick the `access_as_user` scope → **Grant admin consent**.
-4. Write down the SPA **Application (client) ID** and the same **tenant ID**.
+1. **uvicorn is bound to `127.0.0.1`** (§4b / Appendix B), so only the local proxy —
+   never a user's browser — can reach the backend and present a header.
+2. **The proxy overwrites the header** from its own authenticated `LOGON_USER` on
+   every request, so a value a client tries to inject is discarded.
+3. **An optional shared secret** (`PROXY_SHARED_SECRET`, sent as `X-Proxy-Auth`) must
+   match, so even a request that somehow reached the backend directly is rejected.
 
-> You now have: `TENANT_ID`, `API_CLIENT_ID`, `SPA_CLIENT_ID`. You'll plug these
-> into the backend and frontend config below.
+**What you configure.** On the IIS site that fronts the app: enable **Windows
+Authentication**, disable **Anonymous**, and inject the authenticated user into the
+`X-Remote-User` header. The exact IIS steps live in **Appendix B (Variant 1)** — that
+is now the recommended production path, because IIS is what performs the handshake.
+Admins are listed by Windows email or username in `ADMIN_EMAILS` (§4a); there is no
+directory role to assign.
+
+> One prerequisite for silent sign-on: the app's URL must be in each browser's
+> **Local Intranet** (trusted) zone — normally pushed by GPO — so Windows sends the
+> Kerberos ticket without prompting. If it isn't, users get a username/password
+> prompt instead of seamless SSO.
 
 ---
 
@@ -119,7 +131,7 @@ field reads the matching env var):
 
 ```ini
 # Turns on fail-closed safety checks. With this set, the app REFUSES to start if
-# DEV_MODE is true or the Azure IDs are missing — auth can never be bypassed.
+# DEV_MODE is true or PROXY_USER_HEADER is missing — auth can never be bypassed.
 ENVIRONMENT=production
 DEV_MODE=false
 
@@ -130,12 +142,24 @@ DEV_MODE=false
 # password — see Appendix B.2 for that connection string.
 DATABASE_URL=mssql+aioodbc://<DB_USER>:<DB_PASS>@<DB_HOST>:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
 
-# Azure AD — from Step 2a (the API registration).
-AZURE_TENANT_ID=<TENANT_ID>
-AZURE_CLIENT_ID=<API_CLIENT_ID>
+# Windows Integrated Auth (see §2). The reverse proxy authenticates the user and
+# injects their Windows account into this header on every request; the backend
+# trusts it ONLY because uvicorn is bound to localhost (§4b) and, optionally, the
+# shared secret below must match. Must be set in production (fail-closed).
+PROXY_USER_HEADER=X-Remote-User
 
-# Comma-separated bootstrap admins (lowercased emails). These people are admins
-# on first login even before the Azure "Admin" app role is assigned.
+# Optional but recommended: a random shared secret the proxy must also send (in the
+# X-Proxy-Auth header). Rejects any request that doesn't present it, so a forged
+# user header can't be trusted even if the backend is reached directly.
+PROXY_SHARED_SECRET=<paste a long random string>
+
+# Optional. The proxy gives us only the Windows account name; this builds each
+# user's email as <username>@<domain>. Needed so approval-decision emails to the
+# planner who created a revision reach a real mailbox.
+USER_EMAIL_DOMAIN=renaissanceafrica.com
+
+# Comma-separated admins (lowercased), matched against either the user's email or
+# their Windows username. This is the source of truth for global admins.
 ADMIN_EMAILS=you@renaissanceafrica.com
 
 # The public URL of the app. Used for CORS and for links inside notification emails.
@@ -201,16 +225,14 @@ If this fails, see Troubleshooting (§8).
 
 ## 5. Build the frontend (static files)
 
-The frontend is compiled once into plain static files. **The Azure values are
-baked in at build time**, so you must set them *before* building.
+The frontend is compiled once into plain static files. There's no client-side auth
+config any more — the browser is authenticated by the reverse proxy and the SPA
+carries no tokens — so the only build-time flag is dev mode (off in production).
 
 In `frontend/`, create `.env.production`:
 
 ```ini
 VITE_DEV_MODE=false
-VITE_AZURE_TENANT_ID=<TENANT_ID>
-VITE_AZURE_CLIENT_ID=<SPA_CLIENT_ID>
-VITE_AZURE_REDIRECT_URI=https://<your-app-dns>
 ```
 
 Then build:
@@ -229,10 +251,20 @@ Copy `frontend/dist/` to wherever your web server serves files from
 
 ## 6. Set up the reverse proxy (the glue)
 
-This is where the "same origin" rule is satisfied: one HTTPS site that serves the
-static frontend **and** forwards `/api/*` to the backend.
+This is where two rules are satisfied at once: (1) the "same origin" rule — one HTTPS
+site serves the static frontend **and** forwards `/api/*` to the backend — and (2)
+**authentication**: the proxy performs Windows Integrated Auth and passes the signed-in
+user to the backend in the header named by `PROXY_USER_HEADER`.
 
-### nginx example (`/etc/nginx/sites-available/drilling`)
+> **Windows Auth needs the right front door.** The Negotiate/Kerberos handshake is
+> done by **IIS on Windows** — see **Appendix B**, the recommended production path,
+> which shows the exact Windows-Authentication + header-injection config. The nginx
+> example below covers TLS, static serving and the SPA fallback, but **nginx cannot do
+> Windows Integrated Auth** without the `mod_auth_gssapi` module and a Kerberos keytab;
+> if you must use it, add that module, inject `$remote_user` into the header, and strip
+> any client-supplied copy. For most installs, use IIS.
+
+### nginx example (TLS + static + SPA fallback; add mod_auth_gssapi for Windows Auth)
 ```nginx
 server {
     listen 443 ssl;
@@ -247,6 +279,12 @@ server {
 
     # 2) Forward API calls to the backend container.
     location /api/ {
+        # Windows Auth requires mod_auth_gssapi + a Kerberos keytab (see the note
+        # above). Once the user is authenticated, pass them to the backend as the
+        # PROXY_USER_HEADER and let proxy_set_header overwrite any client-sent copy:
+        #   auth_gss on;  auth_gss_keytab /etc/krb5.keytab;
+        proxy_set_header   X-Remote-User     $remote_user;
+        proxy_set_header   X-Proxy-Auth      "<same value as PROXY_SHARED_SECRET>";
         proxy_pass         http://127.0.0.1:8000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -277,10 +315,10 @@ nginx -t && systemctl reload nginx
 
 ## 7. First login + smoke test (do this before telling users)
 
-1. Browse to `https://<your-app-dns>`. You should see the Renaissance login screen
-   with **Sign in with Microsoft**.
-2. Sign in with an account whose email is in `ADMIN_EMAILS`. You should land on the
-   Dashboard.
+1. Browse to `https://<your-app-dns>` from a domain-joined PC, logged in with your
+   Windows account. You should be signed in **automatically** (no prompt) and land on
+   the Dashboard — the proxy authenticated you and the app resolved your account.
+2. Confirm you have admin (your Windows email or username is in `ADMIN_EMAILS`).
 3. Run the end-to-end **MSSQL smoke test** (this is the real proof the database
    works):
    - Create a project.
@@ -298,9 +336,10 @@ If all four pass, the deployment is good.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Backend container exits immediately | `ENVIRONMENT=production` with `DEV_MODE=true` or missing Azure IDs (intentional fail-closed) | Fix `.env`; both Azure IDs must be set and `DEV_MODE=false`. |
+| Backend container exits immediately | `ENVIRONMENT=production` with `DEV_MODE=true` or missing `PROXY_USER_HEADER` (intentional fail-closed) | Fix `.env`; `PROXY_USER_HEADER` must be set and `DEV_MODE=false`. |
 | Page loads but every action fails / 404 on `/api/...` | Reverse proxy not forwarding `/api` (same-origin rule broken) | Re-check the `location /api/` block; confirm backend is up on `127.0.0.1:8000`. |
-| `Login failed` / redirect loop | SPA redirect URI mismatch | The Entra **redirect URI** must exactly equal `https://<your-app-dns>` and match `VITE_AZURE_REDIRECT_URI`. |
+| Every request is 401 / stuck signing in | Proxy isn't sending the user header, or the shared secret doesn't match | Confirm the IIS site has **Windows Authentication** on and **Anonymous** off, and injects `X-Remote-User` from `LOGON_USER`; check `PROXY_SHARED_SECRET` equals the `X-Proxy-Auth` the proxy sends. |
+| Browser prompts for a username/password instead of signing in silently | The app URL isn't in the browser's Local Intranet / trusted zone | Add `https://<your-app-dns>` to the Local Intranet zone (usually via GPO) so Windows sends the Kerberos ticket automatically. |
 | Backend can't reach DB (`Login timeout` / `ODBC`) | Firewall, wrong host, or TLS cert | Confirm port 1433 open; if no trusted cert, set `TrustServerCertificate=yes` (with DBA approval). |
 | `alembic upgrade head` errors on a TYPE/now() | Old/un-ported migration | Ensure you're on the current code (migrations were made MSSQL-portable). |
 | Deep link 404 on refresh (e.g. `/projects/x/chart`) | Missing SPA fallback | Add the `try_files ... /index.html` block. |
@@ -318,8 +357,8 @@ Backend logs: `docker logs drilling-backend`.
   (`npm run build`) → redeploy `dist/`.
 - **Logs:** `docker logs -f drilling-backend`. Set `LOG_LEVEL=DEBUG` temporarily to
   diagnose, then back to `INFO`.
-- **Adding admins:** assign the Entra `Admin` app role, or add the email to
-  `ADMIN_EMAILS` and restart the backend.
+- **Adding admins:** add the person's Windows email or username to `ADMIN_EMAILS`
+  and restart the backend — or grant them on the in-app Admin page (which persists).
 
 ---
 
@@ -329,7 +368,9 @@ Backend logs: `docker logs drilling-backend`.
 - The backend listens on `127.0.0.1` only; never expose port 8000 to the network.
 - TLS terminates at the reverse proxy; the internal hop to the backend is localhost.
 - Keep `.env` `chmod 600`; rotate the DB password per company policy.
-- The app stores no passwords — identity is entirely Microsoft Entra ID.
+- The app stores no passwords — identity comes from the Windows domain via the
+  proxy. Keep uvicorn bound to `127.0.0.1` and set `PROXY_SHARED_SECRET`, so the
+  trusted user header can't be forged by anything that reaches the backend directly.
 
 ## Appendix B — Deploying on Windows Server
 
@@ -338,7 +379,8 @@ or Datacenter). The **Standard** edition is sufficient — none of the Datacente
 features matter here. Use the **native path** below: Docker Desktop is a workstation
 tool and is not supported on Windows Server, so skip B.7 on a Server SKU.*
 
-The architecture and all the OS-agnostic steps are unchanged: **Azure setup (§2),
+**This is the recommended production path**, because IIS is what performs the Windows
+Integrated Auth (§2). The OS-agnostic steps are unchanged: **Windows-Auth setup (§2),
 database provisioning (§3), the `.env` keys (§4a), the frontend build (§5), and the
 smoke test (§7) apply as written.** Only the host tooling differs. Pick one hosting
 model with IT:
@@ -501,6 +543,11 @@ proxy."** Root the site at the frontend (`C:\inetpub\drilling`, per B.5) and put
           <action type="Rewrite" url="http://127.0.0.1:8000/api/{R:1}" />
           <serverVariables>
             <set name="HTTP_X_FORWARDED_PROTO" value="https" />
+            <!-- Pass the Windows-authenticated user to the backend (= PROXY_USER_HEADER).
+                 Setting it here OVERWRITES any X-Remote-User a client tried to send. -->
+            <set name="HTTP_X_REMOTE_USER" value="{LOGON_USER}" />
+            <!-- Shared secret the backend verifies (= PROXY_SHARED_SECRET). -->
+            <set name="HTTP_X_PROXY_AUTH" value="<same value as PROXY_SHARED_SECRET>" />
           </serverVariables>
         </rule>
         <!-- 2) SPA fallback: anything that isn't a real file/dir -> index.html. -->
@@ -517,9 +564,19 @@ proxy."** Root the site at the frontend (`C:\inetpub\drilling`, per B.5) and put
   </system.webServer>
 </configuration>
 ```
-(To set `X-Forwarded-Proto` you must first allow the variable: URL Rewrite → **View
-Server Variables** → add `HTTP_X_FORWARDED_PROTO`. ARR forwards `X-Forwarded-For`
-automatically.)
+Two IIS settings make sign-in work:
+- **Enable Windows Authentication and disable Anonymous** on the site (IIS Manager →
+  *Authentication*; add the *Windows Authentication* role service first if it's
+  missing). This is what makes the browser do the Kerberos/NTLM handshake, so
+  `{LOGON_USER}` is populated.
+- **Allow the server variables** you set above: URL Rewrite → **View Server Variables**
+  → add `HTTP_X_FORWARDED_PROTO`, `HTTP_X_REMOTE_USER`, and `HTTP_X_PROXY_AUTH`. (ARR
+  forwards `X-Forwarded-For` automatically.)
+
+Then set `PROXY_USER_HEADER=X-Remote-User` and the matching `PROXY_SHARED_SECRET` in
+`backend\.env` (§4a). IIS overwrites `X-Remote-User` from the authenticated `LOGON_USER`
+on every request, so a client can't forge it; the localhost-only backend bind (B.4) and
+the shared secret are the belt-and-braces.
 
 **Variant 2 — HttpPlatformHandler (one module; no ARR, no separate service).** IIS
 launches uvicorn (B.4 Option 2) *and* forwards to it, and uvicorn serves the SPA, so the
@@ -555,6 +612,11 @@ points (B.5), so it needn't sit under the site root. `web.config` in that root:
 </configuration>
 ```
 Variant-2 specifics:
+- **Windows Integrated Auth (SSO) is *not* supported by this variant.**
+  HttpPlatformHandler forwards to uvicorn but does **not** inject the authenticated
+  Windows user as a request header, so the backend can't identify the caller. Use
+  **Variant 1 (URL Rewrite + ARR)** for production sign-in; Variant 2 suits `DEV_MODE`
+  testing (Appendix D) or a future non-Windows identity source.
 - **`STATIC_DIR` is required, not optional.** The handler forwards *everything* to uvicorn,
   so uvicorn (via `app/static_spa.py`) serves the SPA and does the `index.html` fallback.
   Variant 1's URL-Rewrite SPA rule has no equivalent here because it isn't needed.
@@ -609,6 +671,12 @@ everything itself**: the `/api` backend, the built frontend, the SPA fallback, *
 TLS — one process, inherently single-origin. It's run as a Windows service via
 **pywin32** (a pip package, no separate installer). Fine for an internal app at this
 scale; for high traffic, prefer Appendix B's IIS path.
+
+> **No IIS means no Windows Integrated Auth.** This single-process shape can't perform
+> the Negotiate/Kerberos handshake, so it can't authenticate real users on its own. Use
+> it only with `DEV_MODE=true` for testing (Appendix D), or behind a separate
+> Windows-Auth proxy that injects `PROXY_USER_HEADER`. For production SSO, use the IIS
+> path (Appendix B, Variant 1).
 
 ### C.1 Install the backend (Python 3.11–3.14 + pywin32)
 From `backend\` (any Python 3.11–3.14 works — see B.1; `py -3.14` is fine on the host):
@@ -682,17 +750,18 @@ there's no HTTP→HTTPS redirect — share the `https://` URL (or add a tiny red
 - **Upgrades:** pull code → `pip install -r requirements.txt` (if deps changed) →
   `alembic upgrade head` → `Restart-Service DrillingSequence` → rebuild & recopy `dist\`.
 
-> If IT *can* approve **ARR** (a Microsoft-signed module) later, you can switch to
-> Appendix B's IIS path without app changes — just unset `STATIC_DIR`.
+> If IT *can* approve **ARR** (a Microsoft-signed module) later, switch to Appendix B's
+> IIS path (Variant 1) to get real Windows sign-in — unset `STATIC_DIR` and configure the
+> Windows-Auth header injection (§2 / B.6).
 
 ---
 
-## Appendix D — Test / staging on DEV_MODE (no Azure, no TLS)
+## Appendix D — Test / staging on DEV_MODE (no sign-in, no TLS)
 
 Use this to stand the app up for **colleagues to click around** before SSO and the
 production move are ready — the "share a link so others can test" case. It's the
-single-process shape of Appendix C, but with `DEV_MODE` on, so you skip the Azure
-registrations (§2) and the TLS certificate entirely.
+single-process shape of Appendix C, but with `DEV_MODE` on, so you skip the Windows
+Integrated Auth setup (§2) and the TLS certificate entirely.
 
 > **What `DEV_MODE` actually does:** it turns authentication **off**. Every request
 > is treated as one fixed, built-in **admin** user — there is no login and no token
@@ -709,21 +778,20 @@ user is.
 user, and a revision's creator may not sign their own work (an integrity rule with
 no admin bypass), and submit is blocked when there's only one eligible approver — so
 a single shared identity dead-ends sign-off. The multi-person governance core can
-only be exercised with **real SSO and 2–3 distinct accounts** (i.e. after the Entra
-move, §2). Don't spend time trying to approve anything under `DEV_MODE`.
+only be exercised with **real Windows sign-in and 2–3 distinct accounts** (i.e. via the
+IIS Windows-Auth setup, §2). Don't spend time trying to approve anything under `DEV_MODE`.
 
 ### D.2 Build the frontend with login off
-The Azure values are baked in at build time, so the **frontend** must also be built
-with login off — otherwise the browser still tries to sign in via Microsoft. In
-`frontend\.env.production` (or `.env`):
+The dev-mode flag is baked in at build time, so the **frontend** must also be built with
+login off. In `frontend\.env.production` (or `.env`):
 ```ini
 VITE_DEV_MODE=true
 ```
 Then `npm ci && npm run build` (per §5) and copy `frontend\dist\` to e.g.
 `C:\apps\drilling\web`.
 
-### D.3 Backend env — no Azure block, no production guard
-`backend\.env` with the §4a keys **minus** the Azure section, plus:
+### D.3 Backend env — no Windows-Auth block, no production guard
+`backend\.env` with the §4a keys **minus** the `PROXY_*` section, plus:
 ```ini
 :: Auth OFF — single shared admin user. Internal network only.
 DEV_MODE=true
@@ -742,7 +810,7 @@ Tables: on the **SQLite** dev DB the app creates them on startup; on a **MSSQL**
 DB run `.venv\Scripts\alembic upgrade head` once (per §4c / B.3).
 
 ### D.4 Run it on the network and share the link
-No TLS is needed (no Azure to demand https), so plain HTTP is fine on the internal
+No TLS is needed for a dev test, so plain HTTP is fine on the internal
 network. The one change from the localhost smoke test is `--host 0.0.0.0`, which
 makes it reachable from other machines:
 ```bat
@@ -758,12 +826,11 @@ To survive logoff/reboot, run it as a service the same way as Appendix C
 leaving the console window running is fine.
 
 ### D.5 When you're ready for SSO / production
-No app changes — only config. Rebuild the frontend with `VITE_DEV_MODE=false` + the
-Azure IDs + redirect URI (§5); set the backend to `DEV_MODE=false`,
-`ENVIRONMENT=production`, the Azure IDs and the real `DATABASE_URL` (§4a); front it
-with TLS (Appendix B's IIS path or Appendix C's single-process https); and register
-the redirect URI in Entra exactly (§2b, §8). Then the multi-person approval flow
-becomes testable with distinct accounts.
+No app changes — only config. Rebuild the frontend with `VITE_DEV_MODE=false` (§5); set
+the backend to `DEV_MODE=false`, `ENVIRONMENT=production`, the `PROXY_*` keys and the
+real `DATABASE_URL` (§4a); and front it with **IIS doing Windows Integrated Auth**
+(Appendix B, Variant 1 — §2). Then the multi-person approval flow becomes testable with
+distinct Windows accounts.
 
 ---
 

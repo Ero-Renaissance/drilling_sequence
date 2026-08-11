@@ -14,14 +14,24 @@ class Settings(BaseSettings):
     # Root log level for the application logger (DEBUG/INFO/WARNING/ERROR).
     log_level: str = "INFO"
 
-    azure_tenant_id: str = ""
-    azure_client_id: str = ""
+    # Reverse-proxy authentication (Windows Integrated Auth via IIS/ARR). The proxy
+    # authenticates the browser with Negotiate/Kerberos and injects the resulting
+    # account into this header on every proxied request (e.g. from IIS's LOGON_USER
+    # server variable). Empty disables it (dev/test); REQUIRED in production by the
+    # fail-closed guard below. The app MUST be reachable only via the proxy (bind
+    # uvicorn to 127.0.0.1) so a client can't forge this header.
+    proxy_user_header: str = ""
 
-    # Whether Azure AD *guest* accounts (external users invited into the tenant)
-    # may authenticate. Fail-closed default: members only. Enable only when the
-    # deployment intentionally serves guests (e.g. a dev tenant where the tester's
-    # account is a guest, or cross-company collaborators vetted by IT).
-    azure_allow_guest_users: bool = False
+    # Optional shared secret between the proxy and this app. When set, every request
+    # must also present it in the X-Proxy-Auth header or it's rejected — so a forged
+    # user header is untrusted even if the app is somehow reached directly. Strongly
+    # recommended in production as defense-in-depth beyond the loopback bind.
+    proxy_shared_secret: str = ""
+
+    # Optional. When set, a user's email is synthesized as "<username>@<domain>"
+    # (the proxy gives us only the Windows account name). Needed for the revision-
+    # decision notification to the creating planner to reach a real mailbox.
+    user_email_domain: str = ""
 
     # Single-origin deploy without a reverse proxy: point STATIC_DIR at the
     # frontend's built `dist/` and uvicorn serves the SPA itself (assets + an
@@ -29,8 +39,8 @@ class Settings(BaseSettings):
     # server serves the frontend (the default).
     static_dir: str = ""
 
-    # When true: skip Azure AD, inject a dev user. Never enable in production —
-    # the validator below refuses to start if this is set in a production environment.
+    # When true: skip proxy authentication, inject a dev user. Never enable in
+    # production — the validator below refuses to start if this is set there.
     dev_mode: bool = False
 
     @property
@@ -45,12 +55,12 @@ class Settings(BaseSettings):
             if self.dev_mode:
                 raise ValueError(
                     "DEV_MODE must be false when ENVIRONMENT=production — "
-                    "dev mode bypasses Azure AD authentication."
+                    "dev mode bypasses authentication."
                 )
-            if not self.azure_tenant_id or not self.azure_client_id:
+            if not self.proxy_user_header.strip():
                 raise ValueError(
-                    "AZURE_TENANT_ID and AZURE_CLIENT_ID are required when "
-                    "ENVIRONMENT=production."
+                    "PROXY_USER_HEADER is required when ENVIRONMENT=production — "
+                    "it names the header the authenticating reverse proxy injects."
                 )
         return self
 
@@ -59,11 +69,11 @@ class Settings(BaseSettings):
     # adoption; until installed the API falls back to heuristic with a warning).
     optimizer_engine: str = "heuristic"
 
-    # Admin access. Production source of truth is an Azure AD app role (admin_role)
-    # carried in the token's "roles" claim. admin_emails is a bootstrap allowlist so
-    # the first admins exist before the AD role is configured. Both are comma-separated.
+    # Admin access. admin_emails is the allowlist of global admins, matched against
+    # a user's email OR their Windows username (comma-separated, case-insensitive).
+    # Sign-in carries no role claims, so this is the login-time source of truth;
+    # grants made on the Admin page are additive and preserved across logins.
     admin_emails: str = ""
-    admin_role: str = "Admin"
 
     # Comma-separated origins: "http://localhost:5173,https://app.company.com"
     # Stored as str so pydantic-settings doesn't try to JSON-parse it from the .env file.

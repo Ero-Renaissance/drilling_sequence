@@ -30,27 +30,28 @@ Management can view the live schedule in the app and sign off digitally. A print
 
 | Role | Description |
 |---|---|
-| **Admin** | `User.is_admin` flag. Bypasses all per-project membership checks and manages users via the Admin page. Granted additively at login from an Azure AD app role or a bootstrap email allowlist (never auto-revoked — see §3). |
+| **Admin** | `User.is_admin` flag. Bypasses all per-project membership checks and manages users via the Admin page. Granted additively at login from the `ADMIN_EMAILS` allowlist — matched on the user's Windows email or username (never auto-revoked — see §3). |
 
 > **Designated approvers** are a separate, email-based concept (`ProjectApprover`) orthogonal to membership: a revision can only be auto-approved once every designated approver has signed. A designated approver may be matched by email even if they are not a project member.
 
 **Primary persona:** Project managers and planners who build and maintain the schedule daily.
 **Secondary persona:** Management approvers who review and sign revisions.
 
-All users are internal — authenticated via Microsoft Active Directory.
+All users are internal — authenticated via Windows Integrated Auth (the reverse proxy signs them in with their Windows domain account).
 
 ---
 
 ## 3. Authentication
 
-- SSO via **Microsoft Active Directory** (OAuth2/OIDC) — `fastapi-azure-auth` on the backend, MSAL on the frontend
-- No username/password forms — the login page redirects to company AD login
+- **Windows Integrated Auth** (Negotiate/Kerberos, NTLM fallback) performed by the reverse proxy (IIS), which injects the signed-in Windows account into a trusted header (`PROXY_USER_HEADER`) the backend reads. Migrated off Azure AD — company IT does not support Azure sign-in for this app.
+- No username/password forms and no tokens in the browser — users are signed in silently with their existing Windows session
+- The backend trusts the header only because uvicorn is bound to localhost and an optional `PROXY_SHARED_SECRET` must match — so a client can't forge it
 - Role is assigned per project (a user can be Planner on Project A and Viewer on Project B)
 - No guest/external access required
 
-**Admin determination:** in production the source of truth is an Azure AD app role (`ADMIN_ROLE`, default `"Admin"`) carried in the token's `roles` claim; `ADMIN_EMAILS` is a comma-separated bootstrap allowlist for the first admins before the AD role is wired up. Admin is resolved **additively** at login — a claim or allowlist entry can grant admin but never revokes a grant made manually in the Admin page.
+**Admin determination:** the source of truth is the `ADMIN_EMAILS` allowlist (comma-separated), matched against either the user's email or their Windows username. Sign-in carries no role claims. Admin is resolved **additively** at login — an allowlist entry can grant admin but never revokes a grant made manually in the Admin page.
 
-**Environment hardening (fail-closed):** a `DEV_MODE` flag bypasses Azure AD and injects a fixed "Dev User" for local development. The app **refuses to start** when `ENVIRONMENT=production` and either `DEV_MODE=true` or the Azure credentials are missing — so a production deployment can never silently bypass authentication.
+**Environment hardening (fail-closed):** a `DEV_MODE` flag bypasses authentication and injects a fixed "Dev User" for local development. The app **refuses to start** when `ENVIRONMENT=production` and either `DEV_MODE=true` or `PROXY_USER_HEADER` is missing — so a production deployment can never silently bypass authentication.
 
 ---
 
@@ -230,7 +231,7 @@ The following are explicitly deferred:
 | Data grid | TanStack Table v8 | Headless, flexible, pairs well with Tailwind |
 | Client state | Zustand | Simple, low boilerplate |
 | Backend | Python 3.11 + FastAPI | Reuses all existing processing code with zero rewrite |
-| Auth | fastapi-azure-auth + MSAL | Microsoft AD SSO |
+| Auth | Reverse-proxy Windows Integrated Auth (IIS) | Silent SSO with the user's Windows domain account |
 | Email | stdlib `smtplib` → company SMTP relay | Fire-and-forget notifications; no external provider, no per-message cost |
 | ORM | SQLAlchemy 2.0 + Alembic | Type-safe queries, schema migrations |
 | Database | PostgreSQL 15 | Reliable, JSONB support for snapshot storage |
@@ -243,7 +244,7 @@ The following are explicitly deferred:
 
 ```
 /                               Redirect to /dashboard
-/login                          SSO redirect to Microsoft AD (or "Continue as Dev User" in dev)
+/login                          Silent Windows SSO via the proxy (or "Continue as Dev User" in dev)
 
 /dashboard                      KPI overview + recent projects + pending approvals
 
@@ -386,7 +387,7 @@ Signature
 
 | Phase | Scope | Deliverable | Status |
 |---|---|---|---|
-| **1 — Foundation** | FastAPI skeleton, SQLite/PostgreSQL schema, AD SSO, project CRUD, React shell | Authenticated shell — login works, projects can be created | ✅ Done |
+| **1 — Foundation** | FastAPI skeleton, SQLite/PostgreSQL schema, Windows-Auth SSO, project CRUD, React shell | Authenticated shell — login works, projects can be created | ✅ Done |
 | **2 — Chart** | ECharts Gantt, CSV/Excel import, chart-utils data transform | Feature parity with current Streamlit app | ✅ Done |
 | **3 — Data Grid** | TanStack Table editor, inline editing, optimistic updates, create/delete | No more CSV re-upload for edits | ✅ Done |
 | **4 — Readiness Tracker** | ReadinessCheck table, matrix grid UI, status cycling, readiness section in chart tooltip | Dedicated readiness workflow surfaced in chart | ✅ Done |

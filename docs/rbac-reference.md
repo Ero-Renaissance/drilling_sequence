@@ -16,9 +16,9 @@ per-project. A global admin bypasses every project-level check (it's the first l
 each helper in `rbac.py`).
 
 Admin is **resolved additively at login** (`app/core/auth.py::_resolve_admin`): a user
-is admin if the manual `is_admin` flag is set **or** the Azure AD token's `roles` claim
-grants it **or** their email is in the `admin_emails` allowlist. It is **never
-auto-revoked** from those sources — `new_is_admin = user.is_admin or is_admin`.
+is admin if the manual `is_admin` flag is set **or** their Windows email or username is
+in the `admin_emails` allowlist. It is **never auto-revoked** from those sources —
+`new_is_admin = user.is_admin or is_admin`.
 
 ### Per-project: `ProjectRole`
 Held via `ProjectMember` (one row per user per project). The enum
