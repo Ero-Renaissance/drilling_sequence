@@ -12,8 +12,6 @@
     "lint": "tsc -b"
   },
   "dependencies": {
-    "@azure/msal-browser": "^3.14.0",
-    "@azure/msal-react": "^2.1.0",
     "@hookform/resolvers": "^3.7.0",
     "@radix-ui/react-avatar": "^1.1.0",
     "@radix-ui/react-dialog": "^1.1.0",

@@ -22,10 +22,11 @@ Think of it as "the official, sign-able rig schedule," not a scratchpad.
 
 ## 2. Signing in
 
-1. Open the app link your IT team gave you (e.g.
+1. From a Renaissance computer where you're logged in with your Windows account,
+   open the app link your IT team gave you (e.g.
    `https://drilling.renaissanceafrica.com`).
-2. Click **Sign in with Microsoft** and use your normal Renaissance work account.
-   There's no separate password to remember.
+2. You're signed in **automatically** with your Windows account — there's no button
+   to click and no separate password to remember.
 3. You'll land on the **Dashboard**.
 
 If you can't sign in or can't see a project you expect, contact your project's

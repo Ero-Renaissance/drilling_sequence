@@ -40,8 +40,6 @@ services:
       - "5173:5173"
     environment:
       VITE_DEV_MODE: "true"
-      VITE_AZURE_CLIENT_ID: ""
-      VITE_AZURE_TENANT_ID: ""
     depends_on:
       - backend
     volumes:

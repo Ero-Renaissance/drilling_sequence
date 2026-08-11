@@ -12,8 +12,9 @@ Drilling Sequence is an internal **system of record** for an oil & gas rig sched
 and its **formal approvals**. Because it's a system of record, the priorities are
 (in order): **correct access control, auditability, data integrity** — then
 features. A FastAPI + async SQLAlchemy backend exposes a JSON API under `/api`; a
-React/TypeScript SPA consumes it. Identity is Microsoft Entra ID (Azure AD). The
-production database is Microsoft SQL Server; tests and local dev use SQLite. When in
+React/TypeScript SPA consumes it. Identity is the Windows domain, via a reverse
+proxy that does Integrated Auth (the app was migrated off Azure AD). The production
+database is Microsoft SQL Server; tests and local dev use SQLite. When in
 doubt about a trade-off, choose the more defensible/auditable option.
 
 ---
@@ -43,7 +44,7 @@ drilling_sequence/
 │   │   ├─ config.py         # Settings (env vars) + production fail-closed guard.
 │   │   ├─ database.py       # Async engine + session; SQLite vs server-DB handling.
 │   │   ├─ core/
-│   │   │   ├─ auth.py       # Azure AD auth; get_current_user; dev_mode bypass.
+│   │   │   ├─ auth.py       # Proxy-header (Windows Auth) identity; get_current_user; dev bypass.
 │   │   │   ├─ rbac.py       # assert_member / assert_can_sign / assert_can_review
 │   │   │   │                # / assert_can_plan — USE THESE.
 │   │   │   ├─ locks.py      # Plan-lock helpers (HTTP 423).
@@ -77,14 +78,15 @@ drilling_sequence/
 
 ## 3. Tech stack
 
-- **Backend:** Python 3.11, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Alembic,
-  `fastapi-azure-auth`. ASGI server: uvicorn.
+- **Backend:** Python 3.11, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Alembic.
+  ASGI server: uvicorn.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind, Radix UI, zustand, ECharts
   (`echarts-for-react`), React Router v7.
 - **DB:** MSSQL in prod (via `aioodbc`/`pyodbc` + ODBC Driver 18); SQLite
   (`aiosqlite`) for dev/tests. Postgres (`asyncpg`) retained through the MSSQL
   transition only — see `mssql-migration.md`.
-- **Auth:** Microsoft Entra ID (Azure AD) SSO; MSAL on the frontend.
+- **Auth:** Windows Integrated Auth at the reverse proxy (IIS), which injects the
+  signed-in user into a trusted header the backend reads. No tokens on the frontend.
 
 ---
 
@@ -102,8 +104,8 @@ uvicorn app.main:app --reload     # http://localhost:8000  (docs at /api/docs)
 The two `.env` lines above are all local dev needs. The canonical settings list
 is `backend/app/config.py` (every field reads the matching env var); production
 values are documented in the deployment guide §4a.
-In dev (`DEV_MODE=true`) Azure AD is bypassed and a fake **Dev User** (admin) is
-injected, so you can work without Azure. SQLite tables are auto-created on startup
+In dev (`DEV_MODE=true`) authentication is bypassed and a fake **Dev User** (admin) is
+injected, so you can work without the proxy. SQLite tables are auto-created on startup
 (`main.py` lifespan) — no migrations needed locally.
 
 ### Frontend
@@ -172,7 +174,7 @@ return a Pydantic response model.
    server-side. Side-effects that must not break the request (email/SMTP,
    notifications) are **fire-and-forget** and must never raise into the response.
 6. **Production fails closed** (`config.py`): with `ENVIRONMENT=production`, the app
-   refuses to start if `dev_mode=True` or the Azure IDs are missing. Never weaken this.
+   refuses to start if `dev_mode=True` or `proxy_user_header` is missing. Never weaken this.
 
 **Key services:**
 - `conflicts.py` — rig double-booking detection (same rig, overlapping non-completed
@@ -198,8 +200,9 @@ Conventions:
   hand-built-HTML surface — contextually encode any user/well/rig/comment text there.
 - **API base URL:** there is none — calls are relative `/api/...`, so the app *must*
   be served same-origin as the backend (the reverse proxy does this in prod).
-- **Azure config is build-time:** `VITE_*` vars are baked into the bundle by Vite at
-  `npm run build`. Changing them requires a rebuild, not just a config change.
+- **Frontend has no auth config:** the browser is authenticated by the proxy, so the
+  SPA carries no tokens and there are no auth `VITE_*` vars. `getAccessToken()` in
+  `lib/auth.ts` returns null; the API layer just omits the Authorization header.
 - Keep `lib/` and the backend in sync where logic is duplicated (e.g. rig-conflict
   detection exists in both `lib/conflicts.ts` and `services/conflicts.py` — change
   both, and both have tests).
@@ -290,9 +293,13 @@ This app must pass IT security review, so dependencies are treated as liabilitie
 
 ## 11. Auth & admin model
 
-- **Auth:** Azure AD via `fastapi-azure-auth` (`core/auth.py`). `DEV_MODE=true`
-  injects a dev user and is rejected in production. Tokens are validated against the
-  tenant/audience configured by `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`.
+- **Auth:** Windows Integrated Auth at the reverse proxy (`core/auth.py`). The proxy
+  (IIS) authenticates the user and injects their Windows account into the header named
+  by `PROXY_USER_HEADER` (default `X-Remote-User`); the backend trusts it because
+  uvicorn is bound to localhost and, optionally, a `PROXY_SHARED_SECRET` (`X-Proxy-Auth`)
+  must match. `_extract_claims` parses `DOMAIN\user`/UPN/bare-name → username + email
+  (email synthesized from `USER_EMAIL_DOMAIN`). `DEV_MODE=true` injects a dev user and
+  is rejected in production. (Migrated off Azure AD — IT doesn't support Azure sign-in.)
 - **Roles are per project** (`planner`/`reviewer`/`approver`/`viewer`); the only
   **global** role is `admin`. Roles gate editing/visibility only — sign-off
   authority lives in the email matrices below, not the roles.
@@ -300,8 +307,8 @@ This app must pass IT security review, so dependencies are treated as liabilitie
   `can_plan` grant** (`assert_can_plan`); everyone else in the org has read-only
   access to everything.
 - **Admin is resolved additively at login** — a manual `is_admin` flag, additively
-  granted from the Azure `roles` claim or the `ADMIN_EMAILS` allowlist. Never
-  auto-revoke admin from those sources.
+  granted from the `ADMIN_EMAILS` allowlist (matched on the user's email **or** Windows
+  username). Never auto-revoke admin from those sources.
 - **Designated signers are email-based** (`ProjectApprover`, `kind` = `approver`
   or `reviewer` — two independent required-signature matrices), orthogonal to
   project membership, and may be external to the project. Match by **lowercased**

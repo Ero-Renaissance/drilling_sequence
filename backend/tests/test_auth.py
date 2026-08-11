@@ -1,5 +1,4 @@
 import logging
-import sys
 import types
 
 import pytest
@@ -7,7 +6,7 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 
 from app.config import settings
-from app.core.auth import _azure_scheme, _extract_claims, _resolve_admin
+from app.core.auth import _extract_claims, _identity_from_header, _resolve_admin
 
 
 @pytest.mark.asyncio
@@ -28,167 +27,142 @@ async def test_health_endpoint(client: AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Production auth path (Azure AD). The rest of the suite runs in dev mode and
-# bypasses this; here we inject a fake bearer module (fastapi-azure-auth isn't
-# installed in the test venv) and drive the helpers directly.
+# Production auth path: identity comes from a trusted reverse-proxy header
+# (IIS/ARR doing Windows Integrated Auth). The rest of the suite runs in dev
+# mode and bypasses this; here we drive the helpers directly.
 # ---------------------------------------------------------------------------
 
-class _FakeClaims:
-    def __init__(self, roles):
-        self.oid = "oid-123"
-        self.name = "Ada Approver"
-        self.preferred_username = "ada@company.com"
-        self.roles = roles
-
-
-class _FakeBearer:
-    """Stand-in for SingleTenantAzureAuthorizationCodeBearer."""
-
-    instances = 0
-    roles_to_return: list = ["Admin"]
-
-    def __init__(self, app_client_id, tenant_id, allow_guest_users=False):
-        type(self).instances += 1
-        self.app_client_id = app_client_id
-        self.tenant_id = tenant_id
-        self.allow_guest_users = allow_guest_users
-
-    # Mirrors the REAL fastapi-azure-auth signature: __call__ requires a
-    # SecurityScopes argument (it's designed for FastAPI dependency injection).
-    # Keeping the fake strict caught/prevents calling it with request only.
-    async def __call__(self, request, security_scopes):
-        return _FakeClaims(self.roles_to_return)
-
-
 class _Req:
-    """Minimal stand-in for starlette Request (only .headers is read)."""
+    """Minimal stand-in for starlette Request (.headers/.method/.url are read)."""
 
     def __init__(self, headers):
         self.headers = headers
+        self.method = "GET"
+        self.url = types.SimpleNamespace(path="/api/test")
 
 
-def _install_fake_azure(monkeypatch, roles=("Admin",)):
-    _FakeBearer.instances = 0
-    _FakeBearer.roles_to_return = list(roles)
-    module = types.ModuleType("fastapi_azure_auth")
-    module.SingleTenantAzureAuthorizationCodeBearer = _FakeBearer
-    monkeypatch.setitem(sys.modules, "fastapi_azure_auth", module)
+def _prod(monkeypatch, *, header="X-Remote-User", secret="", domain=""):
+    """Put the app in production-style header-auth mode for a test."""
     monkeypatch.setattr(settings, "dev_mode", False)
-    monkeypatch.setattr(settings, "azure_client_id", "client-id")
-    monkeypatch.setattr(settings, "azure_tenant_id", "tenant-id")
-    _azure_scheme.cache_clear()
-
-
-@pytest.fixture(autouse=True)
-def _reset_scheme_cache():
-    # The lru_cache is process-global; clear it around each test so a fake from
-    # one test never leaks into another.
-    _azure_scheme.cache_clear()
-    yield
-    _azure_scheme.cache_clear()
+    monkeypatch.setattr(settings, "proxy_user_header", header)
+    monkeypatch.setattr(settings, "proxy_shared_secret", secret)
+    monkeypatch.setattr(settings, "user_email_domain", domain)
 
 
 @pytest.mark.asyncio
-async def test_extract_claims_maps_token_fields(monkeypatch) -> None:
-    _install_fake_azure(monkeypatch, roles=["Admin", "Planner"])
-    claims = await _extract_claims(_Req({"Authorization": "Bearer xyz"}))
+async def test_extract_claims_dev_mode_short_circuits(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "dev_mode", True)
+    claims = await _extract_claims(_Req({}))  # no header required in dev mode
+    assert claims["preferred_username"] == "dev@company.com"
+
+
+@pytest.mark.asyncio
+async def test_extract_claims_maps_domain_qualified_user(monkeypatch) -> None:
+    _prod(monkeypatch, domain="renaissanceafrica.com")
+    claims = await _extract_claims(_Req({"X-Remote-User": "SPINNG\\Osahon.Ero"}))
     assert claims == {
-        "oid": "oid-123",
-        "name": "Ada Approver",
-        "preferred_username": "ada@company.com",
-        "roles": ["Admin", "Planner"],
+        "oid": "osahon.ero",
+        "name": "Osahon.Ero",
+        "preferred_username": "osahon.ero@renaissanceafrica.com",
+        "username": "osahon.ero",
     }
 
 
 @pytest.mark.asyncio
-async def test_extract_claims_rejects_missing_bearer(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "dev_mode", False)
+async def test_extract_claims_accepts_upn_and_keeps_email(monkeypatch) -> None:
+    # A UPN header keeps its own email even when user_email_domain differs.
+    _prod(monkeypatch, domain="ignored.example")
+    claims = await _extract_claims(_Req({"X-Remote-User": "Jane.Doe@corp.example"}))
+    assert claims["oid"] == "jane.doe"
+    assert claims["preferred_username"] == "jane.doe@corp.example"
+
+
+@pytest.mark.asyncio
+async def test_extract_claims_rejects_missing_header(monkeypatch) -> None:
+    _prod(monkeypatch)
     with pytest.raises(HTTPException) as exc:
         await _extract_claims(_Req({}))
     assert exc.value.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_extract_claims_logs_why_token_validation_failed(monkeypatch, caplog) -> None:
-    """An invalid token still 401s the client, but the validator's reason must be
-    logged server-side so misconfigurations (wrong audience, v1 token, …) are
-    diagnosable from the app log."""
-
-    class _RejectingBearer(_FakeBearer):
-        async def __call__(self, request, security_scopes):
-            raise HTTPException(status_code=401, detail="Token contains invalid claims")
-
-    _install_fake_azure(monkeypatch)
-    module = types.ModuleType("fastapi_azure_auth")
-    module.SingleTenantAzureAuthorizationCodeBearer = _RejectingBearer
-    monkeypatch.setitem(sys.modules, "fastapi_azure_auth", module)
-    _azure_scheme.cache_clear()
-
-    req = _Req({"Authorization": "Bearer bad-token"})
-    req.method = "GET"
-    req.url = types.SimpleNamespace(path="/api/auth/me")
-
-    with caplog.at_level(logging.WARNING, logger="app.core.auth"):
-        with pytest.raises(HTTPException) as exc:
-            await _extract_claims(req)
-
+async def test_extract_claims_rejects_malformed_header(monkeypatch) -> None:
+    _prod(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        await _extract_claims(_Req({"X-Remote-User": "not a valid name!"}))
     assert exc.value.status_code == 401
-    assert "Token contains invalid claims" in caplog.text
-    assert "bad-token" not in caplog.text  # the token itself is never logged
 
 
 @pytest.mark.asyncio
-async def test_extract_claims_dev_mode_short_circuits(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "dev_mode", True)
-    claims = await _extract_claims(_Req({}))  # no token required in dev mode
-    assert claims["preferred_username"] == "dev@company.com"
+async def test_extract_claims_does_not_log_the_rejected_value(monkeypatch, caplog) -> None:
+    """A rejected header still 401s the client; the account value must never be
+    written to the log (no PII/identifiers on the failure path)."""
+    _prod(monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="app.core.auth"):
+        with pytest.raises(HTTPException):
+            await _extract_claims(_Req({"X-Remote-User": "zzsecretzz!"}))
+    assert "zzsecretzz" not in caplog.text
 
 
-def test_azure_scheme_guest_access_follows_setting(monkeypatch) -> None:
-    """The scheme's guest policy comes from settings (which default to closed —
-    see Settings.azure_allow_guest_users), not from the library default."""
-    _install_fake_azure(monkeypatch)
-    monkeypatch.setattr(settings, "azure_allow_guest_users", False)
-    assert _azure_scheme().allow_guest_users is False
-
-    monkeypatch.setattr(settings, "azure_allow_guest_users", True)
-    _azure_scheme.cache_clear()
-    assert _azure_scheme().allow_guest_users is True
+@pytest.mark.asyncio
+async def test_shared_secret_required_when_configured(monkeypatch) -> None:
+    _prod(monkeypatch, secret="s3cr3t")
+    # Valid user header but no secret → rejected.
+    with pytest.raises(HTTPException) as exc:
+        await _extract_claims(_Req({"X-Remote-User": "SPINNG\\jane.doe"}))
+    assert exc.value.status_code == 401
 
 
-def test_guest_setting_defaults_closed() -> None:
-    """A bare Settings (no env) must reject guests — fail-closed default."""
-    from app.config import Settings
-
-    assert Settings(_env_file=None).azure_allow_guest_users is False
-
-
-def test_azure_scheme_is_built_once(monkeypatch) -> None:
-    _install_fake_azure(monkeypatch)
-    first = _azure_scheme()
-    second = _azure_scheme()
-    assert first is second
-    assert _FakeBearer.instances == 1  # constructed once, not per request
+@pytest.mark.asyncio
+async def test_shared_secret_rejects_wrong_value(monkeypatch) -> None:
+    _prod(monkeypatch, secret="s3cr3t")
+    with pytest.raises(HTTPException) as exc:
+        await _extract_claims(
+            _Req({"X-Remote-User": "SPINNG\\jane.doe", "X-Proxy-Auth": "wrong"})
+        )
+    assert exc.value.status_code == 401
 
 
-def test_resolve_admin_via_role_claim(monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_shared_secret_accepts_matching_value(monkeypatch) -> None:
+    _prod(monkeypatch, secret="s3cr3t", domain="corp.example")
+    claims = await _extract_claims(
+        _Req({"X-Remote-User": "SPINNG\\jane.doe", "X-Proxy-Auth": "s3cr3t"})
+    )
+    assert claims["oid"] == "jane.doe"
+
+
+def test_identity_from_header_normalizes_and_validates(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "user_email_domain", "")
+    assert _identity_from_header("SPINNG\\Jane.Doe") == ("jane.doe", "jane.doe", "Jane.Doe")
+    assert _identity_from_header("DOMAIN/John_Smith") == ("john_smith", "john_smith", "John_Smith")
+    # Empty / malformed values are rejected.
+    assert _identity_from_header("") is None
+    assert _identity_from_header("   ") is None
+    assert _identity_from_header("has space") is None
+    assert _identity_from_header("bad*char") is None
+
+
+def test_resolve_admin_via_email_allowlist(monkeypatch) -> None:
     monkeypatch.setattr(settings, "dev_mode", False)
-    monkeypatch.setattr(settings, "admin_role", "Admin")
-    monkeypatch.setattr(settings, "admin_emails", "")
-    assert _resolve_admin("user@company.com", {"roles": ["Admin"]}) is True
-    assert _resolve_admin("user@company.com", {"roles": ["Viewer"]}) is False
-
-
-def test_resolve_admin_via_allowlist_is_case_insensitive(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "dev_mode", False)
-    monkeypatch.setattr(settings, "admin_role", "Admin")
     monkeypatch.setattr(settings, "admin_emails", "boss@company.com")
-    assert _resolve_admin("BOSS@company.com", {}) is True
-    assert _resolve_admin("intern@company.com", {"roles": []}) is False
+    assert _resolve_admin("BOSS@company.com", "boss") is True
+    assert _resolve_admin("intern@company.com", "intern") is False
 
 
-def test_resolve_admin_denies_without_role_or_allowlist(monkeypatch) -> None:
+def test_resolve_admin_via_username_allowlist(monkeypatch) -> None:
     monkeypatch.setattr(settings, "dev_mode", False)
-    monkeypatch.setattr(settings, "admin_role", "Admin")
+    monkeypatch.setattr(settings, "admin_emails", "osahon.ero")
+    assert _resolve_admin("osahon.ero@company.com", "Osahon.Ero") is True
+    assert _resolve_admin("other@company.com", "other") is False
+
+
+def test_resolve_admin_denies_without_allowlist(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "dev_mode", False)
     monkeypatch.setattr(settings, "admin_emails", "")
-    assert _resolve_admin("nobody@company.com", {}) is False
+    assert _resolve_admin("nobody@company.com", "nobody") is False
+
+
+def test_resolve_admin_dev_mode_grants(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "dev_mode", True)
+    assert _resolve_admin("anyone@company.com", "anyone") is True

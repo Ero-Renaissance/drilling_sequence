@@ -4,20 +4,6 @@ import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
-import { msalInstance, loginRequest } from "@/lib/auth";
-import { toast } from "@/components/ui/toaster";
-import { logger } from "@/lib/logger";
-
-function MicrosoftIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 21 21" className={className} aria-hidden="true">
-      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
-      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
-      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
-      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
-    </svg>
-  );
-}
 
 export function Login() {
   const navigate = useNavigate();
@@ -35,35 +21,18 @@ export function Login() {
 
   useEffect(() => {
     if (previewMode) {
-      clear(); // render the login UI (no user, not loading) instead of auto-signing in
-    } else if (isDev || msalInstance?.getActiveAccount()) {
-      // Dev mode always has a session; in prod, an active MSAL account (set by
-      // initializeMsal before render) means the user is already signed in —
-      // resolve them and bounce to the dashboard instead of stranding them here.
-      fetchMe();
+      clear(); // render the login UI (no user, not loading) without auto sign-in
     } else {
-      clear(); // no session — show the sign-in button (not the loading spinner)
+      // Windows Integrated Auth: the reverse proxy has already authenticated the
+      // browser, so resolving /api/auth/me signs the user in with no interaction.
+      // In dev mode the backend injects a dev user, so this works there too.
+      fetchMe();
     }
-  }, [fetchMe, clear, isDev, previewMode]);
+  }, [fetchMe, clear, previewMode]);
 
   useEffect(() => {
     if (!loading && user && !previewMode) navigate("/dashboard", { replace: true });
   }, [user, loading, navigate, previewMode]);
-
-  const handleLogin = async () => {
-    if (isDev) {
-      await fetchMe();
-    } else {
-      try {
-        await msalInstance?.loginRedirect(loginRequest);
-      } catch (err: unknown) {
-        logger.error("Sign-in redirect failed to start", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        toast.error("Sign-in could not start. Please try again or contact support.");
-      }
-    }
-  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -111,7 +80,7 @@ export function Login() {
 
         <div className="relative flex items-center gap-2 text-xs text-white/50">
           <ShieldCheck className="h-4 w-4" />
-          Secured with Microsoft single sign-on
+          Secured with Windows single sign-on
         </div>
       </aside>
 
@@ -130,7 +99,7 @@ export function Login() {
           <div className="space-y-1.5 text-center lg:text-left">
             <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
             <p className="text-sm text-muted-foreground">
-              Sign in to access your drilling campaigns
+              Access your drilling campaigns
             </p>
           </div>
 
@@ -138,19 +107,23 @@ export function Login() {
             <div className="flex justify-center py-4">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : (
+          ) : !user ? (
             <div className="space-y-3">
-              <Button className="w-full" size="lg" onClick={handleLogin}>
-                {!isDev && <MicrosoftIcon className="mr-2 h-4 w-4" />}
-                {isDev ? "Continue as Dev User" : "Sign in with Microsoft"}
+              <Button className="w-full" size="lg" onClick={() => fetchMe()}>
+                {isDev ? "Continue as Dev User" : "Retry sign-in"}
               </Button>
-              {isDev && (
+              {isDev ? (
                 <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground/90 dark:text-warning">
                   Development mode — auth is bypassed.
                 </div>
+              ) : (
+                <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground/90 dark:text-warning">
+                  We couldn't sign you in automatically. Check that you're on the
+                  company network, then retry — or contact IT if it persists.
+                </div>
               )}
             </div>
-          )}
+          ) : null}
 
           <p className="text-center text-xs text-muted-foreground lg:text-left">
             Access is restricted to authorised company personnel.

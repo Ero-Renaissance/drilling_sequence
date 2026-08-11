@@ -16,11 +16,11 @@ a live rig-sequence chart with per-well readiness gates and contract-expiry aler
 a two-stage digital review→approval workflow with immutable signed snapshots and an
 append-only audit trail, and a rig-fleet optimizer for capacity decisions.
 
-**The application is already built and verified** (FastAPI/React/PostgreSQL, Azure AD
-SSO, 500+ automated tests). **This demand asks IT to onboard it**: production
-hosting, Azure AD app registration, a managed database, backup, and a support
-arrangement. The infrastructure footprint is one small app service and one database;
-there are no licence or per-seat costs.
+**The application is already built and verified** (FastAPI/React/PostgreSQL, Windows
+Integrated Auth SSO, 500+ automated tests). **This demand asks IT to onboard it**:
+production hosting behind an IIS reverse proxy that provides Windows sign-in, a managed
+database, backup, and a support arrangement. The infrastructure footprint is one small
+app service and one database; there are no licence or per-seat costs.
 
 ---
 
@@ -49,7 +49,7 @@ day.
 
 ## 3. Proposed solution (already delivered)
 
-A browser-based internal application, single sign-on via company Azure AD:
+A browser-based internal application, silent single sign-on via the user's Windows domain account:
 
 - **Living rig sequence** — Gantt of every rig/HWU line with per-well readiness
   gates (FDP, LLI, LOC, FE, FID, EIA, BUD), flood-risk flags, and contract-expiry
@@ -73,10 +73,10 @@ A browser-based internal application, single sign-on via company Azure AD:
   document reference, sign-off table and confidentiality footer; Excel export for
   downstream use.
 
-Security posture (detail in the IT engagement overview): Azure AD SSO only, per-project
-role-based access with deny-by-default, admin via AD app role, production
-fail-closed startup (refuses to boot with auth misconfigured), no PII in logs,
-audit log is append-only.
+Security posture (detail in the IT engagement overview): Windows Integrated Auth SSO
+only (no passwords stored), per-project role-based access with deny-by-default, admin
+via an email/username allowlist, production fail-closed startup (refuses to boot with
+auth misconfigured), no PII in logs, audit log is append-only.
 
 ---
 
@@ -124,16 +124,16 @@ the application.
 
 | Item | Detail |
 |---|---|
-| Hosting | One small Linux app service / VM (uvicorn serves API + built SPA — see deployment guide); TLS |
+| Hosting | One small Windows Server / VM with IIS (IIS provides Windows sign-in and TLS, and reverse-proxies to uvicorn — see deployment guide) |
 | Database | Managed PostgreSQL (MSSQL also supported — migration guide exists) with scheduled backups |
-| Identity | Azure AD app registration (OIDC) + an `Admin` app role; user assignment as appropriate |
+| Identity | Windows Integrated Auth at the IIS reverse proxy (Kerberos/NTLM) — no app registration; the app's URL added to the Local Intranet zone (GPO) for silent sign-on; admins listed by email/username |
 | Security review | Codebase available for review; RBAC reference, threat-relevant design notes and 500+ automated tests (321 backend / 211 frontend) provided |
 | Monitoring | Log shipping to the standard sink (Azure App Insights proposed); health endpoint available |
 | Support model | L1 via [service desk]; product/maintainer support via Wells Planning ([maintainer-guide.md](maintainer-guide.md), [smoke-test-runbook.md](smoke-test-runbook.md) provided) |
 
 **Costs:** no licences, no per-seat fees; open-source stack under permissive
 licences. Indicative run cost: **[$150–$400/month]** infrastructure plus initial IT
-effort of **[3–5 days]** (app registration, pipeline, security review). Development
+effort of **[3–5 days]** (IIS Windows-Auth setup, pipeline, security review). Development
 cost is already sunk.
 
 ---
