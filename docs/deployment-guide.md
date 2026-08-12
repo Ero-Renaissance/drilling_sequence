@@ -339,6 +339,8 @@ If all four pass, the deployment is good.
 | Backend container exits immediately | `ENVIRONMENT=production` with `DEV_MODE=true` or missing `PROXY_USER_HEADER` (intentional fail-closed) | Fix `.env`; `PROXY_USER_HEADER` must be set and `DEV_MODE=false`. |
 | Page loads but every action fails / 404 on `/api/...` | Reverse proxy not forwarding `/api` (same-origin rule broken) | Re-check the `location /api/` block; confirm backend is up on `127.0.0.1:8000`. |
 | Every request is 401 / stuck signing in | Proxy isn't sending the user header, or the shared secret doesn't match | Confirm the IIS site has **Windows Authentication** on and **Anonymous** off, and injects `X-Remote-User` from `LOGON_USER`; check `PROXY_SHARED_SECRET` equals the `X-Proxy-Auth` the proxy sends. |
+| **500.19** (`0x80070021`, "section is locked") right after adding the IIS config | The site `web.config` declares `<authentication>` or `<allowedServerVariables>` — both locked above site level | Use the rule-only `web.config` and do the auth switches + server variables at server level (B.6 Variant 1 steps 1–3), or `appcmd unlock config` the auth sections. |
+| **500** only on rewritten requests, detail names `HTTP_X_REMOTE_USER` | The server variables aren't on the server-level allowlist | Server node → URL Rewrite → **View Server Variables…** → add `HTTP_X_REMOTE_USER` / `HTTP_X_PROXY_AUTH` (B.6 Variant 1 step 3). |
 | Browser prompts for a username/password instead of signing in silently | The app URL isn't in the browser's Local Intranet / trusted zone | Add `https://<your-app-dns>` to the Local Intranet zone (usually via GPO) so Windows sends the Kerberos ticket automatically. |
 | Backend can't reach DB (`Login timeout` / `ODBC`) | Firewall, wrong host, or TLS cert | Confirm port 1433 open; if no trusted cert, set `TrustServerCertificate=yes` (with DBA approval). |
 | `alembic upgrade head` errors on a TYPE/now() | Old/un-ported migration | Ensure you're on the current code (migrations were made MSSQL-portable). |
@@ -529,19 +531,28 @@ serves the SPA. Steps 1–2 are shared.
 
 **Variant 1 — URL Rewrite + ARR.** Install **URL Rewrite** + **ARR**, then IIS Manager →
 server node → **Application Request Routing Cache → Server Proxy Settings → tick "Enable
-proxy."** Root the site at the frontend (`C:\inetpub\drilling`, per B.5) and put this
-`web.config` in the site root:
+proxy."** Root the site at the frontend (`C:\inetpub\drilling`, per B.5).
+
+Do the **one-time server-level setup first** — IIS locks these sections above the site
+level, so putting them in the site's `web.config` throws **500.19 (0x80070021)**:
+
+1. **Install the *Windows Authentication* role service** (Server Manager → Web Server →
+   Security) — without it there is nothing to enable.
+2. **Auth switches — via IIS Manager, on the site** (the GUI writes to
+   `applicationHost.config`, sidestepping the lock): site → **Authentication** →
+   *Anonymous Authentication = Disabled*, *Windows Authentication = Enabled*. This is
+   what makes the browser do the Kerberos/NTLM handshake so `{LOGON_USER}` is populated.
+3. **Server variables — at the server node** (they cannot live in a site `web.config`):
+   server node → URL Rewrite → **View Server Variables…** → add
+   `HTTP_X_FORWARDED_PROTO`, `HTTP_X_REMOTE_USER`, and `HTTP_X_PROXY_AUTH`. (ARR
+   forwards `X-Forwarded-For` automatically.)
+
+Then put this **rule-only** `web.config` in the site root:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <system.webServer>
     <rewrite>
-      <!-- URL Rewrite may only set the request headers listed here. -->
-      <allowedServerVariables>
-        <add name="HTTP_X_FORWARDED_PROTO" />
-        <add name="HTTP_X_REMOTE_USER" />
-        <add name="HTTP_X_PROXY_AUTH" />
-      </allowedServerVariables>
       <rules>
         <!-- 1) Forward /api/* to the backend on localhost. -->
         <rule name="api-proxy" stopProcessing="true">
@@ -567,32 +578,19 @@ proxy."** Root the site at the frontend (`C:\inetpub\drilling`, per B.5) and put
         </rule>
       </rules>
     </rewrite>
-    <security>
-      <!-- IIS does the Kerberos/NTLM handshake and refuses anonymous, so
-           {LOGON_USER} is populated before the rewrite runs. (Equivalent to
-           enabling these in IIS Manager -> Authentication.) -->
-      <authentication>
-        <anonymousAuthentication enabled="false" />
-        <windowsAuthentication enabled="true" />
-      </authentication>
-    </security>
   </system.webServer>
 </configuration>
 ```
-The `web.config` above already declares both the Windows-Authentication switch and the
-allowed server variables, so no IIS-Manager clicks are needed for those. Two host
-prerequisites still apply:
-- **Install the *Windows Authentication* role service** (Server Manager → Web Server →
-  Security) — otherwise the `<windowsAuthentication>` switch has nothing to turn on.
-- If IIS returns **500.19 "cannot be used at this path"**, the auth sections are locked
-  at the server level; unlock them once (elevated):
-  `appcmd unlock config /section:windowsAuthentication` and the same for
-  `anonymousAuthentication`. (ARR forwards `X-Forwarded-For` automatically.)
+(If a `web.config` that *does* declare the auth sections is preferred — e.g. for
+config-as-code — unlock them once, elevated: `appcmd unlock config
+/section:windowsAuthentication` and the same for `anonymousAuthentication`. The
+`allowedServerVariables` list stays server-level regardless.)
 
-> A ready-to-use `web.config` for the simpler "IIS proxies *everything* to a uvicorn
-> that also serves the SPA" arrangement (one catch-all rule, no static SPA in the IIS
-> root) lives at [`deploy/iis/web.config`](../deploy/iis/web.config) — drop it in the
-> site root and set `STATIC_DIR` on the backend.
+> A ready-to-use rule-only `web.config` for the simpler "IIS proxies *everything* to a
+> uvicorn that also serves the SPA" arrangement (one catch-all rule, no static SPA in
+> the IIS root) lives at [`deploy/iis/web.config`](../deploy/iis/web.config) — its
+> header comment carries the same server-level setup steps with `appcmd` equivalents.
+> Drop it in the site root and set `STATIC_DIR` on the backend.
 
 Then set `PROXY_USER_HEADER=X-Remote-User` and the matching `PROXY_SHARED_SECRET` in
 `backend\.env` (§4a). IIS overwrites `X-Remote-User` from the authenticated `LOGON_USER`
