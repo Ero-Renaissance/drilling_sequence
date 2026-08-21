@@ -105,6 +105,42 @@ async def test_extract_claims_does_not_log_the_rejected_value(monkeypatch, caplo
 
 
 @pytest.mark.asyncio
+async def test_rejection_log_distinguishes_absent_from_invalid(monkeypatch, caplog) -> None:
+    """Ops can tell "IIS isn't stamping {LOGON_USER}" (absent/empty) apart from
+    "the account name failed validation" (present) FROM THE LOG ALONE — while
+    the client still gets one generic 401 for both, and the value itself is
+    never logged (only its length)."""
+    _prod(monkeypatch)
+
+    with caplog.at_level(logging.WARNING, logger="app.core.auth"):
+        with pytest.raises(HTTPException) as absent_exc:
+            await _extract_claims(_Req({}))  # header never sent
+    assert "ABSENT/EMPTY" in caplog.text
+    assert absent_exc.value.detail == "Not authenticated"
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="app.core.auth"):
+        with pytest.raises(HTTPException) as invalid_exc:
+            await _extract_claims(_Req({"X-Remote-User": "bad value!"}))
+    assert "PRESENT but invalid" in caplog.text
+    assert "len=10" in caplog.text  # length only — never the value
+    assert "bad value" not in caplog.text
+    # Same generic client message for both — absent vs malformed is not revealed.
+    assert invalid_exc.value.detail == absent_exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_whitespace_only_header_logs_as_absent(monkeypatch, caplog) -> None:
+    """IIS stamping an empty {LOGON_USER} can arrive as "" or whitespace — both
+    are the "IIS isn't authenticating" case, not a malformed account name."""
+    _prod(monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="app.core.auth"):
+        with pytest.raises(HTTPException):
+            await _extract_claims(_Req({"X-Remote-User": "   "}))
+    assert "ABSENT/EMPTY" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_shared_secret_required_when_configured(monkeypatch) -> None:
     _prod(monkeypatch, secret="s3cr3t")
     # Valid user header but no secret → rejected.

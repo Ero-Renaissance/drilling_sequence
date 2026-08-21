@@ -103,17 +103,33 @@ async def _extract_claims(request: Request) -> dict:
             )
 
     header_name = settings.proxy_user_header
-    identity = (
-        _identity_from_header(request.headers.get(header_name, "")) if header_name else None
-    )
+    raw = request.headers.get(header_name, "") if header_name else ""
+    identity = _identity_from_header(raw) if header_name else None
     if identity is None:
-        # Never reveal whether the header was absent vs malformed, and never log
-        # the value itself — just that this request couldn't be attributed.
-        logger.warning(
-            "Proxy user header missing/invalid (%s %s)",
-            request.method,
-            request.url.path,
-        )
+        # The CLIENT gets one generic 401 either way (never reveal absent vs
+        # malformed). The LOG distinguishes them — it's the difference between
+        # "IIS isn't stamping {LOGON_USER}" (empty: anonymous auth still on, or
+        # kernel-mode auth off so the rewrite runs before auth) and "the account
+        # name fails validation" (present: check _USERNAME_RE). Log the length
+        # only, never the value itself — no identifiers on the failure path.
+        if not raw.strip():
+            logger.warning(
+                "Proxy user header '%s' ABSENT/EMPTY (%s %s) — IIS is not "
+                "stamping the authenticated user; check anonymous auth is "
+                "disabled and kernel-mode auth is enabled",
+                header_name,
+                request.method,
+                request.url.path,
+            )
+        else:
+            logger.warning(
+                "Proxy user header '%s' PRESENT but invalid (len=%d) (%s %s) — "
+                "account name failed validation",
+                header_name,
+                len(raw),
+                request.method,
+                request.url.path,
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
