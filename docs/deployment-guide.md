@@ -17,26 +17,29 @@ Three pieces talk to each other:
 
 ```
         Browser (staff laptop, on the company network)
-                         │  HTTPS
+                         │  HTTPS · silent Windows sign-in (Kerberos/NTLM)
                          ▼
-        ┌──────────────────────────────────────┐
-        │  Reverse proxy  (nginx / IIS)          │   <- TLS terminates here
-        │   •  serves the built frontend (static)│
-        │   •  forwards /api/*  ->  backend:8000  │
+        ┌────────────────────────────────────────┐
+        │  IIS — the authenticating front door   │   <- TLS terminates here
+        │   •  authenticates the user against AD │
+        │   •  injects X-Remote-User (verified)  │
+        │   •  forwards everything -> backend    │
         └───────────────┬───────────────────────┘
                         │ http (localhost only)
                         ▼
-        ┌──────────────────────────────────────┐
-        │  Backend  (FastAPI, Docker, port 8000) │
+        ┌────────────────────────────────────────┐
+        │  Backend (FastAPI/uvicorn, port 8000)  │
+        │   •  serves the API (/api/*)           │
+        │   •  serves the built SPA (STATIC_DIR) │
         └───────────────┬───────────────────────┘
                         │ ODBC / TDS (port 1433)
                         ▼
-        ┌──────────────────────────────────────┐
+        ┌────────────────────────────────────────┐
         │  Microsoft SQL Server  (existing IT DB)│
-        └──────────────────────────────────────┘
+        └────────────────────────────────────────┘
 
-   Sign-in is handled by the company Windows domain (Kerberos/NTLM) at the reverse
-   proxy: users are signed in automatically with their Windows login and this app
+   Sign-in is handled by the company Windows domain (Kerberos/NTLM) at the front
+   door: users are signed in automatically with their Windows login and this app
    stores no passwords. The proxy passes the authenticated username to the backend
    in a trusted header. (See §2 for why this replaced the original Azure AD design.)
 ```
@@ -244,72 +247,56 @@ npm run build
 # Output lands in  frontend/dist/  — a folder of static HTML/JS/CSS.
 ```
 
-Copy `frontend/dist/` to wherever your web server serves files from
-(e.g. `/var/www/drilling`).
+Copy `frontend/dist/` to the folder the backend's `STATIC_DIR` points at (e.g.
+`C:\apps\drilling\web` — uvicorn serves it; see Appendix B.5), or to the web-server
+root if the front door serves static files itself.
 
 ---
 
-## 6. Set up the reverse proxy (the glue)
+## 6. Set up the authenticating front door (IIS)
 
-This is where two rules are satisfied at once: (1) the "same origin" rule — one HTTPS
-site serves the static frontend **and** forwards `/api/*` to the backend — and (2)
-**authentication**: the proxy performs Windows Integrated Auth and passes the signed-in
-user to the backend in the header named by `PROXY_USER_HEADER`.
+The proxy's job here is bigger than plumbing: **it is the authenticator**. Only an
+SSPI-capable front door — in practice **IIS on Windows** — can run the
+Negotiate/Kerberos handshake with the browser, and the backend's whole trust model is
+"identity arrives in `PROXY_USER_HEADER`, set by the front door on a loopback-only
+hop." Remove the proxy and the app has no way to know who anyone is (production
+fail-closes: every request 401s).
 
-> **Windows Auth needs the right front door.** The Negotiate/Kerberos handshake is
-> done by **IIS on Windows** — see **Appendix B**, the recommended production path,
-> which shows the exact Windows-Authentication + header-injection config. The nginx
-> example below covers TLS, static serving and the SPA fallback, but **nginx cannot do
-> Windows Integrated Auth** without the `mod_auth_gssapi` module and a Kerberos keytab;
-> if you must use it, add that module, inject `$remote_user` into the header, and strip
-> any client-supplied copy. For most installs, use IIS.
+Its other two historical jobs are now optional:
+- **Same-origin glue** — uvicorn can serve the built SPA itself (`STATIC_DIR`), so one
+  catch-all forward rule covers pages *and* API. No static hosting in IIS needed.
+- **TLS** — terminate at IIS (recommended on Windows) or let uvicorn do it.
 
-### nginx example (TLS + static + SPA fallback; add mod_auth_gssapi for Windows Auth)
+**→ Follow Appendix B (Variant 1)** — it has the exact one-time server-level setup
+(Windows Auth role service, ARR proxy, auth switches, server-variable allowlist) and
+the rule-only `web.config` (ready-made copy: [`deploy/iis/web.config`](../deploy/iis/web.config)).
+Set up IIS **on the same Windows server that runs uvicorn**: the header must travel
+over `127.0.0.1` only — a proxy on a separate box would send the trusted header across
+the network, which then needs its own mutual authentication (avoid unless IT insists,
+and then only with IPsec/mTLS between the boxes).
+
+<details>
+<summary><b>Non-Windows front door (nginx) — only if IT mandates it</b></summary>
+
+nginx **cannot do Windows Integrated Auth natively**; it needs `mod_auth_gssapi`
+(or `spnego-http-auth-nginx-module`) plus a Kerberos **keytab** for an SPN like
+`HTTP/<your-app-dns>` — an AD-admin task. The essential shape, once that module
+authenticates the user:
+
 ```nginx
-server {
-    listen 443 ssl;
-    server_name <your-app-dns>;
-
-    ssl_certificate     /etc/ssl/certs/<your-cert>.pem;
-    ssl_certificate_key /etc/ssl/private/<your-key>.pem;
-
-    # 1) Serve the built frontend.
-    root /var/www/drilling;
-    index index.html;
-
-    # 2) Forward API calls to the backend container.
-    location /api/ {
-        # Windows Auth requires mod_auth_gssapi + a Kerberos keytab (see the note
-        # above). Once the user is authenticated, pass them to the backend as the
-        # PROXY_USER_HEADER and let proxy_set_header overwrite any client-sent copy:
-        #   auth_gss on;  auth_gss_keytab /etc/krb5.keytab;
-        proxy_set_header   X-Remote-User     $remote_user;
-        proxy_set_header   X-Proxy-Auth      "<same value as PROXY_SHARED_SECRET>";
-        proxy_pass         http://127.0.0.1:8000;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-    }
-
-    # 3) Single-page-app fallback: any non-file route returns index.html
-    #    so deep links (e.g. /projects/abc/chart) work on refresh.
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
-
-# Redirect plain HTTP to HTTPS.
-server {
-    listen 80;
-    server_name <your-app-dns>;
-    return 301 https://$host$request_uri;
+location / {
+    auth_gss on;
+    auth_gss_keytab /etc/krb5.keytab;
+    # Overwrite — never pass through — the identity + secret headers:
+    proxy_set_header X-Remote-User $remote_user;
+    proxy_set_header X-Proxy-Auth  "<same value as PROXY_SHARED_SECRET>";
+    proxy_pass http://127.0.0.1:8000;
 }
 ```
 
-```bash
-ln -s /etc/nginx/sites-available/drilling /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
-```
+TLS, the SPA fallback and the HTTP→HTTPS redirect are standard nginx config; with
+`STATIC_DIR` set, the single `location /` above covers pages and API alike.
+</details>
 
 ---
 
@@ -337,14 +324,14 @@ If all four pass, the deployment is good.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Backend container exits immediately | `ENVIRONMENT=production` with `DEV_MODE=true` or missing `PROXY_USER_HEADER` (intentional fail-closed) | Fix `.env`; `PROXY_USER_HEADER` must be set and `DEV_MODE=false`. |
-| Page loads but every action fails / 404 on `/api/...` | Reverse proxy not forwarding `/api` (same-origin rule broken) | Re-check the `location /api/` block; confirm backend is up on `127.0.0.1:8000`. |
+| Page loads but every action fails / 404 on `/api/...` | Front door not forwarding to the backend (same-origin rule broken) | Re-check the proxy/rewrite rule (B.6); confirm backend is up on `127.0.0.1:8000`. |
 | Every request is 401 / stuck signing in | Proxy isn't sending the user header, or the shared secret doesn't match | Confirm the IIS site has **Windows Authentication** on and **Anonymous** off, and injects `X-Remote-User` from `LOGON_USER`; check `PROXY_SHARED_SECRET` equals the `X-Proxy-Auth` the proxy sends. |
 | **500.19** (`0x80070021`, "section is locked") right after adding the IIS config | The site `web.config` declares `<authentication>` or `<allowedServerVariables>` — both locked above site level | Use the rule-only `web.config` and do the auth switches + server variables at server level (B.6 Variant 1 steps 1–3), or `appcmd unlock config` the auth sections. |
 | **500** only on rewritten requests, detail names `HTTP_X_REMOTE_USER` | The server variables aren't on the server-level allowlist | Server node → URL Rewrite → **View Server Variables…** → add `HTTP_X_REMOTE_USER` / `HTTP_X_PROXY_AUTH` (B.6 Variant 1 step 3). |
 | Browser prompts for a username/password instead of signing in silently | The app URL isn't in the browser's Local Intranet / trusted zone | Add `https://<your-app-dns>` to the Local Intranet zone (usually via GPO) so Windows sends the Kerberos ticket automatically. |
 | Backend can't reach DB (`Login timeout` / `ODBC`) | Firewall, wrong host, or TLS cert | Confirm port 1433 open; if no trusted cert, set `TrustServerCertificate=yes` (with DBA approval). |
 | `alembic upgrade head` errors on a TYPE/now() | Old/un-ported migration | Ensure you're on the current code (migrations were made MSSQL-portable). |
-| Deep link 404 on refresh (e.g. `/projects/x/chart`) | Missing SPA fallback | Add the `try_files ... /index.html` block. |
+| Deep link 404 on refresh (e.g. `/projects/x/chart`) | Missing SPA fallback | With `STATIC_DIR`, uvicorn handles the fallback — check the `Serving the built frontend` log line; if IIS serves the SPA statically, add the Variant 1 `spa` rewrite rule. |
 
 Backend logs: `docker logs drilling-backend`.
 
@@ -516,7 +503,7 @@ front end is served from:
 - **HttpPlatformHandler variant:** the folder `STATIC_DIR` points at, e.g.
   `C:\apps\drilling\web` (uvicorn serves it — see B.6 Variant 2).
 
-### B.6 IIS as the front end (the "same origin" glue)
+### B.6 IIS as the authenticating front door
 Two variants, matching the B.4 choice. **Variant 1** (URL Rewrite + ARR) proxies to the
 uvicorn *service*; **Variant 2** (HttpPlatformHandler) has IIS launch uvicorn, which also
 serves the SPA. Steps 1–2 are shared.
