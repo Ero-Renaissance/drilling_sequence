@@ -224,6 +224,43 @@ curl http://127.0.0.1:8000/api/health
 
 If this fails, see Troubleshooting (§8).
 
+### 4e. Logging and diagnostics
+
+**The app never writes a log file.** It logs to **stdout/stderr** only (stdlib
+logging, no file handler anywhere in `app/`). Where those lines end up is decided
+by *how you run uvicorn* — Docker captures them for you; on Windows you must
+capture them deliberately (B.4 has the per-model commands). Getting this wrong is
+invisible until something breaks and there is nothing to read.
+
+What the stream contains:
+
+- **JSON, one object per line, in production.** Plain readable text only when
+  `ENVIRONMENT` is `development`/`test`. If you open the log and see JSON, that is
+  correct, not corruption. Each line carries `ts`, `level`, `logger`,
+  `request_id`, `message`, plus any extra fields and `exc_info` for tracebacks.
+- **A `request_id` on every line.** One request's lines share an id (also returned
+  to the client as the `X-Request-ID` response header), so you can follow a single
+  failing action end-to-end: grep the log for the id from the browser's network tab.
+- **Front-end errors too.** The browser logger POSTs error-level events to
+  `/api/client-logs`, which re-emits them into this same stream under the
+  `app.client` logger — deliberate, so an internal deployment with no monitoring
+  service still has *one* place to look. They are validated, bounded and
+  rate-limited per user, so a looping client cannot flood the log.
+- **Verbosity via `LOG_LEVEL`** in `.env` (`DEBUG` / `INFO` / `WARNING` / `ERROR`).
+  Raise to `DEBUG` to diagnose, then put it back — `INFO` is the intended steady
+  state.
+
+**App logs and IIS logs answer different questions** — keep both to hand:
+
+| Question | Look here |
+|---|---|
+| Did Windows authentication succeed? Who did IIS think the caller was? | **IIS logs** — `C:\inetpub\logs\LogFiles\W3SVC<id>\`; the `cs-username` column and the `sc-status sc-substatus` pair (`401 1` = credentials/Kerberos, `401 2` = auth configuration) |
+| What did the *app* do once it had (or didn't have) an identity? | **App log** — the stdout stream captured per B.4 |
+| Who approved/changed a plan? | Neither — that's the **audit log**, append-only rows in the database, surfaced in the app's **Activity Log** tab |
+
+**No log is rotated automatically** except where noted. A redirected stdout file
+grows unbounded, so cap it (B.4) — a full system disk takes IIS down with it.
+
 ---
 
 ## 5. Build the frontend (static files)
@@ -333,7 +370,28 @@ If all four pass, the deployment is good.
 | `alembic upgrade head` errors on a TYPE/now() | Old/un-ported migration | Ensure you're on the current code (migrations were made MSSQL-portable). |
 | Deep link 404 on refresh (e.g. `/projects/x/chart`) | Missing SPA fallback | With `STATIC_DIR`, uvicorn handles the fallback — check the `Serving the built frontend` log line; if IIS serves the SPA statically, add the Variant 1 `spa` rewrite rule. |
 
-Backend logs: `docker logs drilling-backend`.
+**Where the logs are** (full detail in §4e):
+
+| Deployment | Backend log |
+|---|---|
+| Docker (§4b) | `docker logs drilling-backend` |
+| Windows · NSSM (B.4 Option 1) | the `AppStdout` file, e.g. `C:\apps\drilling\logs\out.log` |
+| Windows · HttpPlatformHandler (B.4 Option 2) | the `stdoutLogFile` path in `web.config` |
+| Windows · Task Scheduler (B.4 Option 3) | the redirect target, e.g. `C:\apps\drilling\logs\out.log` |
+
+If the backend log is empty or absent, capture was never configured — that is a
+setup step, not a symptom (§4e). For **sign-in** problems read the IIS log first
+(`C:\inetpub\logs\LogFiles\W3SVC<id>\`): it shows whether IIS authenticated the
+caller at all (`cs-username`) before the app ever saw the request.
+
+Two backend log lines decide the common 401 loop:
+
+- `Proxy user header 'X-Remote-User' ABSENT/EMPTY …` — IIS is **not stamping**
+  `{LOGON_USER}`. Check Anonymous Authentication is *disabled* and **kernel-mode
+  authentication is enabled** on the site (with kernel mode off, authentication
+  completes *after* the rewrite runs, so the variable is empty on every request).
+- `Proxy user header 'X-Remote-User' PRESENT but invalid …` — IIS stamped a value the
+  backend rejected; the account name failed validation.
 
 ---
 
@@ -400,16 +458,23 @@ model with IT:
       below sets `Encrypt=yes` explicitly to force TLS regardless of which driver is installed.
 - [ ] **IIS (Web Server role)** — not installed by default on Server; add it first
       (B.6 step 1). Then pick **one** front-end module set (see the B.4/B.6 fork):
-      - **HttpPlatformHandler** — a single Microsoft-signed MSI. IIS *launches* uvicorn
-        and *forwards* to it, so this one module replaces **both** ARR and NSSM.
-        **Recommended**, especially when ARR/NSSM can't be approved (B.4 Option 2 + B.6
-        Variant 2).
       - **URL Rewrite 2.1 + Application Request Routing (ARR) 3.0** — two free Microsoft
-        modules; IIS proxies to a uvicorn service you run separately (B.4 Option 1 + B.6
-        Variant 1).
-- [ ] **NSSM** (nssm.cc) to run uvicorn as a service — needed **only** for the ARR path
-      (B.4 Option 1); HttpPlatformHandler doesn't use it. If you can install *neither* an
-      IIS proxy module *nor* NSSM, use **Appendix C** (uvicorn serves everything) instead.
+        modules; IIS proxies to a uvicorn process you supervise separately (B.4 Option 1
+        or 3 + B.6 Variant 1). **Required for Windows SSO** — the rewrite rule is what
+        stamps the authenticated user onto the request, so this is the production choice.
+      - **HttpPlatformHandler** — a single Microsoft-signed MSI. IIS *launches* uvicorn
+        and *forwards* to it, so this one module replaces **both** ARR and NSSM (B.4
+        Option 2 + B.6 Variant 2). Simplest to install, **but it cannot do Windows SSO**
+        (it doesn't inject the authenticated user) — so use it for `DEV_MODE`/staging, or
+        a future non-Windows identity source, not for production sign-in.
+- [ ] **A supervisor for uvicorn** — only on the ARR path (HttpPlatformHandler supervises
+      the process itself):
+      - **NSSM** (nssm.cc) to run it as a Windows service (B.4 Option 1), **or**
+      - **Task Scheduler** — built into Windows, nothing to download or approve
+        (B.4 Option 3). Use this when NSSM can't be installed but you still need SSO.
+
+      If you can install *neither* an IIS proxy module *nor* a supervisor, use
+      **Appendix C** (uvicorn serves everything) instead.
 - [ ] A **domain service account** to run the app (required for Integrated SQL auth).
 - [ ] Node.js 20 LTS **only on the machine that builds the frontend** — `dist/` can be
       built elsewhere and copied over.
@@ -450,13 +515,20 @@ Reads the same `.env`. **With Integrated auth**, run this *as the service accoun
 Server sees the right identity.
 
 ### B.4 Run uvicorn under IIS — pick the model that matches your modules
-The process can be hosted two ways; this maps directly onto the B.6 variants:
+The process can be hosted three ways; the first two map onto the B.6 variants:
 - **Option 1 — NSSM service + ARR** (B.6 Variant 1): you run uvicorn as its own Windows
   service, IIS proxies to it.
 - **Option 2 — HttpPlatformHandler** (B.6 Variant 2): IIS launches and supervises uvicorn
   itself — **no separate service, no ARR.** Recommended when NSSM/ARR are unavailable.
+  **Note it cannot do Windows SSO** (B.6 Variant 2 explains why), so it suits `DEV_MODE`
+  and staging, not production sign-in.
+- **Option 3 — Task Scheduler + ARR** (B.6 Variant 1): same shape as Option 1, but the
+  supervisor is **built into Windows**. Use it when ARR is available but **NSSM can't be
+  installed** — the common case on a locked-down server, and the only no-download way to
+  keep SSO.
 
-Either way uvicorn binds **localhost only** — IIS is the public face.
+Whichever you pick, uvicorn binds **localhost only** — IIS is the public face — and
+**you must capture stdout yourself** (§4e): each option's log lines are given below.
 
 **Option 1 — NSSM (simplest, needs ARR for B.6):**
 ```bat
@@ -465,6 +537,12 @@ nssm set DrillingBackend AppDirectory "C:\apps\drilling\backend"
 nssm set DrillingBackend Start SERVICE_AUTO_START
 :: For Integrated auth, run the service AS the domain account:
 nssm set DrillingBackend ObjectName "<DOMAIN\svc-drilling>" "<password>"
+:: Capture the app's stdout/stderr (§4e) — a service has no console. Create the
+:: folder first; NSSM will not. AppRotateFiles caps unbounded growth.
+nssm set DrillingBackend AppStdout "C:\apps\drilling\logs\out.log"
+nssm set DrillingBackend AppStderr "C:\apps\drilling\logs\err.log"
+nssm set DrillingBackend AppRotateFiles 1
+nssm set DrillingBackend AppRotateBytes 10485760
 nssm start DrillingBackend
 ```
 Verify it's up on loopback:
@@ -485,6 +563,58 @@ Manager → Application Pools → Add; call it `DrillingPool`). There's nothing 
 - **Start Mode → "AlwaysRunning"** and **Idle Time-out (minutes) → 0.** Without this the
   pool idles out after 20 min and HttpPlatformHandler tears uvicorn down between requests —
   NSSM never did that, so it's the easiest difference to get burned by.
+
+Logs for this option come from `stdoutLogFile` in the Variant 2 `web.config` (B.6) —
+bring-up only, see the caveats there.
+
+**Option 3 — Task Scheduler (built in; keeps ARR + SSO):**
+ARR only *proxies* — it cannot launch uvicorn, and HttpPlatformHandler (the one IIS module
+that can) rules out Windows SSO. So on a host with ARR but no NSSM, the supervisor is
+Windows' own Task Scheduler: it starts uvicorn at boot, restarts it on crash, and survives
+logoff. Run as administrator:
+
+```powershell
+$exe  = "C:\apps\drilling\backend\.venv\Scripts\python.exe"
+$uargs = "-m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+
+# cmd.exe wraps the call ONLY to redirect stdout/stderr to a file (§4e) —
+# Task Scheduler cannot redirect on its own, and the app logs to stdout.
+$action = New-ScheduledTaskAction -Execute "cmd.exe" `
+  -Argument "/c `"$exe $uargs >> C:\apps\drilling\logs\out.log 2>&1`"" `
+  -WorkingDirectory "C:\apps\drilling\backend"
+
+$trigger = New-ScheduledTaskTrigger -AtStartup
+
+$settings = New-ScheduledTaskSettingsSet `
+  -ExecutionTimeLimit ([TimeSpan]::Zero) `
+  -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+  -MultipleInstances IgnoreNew `
+  -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+Register-ScheduledTask -TaskName "DrillingBackend" `
+  -Action $action -Trigger $trigger -Settings $settings `
+  -User "<DOMAIN\svc-drilling>" -Password "<password>" -RunLevel Limited
+
+Start-ScheduledTask -TaskName DrillingBackend
+Invoke-RestMethod http://127.0.0.1:8000/api/health    # -> {"status":"ok"}
+```
+
+Option-3 specifics — each of these silently breaks the task if missed:
+- **`-WorkingDirectory` must be the backend folder.** The app reads `.env` relative to the
+  working directory; this is the usual "runs by hand, fails as a task" cause.
+- **`-ExecutionTimeLimit ([TimeSpan]::Zero)`** — the default stops the task after 3 days.
+- **`-User`/`-Password`** makes it run whether or not anyone is logged on; use the domain
+  service account when the DB uses integrated auth (`-User "SYSTEM"`, no password,
+  otherwise). No admin rights are needed to bind loopback, hence `-RunLevel Limited`.
+- **`mkdir C:\apps\drilling\logs` first** — the redirect will not create it.
+- **Rotation is yours to arrange** — `>>` grows unbounded. Either add a scheduled
+  `Compress-Archive`/delete job, or keep `LOG_LEVEL=INFO` and check the file's size in the
+  monthly pass (§4e).
+- **Day-2:** `Restart-ScheduledTask -TaskName DrillingBackend` replaces the manual
+  stop/start (also `Stop-ScheduledTask` / `Start-ScheduledTask`).
+- **Not `sc.exe create`:** pointing the service manager straight at `python.exe` fails with
+  **error 1053** — a plain executable doesn't implement the service control protocol, which
+  is exactly the gap NSSM fills.
 
 > **Paste into the IT security-review request** — what HttpPlatformHandler is, in three
 > lines: *A Microsoft-signed IIS module that launches a local process and forwards requests
@@ -656,14 +786,19 @@ tool — for a long-running Server install, prefer the native path (B.2–B.4).
 
 ### B.8 Day-2 on Windows (deltas from §9)
 - **Restart after upgrade:**
-  - *ARR variant:* `nssm restart DrillingBackend` (or `Restart-Service DrillingBackend`).
-  - *HttpPlatformHandler variant:* recycle the pool — `Restart-WebAppPool DrillingPool`
+  - *ARR + NSSM (B.4 Option 1):* `nssm restart DrillingBackend` (or `Restart-Service DrillingBackend`).
+  - *HttpPlatformHandler (Option 2):* recycle the pool — `Restart-WebAppPool DrillingPool`
     (editing/touching `web.config` also restarts the process).
-- **Logs:**
-  - *ARR variant:* point NSSM at a log file — `nssm set DrillingBackend AppStdout C:\apps\drilling\logs\out.log` (and `AppStderr`).
-  - *HttpPlatformHandler variant:* `stdoutLogFile` captures startup; for steady state rely
+  - *ARR + Task Scheduler (Option 3):* `Restart-ScheduledTask -TaskName DrillingBackend`.
+- **Logs** (what's in them: §4e):
+  - *NSSM:* `nssm set DrillingBackend AppStdout C:\apps\drilling\logs\out.log` (and
+    `AppStderr`); `AppRotateFiles 1` to cap growth.
+  - *HttpPlatformHandler:* `stdoutLogFile` captures startup; for steady state rely
     on the app's own logging (set `stdoutLogEnabled="false"`).
-  - Either way, raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to `INFO`.
+  - *Task Scheduler:* the `>>` redirect target in the task action — **no rotation by
+    default**, so trim or archive it on a schedule.
+  - Any model: raise `LOG_LEVEL=DEBUG` in `.env` to diagnose, then back to `INFO`, and
+    remember front-end errors arrive in this same stream under the `app.client` logger.
 - **Upgrades:** pull code → `.venv\Scripts\python -m pip install -r requirements.txt` (if deps changed) → `.venv\Scripts\alembic upgrade head` → restart (per above) → rebuild & recopy the frontend (to the site root for ARR, or to `STATIC_DIR` for HttpPlatformHandler).
 
 ---
