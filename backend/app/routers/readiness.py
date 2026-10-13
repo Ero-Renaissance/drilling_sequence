@@ -8,10 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.locks import assert_project_not_locked
-from app.core.rbac import assert_member
+from app.core.rbac import assert_can_edit_check
 from app.database import get_db
 from app.models.activity import Activity
-from app.models.project import ProjectRole
 from app.models.readiness import (
     STATUS_SETS,
     ReadinessCheck,
@@ -30,6 +29,7 @@ from app.schemas.readiness import (
     StatusSet,
 )
 from app.schemas.readiness import ProjectReadiness as ProjectReadinessSchema
+from app.services.audit import ENTITY_READINESS, governance_event
 from app.services.readiness_catalog import (
     active_checks,
     active_teams,
@@ -169,14 +169,16 @@ async def upsert_readiness_check(
     current_user: CurrentUser,
     db: DB,
 ) -> CheckUpsertResponse:
-    """Set one gate's status for a field-development project — shared by every
-    activity under that project."""
-    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    """Set one check's value for a field-development project — shared by every
+    activity under that project. Who may write it depends on the check's team
+    (``assert_can_edit_check``): planners for the project gates, team-grant
+    holders for Wells/Logistics…, admins for all."""
     well_project = payload.well_project
 
-    # The check must be an ACTIVE catalog check that applies at field-project level
-    # (the only scope this endpoint writes until Phase 3). The catalog is public,
-    # so a generic 422 leaks nothing.
+    # Resolve the check first — its team decides who may write it. It must be an
+    # ACTIVE catalog check that applies at field-project level (the only scope
+    # this endpoint writes until Phase 3). The catalog is public
+    # (GET /api/readiness/catalog), so the generic 422 leaks nothing.
     row = (
         await db.execute(
             select(ReadinessCheck, ReadinessTeam.editor_source)
@@ -197,13 +199,13 @@ async def upsert_readiness_check(
             detail="Unknown or retired readiness check",
         )
     check, editor_source = row
-    # Default deny: only planner-edited checks are writable until team grants
-    # land (Phase 2). The planner gate above already ran; admins bypass it.
-    if editor_source != "planner" and not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient role for this action",
-        )
+    await assert_can_edit_check(
+        project_id,
+        team_code=check.team_code,
+        editor_source=editor_source,
+        user=current_user,
+        db=db,
+    )
     if not is_valid_status(check.status_set, payload.status):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -242,6 +244,11 @@ async def upsert_readiness_check(
         )
     ).scalar_one_or_none()
 
+    # What the user saw before this write: an unset entry reads as the status
+    # set's default, so saving the default onto an unset gate is not a change.
+    old_status = gate.status if gate is not None else default_status(check.status_set)
+    old_notes = gate.notes if gate is not None else None
+
     if gate is None:
         gate = ReadinessEntry(
             project_id=project_id,
@@ -259,6 +266,28 @@ async def upsert_readiness_check(
         gate.status = payload.status
         gate.notes = payload.notes
         gate.updated_by = current_user.id
+
+    # Every real change is audited — `updated_by` only remembers the LAST editor,
+    # and team grants span every campaign, so the full history must be on record.
+    # Same transaction as the write, so the trail can't miss a committed change.
+    notes_changed = old_notes != payload.notes
+    if old_status != payload.status or notes_changed:
+        await db.flush()  # assigns gate.id for a new entry
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_READINESS,
+                entity_id=gate.id,
+                action="readiness_updated",
+                # ASCII "->": audit columns may be VARCHAR on SQL Server.
+                detail=(
+                    f"{check.code} for {well_project}: {old_status} -> {payload.status}"
+                    + ("; notes changed" if notes_changed else "")
+                )[:512],
+                old_value=old_status,
+            )
+        )
 
     await db.commit()
     await db.refresh(gate)

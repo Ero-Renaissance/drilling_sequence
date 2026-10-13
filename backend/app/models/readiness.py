@@ -211,6 +211,37 @@ class ReadinessEntry(Base):
     )
 
 
+# ── Team grants ─────────────────────────────────────────────────────────────
+
+
+class UserTeamGrant(Base):
+    """A GLOBAL grant: the user may edit one team's readiness checks in every
+    campaign (decided 2026-10-13 — one focal point per team; per-campaign adding
+    causes entry fatigue and "nobody can edit" gaps on new or cloned campaigns).
+    It confers nothing else: no schedule edits, no project gates, no signing.
+
+    Admin-curated and audited (who granted is in the audit log). There is no
+    ``granted_by`` FK: a second cascading FK to ``users`` would be a "multiple
+    cascade paths" error on SQL Server.
+    """
+
+    __tablename__ = "user_team_grants"
+    __table_args__ = (
+        UniqueConstraint("user_id", "team_code", name="uq_user_team_grant"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    team_code: Mapped[str] = mapped_column(
+        ForeignKey("readiness_teams.code"), nullable=False
+    )
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 # ── Seeding for create_all (SQLite dev + tests) ─────────────────────────────
 # PostgreSQL / SQL Server are seeded by migration 034 instead; Alembic builds its
 # own Table objects, so these hooks never fire there.

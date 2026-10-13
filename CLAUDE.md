@@ -81,6 +81,14 @@ logic against these active business rules:
   Roles gate **editing/visibility only**: `planner` is the sole writer + route
   picker; the `reviewer`/`approver` roles grant nothing beyond read. Sign-off
   authority lives in the email matrices, not the roles.
+- **Readiness team grants are global** (`UserTeamGrant`, admin-curated on the Admin
+  page, audited `team_grant_granted`/`team_grant_revoked`, never auto-granted): a
+  grant lets the user write ONE readiness team's checks (Wells, Logistics…) in
+  EVERY campaign and confers nothing else — no schedule edits, no project gates, no
+  signing. Who may write a check is decided only by
+  `app/core/rbac.py::assert_can_edit_check`: admin → allowed; a planner-edited team
+  (the built-in `projects` gates) → `assert_member(planner)`; a grant-edited team →
+  the grant. Only the built-in `projects` team is planner-edited.
 - **Admin is resolved additively at login** (manual `is_admin` flag, additively
   granted from the `admin_emails` allowlist — matched on the user's email or Windows
   username). Never auto-revoke admin from those sources.
@@ -124,8 +132,10 @@ logic against these active business rules:
   a plain member. The two matrices are independent required-signature lists.
 - **Governance is auditable:** submit (`submitted_for_review`/`submitted_for_approval`),
   `review_signed`/`review_completed`/`review_changes_requested`, sign/approve/reject/
-  request-changes/discard, reviewer/approver add/remove, `review_policy_changed`, and
-  project create/clone must emit governance events via
+  request-changes/discard, reviewer/approver add/remove, `review_policy_changed`,
+  project create/clone, readiness team grant/revoke, readiness catalog changes
+  (`readiness_team_*` / `readiness_check_*`) and every real readiness value change
+  (`readiness_updated`, old → new) must emit governance events via
   `app/services/audit.py::governance_event`. Do not add or change a
   governance-relevant action without writing its audit entry. The audit log is
   append-only — never expose update/delete on it.
@@ -145,8 +155,10 @@ logic against these active business rules:
   — never admin-uploaded SVG) remain code-defined allow-lists in
   `app/models/readiness.py`. Readiness values are keyed by NAMES (campaign + field
   project [+ well + activity type]), never `Activity.id` (CSV replace recreates
-  ids). Revisions freeze their check definitions (`catalog_json`). Catalog changes
-  must be audited when their admin endpoints land.
+  ids). Revisions freeze their check definitions (`catalog_json`). A check's team,
+  status set, scope and lock behaviour are fixed at creation (only label, icon and
+  order are editable); `projects` checks must lock with the plan, and a check that
+  locks with the plan applies at project level only.
 <!-- END OF BUSINESS CONSTRAINTS -->
 
 # DEPENDENCY & SUPPLY-CHAIN GOVERNANCE

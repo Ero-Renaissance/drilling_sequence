@@ -20,6 +20,7 @@ from app.models import viewer as _viewer_models  # noqa: F401
 from app.routers import (
     activities,
     admin,
+    admin_readiness,
     approvers,
     auth,
     change_notes,
@@ -101,6 +102,7 @@ for _router in (
     auth.router,
     me.router,
     admin.router,
+    admin_readiness.router,
     projects.router,
     activities.router,
     readiness.router,

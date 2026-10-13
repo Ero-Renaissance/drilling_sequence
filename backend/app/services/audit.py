@@ -11,6 +11,8 @@ ENTITY_CONTRACT = "contract"
 ENTITY_RESOURCE = "resource"
 ENTITY_USER = "user"  # global privilege grants — recorded with project_id NULL
 ENTITY_VOCABULARY = "vocabulary"  # activity-type aliases — global (project_id NULL)
+ENTITY_READINESS = "readiness"  # a readiness value changed in a campaign
+ENTITY_READINESS_CATALOG = "readiness_catalog"  # catalog teams/checks — global (NULL)
 
 
 def contract_state(contract_end: object | None) -> str:

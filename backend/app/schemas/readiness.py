@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+
+from app.models.readiness import ICON_KEYS, STATUS_SETS
 
 # Check codes and statuses are no longer fixed enums here: codes come from the
 # admin-curated catalog and statuses from each check's code-defined status set
@@ -103,3 +105,126 @@ class ReadinessCatalog(BaseModel):
     teams: list[CatalogTeam]
     checks: list[CatalogCheck]
     status_sets: dict[str, StatusSet]
+
+
+# ── Admin: catalog management + team grants ─────────────────────────────────
+# extra="forbid": immutable fields (a check's code, team, status set, scope,
+# lock behaviour) sent on a PATCH are a 422, never silently ignored.
+
+TeamCode = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{1,31}$")]
+CheckCodeStr = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9-]{1,7}$")]
+Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+SortOrder = Annotated[int, Field(ge=0, le=10_000)]
+
+
+def _check_icon_key(value: str | None) -> str | None:
+    if value is not None and value not in ICON_KEYS:
+        raise ValueError("Unknown icon")
+    return value
+
+
+class TeamCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    code: TeamCode
+    name: Label
+    icon_key: str
+    sort_order: SortOrder = 100
+
+    _icon = field_validator("icon_key")(_check_icon_key)
+
+
+class TeamUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    name: Label | None = None
+    icon_key: str | None = None
+    sort_order: SortOrder | None = None
+    is_active: bool | None = None
+
+    _icon = field_validator("icon_key")(_check_icon_key)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "TeamUpdate":
+        if all(v is None for v in (self.name, self.icon_key, self.sort_order, self.is_active)):
+            raise ValueError("Provide at least one field to change")
+        return self
+
+
+class CheckCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    code: CheckCodeStr
+    label: Label
+    team_code: TeamCode
+    applies_project: bool
+    applies_well: bool
+    status_set: str
+    icon_key: str
+    locks_with_plan: bool
+    sort_order: SortOrder = 100
+
+    _icon = field_validator("icon_key")(_check_icon_key)
+
+    @field_validator("status_set")
+    @classmethod
+    def _known_status_set(cls, value: str) -> str:
+        if value not in STATUS_SETS:
+            raise ValueError("Unknown status set")
+        return value
+
+    @model_validator(mode="after")
+    def _scope_rules(self) -> "CheckCreate":
+        if not (self.applies_project or self.applies_well):
+            raise ValueError("A check must apply at project level, well level, or both")
+        # Governed checks are frozen into the snapshot's field-project readiness
+        # block — they exist only at field-project level (spec §3.2).
+        if self.locks_with_plan and (self.applies_well or not self.applies_project):
+            raise ValueError("A check that locks with the plan applies at project level only")
+        return self
+
+
+class CheckUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    label: Label | None = None
+    icon_key: str | None = None
+    sort_order: SortOrder | None = None
+
+    _icon = field_validator("icon_key")(_check_icon_key)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "CheckUpdate":
+        if all(v is None for v in (self.label, self.icon_key, self.sort_order)):
+            raise ValueError("Provide at least one field to change")
+        return self
+
+
+class AdminCatalogTeam(CatalogTeam):
+    is_active: bool
+
+
+class AdminCatalogCheck(CatalogCheck):
+    retired_at: datetime | None
+
+
+class AdminReadinessCatalog(BaseModel):
+    """Everything, including inactive teams and retired checks, plus the
+    code-defined allow-lists the admin forms pick from."""
+
+    teams: list[AdminCatalogTeam]
+    checks: list[AdminCatalogCheck]
+    status_sets: dict[str, StatusSet]
+    icon_keys: list[str]
+
+
+class TeamGrantsUpdate(BaseModel):
+    """The FULL set of readiness teams the user may edit (replaces the old set)."""
+
+    model_config = {"extra": "forbid"}
+
+    teams: list[TeamCode] = Field(default_factory=list, max_length=50)
+
+
+class TeamGrantsResponse(BaseModel):
+    teams: list[str]

@@ -10,6 +10,7 @@ from app.config import settings
 from app.core.auth import get_current_admin
 from app.database import get_db
 from app.models.project import ProjectMember
+from app.models.readiness import UserTeamGrant
 from app.models.user import User
 from app.schemas.admin import AdminUserResponse, AdminUserUpdate
 from app.services.audit import ENTITY_USER, governance_event
@@ -37,6 +38,15 @@ async def list_users(_admin: CurrentAdmin, db: DB) -> list[AdminUserResponse]:
     users = (
         await db.execute(select(User).order_by(User.name))
     ).scalars().all()
+    teams_by_user: dict[uuid.UUID, list[str]] = {}
+    for user_id, team_code in (
+        await db.execute(
+            select(UserTeamGrant.user_id, UserTeamGrant.team_code).order_by(
+                UserTeamGrant.team_code
+            )
+        )
+    ).all():
+        teams_by_user.setdefault(user_id, []).append(team_code)
     return [
         AdminUserResponse(
             id=u.id,
@@ -46,6 +56,7 @@ async def list_users(_admin: CurrentAdmin, db: DB) -> list[AdminUserResponse]:
             can_plan=u.can_plan,
             project_count=counts.get(u.id, 0),
             admin_via_allowlist=u.email.lower() in settings.admin_emails_list,
+            teams=teams_by_user.get(u.id, []),
         )
         for u in users
     ]
@@ -158,4 +169,13 @@ async def update_user(
         can_plan=user.can_plan,
         project_count=count,
         admin_via_allowlist=via_allowlist,
+        teams=list(
+            (
+                await db.execute(
+                    select(UserTeamGrant.team_code)
+                    .where(UserTeamGrant.user_id == user.id)
+                    .order_by(UserTeamGrant.team_code)
+                )
+            ).scalars()
+        ),
     )

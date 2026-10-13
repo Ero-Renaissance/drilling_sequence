@@ -14,6 +14,8 @@ class AdminUserResponse(BaseModel):
     # True when this user's email is in the admin_emails allowlist: they keep admin
     # from config, so a manual "revoke" here would be re-granted at their next login.
     admin_via_allowlist: bool = False
+    # Readiness teams this user may edit in every campaign (global team grants).
+    teams: list[str] = []
 
 
 class AdminUserUpdate(BaseModel):

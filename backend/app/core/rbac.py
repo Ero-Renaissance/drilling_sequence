@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.approver import ProjectApprover
 from app.models.project import ProjectMember, ProjectRole
+from app.models.readiness import UserTeamGrant
 from app.models.user import User
 
 
@@ -112,3 +113,45 @@ async def assert_can_review(
         if reviewer.scalar_one_or_none() is not None:
             return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+
+async def assert_can_edit_check(
+    project_id: uuid.UUID,
+    *,
+    team_code: str,
+    editor_source: str,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    """Who may write one readiness check's values in a campaign
+    (docs/readiness-framework-spec.md §5.2). Default deny:
+
+    1. Global admin → allowed (the usual bypass).
+    2. The check's team is planner-edited (the field-project gates) →
+       ``assert_member(..., allowed_roles={planner})`` — unchanged behaviour.
+    3. The team is grant-edited (Wells, Logistics…) → the user must hold a GLOBAL
+       ``UserTeamGrant`` for that team. The grant covers every campaign by design
+       and confers nothing beyond writing that team's checks.
+
+    The caller passes the check's team (catalog data is public, so loading the
+    check before this call leaks nothing) and still scopes the write to
+    ``project_id`` itself.
+    """
+    if user.is_admin:
+        return
+    if editor_source == "planner":
+        await assert_member(project_id, user, db, allowed_roles={ProjectRole.planner})
+        return
+    if editor_source == "team_grant":
+        grant = await db.execute(
+            select(UserTeamGrant.id).where(
+                UserTeamGrant.user_id == user.id,
+                UserTeamGrant.team_code == team_code,
+            )
+        )
+        if grant.scalar_one_or_none() is not None:
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Insufficient role for this action",
+    )
