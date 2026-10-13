@@ -155,7 +155,10 @@ logic against these active business rules:
   — never admin-uploaded SVG) remain code-defined allow-lists in
   `app/models/readiness.py`. Readiness values are keyed by NAMES (campaign + field
   project [+ well + activity type]), never `Activity.id` (CSV replace recreates
-  ids). Revisions freeze their check definitions (`catalog_json`). A check's team,
+  ids); a well with no field project uses `""`. Values follow an activity rename
+  (`app/services/readiness_rekey.py`, audited `readiness_rekeyed`) — keep that hook
+  on any new path that edits those names. A check applying at both levels is
+  inherited by each well from its field project until the well overrides it. Revisions freeze their check definitions (`catalog_json`). A check's team,
   status set, scope and lock behaviour are fixed at creation (only label, icon and
   order are editable); `projects` checks must lock with the plan, and a check that
   locks with the plan applies at project level only.

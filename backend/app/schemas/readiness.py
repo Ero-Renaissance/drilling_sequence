@@ -19,13 +19,40 @@ class CheckState(BaseModel):
     updated_at: datetime | None = None
 
 
-class CheckUpsert(BaseModel):
-    # The field-development project name (Activity.well_project) travels in the
-    # BODY, not the URL path: it is free-form user data ("Gbaran 31/30",
-    # "Egbema Node FOD + IOGD") and IIS request filtering 404s path segments with
-    # '+'/'%2B' before they reach the app (ticket DS-001). Bounds match the
-    # String(256) column; matched exactly against stored activity values.
-    well_project: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+Name = Annotated[str, StringConstraints(min_length=1, max_length=256)]
+
+
+class WellTarget(BaseModel):
+    """Which readiness target a write addresses. All names travel in the BODY,
+    never the URL path: they are free-form user data ("Gbaran 31/30",
+    "Egbema Node FOD + IOGD") and IIS request filtering 404s path segments with
+    '+'/'%2B' before they reach the app (ticket DS-001). Bounds match the
+    String(256) columns; names are matched exactly against stored activity values.
+
+    - ``scope="project"``: a field project — ``well_project`` required, no well
+      fields.
+    - ``scope="well"``: one well activity — ``well_name`` + ``activity_type``
+      required; ``well_project`` may be "" for a well with no field project.
+    """
+
+    scope: Literal["project", "well"] = "project"
+    well_project: Annotated[str, StringConstraints(max_length=256)]
+    well_name: Name | None = None
+    activity_type: Name | None = None
+
+    @model_validator(mode="after")
+    def _target_matches_scope(self) -> "WellTarget":
+        if self.scope == "project":
+            if not self.well_project:
+                raise ValueError("well_project is required for a field-project check")
+            if self.well_name is not None or self.activity_type is not None:
+                raise ValueError("well_name/activity_type apply to well-level checks only")
+        elif self.well_name is None or self.activity_type is None:
+            raise ValueError("well_name and activity_type are required for a well-level check")
+        return self
+
+
+class CheckUpsert(WellTarget):
     # Validated against the check's status set in the router (422 otherwise).
     status: Status
     # Bounded to the String(512) column so an over-long note is a 422, not a DB error.
@@ -33,7 +60,10 @@ class CheckUpsert(BaseModel):
 
 
 class CheckUpsertResponse(BaseModel):
+    scope: str = "project"
     well_project: str
+    well_name: str = ""
+    activity_type: str = ""
     check_code: str
     status: str
     notes: str | None
@@ -105,6 +135,47 @@ class ReadinessCatalog(BaseModel):
     teams: list[CatalogTeam]
     checks: list[CatalogCheck]
     status_sets: dict[str, StatusSet]
+
+
+# ── Team lens (GET /readiness/teams/{team_code}) ────────────────────────────
+
+
+class EffectiveCheckState(CheckState):
+    """A check's value as a well sees it: its own entry ("well"), else the field
+    project's ("project" — inherited, for checks that apply at both levels or
+    only at project level), else the status set's default ("default")."""
+
+    source: Literal["well", "project", "default"]
+
+
+class TeamProjectRow(BaseModel):
+    well_project: str
+    activity_count: int
+    checks: dict[str, CheckState]  # the team's project-level checks only
+
+
+class TeamWellRow(BaseModel):
+    well_project: str  # "" = a well with no field project
+    well_name: str
+    activity_type: str
+    # >1 means several activities share this project + well + activity type
+    # (e.g. two workovers) and therefore share its readiness — the UI warns.
+    activity_count: int
+    location: str | None = None
+    start_date: date
+    # Earliest start of a not-done, readiness-required activity (None: no pending
+    # readiness work) — the same focus signal the project gates page uses.
+    focus_start: date | None = None
+    checks: dict[str, EffectiveCheckState]  # every team check, effective value
+
+
+class TeamReadiness(BaseModel):
+    team: CatalogTeam
+    checks: list[CatalogCheck]
+    project_rows: list[TeamProjectRow]
+    well_rows: list[TeamWellRow]
+    # The plan lock — only checks that lock with the plan are frozen by it.
+    locked: bool
 
 
 # ── Admin: catalog management + team grants ─────────────────────────────────

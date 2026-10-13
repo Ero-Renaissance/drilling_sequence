@@ -43,6 +43,7 @@ from app.services.data_processor import (
     unknown_activity_type_warnings,
     validate_csv_columns,
 )
+from app.services.readiness_rekey import carry_readiness_over, well_key
 from app.services.registry import (
     ensure_activity_resources_registered,
     ensure_registered,
@@ -363,6 +364,10 @@ async def update_activity(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="an activity uses either a rig or an HWU, not both; clear one first",
         )
+    # Readiness is keyed by names — remember this activity's keys so its values
+    # can follow a rename (carry_readiness_over below).
+    old_project = activity.well_project
+    old_well = well_key(activity.well_project, activity.well_name, activity.activity_type)
     for field, new_val in changes.items():
         old_val = getattr(activity, field)
         if old_val != new_val:
@@ -379,6 +384,16 @@ async def update_activity(
 
     activity.updated_by = current_user.id
     activity.updated_at = datetime.now(timezone.utc)  # explicit for microsecond precision
+    await carry_readiness_over(
+        db,
+        project_id=project_id,
+        activity_id=activity.id,
+        user_id=current_user.id,
+        old_project=old_project,
+        new_project=activity.well_project,
+        old_well=old_well,
+        new_well=well_key(activity.well_project, activity.well_name, activity.activity_type),
+    )
     # Register the (possibly re-pointed) unit — no-op when it already exists.
     if activity.rig_name:
         await ensure_registered(
