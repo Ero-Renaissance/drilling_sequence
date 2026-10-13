@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { fetchReadinessCatalog, type CatalogCheck, type CheckStatus } from "@/api/readiness";
 import { logger } from "@/lib/logger";
 
@@ -36,11 +44,15 @@ export const BUILTIN_PROJECT_GATES: readonly CatalogCheck[] = [
 ];
 
 const CatalogContext = createContext<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
+// Re-fetch the live catalog (after an admin edits it). A no-op outside the provider.
+const RefreshContext = createContext<() => void>(() => undefined);
 
-/** Loads the live catalog once for the signed-in app. On failure the built-in
- *  gates stay in place, so the readiness UI renders exactly as before. */
+/** Loads the live catalog for the signed-in app (and again on refresh). On
+ *  failure the built-in gates stay in place, so the readiness UI still renders. */
 export function ReadinessCatalogProvider({ children }: { children: ReactNode }) {
   const [checks, setChecks] = useState<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
+  const [version, setVersion] = useState(0);
+  const refresh = useCallback(() => setVersion((v) => v + 1), []);
   useEffect(() => {
     let active = true;
     fetchReadinessCatalog()
@@ -55,8 +67,17 @@ export function ReadinessCatalogProvider({ children }: { children: ReactNode }) 
     return () => {
       active = false;
     };
-  }, []);
-  return <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>;
+  }, [version]);
+  return (
+    <RefreshContext.Provider value={refresh}>
+      <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
+    </RefreshContext.Provider>
+  );
+}
+
+/** Call after changing the catalog so every view picks up the new definitions. */
+export function useRefreshReadinessCatalog(): () => void {
+  return useContext(RefreshContext);
 }
 
 /** Pins a subtree to a fixed catalog — a revision renders with the definitions

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardList, ShieldCheck, ShieldOff, Loader2, Users } from "lucide-react";
+import {
+  ClipboardList,
+  ShieldCheck,
+  ShieldOff,
+  Loader2,
+  Users,
+  ListChecks,
+  ChevronDown,
+} from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,8 +20,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SearchInput } from "@/components/ui/search-input";
-import { adminApi } from "@/api/admin";
+import { toast } from "@/components/ui/toaster";
+import { ReadinessCatalogAdmin } from "@/components/admin/ReadinessCatalogAdmin";
+import { useRefreshReadinessCatalog } from "@/components/readiness/catalog";
+import { adminApi, type AdminReadinessCatalog } from "@/api/admin";
 import { useAuthStore } from "@/store/auth";
 import type { AdminUser } from "@/types";
 
@@ -36,6 +55,9 @@ export function Admin() {
   const [confirmUser, setConfirmUser] = useState<AdminUser | null>(null);
   const [search, setSearch] = useState("");
   const [privilegedOnly, setPrivilegedOnly] = useState(false);
+  const [catalog, setCatalog] = useState<AdminReadinessCatalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const refreshLiveCatalog = useRefreshReadinessCatalog();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +74,42 @@ export function Admin() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadCatalog = useCallback(async () => {
+    try {
+      setCatalog(await adminApi.readinessCatalog());
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load the readiness catalog");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCatalog();
+  }, [loadCatalog]);
+
+  // Teams a user can be granted: active, grant-edited (the project gates belong
+  // to campaign planners, not a grant).
+  const grantableTeams = (catalog?.teams ?? []).filter(
+    (t) => t.editor_source === "team_grant" && t.is_active,
+  );
+  const teamName = (code: string) => catalog?.teams.find((t) => t.code === code)?.name ?? code;
+
+  async function toggleTeam(user: AdminUser, team: string, on: boolean) {
+    const current = user.teams ?? [];
+    const next = on ? [...current, team] : current.filter((t) => t !== team);
+    setPendingId(user.id);
+    setError(null);
+    try {
+      const { teams } = await adminApi.setTeams(user.id, next);
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, teams } : u)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update readiness teams");
+    } finally {
+      setPendingId(null);
+    }
+  }
 
   async function toggleAdmin(user: AdminUser) {
     setPendingId(user.id);
@@ -84,7 +142,7 @@ export function Admin() {
   const query = search.trim().toLowerCase();
   const filtered = users.filter(
     (u) =>
-      (!privilegedOnly || u.is_admin || u.can_plan) &&
+      (!privilegedOnly || u.is_admin || u.can_plan || (u.teams?.length ?? 0) > 0) &&
       (!query ||
         u.name.toLowerCase().includes(query) ||
         u.email.toLowerCase().includes(query)),
@@ -96,7 +154,9 @@ export function Admin() {
         <h1 className="text-2xl font-semibold tracking-tight">User Management</h1>
         <p className="text-sm text-muted-foreground">
           Grant or revoke global access. Admins can view and manage every campaign; planners
-          can create campaigns and manage the plans they hold the planner role on.
+          can create campaigns and manage the plans they hold the planner role on. A readiness
+          team grant lets a user update that team&apos;s readiness checks in every campaign —
+          nothing else.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Admins granted via the allowlist (marked) — the user&apos;s email or Windows
@@ -135,7 +195,7 @@ export function Admin() {
                 onChange={(e) => setPrivilegedOnly(e.target.checked)}
                 className="h-3.5 w-3.5 accent-primary"
               />
-              Admins &amp; planners only
+              Privileged only
             </label>
             <SearchInput
               value={search}
@@ -176,7 +236,9 @@ export function Admin() {
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1 leading-tight">
-                    <div className="flex items-center gap-2">
+                    {/* Wraps: with the Teams menu the name column can get narrow,
+                        and badges must never overlap the project count. */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="truncate font-medium text-foreground">{user.name}</span>
                       {user.is_admin && (
                         <Badge
@@ -201,6 +263,12 @@ export function Admin() {
                           via allowlist
                         </span>
                       )}
+                      {(user.teams ?? []).map((t) => (
+                        <Badge key={t} variant="info" className="gap-1 text-[10px]">
+                          <ListChecks className="h-3 w-3" />
+                          {teamName(t)}
+                        </Badge>
+                      ))}
                       {isSelf && (
                         <span className="text-[10px] text-muted-foreground">(you)</span>
                       )}
@@ -210,6 +278,54 @@ export function Admin() {
                   <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
                     {user.project_count} project{user.project_count !== 1 ? "s" : ""}
                   </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={
+                          pendingId === user.id ||
+                          (grantableTeams.length === 0 && (user.teams ?? []).length === 0)
+                        }
+                        title={
+                          grantableTeams.length === 0
+                            ? "Add a readiness team below to grant it"
+                            : "Readiness teams this user can update in every campaign"
+                        }
+                      >
+                        <ListChecks className="h-3.5 w-3.5" />
+                        Teams
+                        {(user.teams ?? []).length > 0 && ` (${(user.teams ?? []).length})`}
+                        <ChevronDown className="h-3 w-3 opacity-60" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel className="text-xs">Readiness team grants</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {grantableTeams.map((t) => (
+                        <DropdownMenuCheckboxItem
+                          key={t.code}
+                          checked={(user.teams ?? []).includes(t.code)}
+                          onCheckedChange={(on) => toggleTeam(user, t.code, on === true)}
+                        >
+                          {t.name}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                      {/* A grant for a since-deactivated team can still be revoked. */}
+                      {(user.teams ?? [])
+                        .filter((code) => !grantableTeams.some((t) => t.code === code))
+                        .map((code) => (
+                          <DropdownMenuCheckboxItem
+                            key={code}
+                            checked
+                            onCheckedChange={() => toggleTeam(user, code, false)}
+                          >
+                            {teamName(code)} (inactive)
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button
                     variant={user.can_plan ? "ghost" : "outline"}
                     size="sm"
@@ -248,6 +364,15 @@ export function Admin() {
           </ul>
         )}
       </div>
+
+      <ReadinessCatalogAdmin
+        catalog={catalog}
+        loading={catalogLoading}
+        onChanged={() => {
+          loadCatalog();
+          refreshLiveCatalog();
+        }}
+      />
 
       <Dialog open={!!confirmUser} onOpenChange={(o) => !o && setConfirmUser(null)}>
         <DialogContent className="sm:max-w-sm">

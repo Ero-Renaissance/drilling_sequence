@@ -11,6 +11,7 @@ import {
   FileSignature,
   Pencil,
   RefreshCw,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ function iconFor(entry: AuditEntry): LucideIcon {
   if (entry.entity_type === "contract") {
     return entry.field === "contract_deleted" ? Trash2 : FileSignature;
   }
+  if (entry.entity_type === "readiness") return ListChecks;
   return Pencil; // activity field edit
 }
 
@@ -59,6 +61,17 @@ function describe(entry: AuditEntry): React.ReactNode {
       <>
         <span className="font-medium text-foreground">{verb}</span>
         <span className="ml-1.5 text-muted-foreground">{entry.new_value}</span>
+      </>
+    );
+  }
+  // Readiness value changes: "Readiness FID for Bonga Phase 3: On Track → Behind".
+  if (entry.entity_type === "readiness") {
+    return (
+      <>
+        <span className="font-medium text-foreground">Readiness</span>
+        <span className="ml-1.5 text-muted-foreground">
+          {(entry.new_value ?? "").replace(" -> ", " → ")}
+        </span>
       </>
     );
   }
