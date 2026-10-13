@@ -28,8 +28,8 @@ async def _create_activity(client: AsyncClient, project_id: str, **overrides) ->
     return resp.json()
 
 
-def _url(project_id: str, well_project: str, code: str) -> str:
-    return f"/api/projects/{project_id}/readiness/{well_project}/{code}"
+def _url(project_id: str, code: str) -> str:
+    return f"/api/projects/{project_id}/readiness/{code}"
 
 
 # ── GET /readiness ──────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ async def test_readiness_focus_start_tracks_earliest_pending_activity(client: As
     assert by_project["Bonga Phase 3"]["focus_start"] == "2026-04-01"
 
 
-# ── PUT /readiness/{well_project}/{check_code} ───────────────────────────────
+# ── PUT /readiness/{check_code}  (well_project in the body) ─────────────────
 
 
 @pytest.mark.asyncio
@@ -119,8 +119,12 @@ async def test_upsert_gate_shared_by_all_project_activities(client: AsyncClient)
                            start_date="2026-04-01", end_date="2026-05-01")
 
     resp = await client.put(
-        _url(project["id"], "Bonga Phase 3", "FID"),
-        json={"status": "Completed", "notes": "Sanctioned at Q2 board"},
+        _url(project["id"], "FID"),
+        json={
+            "well_project": "Bonga Phase 3",
+            "status": "Completed",
+            "notes": "Sanctioned at Q2 board",
+        },
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -139,34 +143,76 @@ async def test_upsert_gate_shared_by_all_project_activities(client: AsyncClient)
 async def test_upsert_updates_existing_gate(client: AsyncClient) -> None:
     project = await _create_project(client)
     await _create_activity(client, project["id"])
-    url = _url(project["id"], "Bonga Phase 3", "BUD")
-    assert (await client.put(url, json={"status": "Behind"})).status_code == 200
-    assert (await client.put(url, json={"status": "Completed"})).status_code == 200
+    url = _url(project["id"], "BUD")
+    body = {"well_project": "Bonga Phase 3"}
+    assert (await client.put(url, json={**body, "status": "Behind"})).status_code == 200
+    assert (await client.put(url, json={**body, "status": "Completed"})).status_code == 200
     rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
     assert rows[0]["checks"]["BUD"]["status"] == "Completed"
 
 
+@pytest.mark.parametrize(
+    "well_project",
+    [
+        "Gbaran 31/30",  # slash — split routing under the old path-segment design
+        "Egbema Node FOD + IOGD",  # plus — IIS 404.11 on '%2B' in a path (DS-001)
+        "Odd %2B & #1 ?x=y",  # other URL-significant characters, taken verbatim
+    ],
+)
 @pytest.mark.asyncio
-async def test_upsert_gate_well_project_with_slash(client: AsyncClient) -> None:
-    """Real well_project values carry slashes (e.g. the block "Gbaran 31/30").
-    The PUT route uses a ``:path`` converter so the decoded slash doesn't split
-    routing into a 404 — regression guard for the encoded-slash bug."""
+async def test_upsert_gate_well_project_special_characters(
+    client: AsyncClient, well_project: str
+) -> None:
+    """Real well_project values carry '/', '+' and other URL-significant
+    characters. The name travels in the JSON body, so it is matched verbatim —
+    no percent-encoding, and nothing for a proxy to reject (regression guard for
+    the encoded-slash bug and ticket DS-001)."""
     project = await _create_project(client)
-    await _create_activity(client, project["id"], well_project="Gbaran 31/30")
+    await _create_activity(client, project["id"], well_project=well_project)
 
     resp = await client.put(
-        _url(project["id"], "Gbaran 31/30", "LLI"),
-        json={"status": "Completed"},
+        _url(project["id"], "LLI"),
+        json={"well_project": well_project, "status": "Completed"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["well_project"] == "Gbaran 31/30"
+    assert body["well_project"] == well_project
     assert body["check_code"] == "LLI"
 
     rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
     assert len(rows) == 1
-    assert rows[0]["well_project"] == "Gbaran 31/30"
+    assert rows[0]["well_project"] == well_project
     assert rows[0]["checks"]["LLI"]["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+async def test_old_path_segment_route_is_gone(client: AsyncClient) -> None:
+    """The project name no longer rides in the URL path — the legacy
+    ``/readiness/{well_project}/{check_code}`` shape must not resolve."""
+    project = await _create_project(client)
+    await _create_activity(client, project["id"])
+    resp = await client.put(
+        f"/api/projects/{project['id']}/readiness/Bonga Phase 3/FID",
+        json={"well_project": "Bonga Phase 3", "status": "Completed"},
+    )
+    assert resp.status_code in (404, 405)
+
+
+@pytest.mark.parametrize(
+    "bad_body",
+    [
+        {"status": "Completed"},  # well_project missing
+        {"well_project": "", "status": "Completed"},  # empty
+        {"well_project": "x" * 257, "status": "Completed"},  # over the column bound
+        {"well_project": "Bonga Phase 3", "status": "Completed", "notes": "n" * 513},
+    ],
+)
+@pytest.mark.asyncio
+async def test_upsert_body_validation(client: AsyncClient, bad_body: dict) -> None:
+    project = await _create_project(client)
+    await _create_activity(client, project["id"])
+    resp = await client.put(_url(project["id"], "FID"), json=bad_body)
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -176,7 +222,8 @@ async def test_upsert_unknown_project_404s(client: AsyncClient) -> None:
     project = await _create_project(client)
     await _create_activity(client, project["id"])
     resp = await client.put(
-        _url(project["id"], "No Such Project", "FID"), json={"status": "Completed"}
+        _url(project["id"], "FID"),
+        json={"well_project": "No Such Project", "status": "Completed"},
     )
     assert resp.status_code == 404
 
@@ -186,7 +233,8 @@ async def test_upsert_invalid_check_code(client: AsyncClient) -> None:
     project = await _create_project(client)
     await _create_activity(client, project["id"])
     resp = await client.put(
-        _url(project["id"], "Bonga Phase 3", "CON"), json={"status": "Completed"}
+        _url(project["id"], "CON"),
+        json={"well_project": "Bonga Phase 3", "status": "Completed"},
     )
     assert resp.status_code == 422
 
@@ -196,7 +244,8 @@ async def test_upsert_rejects_retired_status(client: AsyncClient) -> None:
     project = await _create_project(client)
     await _create_activity(client, project["id"])
     resp = await client.put(
-        _url(project["id"], "Bonga Phase 3", "FID"), json={"status": "Delayed"}
+        _url(project["id"], "FID"),
+        json={"well_project": "Bonga Phase 3", "status": "Delayed"},
     )
     assert resp.status_code == 422
 
@@ -213,6 +262,7 @@ async def test_readiness_write_requires_planner(
     ).status_code == 200
     # …but a non-planner cannot set gates.
     resp = await noplan_client.put(
-        _url(project["id"], "Bonga Phase 3", "FID"), json={"status": "Completed"}
+        _url(project["id"], "FID"),
+        json={"well_project": "Bonga Phase 3", "status": "Completed"},
     )
     assert resp.status_code == 403

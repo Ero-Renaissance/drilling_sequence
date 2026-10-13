@@ -192,7 +192,8 @@ async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
     pid = await _project(client, "Ready")
     await _activity(client, pid, rig="R", start=TODAY + timedelta(days=10), end=TODAY + timedelta(days=20))
     r = await client.put(
-        f"/api/projects/{pid}/readiness/Field Project A/BUD", json={"status": "Completed"}
+        f"/api/projects/{pid}/readiness/BUD",
+        json={"well_project": "Field Project A", "status": "Completed"},
     )
     assert r.status_code == 200, r.text
     # BUD is the only stored gate and it's Completed → the PROJECT is 100% ready

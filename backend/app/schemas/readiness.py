@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 CheckCode = Literal["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
 CheckStatus = Literal["On Track", "Completed", "Behind", "N/A"]
@@ -14,8 +14,15 @@ class CheckState(BaseModel):
 
 
 class CheckUpsert(BaseModel):
+    # The field-development project name (Activity.well_project) travels in the
+    # BODY, not the URL path: it is free-form user data ("Gbaran 31/30",
+    # "Egbema Node FOD + IOGD") and IIS request filtering 404s path segments with
+    # '+'/'%2B' before they reach the app (ticket DS-001). Bounds match the
+    # String(256) column; matched exactly against stored activity values.
+    well_project: Annotated[str, StringConstraints(min_length=1, max_length=256)]
     status: CheckStatus
-    notes: str | None = None
+    # Bounded to the String(512) column so an over-long note is a 422, not a DB error.
+    notes: Annotated[str, StringConstraints(max_length=512)] | None = None
 
 
 class CheckUpsertResponse(BaseModel):

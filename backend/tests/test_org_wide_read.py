@@ -76,8 +76,8 @@ async def test_writes_stay_denied_for_plain_users(
     ).status_code == 403
     assert (
         await noplan_client.put(
-            f"/api/projects/{pid}/readiness/Some Project/BUD",
-            json={"status": "Completed"},
+            f"/api/projects/{pid}/readiness/BUD",
+            json={"well_project": "Some Project", "status": "Completed"},
         )
     ).status_code == 403
     assert (

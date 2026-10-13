@@ -112,13 +112,14 @@ async def test_readiness_upsert_locked_then_unlocked(client: AsyncClient) -> Non
     revision_id = await _create_revision(client, project_id)
 
     # Readiness is per FIELD PROJECT now — the gate freezes with the plan.
-    url = f"/api/projects/{project_id}/readiness/Lock Project/BUD"
-    assert (await client.put(url, json={"status": "On Track"})).status_code == 423
+    url = f"/api/projects/{project_id}/readiness/BUD"
+    body = {"well_project": "Lock Project", "status": "On Track"}
+    assert (await client.put(url, json=body)).status_code == 423
 
     discard = await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
     assert discard.status_code == 204
 
-    assert (await client.put(url, json={"status": "On Track"})).status_code == 200
+    assert (await client.put(url, json=body)).status_code == 200
 
 
 @pytest.mark.asyncio

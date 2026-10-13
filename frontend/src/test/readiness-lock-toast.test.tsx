@@ -21,7 +21,7 @@ describe("Readiness change while the campaign is locked", () => {
     // The plan is locked for approval — the API rejects readiness edits with 423.
     server.use(
       http.put(
-        "/api/projects/:projectId/readiness/:wellProject/:checkCode",
+        "/api/projects/:projectId/readiness/:checkCode",
         () =>
           HttpResponse.json(
             {

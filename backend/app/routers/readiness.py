@@ -107,18 +107,16 @@ async def list_readiness(
 
 
 @router.put(
-    # ``well_project`` is user data (e.g. the block "Gbaran 31/30") and can contain
-    # slashes. The frontend percent-encodes it, but uvicorn/Starlette decode %2F
-    # back to "/" BEFORE routing, so a plain ``{well_project}`` segment would split
-    # on the slash and 404. The ``:path`` converter lets it span slashes; the
-    # trailing ``{check_code}`` stays a single clean segment (a fixed enum,
-    # validated below).
-    "/readiness/{well_project:path}/{check_code}",
+    # ``well_project`` is NOT a path segment: it is free-form user data that can
+    # carry "/" ("Gbaran 31/30") or "+" ("Egbema Node FOD + IOGD"), and IIS request
+    # filtering rejects '+'/'%2B' in a URL path (404.11) before the request ever
+    # reaches uvicorn (ticket DS-001). It travels in the JSON body instead; the
+    # path carries only ``check_code``, a fixed enum validated below.
+    "/readiness/{check_code}",
     response_model=CheckUpsertResponse,
 )
 async def upsert_readiness_check(
     project_id: uuid.UUID,
-    well_project: str,
     check_code: str,
     payload: CheckUpsert,
     current_user: CurrentUser,
@@ -127,6 +125,7 @@ async def upsert_readiness_check(
     """Set one gate's status for a field-development project — shared by every
     activity under that project."""
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    well_project = payload.well_project
 
     if check_code not in CHECK_CODES:
         raise HTTPException(

@@ -195,7 +195,7 @@ async def test_replace_import_preserves_app_set_readiness(client: AsyncClient) -
 
     # Planner sets a gate in the app…
     put = await client.put(
-        f"/api/projects/{pid}/readiness/P1/FID", json={"status": "Behind"}
+        f"/api/projects/{pid}/readiness/FID", json={"well_project": "P1", "status": "Behind"}
     )
     assert put.status_code == 200, put.text
 

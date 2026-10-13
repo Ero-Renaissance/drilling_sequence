@@ -47,11 +47,11 @@ export async function listReadiness(projectId: string): Promise<ProjectReadiness
 }
 
 /**
- * Set ONE readiness gate for a whole field project. `wellProject` can contain
- * spaces and slashes (e.g. the block "Gbaran 31/30"), so it is percent-encoded
- * here AND the backend matches it with a `:path` route converter. Encoding alone
- * is not enough: the server decodes %2F back to "/" before routing, which would
- * otherwise split the segment and 404.
+ * Set ONE readiness gate for a whole field project. `wellProject` is free-form
+ * (e.g. "Gbaran 31/30", "Egbema Node FOD + IOGD"), so it travels in the JSON
+ * body — never the URL path, where IIS request filtering rejects '+'/'%2B'
+ * before the request reaches the API (ticket DS-001). The path carries only the
+ * fixed check code.
  */
 export async function upsertCheck(
   projectId: string,
@@ -60,13 +60,10 @@ export async function upsertCheck(
   status: CheckStatus,
   notes?: string | null,
 ): Promise<void> {
-  const resp = await fetch(
-    `/api/projects/${projectId}/readiness/${encodeURIComponent(wellProject)}/${checkCode}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-      body: JSON.stringify({ status, notes: notes ?? null }),
-    },
-  );
+  const resp = await fetch(`/api/projects/${projectId}/readiness/${checkCode}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ well_project: wellProject, status, notes: notes ?? null }),
+  });
   if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }

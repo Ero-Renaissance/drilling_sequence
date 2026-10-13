@@ -31,7 +31,8 @@ async def _approved_project(
         )
     ).json()
     await client.put(
-        f"/api/projects/{pid}/readiness/Field Project A/BUD", json={"status": "Completed"}
+        f"/api/projects/{pid}/readiness/BUD",
+        json={"well_project": "Field Project A", "status": "Completed"},
     )
     # New units auto-register as PLANNED slots; this rig is a real, procured one.
     unit = (await client.get(f"/api/projects/{pid}/resources")).json()[0]

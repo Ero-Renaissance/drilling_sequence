@@ -198,10 +198,15 @@ export const handlers = [
   }),
 
   http.put(
-    "/api/projects/:projectId/readiness/:wellProject/:checkCode",
+    "/api/projects/:projectId/readiness/:checkCode",
     async ({ request, params }) => {
-      const body = (await request.json()) as { status: CheckStatus; notes: string | null };
+      const body = (await request.json()) as {
+        well_project: string;
+        status: CheckStatus;
+        notes: string | null;
+      };
       return HttpResponse.json({
+        well_project: body.well_project,
         check_code: params.checkCode,
         status: body.status,
         notes: body.notes,
