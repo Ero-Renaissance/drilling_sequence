@@ -11,7 +11,8 @@ import type {
 import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
-import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
+import type { CheckCode, CheckStatus } from "@/api/readiness";
+import { useProjectGates } from "@/components/readiness/catalog";
 import { activitiesToChartData, activityLaneLabel, type ReadinessMap } from "@/lib/chart-utils";
 import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
 import { terrainRank } from "@/lib/gantt-rows";
@@ -43,9 +44,9 @@ import { TimeScaleStrip } from "./TimeScaleStrip";
  * chart-utils), so every bar under the same field project shows the same strip.
  * (The Y-axis AlarmClock is a separate, RIG-level signal — "how soon does this
  * rig's contract expire?" — and only fires for in-force (Completed) contracts;
- * the contract is no longer mirrored as a readiness gate.)
+ * the contract is no longer mirrored as a readiness gate.) Which gates, in which
+ * order, and their icons come from the readiness catalog (useProjectGates).
  */
-const BAR_STRIP_CODES = CHECK_CODES;
 
 interface DrillChartProps {
   activities: Activity[];
@@ -300,6 +301,7 @@ export function DrillChart({
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
+  const gates = useProjectGates();
 
   // Focused years — a SET, but the time axis can only show one contiguous
   // window, so the chart zooms to min(selected)..max(selected); years in
@@ -502,6 +504,10 @@ export function DrillChart({
   }, [displayData]);
 
   const option: EChartsOption = useMemo(() => {
+    // The readiness strip's gates (catalog order) and each gate's icon key.
+    const stripCodes = gates.map((g) => g.code);
+    const iconKeyByCode = new Map(gates.map((g) => [g.code, g.icon_key]));
+    const iconKeyOf = (code: CheckCode) => iconKeyByCode.get(code) ?? "";
     const ROW_HEIGHT = 56;
     const ICON_SIZE = 14;
     const ICON_GAP = 2;
@@ -745,7 +751,7 @@ export function DrillChart({
       if (checks && readinessRole === "sibling") {
         // Exception marker: this bar's project is flagged elsewhere on the
         // chart (its anchor bar carries the full strip) — repeat only trouble.
-        const worst = worstCheck(checks);
+        const worst = worstCheck(checks, stripCodes);
         if (worst && worst.status === "Behind") {
           const stripY = barTop + barH + BAR_TO_ICON_GAP;
           const minX = coordSys.x;
@@ -757,7 +763,7 @@ export function DrillChart({
               type: "image",
               silent: true,
               style: {
-                image: buildCheckSvgDataUri(worst.code, worst.status),
+                image: buildCheckSvgDataUri(iconKeyOf(worst.code), worst.status),
                 x,
                 y: stripY + 4,
                 width: ICON,
@@ -784,7 +790,7 @@ export function DrillChart({
             type: "image",
             silent: true,
             style: {
-              image: buildCheckSvgDataUri(code, status),
+              image: buildCheckSvgDataUri(iconKeyOf(code), status),
               x,
               y,
               width: size,
@@ -795,16 +801,16 @@ export function DrillChart({
 
         const tier = iconTier(barWidth);
         if (tier === "full") {
-          for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
-            const code = BAR_STRIP_CODES[i];
+          for (let i = 0; i < stripCodes.length; i++) {
+            const code = stripCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (ICON_SIZE + ICON_GAP), stripY, ICON_SIZE);
           }
         } else if (tier === "half") {
           const SMALL = 10;
           const SMALL_GAP = 1;
-          for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
-            const code = BAR_STRIP_CODES[i];
+          for (let i = 0; i < stripCodes.length; i++) {
+            const code = stripCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
@@ -812,8 +818,8 @@ export function DrillChart({
           // Mini grid — 7 icons across two rows (4 on top, 3 below)
           const GRID_SIZE = 9;
           const GRID_GAP = 1;
-          for (let i = 0; i < BAR_STRIP_CODES.length; i++) {
-            const code = BAR_STRIP_CODES[i];
+          for (let i = 0; i < stripCodes.length; i++) {
+            const code = stripCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             const row = Math.floor(i / 4);
             const col = i % 4;
@@ -823,7 +829,7 @@ export function DrillChart({
           }
         } else {
           // Single worst-status icon — keeps identity even at the smallest size
-          const worst = worstCheck(checks);
+          const worst = worstCheck(checks, stripCodes);
           if (worst) {
             const ICON = 12;
             const x = stripX + Math.max(0, (barWidth - ICON) / 2);
@@ -1079,15 +1085,17 @@ export function DrillChart({
 
           let checksHtml = "";
           if (t.checks) {
-            const cells = CHECK_CODES.map((code) => {
+            const cells = stripCodes.map((code) => {
               const status =
                 (t.checks?.[code]?.status as CheckStatus | undefined) ?? "On Track";
               // Embed the same Lucide icon used in the on-bar strip + readiness
               // grid, status-coloured. Renders as an HTML <img> via data URI.
-              const iconSrc = buildCheckSvgDataUri(code, status);
+              const iconSrc = buildCheckSvgDataUri(iconKeyOf(code), status);
+              // Codes are catalog data now — escape them like any other text in
+              // this HTML tooltip.
               return `<div style="display:flex;align-items:center;gap:6px;font-size:11px">
                 <img src="${iconSrc}" width="13" height="13" style="display:block;flex-shrink:0" alt="" />
-                <span style="color:${theme.tooltipText};font-weight:600">${code}</span>
+                <span style="color:${theme.tooltipText};font-weight:600">${esc(code)}</span>
                 <span style="color:${theme.tooltipMuted}">${STATUS_LABEL[status]}</span>
               </div>`;
             }).join("");
@@ -1272,7 +1280,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 

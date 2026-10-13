@@ -10,7 +10,8 @@
 import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
-import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
+import type { CheckCode, CheckStatus } from "@/api/readiness";
+import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import type { RevisionDetail } from "@/api/revisions";
 import type { PrintRow } from "@/components/revisions/RevisionPrintDoc";
@@ -59,6 +60,9 @@ export const FIXTURE_ACTIVITIES: Activity[] = [
 
 /** f5 and f6 overlap on Rig-2 (Jun 20–25) — a double-booking. */
 export const FIXTURE_CONFLICT_IDS = new Set(["f5", "f6"]);
+
+// The fixture harness renders outside the app shell, so it uses the built-in gates.
+const CHECK_CODES = BUILTIN_PROJECT_GATES.map((g) => g.code);
 
 function readiness(overrides: Partial<Record<CheckCode, CheckStatus>>): Record<CheckCode, { status: CheckStatus }> {
   const out = {} as Record<CheckCode, { status: CheckStatus }>;

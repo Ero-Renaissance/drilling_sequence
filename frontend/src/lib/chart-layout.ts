@@ -4,15 +4,19 @@
  * bar gets, whether a project tag fits, which gate is "worst" — is unit-tested
  * without a canvas. The drawing stays in renderItem; only the decisions live here.
  */
-import { CHECK_CODES, type CheckCode, type CheckStatus } from "@/api/readiness";
+import type { CheckCode, CheckStatus } from "@/api/readiness";
 
 /**
  * Reduce the readiness gates to the single most-concerning one, for a bar too
  * small to show the full strip. Severity (high → low): Behind > On Track >
  * Completed > N/A. Returns the worst gate's code + status, or null.
+ *
+ * `order` is the catalog's gate order (ties go to the earliest gate); it
+ * defaults to the order of `checks`' keys.
  */
 export function worstCheck(
   checks: Record<string, { status: CheckStatus }> | null | undefined,
+  order?: readonly CheckCode[],
 ): { code: CheckCode; status: CheckStatus } | null {
   if (!checks) return null;
   const rank: Record<CheckStatus, number> = {
@@ -22,7 +26,7 @@ export function worstCheck(
     "N/A": 0,
   };
   let winner: { code: CheckCode; status: CheckStatus } | null = null;
-  for (const code of CHECK_CODES) {
+  for (const code of order ?? Object.keys(checks)) {
     const s = checks[code]?.status as CheckStatus | undefined;
     if (!s) continue;
     if (!winner || rank[s] > rank[winner.status]) {

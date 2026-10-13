@@ -15,17 +15,12 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { setActivityCompletion, updateActivity, type Activity } from "@/api/activities";
-import {
-  upsertCheck,
-  CHECK_CODES,
-  type CheckCode,
-  type CheckStatus,
-} from "@/api/readiness";
+import { upsertCheck, type CheckCode, type CheckStatus } from "@/api/readiness";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import { LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
-import { CHECK_META } from "@/components/readiness/check-meta";
+import { statusOf, useProjectGates } from "@/components/readiness/catalog";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
 import {
   ResourceContractSection,
@@ -33,9 +28,6 @@ import {
 } from "@/components/readiness/ResourceContractSection";
 import { detectResourceConflicts } from "@/lib/conflicts";
 import { normalizeResourceName } from "@/lib/resource-identity";
-
-/** Per-activity readiness gates the user can edit. */
-const EDITABLE_CODES = CHECK_CODES;
 
 const schema = z
   .object({
@@ -117,6 +109,8 @@ export function ActivityChartEditDialog({
   onOpenChange,
   onSaved,
 }: Props) {
+  // The field-project gates the user can edit — from the readiness catalog.
+  const gates = useProjectGates();
   const locked = !!activity.locked_by_revision_id;
   const isCompleted = !!activity.completed_at;
   // Readiness gates live on the FIELD PROJECT (well_project). Without one there's
@@ -125,10 +119,7 @@ export function ActivityChartEditDialog({
   const [completing, setCompleting] = useState(false);
 
   const [checkStatuses, setCheckStatuses] = useState<Record<CheckCode, CheckStatus>>(
-    () =>
-      Object.fromEntries(
-        CHECK_CODES.map((c) => [c, readiness?.[c]?.status ?? "On Track"]),
-      ) as Record<CheckCode, CheckStatus>,
+    () => Object.fromEntries(gates.map(({ code }) => [code, statusOf(readiness, code)])),
   );
 
   const [error, setError] = useState<string | null>(null);
@@ -185,12 +176,10 @@ export function ActivityChartEditDialog({
       readiness_required: activity.readiness_required ?? true,
     });
     setCheckStatuses(
-      Object.fromEntries(
-        CHECK_CODES.map((c) => [c, readiness?.[c]?.status ?? "On Track"]),
-      ) as Record<CheckCode, CheckStatus>,
+      Object.fromEntries(gates.map(({ code }) => [code, statusOf(readiness, code)])),
     );
     setError(null);
-  }, [activity, readiness, reset]);
+  }, [activity, readiness, reset, gates]);
 
   // ── Derived: resource suggestions (existing rigs/HWUs of the chosen type) ────
   // Existing field-project names — a datalist nudge toward consistent spelling
@@ -294,8 +283,13 @@ export function ActivityChartEditDialog({
       // with no field project has no gates to save.
       if (activity.well_project) {
         await Promise.all(
-          EDITABLE_CODES.map((code) =>
-            upsertCheck(projectId, activity.well_project!, code, checkStatuses[code]),
+          gates.map(({ code }) =>
+            upsertCheck(
+              projectId,
+              activity.well_project!,
+              code,
+              checkStatuses[code] ?? statusOf(readiness, code),
+            ),
           ),
         );
       }
@@ -565,9 +559,12 @@ export function ActivityChartEditDialog({
                 — off hides these gates on the chart &amp; print-out
               </span>
             </label>
-            <div className="grid grid-cols-7 gap-3 rounded-lg border border-border/70 bg-card/60 p-3">
-              {EDITABLE_CODES.map((code) => {
-                const status = checkStatuses[code];
+            <div
+              className="grid gap-3 rounded-lg border border-border/70 bg-card/60 p-3"
+              style={{ gridTemplateColumns: `repeat(${gates.length}, minmax(0, 1fr))` }}
+            >
+              {gates.map(({ code, label }) => {
+                const status = checkStatuses[code] ?? statusOf(readiness, code);
                 return (
                   <div key={code} className="flex flex-col items-center gap-1.5">
                     <div className="flex flex-col items-center gap-0.5">
@@ -575,7 +572,7 @@ export function ActivityChartEditDialog({
                         {code}
                       </span>
                       <span className="text-[9px] text-muted-foreground line-clamp-1">
-                        {CHECK_META[code].label}
+                        {label}
                       </span>
                     </div>
                     <ReadinessDot

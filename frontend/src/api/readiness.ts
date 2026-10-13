@@ -1,9 +1,43 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
 
-export const CHECK_CODES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"] as const;
-export type CheckCode = (typeof CHECK_CODES)[number];
+/**
+ * Readiness checks come from the admin-curated catalog
+ * (`GET /api/readiness/catalog`), not a hard-coded list — a code is any catalog
+ * code, validated server-side. Statuses stay a code-defined set (the "standard"
+ * set below; more sets arrive with later phases).
+ */
+export type CheckCode = string;
 export type CheckStatus = "On Track" | "Completed" | "Behind" | "N/A";
+export type Severity = "done" | "in_progress" | "blocked" | "not_counted";
+
+export interface CatalogTeam {
+  code: string;
+  name: string;
+  editor_source: "planner" | "team_grant";
+  icon_key: string;
+  sort_order: number;
+}
+
+/** One check definition. Also the shape a revision freezes at submit
+ *  (`readiness_catalog` on the revision detail). */
+export interface CatalogCheck {
+  code: string;
+  label: string;
+  team_code: string;
+  applies_project: boolean;
+  applies_well: boolean;
+  status_set: string;
+  icon_key: string;
+  locks_with_plan: boolean;
+  sort_order: number;
+}
+
+export interface ReadinessCatalog {
+  teams: CatalogTeam[];
+  checks: CatalogCheck[];
+  status_sets: Record<string, { statuses: { status: string; severity: Severity }[]; default: string }>;
+}
 
 export interface CheckState {
   status: CheckStatus;
@@ -20,6 +54,7 @@ export interface CheckState {
  */
 export interface ProjectReadiness {
   well_project: string;
+  /** Keyed by catalog check code — the active project gates, in catalog order. */
   checks: Record<CheckCode, CheckState>;
   /** Number of activities under this field project (shown as the row subtitle). */
   activity_count: number;
@@ -36,6 +71,12 @@ export interface ProjectReadiness {
 async function authHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function fetchReadinessCatalog(): Promise<ReadinessCatalog> {
+  const resp = await fetch("/api/readiness/catalog", { headers: await authHeaders() });
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch the readiness catalog");
+  return resp.json();
 }
 
 export async function listReadiness(projectId: string): Promise<ProjectReadiness[]> {

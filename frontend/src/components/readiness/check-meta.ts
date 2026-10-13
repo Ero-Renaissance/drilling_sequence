@@ -1,30 +1,11 @@
-import {
-  Banknote,
-  DraftingCompass,
-  Gavel,
-  LandPlot,
-  Leaf,
-  MapPin,
-  type LucideIcon,
-} from "lucide-react";
-import type { CheckCode, CheckStatus } from "@/api/readiness";
-import { RotaryTable } from "./rotary-table-icon";
+import type { CheckStatus } from "@/api/readiness";
 
 /**
- * Single source of truth for how each readiness check is presented.
- * Shape (icon) encodes WHICH check; color (per CheckStatus) encodes status.
+ * How readiness STATUSES are presented. Which checks exist — and each check's
+ * label and icon — now come from the readiness catalog (./catalog.tsx) and the
+ * owned icon registry (./icon-registry.ts): shape (icon) encodes WHICH check,
+ * color (per CheckStatus) encodes status.
  */
-export const CHECK_META: Record<CheckCode, { label: string; icon: LucideIcon }> = {
-  FDP: { label: "Field Development Plan", icon: LandPlot },
-  // Rotary table (the drilling "rotary wheel") — per user request, the gate
-  // wears rig-floor iconography rather than a generic materials cylinder.
-  LLI: { label: "Long Lead Items", icon: RotaryTable },
-  LOC: { label: "Location", icon: MapPin },
-  FE: { label: "Wells Front End", icon: DraftingCompass },
-  FID: { label: "Final Inv. Decision", icon: Gavel },
-  EIA: { label: "Env. Assessment", icon: Leaf },
-  BUD: { label: "Budget", icon: Banknote },
-};
 
 /**
  * Color applied to the icon stroke per status.

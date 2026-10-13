@@ -1,7 +1,8 @@
 import { http, HttpResponse } from "msw";
 import type { Project, User } from "@/types";
 import type { Activity, ImportResult } from "@/api/activities";
-import { CHECK_CODES, type CheckCode, type CheckStatus, type ProjectReadiness } from "@/api/readiness";
+import type { CheckCode, CheckStatus, ProjectReadiness, ReadinessCatalog } from "@/api/readiness";
+import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 import type { AuditEntry } from "@/api/audit";
 import type { Viewer } from "@/api/viewers";
 import type { Revision, RevisionDetail } from "@/api/revisions";
@@ -175,10 +176,34 @@ export const handlers = [
     return HttpResponse.json(result);
   }),
 
+  http.get("/api/readiness/catalog", () => {
+    const catalog: ReadinessCatalog = {
+      teams: [
+        { code: "projects", name: "Projects", editor_source: "planner", icon_key: "land-plot", sort_order: 0 },
+      ],
+      checks: [...BUILTIN_PROJECT_GATES],
+      status_sets: {
+        standard: {
+          statuses: [
+            { status: "On Track", severity: "in_progress" },
+            { status: "Completed", severity: "done" },
+            { status: "Behind", severity: "blocked" },
+            { status: "N/A", severity: "not_counted" },
+          ],
+          default: "On Track",
+        },
+      },
+    };
+    return HttpResponse.json(catalog);
+  }),
+
   http.get("/api/projects/:projectId/readiness", () => {
     const makeChecks = (): Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }> =>
       Object.fromEntries(
-        CHECK_CODES.map((c) => [c, { status: "On Track" as CheckStatus, notes: null, updated_at: null }]),
+        BUILTIN_PROJECT_GATES.map(({ code }) => [
+          code,
+          { status: "On Track" as CheckStatus, notes: null, updated_at: null },
+        ]),
       ) as Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }>;
 
     // One entry per distinct FIELD PROJECT (well_project).

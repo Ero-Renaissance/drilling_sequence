@@ -40,6 +40,7 @@ import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
+import { FrozenCatalogProvider } from "@/components/readiness/catalog";
 import { useAuthStore } from "@/store/auth";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -737,7 +738,7 @@ export function RevisionDetail() {
     revision.status === "pending_review" || revision.status === "pending_approval";
 
 
-  return (
+  const view = (
     <div className="space-y-5">
       {/* Header */}
       {/* Sticky decision bar: the evidence scrolls, the decision never does.
@@ -992,4 +993,7 @@ export function RevisionDetail() {
       />
     </div>
   );
+  // The whole revision view (chart, readiness, print) renders with the readiness
+  // checks frozen at its submit, not the live catalog.
+  return <FrozenCatalogProvider checks={revision.readiness_catalog}>{view}</FrozenCatalogProvider>;
 }

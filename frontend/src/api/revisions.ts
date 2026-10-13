@@ -1,6 +1,7 @@
 import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
 import type { ChangeNote } from "./change-notes";
+import type { CatalogCheck } from "./readiness";
 
 export interface Signature {
   id: string;
@@ -57,6 +58,9 @@ export interface RevisionDetail extends Revision {
   snapshot_json: string;
   /** Per-resource change notes captured at submit, frozen with the revision. */
   change_notes: ChangeNote[];
+  /** The readiness checks the snapshot's `readiness` block was built from, frozen
+   *  at submit (the built-in seven for older revisions). Optional for fixtures. */
+  readiness_catalog?: CatalogCheck[];
 }
 
 async function authHeaders(): Promise<HeadersInit> {

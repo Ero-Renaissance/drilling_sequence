@@ -1,4 +1,5 @@
 import { Outlet, Navigate } from "react-router-dom";
+import { ReadinessCatalogProvider } from "@/components/readiness/catalog";
 import { useEffect } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
@@ -54,7 +55,9 @@ export function AppShell() {
           <main className="flex-1 overflow-auto print:overflow-visible">
             <div className="mx-auto max-w-[1600px] p-6 lg:p-8 2xl:max-w-[2080px] print:max-w-none print:p-0">
               <ErrorBoundary>
-                <Outlet />
+                <ReadinessCatalogProvider>
+                  <Outlet />
+                </ReadinessCatalogProvider>
               </ErrorBoundary>
             </div>
           </main>

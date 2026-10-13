@@ -6,6 +6,7 @@ shape) and that the catalog — not code — now decides which checks exist.
 """
 import importlib.util
 import json
+import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -339,3 +340,23 @@ def test_no_is_true_boolean_filters_in_app_code() -> None:
         if any(bad in line.split("#", 1)[0] for bad in (".is_(True)", ".is_(False)"))
     ]
     assert not offenders, "use the bare column, not .is_(True/False): " + ", ".join(offenders)
+
+
+FRONTEND_SRC = Path(__file__).resolve().parents[2] / "frontend" / "src"
+
+
+@pytest.mark.skipif(not FRONTEND_SRC.exists(), reason="frontend sources not present")
+def test_frontend_mirrors_the_builtin_gates_and_icon_keys() -> None:
+    """The frontend keeps a copy of the built-in gates (its pre-load / fallback
+    catalog) and the icon registry. Both must match the backend allow-lists, or a
+    check could render with the wrong label or no icon."""
+    registry = (FRONTEND_SRC / "components" / "readiness" / "icon-registry.ts").read_text()
+    keys_block = re.search(r"export const ICON_KEYS = \[(.*?)\] as const", registry, re.S)
+    assert keys_block
+    assert re.findall(r'"([a-z-]+)"', keys_block.group(1)) == list(ICON_KEYS)
+
+    catalog = (FRONTEND_SRC / "components" / "readiness" / "catalog.tsx").read_text()
+    gates = re.findall(r'gate\("([A-Z0-9-]+)", "([^"]+)", "([a-z-]+)", (\d+)\)', catalog)
+    assert [(c, label, icon, int(order)) for c, label, icon, order in gates] == [
+        (c["code"], c["label"], c["icon_key"], c["sort_order"]) for c in BUILTIN_CHECKS
+    ]

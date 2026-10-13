@@ -438,8 +438,8 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 
 | Phase | Delivers | Visible change |
 |---|---|---|
-| **1. Catalog refactor** | Catalog tables seeded with the 7 gates (same codes, labels, icons); `project_readiness` → `readiness_entries` data migration; backend and the §8.6 files read the catalog; `revisions.catalog_json`. | **None.** Riskiest step, so it ships alone. Tests: snapshot JSON identical before/after; pre-change revisions render; diff unchanged. |
-| **2. Teams and grants** | `readiness_teams`, `user_team_grants`, `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
+| **1. Catalog refactor** — ✅ **shipped 2026-10-13** | Catalog tables (incl. `readiness_teams`, seeded with the `projects` team) seeded with the 7 gates (same codes, labels, icons); `project_readiness` → `readiness_entries` data migration (034); backend and the §8.6 files read the catalog; `revisions.catalog_json`. | **None.** Riskiest step, so it ships alone. Tests: snapshot JSON identical before/after; pre-change revisions render; diff unchanged. |
+| **2. Teams and grants** | `user_team_grants`, `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
 | **3. Well scope + lenses** | Well-keyed entries, Wells lens (empty until gates are added), lens selector on page/chart/prints with per-user default (§8.1, §8.4), rename carry-over (§7.1), duplicate-key warning, operational lock behaviour. | Wells lens (empty state); planners can already print "project gates only". |
 | **4. Logistics + All** | Seed the logistics checks (project + well) + `availability` status set + 21 equipment types; project → well inheritance and overrides (§3.6); `NEQ` tags; `readiness_at_submission`; All view (grid groups, chart team badges, print); dashboard team tiles. | Logistics live; All view. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |

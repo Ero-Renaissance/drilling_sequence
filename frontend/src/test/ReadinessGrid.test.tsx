@@ -11,7 +11,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
-import { CHECK_CODES } from "@/api/readiness";
+import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 import { server } from "./mocks/server";
 
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
@@ -49,7 +49,7 @@ describe("ReadinessGrid", () => {
 
   it("disables the dots and shows the lock chip when the campaign is locked", async () => {
     const checks = Object.fromEntries(
-      CHECK_CODES.map((c) => [c, { status: "On Track", notes: null, updated_at: null }]),
+      BUILTIN_PROJECT_GATES.map(({ code: c }) => [c, { status: "On Track", notes: null, updated_at: null }]),
     );
     server.use(
       http.get("/api/projects/:projectId/readiness", () =>
@@ -152,7 +152,7 @@ describe("ReadinessGrid", () => {
 
   const mkChecks = () =>
     Object.fromEntries(
-      CHECK_CODES.map((c) => [c, { status: "On Track", notes: null, updated_at: null }]),
+      BUILTIN_PROJECT_GATES.map(({ code: c }) => [c, { status: "On Track", notes: null, updated_at: null }]),
     );
 
   function isoInDays(days: number): string {

@@ -8,9 +8,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
-import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "./check-meta";
+import { useCheckDef } from "./catalog";
+import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "./check-meta";
+import { checkIcon } from "./icon-registry";
 
-export { STATUS_DOT, CHECK_META, STATUS_ICON_COLOR };
+export { STATUS_DOT, STATUS_ICON_COLOR };
 
 // The planner-pickable statuses. N/A is selectable so a planner can mark a
 // single gate "not applicable" for a well even when the activity still requires
@@ -54,8 +56,8 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
     },
     ref,
   ) {
-    const meta = CHECK_META[code];
-    const Icon = meta.icon;
+    const meta = useCheckDef(code);
+    const Icon = checkIcon(meta.icon_key);
     const title = `${meta.label}: ${STATUS_LABEL[status]}`;
     const iconSize = size === "lg" ? "h-[18px] w-[18px]" : "h-4 w-4";
     const buttonSize = size === "lg" ? "h-7 w-7" : "h-6 w-6";
@@ -92,11 +94,12 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 
 export function ReadinessDot(props: ReadinessDotProps) {
   const { code, status, disabled, size = "lg" } = props;
+  // Label + icon come from the catalog in context (a revision pins its own).
+  const meta = useCheckDef(code);
+  const Icon = checkIcon(meta.icon_key);
 
   // Display-only — no handler at all. Just render the icon.
   if (!("onChange" in props && props.onChange)) {
-    const meta = CHECK_META[code];
-    const Icon = meta.icon;
     const iconSize = size === "lg" ? "h-[18px] w-[18px]" : "h-4 w-4";
     const buttonSize = size === "lg" ? "h-7 w-7" : "h-6 w-6";
     return (
@@ -116,8 +119,6 @@ export function ReadinessDot(props: ReadinessDotProps) {
   // locked for approval), render a bare disabled button and DON'T mount the
   // dropdown: `disabled` on a Radix DropdownMenuTrigger child does not reliably
   // stop the menu from opening, so the only safe lock is to not mount it at all.
-  const meta = CHECK_META[code];
-  const Icon = meta.icon;
   const onChange = (props as { onChange: (s: CheckStatus) => void }).onChange;
 
   if (disabled) {

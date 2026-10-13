@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { checksReady } from "@/lib/watchlist";
 import {
-  CHECK_CODES,
   type ProjectReadiness,
   type CheckCode,
   type CheckStatus,
@@ -16,7 +15,9 @@ import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { ReadinessDot } from "./ReadinessDot";
-import { CHECK_META, STATUS_DOT } from "./check-meta";
+import { statusOf, useProjectGates } from "./catalog";
+import { STATUS_DOT } from "./check-meta";
+import { checkIcon } from "./icon-registry";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
@@ -41,6 +42,7 @@ function inHorizon(focusStart: string | null | undefined, months: number): boole
 // ── Legend ───────────────────────────────────────────────────────────────────
 
 function Legend() {
+  const gates = useProjectGates();
   return (
     <div className="rounded-lg border border-border/70 bg-card/60 px-4 py-3">
       <div className="flex flex-col gap-3 md:flex-row md:gap-8">
@@ -68,17 +70,16 @@ function Legend() {
             Readiness Checks
           </span>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {CHECK_CODES.map((code) => {
-              const meta = CHECK_META[code];
-              const Icon = meta.icon;
+            {gates.map((gate) => {
+              const Icon = checkIcon(gate.icon_key);
               return (
                 <span
-                  key={code}
+                  key={gate.code}
                   className="flex items-center gap-1.5 whitespace-nowrap text-xs text-foreground"
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
-                  <span className="font-medium">{code}</span>
-                  <span className="text-muted-foreground">{meta.label}</span>
+                  <span className="font-medium">{gate.code}</span>
+                  <span className="text-muted-foreground">{gate.label}</span>
                 </span>
               );
             })}
@@ -92,15 +93,16 @@ function Legend() {
 // ── Progress summary bar ──────────────────────────────────────────────────────
 
 function ProgressBar({ rows }: { rows: ProjectReadiness[] }) {
+  const gates = useProjectGates();
   let total = 0,
     completed = 0,
     onTrack = 0,
     behind = 0,
     na = 0;
   for (const row of rows) {
-    for (const code of CHECK_CODES) {
+    for (const { code } of gates) {
       total++;
-      const s = row.checks[code].status;
+      const s = statusOf(row.checks, code);
       if (s === "Completed") completed++;
       else if (s === "On Track") onTrack++;
       else if (s === "Behind") behind++;
@@ -157,6 +159,7 @@ interface ReadinessGridProps {
 }
 
 export function ReadinessGrid({ projectId }: ReadinessGridProps) {
+  const gates = useProjectGates();
   const [rows, setRows] = useState<ProjectReadiness[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +194,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const handleChange = useCallback(
     async (wellProject: string, code: CheckCode, next: CheckStatus) => {
       const key = `${wellProject}:${code}`;
-      const previous = rows.find((r) => r.well_project === wellProject)?.checks[code].status;
+      const previous = rows.find((r) => r.well_project === wellProject)?.checks[code]?.status;
 
       // Optimistic update — a gate is set for the whole field project.
       setRows((prev) =>
@@ -397,8 +400,8 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             <colgroup>
               <col className="w-[34%]" />
               <col className="w-[8%]" />
-              {CHECK_CODES.map((code) => (
-                <col key={code} />
+              {gates.map((gate) => (
+                <col key={gate.code} />
               ))}
             </colgroup>
             <thead>
@@ -409,17 +412,17 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                 <th className="px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Done
                 </th>
-                {CHECK_CODES.map((code) => {
-                  const Icon = CHECK_META[code].icon;
+                {gates.map((gate) => {
+                  const Icon = checkIcon(gate.icon_key);
                   return (
                     <th
-                      key={code}
+                      key={gate.code}
                       className="px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                      title={CHECK_META[code].label}
+                      title={gate.label}
                     >
                       <div className="flex items-center justify-center gap-1.5 text-foreground/80">
                         <Icon className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2} />
-                        <span>{code}</span>
+                        <span>{gate.code}</span>
                       </div>
                     </th>
                   );
@@ -428,11 +431,11 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             </thead>
             <tbody>
               {visibleRows.map((row, i) => {
-                const completed = CHECK_CODES.filter(
-                  (c) => row.checks[c].status === "Completed",
+                const completed = gates.filter(
+                  (g) => statusOf(row.checks, g.code) === "Completed",
                 ).length;
-                const na = CHECK_CODES.filter((c) => row.checks[c].status === "N/A").length;
-                const effective = CHECK_CODES.length - na;
+                const na = gates.filter((g) => statusOf(row.checks, g.code) === "N/A").length;
+                const effective = gates.length - na;
                 const rowPct = effective > 0 ? Math.round((completed / effective) * 100) : 100;
 
                 return (
@@ -460,14 +463,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                         {completed}/{effective}
                       </span>
                     </td>
-                    {CHECK_CODES.map((code) => {
+                    {gates.map(({ code }) => {
                       const key = `${row.well_project}:${code}`;
                       return (
                         <td key={code} className="px-1 py-2 text-center">
                           <div className="flex justify-center">
                             <ReadinessDot
                               code={code}
-                              status={row.checks[code].status}
+                              status={statusOf(row.checks, code)}
                               onChange={(next) => handleChange(row.well_project, code, next)}
                               disabled={saving === key || !!row.locked}
                             />

@@ -8,14 +8,16 @@
  */
 import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
-import { CHECK_META, STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
+import { useProjectGates } from "@/components/readiness/catalog";
+import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
+import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor } from "@/lib/chart-colors";
 import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessRowsPerPage, type PrintYears } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
 import { cn, formatDate } from "@/lib/utils";
-import type { CheckCode, CheckStatus } from "@/api/readiness";
+import type { CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
 import type { Project } from "@/types";
 
@@ -39,7 +41,6 @@ function hasContractMarker(
 // The one red every expiration date wears (same as the interactive chart).
 const EXPIRY_HEX = CONTRACT_MARKER_HEX;
 
-const CHECK_CODES: CheckCode[] = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"];
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is then fitted to its data
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
@@ -660,17 +661,19 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
 }
 
 function ReadinessKey() {
+  // Gates from the catalog in context — a revision print pins its frozen catalog.
+  const gates = useProjectGates();
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Readiness</span>
-        {CHECK_CODES.map((c) => {
-          const Icon = CHECK_META[c].icon;
+        {gates.map(({ code, label, icon_key }) => {
+          const Icon = checkIcon(icon_key);
           return (
-            <span key={c} className="inline-flex items-center gap-1">
+            <span key={code} className="inline-flex items-center gap-1">
               <Icon className="h-3 w-3" />
-              <span className="font-medium">{c}</span>
-              <span className="text-muted-foreground">{CHECK_META[c].label}</span>
+              <span className="font-medium">{code}</span>
+              <span className="text-muted-foreground">{label}</span>
             </span>
           );
         })}
@@ -698,23 +701,27 @@ function ReadinessIcons({
    *  width so it never overruns into the next well's strip. */
   fill?: boolean;
 }) {
+  const gates = useProjectGates();
   if (fill) {
     return (
-      <span className="grid w-full grid-cols-7 gap-px">
-        {CHECK_CODES.map((c) => {
-          const Icon = CHECK_META[c].icon;
-          const st = (readiness?.[c] ?? "Not Started") as CheckStatus;
-          return <Icon key={c} className={cn("h-auto w-full", STATUS_ICON_COLOR[st])} />;
+      <span
+        className="grid w-full gap-px"
+        style={{ gridTemplateColumns: `repeat(${gates.length}, minmax(0, 1fr))` }}
+      >
+        {gates.map(({ code, icon_key }) => {
+          const Icon = checkIcon(icon_key);
+          const st = (readiness?.[code] ?? "Not Started") as CheckStatus;
+          return <Icon key={code} className={cn("h-auto w-full", STATUS_ICON_COLOR[st])} />;
         })}
       </span>
     );
   }
   return (
     <span className="inline-flex gap-0.5">
-      {CHECK_CODES.map((c) => {
-        const Icon = CHECK_META[c].icon;
-        const st = (readiness?.[c] ?? "Not Started") as CheckStatus;
-        return <Icon key={c} className={cn("h-3 w-3", STATUS_ICON_COLOR[st])} />;
+      {gates.map(({ code, icon_key }) => {
+        const Icon = checkIcon(icon_key);
+        const st = (readiness?.[code] ?? "Not Started") as CheckStatus;
+        return <Icon key={code} className={cn("h-3 w-3", STATUS_ICON_COLOR[st])} />;
       })}
     </span>
   );

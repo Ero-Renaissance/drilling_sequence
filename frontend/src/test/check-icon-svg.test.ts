@@ -23,8 +23,8 @@ describe("buildContractBadgeSvg", () => {
 });
 
 describe("buildCheckSvg", () => {
-  it("renders the LLI gate as the spiked rotary table, stroke-colored by status", () => {
-    const svg = buildCheckSvg("LLI", "Behind");
+  it("renders the rotary-table icon (the LLI gate) as the spiked table, stroke-colored by status", () => {
+    const svg = buildCheckSvg("rotary-table", "Behind");
     expect(svg).toContain('circle cx="12" cy="12" r="7"'); // the table rim
     expect(svg).toContain('rect width="6"'); // the kelly-drive square
     expect(svg.match(/<path/g)?.length).toBe(6); // six outward drive spikes

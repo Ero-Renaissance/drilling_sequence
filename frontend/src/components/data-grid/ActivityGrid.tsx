@@ -36,7 +36,6 @@ import {
   type Activity,
 } from "@/api/activities";
 import {
-  CHECK_CODES,
   listReadiness,
   upsertCheck,
   type CheckCode,
@@ -44,6 +43,7 @@ import {
   type CheckStatus,
 } from "@/api/readiness";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
+import { statusOf, useProjectGates } from "@/components/readiness/catalog";
 import { useSearchParams } from "react-router-dom";
 import { listContracts, type RigContract } from "@/api/contracts";
 import {
@@ -162,6 +162,7 @@ function ReadinessStrip({
   onChange: (code: CheckCode, next: CheckStatus) => void;
   savingKey: string | null;
 }) {
+  const gates = useProjectGates();
   if (!wellProject || !checks) {
     return (
       <div className="flex items-center gap-1 px-2 text-xs text-muted-foreground/60">
@@ -171,11 +172,11 @@ function ReadinessStrip({
   }
   return (
     <div className="flex items-center gap-0.5 px-1">
-      {CHECK_CODES.map((code) => (
+      {gates.map(({ code }) => (
         <ReadinessDot
           key={code}
           code={code}
-          status={checks[code].status}
+          status={statusOf(checks, code)}
           size="sm"
           onChange={(next) => onChange(code, next)}
           disabled={savingKey === `${wellProject}:${code}`}
@@ -525,7 +526,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       const key = `${wellProject}:${code}`;
       const checks = readinessByProject.get(wellProject);
       if (!checks) return;
-      const previous = checks[code].status;
+      const previous = statusOf(checks, code);
 
       // Optimistic update — a gate is set for the whole field project, so every
       // row sharing this well_project reflects it at once.

@@ -1,7 +1,9 @@
 import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CHECK_CODES, type CheckStatus } from "@/api/readiness";
-import { CHECK_META, STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
+import type { CheckStatus } from "@/api/readiness";
+import { useProjectGates } from "@/components/readiness/catalog";
+import { STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
+import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
 import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 
@@ -54,6 +56,7 @@ export function ChartLegend({
   showFloodRisk = false,
   className,
 }: ChartLegendProps) {
+  const gates = useProjectGates();
   return (
     <div
       className={cn(
@@ -87,21 +90,20 @@ export function ChartLegend({
       {showReadiness && (
         <>
           <Section label="Readiness" className="md:max-w-sm">
-            {CHECK_CODES.map((code) => {
-              const meta = CHECK_META[code];
-              const Icon = meta.icon;
+            {gates.map(({ code, label, icon_key }) => {
+              const Icon = checkIcon(icon_key);
               return (
                 <span
                   key={code}
                   className="flex items-center gap-1.5 text-xs text-foreground"
-                  title={meta.label}
+                  title={label}
                 >
                   <Icon
                     className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                     strokeWidth={2}
                   />
                   <span className="font-medium">{code}</span>
-                  <span className="text-muted-foreground">{meta.label}</span>
+                  <span className="text-muted-foreground">{label}</span>
                 </span>
               );
             })}
