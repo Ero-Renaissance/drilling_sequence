@@ -239,7 +239,7 @@ Writes default to deny.
 | Method | Path | Who |
 |---|---|---|
 | GET | `/api/readiness/catalog` | Any user — teams, active checks, status sets (with severity), tag lists |
-| GET | `/api/projects/{id}/readiness?lens={team|all}` | Any user — project rows and/or well rows for that lens, with effective (inherited) values marked; `lens` allow-listed against active teams + `all` |
+| GET | `/api/projects/{id}/readiness?lens={team\|all}` | Any user — project rows and/or well rows for that lens, with effective (inherited) values marked; `lens` allow-listed against active teams + `all` |
 | PUT | `/api/projects/{id}/readiness/{check_code}` | Check's editors (§5.2) |
 | POST/PATCH | `/api/admin/readiness/checks[/{code}]` | Admin |
 | POST | `/api/admin/readiness/checks/{code}/retire` | Admin |
