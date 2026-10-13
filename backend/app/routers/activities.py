@@ -965,7 +965,7 @@ async def _import_long_schedule(
     # Replace only when at least one well is valid — never wipe the schedule to
     # import nothing (e.g. an entirely-bad file in replace mode).
     if replace and validated:
-        # Activities only — ProjectReadiness rows deliberately SURVIVE a replace:
+        # Activities only — ReadinessEntry rows deliberately SURVIVE a replace:
         # gate statuses describe the field project, not the schedule rows, and a
         # re-uploaded schedule must never silently reset what the planner set in
         # the app. A project that drops out of the schedule just stops being

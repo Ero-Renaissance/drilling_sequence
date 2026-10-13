@@ -16,7 +16,7 @@ from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
-from app.models.readiness import ProjectReadiness
+from app.models.readiness import ReadinessEntry
 from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -238,20 +238,23 @@ async def clone_project(
 
     await db.flush()  # assign ids to the new activities
 
-    # Carry the per-FIELD-PROJECT readiness gates over. Keyed by well_project
-    # (a name, not an activity id), so no id remap is needed — the clone keeps the
-    # same field projects, so their gate statuses come with it.
+    # Carry the readiness entries over. Keyed by names (field project [+ well +
+    # activity type]), not activity ids, so no id remap is needed — the clone keeps
+    # the same projects and wells, so their statuses come with them.
     source_gates = (
         await db.execute(
-            select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
+            select(ReadinessEntry).where(ReadinessEntry.project_id == project_id)
         )
     ).scalars().all()
     for gate in source_gates:
         db.add(
-            ProjectReadiness(
+            ReadinessEntry(
                 project_id=clone.id,
-                well_project=gate.well_project,
                 check_code=gate.check_code,
+                scope=gate.scope,
+                well_project=gate.well_project,
+                well_name=gate.well_name,
+                activity_type=gate.activity_type,
                 status=gate.status,
                 notes=gate.notes,
                 updated_by=current_user.id,

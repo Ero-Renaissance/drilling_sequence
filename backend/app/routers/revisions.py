@@ -36,6 +36,11 @@ from app.services.audit import ENTITY_REVISION, governance_event
 from app.services.conflicts import detect_resource_conflicts
 from app.services.email import notify_revision_decision, notify_revision_pending
 from app.services.integrity import revision_integrity_digest
+from app.services.readiness_catalog import (
+    definition,
+    definitions_from_json,
+    governed_project_checks,
+)
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
 
@@ -448,6 +453,9 @@ async def create_revision(
 
     # Capture activities + readiness state at the moment the revision is created
     snapshot = await build_project_snapshot(project_id, db)
+    # ...the definitions of the readiness checks it captured, so the revision keeps
+    # rendering its own labels/icons if the catalog later changes...
+    catalog = [definition(c) for c in await governed_project_checks(db)]
     # ...and the per-resource change notes ("what changed and why"), frozen with the
     # plan so the approved revision records the rationale alongside the schedule.
     note_rows = (
@@ -472,6 +480,7 @@ async def create_revision(
         label=payload.label or f"Rev. {rev_number:02d}",
         snapshot_json=json.dumps(snapshot),
         change_notes_json=json.dumps(change_notes) if change_notes else None,
+        catalog_json=json.dumps(catalog),
         status="pending_review" if review_required else "pending_approval",
         review_required=review_required,
         # Frozen now: skip = the optional policy was in force and review was not
@@ -746,6 +755,7 @@ async def get_revision(
     base = await _to_response(revision, required_approvers, db)
     base["snapshot_json"] = revision.snapshot_json
     base["change_notes"] = _parse_change_notes(revision.change_notes_json, revision.id)
+    base["readiness_catalog"] = definitions_from_json(revision.catalog_json)
     return RevisionDetailResponse.model_validate(base)
 
 

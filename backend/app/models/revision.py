@@ -50,6 +50,11 @@ class Revision(Base):
     # Per-resource change notes captured with the plan (JSON list of
     # {kind, resource_name, body}). Nullable: older revisions predate the feature.
     change_notes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The readiness-check definitions (code, label, team, status set, icon) the
+    # snapshot's readiness block was built from, frozen at submit so renaming or
+    # retiring a check never changes how this revision renders. NULL for revisions
+    # predating the catalog — readers fall back to the built-in seven gates.
+    catalog_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # "pending_review" | "pending_approval" | "approved" | "rejected"
     # | "changes_requested" | "discarded". Free string (not a DB enum) so adding
     # the review stage needs no column migration.

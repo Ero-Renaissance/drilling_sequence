@@ -94,7 +94,8 @@ logic against these active business rules:
 - **Plan-lock lifecycle (freeze after approval):** creating a revision locks the
   plan's activities (`Activity.locked_by_revision_id`); every plan-mutating write
   (activity create/edit/complete/delete, CSV import, rig/HWU contract upsert/delete,
-  readiness PUT) is then refused with **423** via `app/core/locks.py`
+  readiness PUT for a **governed** check — `locks_with_plan`, i.e. the project
+  gates; operational checks stay editable) is then refused with **423** via `app/core/locks.py`
   (`ensure_activity_unlocked` / `assert_project_not_locked`). **Approval keeps the
   plan LOCKED** — the approved `snapshot_json` is the immutable record, so the live
   plan can't drift from it silently. Reject / request-changes / discard unlock it
@@ -131,10 +132,21 @@ logic against these active business rules:
 - **Production must fail closed:** when `ENVIRONMENT=production`, the app refuses
   to start if `dev_mode=True` or if `proxy_user_header` is missing. Never weaken
   this guard or introduce a dev-mode auth bypass that can reach prod.
-- **Domain integrity:** readiness codes (FDP/LLI/LOC/FE/FID/EIA/BUD + the derived
-  CON contract gate), the flood-risk classification (Flood Risk / No Flood Risk),
+- **Domain integrity:** the flood-risk classification (Flood Risk / No Flood Risk),
   plan types, and contract-expiry semantics are oil & gas specific — validate
   against the canonical enums, don't accept free-form equivalents.
+- **Readiness checks are an admin-curated catalog, not an enum**
+  (`docs/readiness-framework-spec.md`): `readiness_checks`, seeded with
+  FDP/LLI/LOC/FE/FID/EIA/BUD (the retired derived `CON` gate's code stays
+  reserved). Still an allow-list — writes are validated server-side against
+  ACTIVE catalog rows, never free-form; codes are immutable and never reused;
+  checks are retired (`retired_at`), never deleted. Status sets (`STATUS_SETS`, each
+  status mapped to a shared severity) and icon keys (`ICON_KEYS`, an owned registry
+  — never admin-uploaded SVG) remain code-defined allow-lists in
+  `app/models/readiness.py`. Readiness values are keyed by NAMES (campaign + field
+  project [+ well + activity type]), never `Activity.id` (CSV replace recreates
+  ids). Revisions freeze their check definitions (`catalog_json`). Catalog changes
+  must be audited when their admin endpoints land.
 <!-- END OF BUSINESS CONSTRAINTS -->
 
 # DEPENDENCY & SUPPLY-CHAIN GOVERNANCE

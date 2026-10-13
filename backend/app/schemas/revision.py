@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.approver import ApproverSignStatus
+from app.schemas.readiness import CatalogCheck
 
 
 class RevisionCreate(BaseModel):
@@ -97,6 +98,10 @@ class ChangeNoteSnapshot(BaseModel):
 
 class RevisionDetailResponse(RevisionResponse):
     snapshot_json: str
+    # The readiness-check definitions the snapshot's ``readiness`` block was built
+    # from, as frozen at submit (built-in seven gates for older revisions), so the
+    # revision renders its own columns/labels/icons whatever the live catalog says.
+    readiness_catalog: list[CatalogCheck] = []
     # Per-resource change notes captured at submit (the planner's rationale),
     # frozen with the revision. Empty for revisions predating the feature.
     change_notes: list[ChangeNoteSnapshot] = []

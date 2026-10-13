@@ -104,6 +104,7 @@ for _router in (
     projects.router,
     activities.router,
     readiness.router,
+    readiness.catalog_router,
     viewers.router,
     revisions.router,
     revision_comments.router,

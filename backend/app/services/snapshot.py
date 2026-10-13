@@ -11,15 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.hwu_contract import HwuContract
-from app.models.readiness import CHECK_CODES, ProjectReadiness
+from app.models.readiness import ReadinessEntry
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.rig_contract import RigContract
 from app.services.readiness import resolve_activity_contract
+from app.services.readiness_catalog import default_status, governed_project_checks
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
     """Return the current activities of a project as snapshot dicts, ordered by
-    start date. Readiness defaults to "On Track" for any unset gate."""
+    start date. ``readiness`` carries the catalog's GOVERNED field-project gates;
+    an unset gate reads as its status set's default ("On Track")."""
     act_result = await db.execute(
         select(Activity)
         .where(Activity.project_id == project_id)
@@ -33,8 +35,12 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     # project's gates onto every activity under it, so the snapshot stays a flat
     # activity list and existing readers (diff, dashboard, print) keep parsing —
     # the values are now the project's shared gates, not per-activity ones.
+    governed = await governed_project_checks(db)
     gates_result = await db.execute(
-        select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
+        select(ReadinessEntry).where(
+            ReadinessEntry.project_id == project_id,
+            ReadinessEntry.scope == "project",
+        )
     )
     readiness_by_project: dict[str, dict[str, str]] = {}
     for gate in gates_result.scalars().all():
@@ -131,8 +137,10 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
             "readiness": {
-                code: readiness_by_project.get(a.well_project or "", {}).get(code, "On Track")
-                for code in CHECK_CODES
+                c.code: readiness_by_project.get(a.well_project or "", {}).get(
+                    c.code, default_status(c.status_set)
+                )
+                for c in governed
             },
             "resource_planned": resource_planned(a),
             **contract_fields(a),

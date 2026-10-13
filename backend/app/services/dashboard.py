@@ -5,6 +5,7 @@ See docs/project-dashboard-spec.md for definitions. Phase 1: hero tiles + watchl
 """
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -15,7 +16,7 @@ from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project
-from app.models.readiness import CHECK_CODES, ProjectReadiness
+from app.models.readiness import ReadinessEntry
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -34,6 +35,11 @@ from app.schemas.dashboard import (
     Watchlist,
 )
 from app.services.conflicts import detect_resource_conflicts
+from app.services.readiness_catalog import (
+    default_status,
+    definitions_from_json,
+    project_gate_checks,
+)
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
 
@@ -93,10 +99,19 @@ async def build_dashboard(
 
     # Readiness is per FIELD-DEVELOPMENT PROJECT (well_project): well_project ->
     # {check_code: status}. An activity's gates are its project's gates.
+    # Only the catalog's active project gates count — an entry for a retired check
+    # keeps its row but drops out of the KPIs.
+    gate_checks = await project_gate_checks(db)
+    gate_codes = [c.code for c in gate_checks]
+    gate_defaults = {c.code: default_status(c.status_set) for c in gate_checks}
     readiness_by_project: dict[str, dict[str, str]] = {}
     gate_rows = (
         await db.execute(
-            select(ProjectReadiness).where(ProjectReadiness.project_id == project_id)
+            select(ReadinessEntry).where(
+                ReadinessEntry.project_id == project_id,
+                ReadinessEntry.scope == "project",
+                ReadinessEntry.check_code.in_(gate_codes),
+            )
         )
     ).scalars().all()
     for r in gate_rows:
@@ -231,12 +246,12 @@ async def build_dashboard(
     # gate. A gate with no row reads as its default, "On Track".
     gate_buckets = {
         c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
-        for c in CHECK_CODES
+        for c in gate_codes
     }
     for wp in focus_projects:
         checks = readiness_by_project.get(wp, {})
-        for c in CHECK_CODES:
-            gate_buckets[c][_STATUS_KEY.get(checks.get(c, "On Track"), "on_track")] += 1
+        for c in gate_codes:
+            gate_buckets[c][_STATUS_KEY.get(checks.get(c, gate_defaults[c]), "on_track")] += 1
 
     def _project_ready(wp: str) -> bool:
         applicable = [s for s in readiness_by_project.get(wp, {}).values() if s != "N/A"]
@@ -247,7 +262,7 @@ async def build_dashboard(
         overall_pct=round(100 * completed_cells / applicable_cells) if applicable_cells else None,
         behind_cells=behind_cells,
         ready=sum(1 for wp in focus_projects if _project_ready(wp)),
-        by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in CHECK_CODES],
+        by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in gate_codes],
     )
 
     # ── rigs ───────────────────────────────────────────────────────────────────
@@ -463,11 +478,20 @@ def _snap_date(value: str | None) -> date | None:
         return None
 
 
-def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs:
+def compute_snapshot_kpis(
+    snapshot: list[dict],
+    today: date,
+    gate_codes: Sequence[str] | None = None,
+) -> LastApprovedKPIs:
     """Hero-tile KPIs computed from a frozen revision snapshot (a list of activity
     dicts with readiness + denormalised contract fields). Mirrors the per-project
     Overview where the metrics translate to a snapshot; time-relative figures
-    (focus window, contracts at risk) are still evaluated against `today`."""
+    (focus window, contracts at risk) are still evaluated against `today`.
+
+    ``gate_codes`` are the gates the revision's readiness block was built from (its
+    frozen catalog); default = the built-in seven, for pre-catalog revisions."""
+    if gate_codes is None:
+        gate_codes = [d["code"] for d in definitions_from_json(None)]
     focus_end = today + timedelta(days=FOCUS_WINDOW_DAYS)
 
     starts = [d for a in snapshot if (d := _snap_date(a.get("start_date")))]
@@ -497,7 +521,7 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
     applicable = completed = 0
     gate_buckets = {
         c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
-        for c in CHECK_CODES
+        for c in gate_codes
     }
     for readiness in readiness_by_focus_project.values():
         for status in readiness.values():
@@ -506,7 +530,7 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
             applicable += 1
             if status == "Completed":
                 completed += 1
-        for c in CHECK_CODES:
+        for c in gate_codes:
             gate_buckets[c][_STATUS_KEY.get(readiness.get(c, "On Track"), "on_track")] += 1
 
     # Contracts at risk — dedupe the denormalised contract per physical rig
@@ -561,7 +585,7 @@ def compute_snapshot_kpis(snapshot: list[dict], today: date) -> LastApprovedKPIs
         planned_rigs=len(planned_rig_keys),
         planned_hwus=len(planned_hwu_keys),
         contracts_at_risk=contracts_at_risk,
-        by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in CHECK_CODES],
+        by_gate=[GateBreakdown(code=c, **gate_buckets[c]) for c in gate_codes],
     )
 
 
@@ -603,5 +627,9 @@ async def build_last_approved(
         rev_label=best.label,
         approved_at=approved_at(best),
         approved_by=last_sig.user.name if last_sig and last_sig.user else None,
-        kpis=compute_snapshot_kpis(json.loads(best.snapshot_json), date.today()),
+        kpis=compute_snapshot_kpis(
+            json.loads(best.snapshot_json),
+            date.today(),
+            gate_codes=[d["code"] for d in definitions_from_json(best.catalog_json)],
+        ),
     )

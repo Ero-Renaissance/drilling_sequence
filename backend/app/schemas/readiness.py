@@ -3,12 +3,16 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, StringConstraints
 
-CheckCode = Literal["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
-CheckStatus = Literal["On Track", "Completed", "Behind", "N/A"]
+# Check codes and statuses are no longer fixed enums here: codes come from the
+# admin-curated catalog and statuses from each check's code-defined status set
+# (app/models/readiness.py). The router validates both against those allow-lists;
+# the schema bounds the raw strings.
+Status = Annotated[str, StringConstraints(min_length=1, max_length=32)]
+Severity = Literal["done", "in_progress", "blocked", "not_counted"]
 
 
 class CheckState(BaseModel):
-    status: CheckStatus
+    status: str
     notes: str | None = None
     updated_at: datetime | None = None
 
@@ -20,7 +24,8 @@ class CheckUpsert(BaseModel):
     # '+'/'%2B' before they reach the app (ticket DS-001). Bounds match the
     # String(256) column; matched exactly against stored activity values.
     well_project: Annotated[str, StringConstraints(min_length=1, max_length=256)]
-    status: CheckStatus
+    # Validated against the check's status set in the router (422 otherwise).
+    status: Status
     # Bounded to the String(512) column so an over-long note is a 422, not a DB error.
     notes: Annotated[str, StringConstraints(max_length=512)] | None = None
 
@@ -53,3 +58,48 @@ class ProjectReadiness(BaseModel):
     # ``focus_start <= today + N``. None when the project has no pending
     # readiness-required work (all done or opt-out): it never falls in a window.
     focus_start: date | None = None
+
+
+# ── Catalog (GET /api/readiness/catalog) ────────────────────────────────────
+
+
+class CatalogTeam(BaseModel):
+    code: str
+    name: str
+    editor_source: str
+    icon_key: str
+    sort_order: int
+
+    model_config = {"from_attributes": True}
+
+
+class CatalogCheck(BaseModel):
+    """A check definition — also the shape frozen into a revision's catalog."""
+
+    code: str
+    label: str
+    team_code: str
+    applies_project: bool
+    applies_well: bool
+    status_set: str
+    icon_key: str
+    locks_with_plan: bool
+    sort_order: int
+
+    model_config = {"from_attributes": True}
+
+
+class StatusOption(BaseModel):
+    status: str
+    severity: Severity
+
+
+class StatusSet(BaseModel):
+    statuses: list[StatusOption]
+    default: str
+
+
+class ReadinessCatalog(BaseModel):
+    teams: list[CatalogTeam]
+    checks: list[CatalogCheck]
+    status_sets: dict[str, StatusSet]
