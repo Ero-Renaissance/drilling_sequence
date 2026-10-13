@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
 
@@ -263,6 +264,10 @@ export function ProjectDashboard({
     }
   }
 
+  // Breakdown panel collapse — same pattern as the "Rigs & well spuds" section:
+  // open by default, in-session only.
+  const [breakdownOpen, setBreakdownOpen] = useState(true);
+
   // Blank the page only when switching CAMPAIGN — a horizon change refetches
   // in place, keeping the current numbers up instead of flashing "Loading".
   useEffect(() => setData(null), [projectId]);
@@ -328,71 +333,90 @@ export function ProjectDashboard({
       {afterTiles}
 
 
-      {/* Breakdown */}
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-foreground">Breakdown</h3>
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <BreakdownCard
-            title={`Readiness by gate · ${horizonSuffix(horizon)}`}
-            action={
-              <select
-                aria-label="Readiness horizon"
-                value={String(horizon)}
-                onChange={(e) => updateHorizon(Number(e.target.value))}
-                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-              >
-                {HORIZON_OPTIONS.map((h) => (
-                  <option key={h.value} value={String(h.value)}>
-                    {h.label}
-                  </option>
-                ))}
-              </select>
-            }
-          >
-            {readiness.by_gate.length ? (
-              <div className="space-y-1.5">
-                {readiness.by_gate.map((g) => (
-                  <GateRow key={g.code} gate={g} />
-                ))}
-                <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
-                  <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
-                  <span><span style={{ color: GATE_COLORS.on_track }}>●</span> On track</span>
-                  <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No data yet.</p>
-            )}
-          </BreakdownCard>
+      {/* Breakdown — collapsible, matching the "Rigs & well spuds" section */}
+      <div className="rounded-lg border border-border/70 bg-card shadow-soft-sm">
+        <button
+          type="button"
+          onClick={() => setBreakdownOpen((v) => !v)}
+          aria-expanded={breakdownOpen}
+          aria-controls="dashboard-breakdown"
+          className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-foreground"
+        >
+          <span>Breakdown</span>
+          {breakdownOpen ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
 
-          <BreakdownCard
-            title={`Activity-type mix · ${horizonSuffix(mixHorizon)}`}
-            action={
-              <select
-                aria-label="Activity mix horizon"
-                value={String(mixHorizon)}
-                onChange={(e) => updateMixHorizon(Number(e.target.value))}
-                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-              >
-                {HORIZON_OPTIONS.map((h) => (
-                  <option key={h.value} value={String(h.value)}>
-                    {h.label}
-                  </option>
-                ))}
-              </select>
-            }
+        {breakdownOpen && (
+          <div
+            id="dashboard-breakdown"
+            className="grid grid-cols-1 gap-3 border-t border-border/60 p-3 lg:grid-cols-2"
           >
-            <BarList
-              items={typeItems}
-              max={typeMax}
-              empty={
-                mixHorizon === 0
-                  ? "No data yet."
-                  : "No activities starting in this window."
+            <BreakdownCard
+              title={`Readiness by gate · ${horizonSuffix(horizon)}`}
+              action={
+                <select
+                  aria-label="Readiness horizon"
+                  value={String(horizon)}
+                  onChange={(e) => updateHorizon(Number(e.target.value))}
+                  className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+                >
+                  {HORIZON_OPTIONS.map((h) => (
+                    <option key={h.value} value={String(h.value)}>
+                      {h.label}
+                    </option>
+                  ))}
+                </select>
               }
-            />
-          </BreakdownCard>
-        </div>
+            >
+              {readiness.by_gate.length ? (
+                <div className="space-y-1.5">
+                  {readiness.by_gate.map((g) => (
+                    <GateRow key={g.code} gate={g} />
+                  ))}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
+                    <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
+                    <span><span style={{ color: GATE_COLORS.on_track }}>●</span> On track</span>
+                    <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No data yet.</p>
+              )}
+            </BreakdownCard>
+
+            <BreakdownCard
+              title={`Activity-type mix · ${horizonSuffix(mixHorizon)}`}
+              action={
+                <select
+                  aria-label="Activity mix horizon"
+                  value={String(mixHorizon)}
+                  onChange={(e) => updateMixHorizon(Number(e.target.value))}
+                  className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+                >
+                  {HORIZON_OPTIONS.map((h) => (
+                    <option key={h.value} value={String(h.value)}>
+                      {h.label}
+                    </option>
+                  ))}
+                </select>
+              }
+            >
+              <BarList
+                items={typeItems}
+                max={typeMax}
+                empty={
+                  mixHorizon === 0
+                    ? "No data yet."
+                    : "No activities starting in this window."
+                }
+              />
+            </BreakdownCard>
+          </div>
+        )}
       </div>
     </div>
   );

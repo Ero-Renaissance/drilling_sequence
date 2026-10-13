@@ -166,4 +166,22 @@ describe("ProjectDashboard", () => {
     expect(screen.queryByText(/Rig idle gaps/i)).not.toBeInTheDocument();
   });
 
+  it("breakdown panel is open by default and collapses/expands from its header", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData());
+    renderDash();
+    const toggle = await screen.findByRole("button", { name: "Breakdown" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/Readiness by gate/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Activity-type mix/i)).not.toBeInTheDocument();
+    // The hero tiles stay put — only the breakdown folds away.
+    expect(screen.getByText(/Completed YTD/i)).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+  });
 });
