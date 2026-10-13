@@ -142,7 +142,7 @@ Seed list (21 types; code immutable, label and category editable):
 
 ### 3.6 Project → well inheritance (checks that apply at both levels)
 
-**Proposed — confirm (§12.4).** One rule for every check enabled at both levels
+**Decided 2026-10-13.** One rule for every check enabled at both levels
 (today: all logistics checks):
 
 | What | Effective value on a well |
@@ -487,6 +487,9 @@ Updated **in the same commit as the code that changes them**, not before:
     team column groups in the grid).
 13. **Printing by lens:** the Wells and Logistics teams can print the sequence with
     their own icons; planners can print with project-gate icons only.
+14. **Inheritance with override (§3.6):** a project-level status applies to all its
+    wells until a well sets its own value; "Reset to project" removes the
+    override. Tags combine (project ∪ well).
 
 ## 12. Open questions
 
@@ -496,10 +499,7 @@ Updated **in the same commit as the code that changes them**, not before:
    are immutable once seeded).
 3. **Readiness opt-out** — should `readiness_required = false` hide well and
    logistics checks too (proposed), or only project gates?
-4. **Inheritance rule (§3.6)** — a project-level logistics status applies to all
-   its wells until a well overrides it (proposed). Confirm, or keep project and
-   well entries independent.
-5. **Who can see the Logistics lens** — org-wide read is assumed (as all readiness
+4. **Who can see the Logistics lens** — org-wide read is assumed (as all readiness
    today); confirm nothing in logistics data is restricted.
 
 ## 13. Future ideas (not decided)
