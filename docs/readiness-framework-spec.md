@@ -106,15 +106,18 @@ Default for an unset entry: `standard` → **On Track** (as today);
 All flat (one status per entry). Codes are **immutable once seeded** — confirm the
 proposed ones before Phase 4 ships.
 
+**Every logistics check applies at both project and well level** (decided
+2026-10-13) — see the inheritance rule in §3.6.
+
 | Code | Label | Scope | Status set | Tags | Code status |
 |---|---|---|---|---|---|
-| `L-BUD` | Budget Availability | well | standard | — | **decided** (distinct from project `BUD`) |
-| `CTR` | Contract Availability | well | standard | — | proposed |
-| `NEQ` | Nominated Equipment | **project + well** | **availability** | equipment | proposed |
-| `FFP` | Assurance / FFP Inspection | well | standard | — | proposed |
-| `CTS` | CTS – Community Trust and Support | well | standard | — | proposed |
-| `PO` | PO | well | standard | — | proposed |
-| `NAV` | Naval Clearance | well | standard | — | proposed |
+| `L-BUD` | Budget Availability | project + well | standard | — | **decided** (distinct from project `BUD`) |
+| `CTR` | Contract Availability | project + well | standard | — | proposed |
+| `NEQ` | Nominated Equipment | project + well | **availability** | equipment | proposed |
+| `FFP` | Assurance / FFP Inspection | project + well | standard | — | proposed |
+| `CTS` | CTS – Community Trust and Support | project + well | standard | — | proposed |
+| `PO` | PO | project + well | standard | — | proposed |
+| `NAV` | Naval Clearance | project + well | standard | — | proposed |
 
 ### 3.5 Nominated Equipment
 
@@ -123,8 +126,8 @@ proposed ones before Phase 4 ships.
 - Assignable to a **project** or a **well**. Equipment on a project is **inherited**
   by each of its wells — shown read-only, labelled "from project". A well's
   effective equipment = project tags ∪ its own tags.
-- Its own status is **Available / Not available**, set per entry (not derived from
-  the tags). Inheritance applies to **tags only**, not status.
+- Its status is **Available / Not available**, set per entry (not derived from the
+  tags), and inherits like every other logistics status (§3.6).
 
 Seed list (21 types; code immutable, label and category editable):
 
@@ -136,6 +139,22 @@ Seed list (21 types; code immutable, label and category editable):
 | Land transport | LBT – Lowbed Truck · FBT – Flatbed Truck · CB – Coaster Bus · ACB – Armoured Coaster Bus · MB – Minibus |
 | Lifting | CR – Crane |
 | Permits | NNRA – Radioactive Source Permit |
+
+### 3.6 Project → well inheritance (checks that apply at both levels)
+
+**Proposed — confirm (§12.4).** One rule for every check enabled at both levels
+(today: all logistics checks):
+
+| What | Effective value on a well |
+|---|---|
+| **Status** | The well's own entry if set; otherwise the **project's** entry, shown greyed "from project". Setting a well status is an **override**; "Reset to project" removes it. |
+| **Tags** (NEQ) | Project tags ∪ the well's own tags (project tags read-only on the well). |
+| **Neither set** | The status set's default (§3.3). |
+
+So logistics can set PO once for a whole field project and override only the one
+well that differs. Rollups, KPIs, chart dots and prints all use the **effective**
+value; the grid marks inherited values so nobody mistakes them for a well-specific
+entry.
 
 ## 4. Data model
 
@@ -152,6 +171,7 @@ are mutually distinct in UNIQUE constraints on every backend we target — see
 | `code` | String(32), unique | `projects`, `wells`, `logistics` — immutable |
 | `name` | String(64) | Display name |
 | `editor_source` | String(16) | `planner` (campaign planner role) or `team_grant` |
+| `icon_key` | String(32) | Team badge in the **All** view (§8.3); code allow-list |
 | `sort_order` | int | Lens order |
 | `is_active` | bool | |
 
@@ -161,9 +181,9 @@ are mutually distinct in UNIQUE constraints on every backend we target — see
 | `code` | String(16), unique | Immutable; pattern `^[A-Z][A-Z0-9-]{1,7}$`; never reused, even after retirement (reserved: `CON`) |
 | `label` | String(64) | Editable |
 | `team_code` | FK → teams.code | |
-| `applies_project` / `applies_well` | bool, bool | At least one true; `NEQ` has both |
+| `applies_project` / `applies_well` | bool, bool | At least one true; every logistics check has both (§3.6) |
 | `status_set` | String(16) | Code allow-list: `standard`, `availability` |
-| `icon_key` | String(32) | Code allow-list (§8.3) |
+| `icon_key` | String(32) | Code allow-list (§8.5) |
 | `locks_with_plan` | bool | Governed (true) / operational (false) |
 | `tag_list` | String(32), `""` = none | e.g. `equipment` |
 | `sort_order` | int | |
@@ -219,7 +239,7 @@ Writes default to deny.
 | Method | Path | Who |
 |---|---|---|
 | GET | `/api/readiness/catalog` | Any user — teams, active checks, status sets (with severity), tag lists |
-| GET | `/api/projects/{id}/readiness?lens={team}` | Any user — project rows and/or well rows for that lens; `lens` allow-listed |
+| GET | `/api/projects/{id}/readiness?lens={team|all}` | Any user — project rows and/or well rows for that lens, with effective (inherited) values marked; `lens` allow-listed against active teams + `all` |
 | PUT | `/api/projects/{id}/readiness/{check_code}` | Check's editors (§5.2) |
 | POST/PATCH | `/api/admin/readiness/checks[/{code}]` | Admin |
 | POST | `/api/admin/readiness/checks/{code}/retire` | Admin |
@@ -282,7 +302,7 @@ The snapshot stays a **flat activity list**, so existing readers keep parsing.
 | Snapshot key (per activity) | Content | Change |
 |---|---|---|
 | `readiness` | Governed project gates `{code: status}` | **Unchanged shape**; now built from catalog checks with `locks_with_plan` |
-| `readiness_at_submission` | Operational checks `{code: {status, tags, inherited_tags, scope}}` | **New**; absent in older revisions |
+| `readiness_at_submission` | Operational checks, **effective** values `{code: {status, source: well\|project\|default, tags, inherited_tags}}` | **New**; absent in older revisions |
 
 - **Catalog as of submission:** new nullable `revisions.catalog_json` stores the
   definitions (labels, team, status set, icon) used by that snapshot. Older
@@ -310,7 +330,7 @@ The snapshot stays a **flat activity list**, so existing readers keep parsing.
 3. **No well name** (Rig Idle, Contracting): no well gates — mirrors "no project →
    no project gates".
 4. **Readiness opt-out:** `readiness_required = false` hides **all** teams' dots
-   for that activity and drops it from every team's KPI (open question §11.3).
+   for that activity and drops it from every team's KPI (open question §12.3).
 5. **Retired checks:** hidden from the grid and the pickers; stored entries kept;
    still rendered in past revisions via `catalog_json`.
 6. **Retired equipment types:** stay on entries that already have them (shown
@@ -318,18 +338,37 @@ The snapshot stays a **flat activity list**, so existing readers keep parsing.
 7. **Locked campaign:** governed dots are disabled (as today); operational dots stay
    editable — the lock banner must say **"project gates frozen"**, not "readiness
    frozen".
+8. **Overrides:** a well override survives later changes to the project value
+   (that is its purpose); the grid flags overridden cells so a stale override is
+   visible, and "Reset to project" is one click. Changing a project value never
+   rewrites well overrides.
 
 ## 8. Frontend
 
-### 8.1 Readiness page — lenses
+### 8.1 Lenses — one filter everywhere
 
-One grid component, filtered by lens: **Project gates · Wells · Logistics ·
-Summary** (`?lens=` in the URL, persisted like `?horizon=`).
+The lens keeps each view uncluttered: **Project gates · Wells · Logistics · All**.
+The same lens selector appears on the Readiness page, the chart and both prints;
+the choice is remembered per user (`ds.readiness-lens`) and carried in `?lens=`.
+
+- **Default lens = the user's own team:** Logistics grantee → Logistics; Wells
+  grantee → Wells; planners and everyone else → Project gates (several grants →
+  first by team order). This is a **convenience, not a restriction** — reads are
+  org-wide, so anyone can switch to any lens.
+- New teams (Supply Chain) appear as a new lens automatically, from the catalog.
+
+### 8.2 Readiness page
+
 - **Project gates** — today's grid, unchanged.
-- **Wells / Logistics** — one row per well activity (project · well · activity
-  type · start), one column per check. Logistics also shows a project-level row per
-  field project for `NEQ`. Columns come from the catalog.
-- **Summary** — one icon per team per row, showing the worst severity.
+- **Wells** — one row per well activity (project · well · activity type · start),
+  one column per well check.
+- **Logistics** — grouped by field project: a **project row** (the project-level
+  entries) followed by its **well rows**; well cells show inherited values greyed
+  "from project" until overridden (§3.6).
+- **All** — well rows with **column groups per team** (Project gates — read-only,
+  from the field project · Wells · Logistics). Each group header collapses to a
+  single "worst status" column; by default only the user's own team is expanded,
+  so the full picture is one click away without a 21-column wall.
 - A lens whose team has no active checks shows an empty state ("No well gates
   defined yet — an admin can add them on the Admin page").
 - `NEQ` cell opens a picker: grouped multi-select (by category) + Available /
@@ -337,16 +376,43 @@ Summary** (`?lens=` in the URL, persisted like `?horizon=`).
 - Dots are editable only where the user can write (§5.2) — the API stays the
   authority.
 
-### 8.2 Chart, dashboard, print
+### 8.3 Chart and dashboard — keeping "All" clean
 
-- **Chart:** shows dots for the **selected lens** only (default: Project gates).
-  `chart-layout.ts` sizes the icon strip from the lens's check count, not a fixed 7.
-- **Dashboard:** one readiness tile per team over the same focus window. Breakdown
-  "by gate" gains a team selector.
-- **Revision print-out:** project gates as today; a new section **"Well & logistics
-  readiness — status at submission"** from `readiness_at_submission`.
+- **Single-team lens:** that team's icons only, using the chart's existing width
+  tiers (full strip → half → grid → single worst icon). `chart-layout.ts` sizes the
+  tiers from the lens's check count instead of a fixed 7.
+- **All:** one **team badge** per team per bar (3 today, 4 with Supply Chain) —
+  the team's icon, coloured by that team's **worst effective severity** (§3.3).
+  Narrow bars collapse to a single badge (worst overall). Hovering lists every
+  check grouped by team; clicking a badge switches the chart to that team's lens.
+  The legend shows the team badges plus the severity colours.
+- **Rejected:** stacking every team's strip on each bar (21+ icons) — unreadable,
+  and it would inflate the row height of the whole Gantt.
+- **Dashboard:** one readiness tile per team over the same focus window; the
+  Breakdown "by gate" card gains a team selector.
 
-### 8.3 Icons and output encoding (security)
+### 8.4 Printing with a lens
+
+Both prints get a **"Readiness icons"** option: **Project gates · Wells · Logistics
+· All · None**.
+
+- **Sequence print** (`SequencePrintControl`, the live plan): defaults to the
+  user's lens (§8.1), so a **planner prints with project-gate icons only**, the
+  **Logistics team with logistics icons**, the **Wells team with well icons**. The
+  choice is remembered, like `ds.print-years`.
+- **Every print says which lens it shows:** the header reads e.g. "Readiness:
+  Logistics — live status, printed 13 Oct 2026", and the legend lists only that
+  lens's icons, so a sheet can't be mistaken for the full readiness picture.
+- **Rows don't change with the lens:** the print is still the whole plan (the
+  existing rule that two people's prints of "the sequence" must not differ
+  silently) — only the labelled icon layer differs.
+- **Revision print** (the formal record): defaults to **Project gates** — what the
+  approvers signed. Wells / Logistics / All read `readiness_at_submission`, and the
+  header says **"status at submission"**. This replaces the separate appendix
+  section proposed in the first draft.
+- **All** prints the team badges (§8.3); **None** prints a plain sequence.
+
+### 8.5 Icons and output encoding (security)
 
 - Icons come from an **owned icon registry** (`icon_key` → React component + SVG
   path data for the ECharts/print renderer, as `check-icon-svg.ts` does today).
@@ -356,7 +422,7 @@ Summary** (`?lens=` in the URL, persisted like `?horizon=`).
   directive 2's injection surface. Every such string is contextually encoded in the
   export; React JSX escaping covers the app. No `dangerouslySetInnerHTML`.
 
-### 8.4 Files to move off hard-coded codes (Phase 1)
+### 8.6 Files to move off hard-coded codes (Phase 1)
 
 `api/readiness.ts`, `components/readiness/{check-meta.ts, ReadinessDot.tsx,
 ReadinessGrid.tsx}`, `components/chart/{DrillChart.tsx, ChartLegend.tsx,
@@ -372,10 +438,10 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 
 | Phase | Delivers | Visible change |
 |---|---|---|
-| **1. Catalog refactor** | Catalog tables seeded with the 7 gates (same codes, labels, icons); `project_readiness` → `readiness_entries` data migration; backend and the §8.4 files read the catalog; `revisions.catalog_json`. | **None.** Riskiest step, so it ships alone. Tests: snapshot JSON identical before/after; pre-change revisions render; diff unchanged. |
+| **1. Catalog refactor** | Catalog tables seeded with the 7 gates (same codes, labels, icons); `project_readiness` → `readiness_entries` data migration; backend and the §8.6 files read the catalog; `revisions.catalog_json`. | **None.** Riskiest step, so it ships alone. Tests: snapshot JSON identical before/after; pre-change revisions render; diff unchanged. |
 | **2. Teams and grants** | `readiness_teams`, `user_team_grants`, `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
-| **3. Well scope** | Well-keyed entries, Wells lens (empty until gates are added), rename carry-over (§7.1), duplicate-key warning, operational lock behaviour. | Wells lens (empty state). |
-| **4. Logistics** | Seed the logistics checks + `availability` status set + 21 equipment types; `NEQ` tags with project → well inheritance; `readiness_at_submission`; print section; dashboard team tiles; chart lens selector; Summary lens. | Logistics live. |
+| **3. Well scope + lenses** | Well-keyed entries, Wells lens (empty until gates are added), lens selector on page/chart/prints with per-user default (§8.1, §8.4), rename carry-over (§7.1), duplicate-key warning, operational lock behaviour. | Wells lens (empty state); planners can already print "project gates only". |
+| **4. Logistics + All** | Seed the logistics checks (project + well) + `availability` status set + 21 equipment types; project → well inheritance and overrides (§3.6); `NEQ` tags; `readiness_at_submission`; All view (grid groups, chart team badges, print); dashboard team tiles. | Logistics live; All view. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
@@ -415,6 +481,12 @@ Updated **in the same commit as the code that changes them**, not before:
    Logistics owns logistics checks; planners are unchanged and stay per campaign.
    Name a **backup grantee** per team (one focal point = single point of failure).
 10. **Project gates lock** with the plan; **well gates and logistics stay live**.
+11. **Every logistics check applies at project level as well as well level.**
+12. **Lenses** (Project gates · Wells · Logistics) keep views uncluttered; an
+    **All** view shows everything cleanly (team badges on the chart, collapsible
+    team column groups in the grid).
+13. **Printing by lens:** the Wells and Logistics teams can print the sequence with
+    their own icons; planners can print with project-gate icons only.
 
 ## 12. Open questions
 
@@ -424,8 +496,9 @@ Updated **in the same commit as the code that changes them**, not before:
    are immutable once seeded).
 3. **Readiness opt-out** — should `readiness_required = false` hide well and
    logistics checks too (proposed), or only project gates?
-4. **Logistics at project level** — only `NEQ` is assignable to a project; should
-   any other logistics check also have a project-level entry?
+4. **Inheritance rule (§3.6)** — a project-level logistics status applies to all
+   its wells until a well overrides it (proposed). Confirm, or keep project and
+   well entries independent.
 5. **Who can see the Logistics lens** — org-wide read is assumed (as all readiness
    today); confirm nothing in logistics data is restricted.
 
