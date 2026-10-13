@@ -1,7 +1,7 @@
 import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CheckStatus } from "@/api/readiness";
-import { useProjectGates } from "@/components/readiness/catalog";
+import { useLensChecks } from "@/components/readiness/catalog";
 import { STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
@@ -56,7 +56,8 @@ export function ChartLegend({
   showFloodRisk = false,
   className,
 }: ChartLegendProps) {
-  const gates = useProjectGates();
+  // The current lens's checks (project gates by default); none → no section.
+  const gates = useLensChecks();
   return (
     <div
       className={cn(
@@ -87,7 +88,7 @@ export function ChartLegend({
         )}
       </Section>
 
-      {showReadiness && (
+      {showReadiness && gates.length > 0 && (
         <>
           <Section label="Readiness" className="md:max-w-sm">
             {gates.map(({ code, label, icon_key }) => {

@@ -5,10 +5,11 @@ import { formatDate } from "./utils";
 import { terrainRank } from "./gantt-rows";
 
 /**
- * Readiness is per FIELD-DEVELOPMENT PROJECT, so this map is keyed by an
- * activity's `well_project` (e.g. "Bonga Phase 3") — every activity sharing a
- * field project resolves to the same gates. Activities with no `well_project`
- * have no entry (and show no gates).
+ * An activity's readiness, keyed by a lens-dependent key (see
+ * lib/readiness-lens.ts): for the project gates that's the activity's
+ * `well_project` (e.g. "Bonga Phase 3") — every activity in a field project
+ * resolves to the same gates; for a well-level lens it's the well key (project +
+ * well + activity type). Activities with no key have no entry (and show no gates).
  */
 export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }>>;
 
@@ -106,7 +107,12 @@ function toMs(dateStr: string): number {
   return new Date(dateStr + "T00:00:00").getTime();
 }
 
-export function activitiesToChartData(activities: Activity[], readinessMap?: ReadinessMap): ChartData {
+export function activitiesToChartData(
+  activities: Activity[],
+  readinessMap?: ReadinessMap,
+  /** The map key for an activity; defaults to its field project. */
+  readinessKeyOf: (a: Activity) => string | null = (a) => a.well_project || null,
+): ChartData {
   const sorted = sortActivities(activities);
 
   // Build ordered unique category list + a category→resource map so callers (the
@@ -129,27 +135,29 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
 
   const activityTypes = [...new Set(sorted.map((a) => a.activity_type))];
 
-  // The readiness ANCHOR per field project: its earliest not-completed,
-  // gate-carrying activity (opt-outs skipped — they never anchor). Completed
-  // work has no "are we ready" question left, so a fully-completed project
-  // anchors nowhere; its gates remain reachable via every bar's tooltip.
-  const gatesFor = (a: Activity) =>
-    a.readiness_required === false || !a.well_project
-      ? null
-      : (readinessMap?.get(a.well_project) ?? null);
-  const anchorByProject = new Map<string, string>(); // well_project → activity id
+  // The readiness ANCHOR per readiness key (field project, or well under a
+  // well-level lens): its earliest not-completed, gate-carrying activity
+  // (opt-outs skipped — they never anchor). Completed work has no "are we
+  // ready" question left, so a fully-completed key anchors nowhere; its gates
+  // remain reachable via every bar's tooltip.
+  const keyOf = (a: Activity) => (a.readiness_required === false ? null : readinessKeyOf(a));
+  const gatesFor = (a: Activity) => {
+    const key = keyOf(a);
+    return key === null ? null : (readinessMap?.get(key) ?? null);
+  };
+  const anchorByProject = new Map<string, string>(); // readiness key → activity id
   for (const a of sorted) {
     if (a.completed_at || !gatesFor(a)) continue;
-    const current = anchorByProject.get(a.well_project!);
+    const current = anchorByProject.get(keyOf(a)!);
     if (current === undefined) {
-      anchorByProject.set(a.well_project!, a.id);
+      anchorByProject.set(keyOf(a)!, a.id);
     } else {
       const cur = sorted.find((x) => x.id === current)!;
       if (
         a.start_date < cur.start_date ||
         (a.start_date === cur.start_date && a.id < cur.id)
       ) {
-        anchorByProject.set(a.well_project!, a.id);
+        anchorByProject.set(keyOf(a)!, a.id);
       }
     }
   }
@@ -191,7 +199,7 @@ export function activitiesToChartData(activities: Activity[], readinessMap?: Rea
       readinessRole:
         gatesFor(a) === null || a.completed_at
           ? "none"
-          : anchorByProject.get(a.well_project!) === a.id
+          : anchorByProject.get(keyOf(a)!) === a.id
             ? "anchor"
             : "sibling",
     };

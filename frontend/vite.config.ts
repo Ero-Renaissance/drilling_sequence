@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   // has in production so the real header-auth path is testable in the browser.
   // Dev-only by construction: this proxy doesn't exist in a production build.
   const fakeUser = loadEnv(mode, __dirname).VITE_FAKE_REMOTE_USER;
+  const apiTarget = process.env.API_TARGET || "http://localhost:8000";
 
   return {
     plugins: [react()],
@@ -20,11 +21,13 @@ export default defineConfig(({ mode }) => {
       port: Number(process.env.PORT) || 5173,
       proxy: {
         "/api": {
-          target: "http://localhost:8000",
+          // API_TARGET points a second instance at another backend (e.g. a
+          // scratch SQLite one) without touching the main dev database.
+          target: apiTarget,
           changeOrigin: true,
           ...(fakeUser ? { headers: { "X-Remote-User": fakeUser } } : {}),
         },
-        "/ws": { target: "ws://localhost:8000", ws: true },
+        "/ws": { target: apiTarget.replace(/^http/, "ws"), ws: true },
       },
     },
   };

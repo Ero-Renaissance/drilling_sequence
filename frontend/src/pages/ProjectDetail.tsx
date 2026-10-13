@@ -42,6 +42,15 @@ import { RevisionList } from "@/components/revisions/RevisionList";
 import { ChangeNotesPanel } from "@/components/revisions/ChangeNotesPanel";
 import { ProjectAuditLog } from "@/components/activity/ProjectAuditLog";
 import { ViewerStrip } from "@/components/viewers/ViewerStrip";
+import {
+  PROJECTS_TEAM,
+  ReadinessLensProvider,
+  useReadinessLens,
+  useReadinessTeams,
+} from "@/components/readiness/catalog";
+import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
+import { LensPicker } from "@/components/readiness/LensPicker";
+import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
 
 const tabs = [
   { to: "overview", label: "Overview", icon: LayoutDashboard },
@@ -376,7 +385,11 @@ function presentTo(
 export function ChartTab() {
   const { projectId } = useParams<{ projectId: string }>();
   const [activities, setActivities] = useState<Activity[] | null>(null);
+  // Project gates — always loaded: the activity edit dialog edits them.
   const [readinessMap, setReadinessMap] = useState<ReadinessMap | undefined>(undefined);
+  // The chart's readiness lens (Project gates · Wells · Logistics…) and its data.
+  const [lens, setLens] = useReadinessLens();
+  const [lensReadiness, setLensReadiness] = useState<LensReadiness | null>(null);
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(
     undefined,
   );
@@ -458,6 +471,22 @@ export function ChartTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  // A team lens loads that team's readiness (well rows with inherited values);
+  // the project-gates lens reuses the map `load` already fetched.
+  useEffect(() => {
+    if (!projectId || lens === PROJECTS_TEAM) {
+      setLensReadiness(null);
+      return;
+    }
+    let active = true;
+    loadLensReadiness(projectId, lens)
+      .then((data) => active && setLensReadiness(data))
+      .catch(() => active && setLensReadiness(null)); // best-effort, like the gates
+    return () => {
+      active = false;
+    };
+  }, [projectId, lens, activities]);
+
   function handleImported(_count: number) { load(); }
 
   async function downloadExcel() {
@@ -477,8 +506,8 @@ export function ChartTab() {
 
   return (
     <div className="space-y-3">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
+      {/* Toolbar — wraps on narrow screens rather than overflowing the page */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
         {projectId && (
           <ActivityFormDialog
             projectId={projectId}
@@ -523,7 +552,7 @@ export function ChartTab() {
           <SequencePrintControl
             projectId={projectId}
             activities={activities}
-            readinessMap={readinessMap}
+            lens={lens}
             rigContractsByLane={rigContractsByLane}
           />
         )}
@@ -541,7 +570,8 @@ export function ChartTab() {
             Plan locked
           </span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <LensPicker value={lens} onChange={setLens} />
           {projectId && <ViewerStrip projectId={projectId} />}
         </div>
       </div>
@@ -571,17 +601,20 @@ export function ChartTab() {
 
       {activities && activities.length > 0 && (
         <ErrorBoundary label="chart">
-          <DrillChart
-            stickyScale
-            activities={activities}
-            readinessMap={readinessMap}
-            rigContractsByLane={rigContractsByLane}
-            contractsByHwu={contractsByHwu}
-            conflictIds={conflictIds}
-            onActivityClick={setEditActivityId}
-            onFiltersChange={setChartFilters}
-            enableFilters
-          />
+          <ReadinessLensProvider lens={lens}>
+            <DrillChart
+              stickyScale
+              activities={activities}
+              readinessMap={lens === PROJECTS_TEAM ? readinessMap : lensReadiness?.map}
+              readinessKeyOf={lens === PROJECTS_TEAM ? undefined : lensReadiness?.keyOf}
+              rigContractsByLane={rigContractsByLane}
+              contractsByHwu={contractsByHwu}
+              conflictIds={conflictIds}
+              onActivityClick={setEditActivityId}
+              onFiltersChange={setChartFilters}
+              enableFilters
+            />
+          </ReadinessLensProvider>
         </ErrorBoundary>
       )}
 
@@ -716,11 +749,35 @@ export function FleetTab() {
 
 export function ReadinessTab() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const teams = useReadinessTeams();
+  // The lens: a ?lens= deep link wins, else the user's remembered/default lens.
+  const [savedLens, setSavedLens] = useReadinessLens();
+  const urlLens = searchParams.get("lens");
+  const lens = urlLens && teams.some((t) => t.code === urlLens) ? urlLens : savedLens;
+  const chooseLens = (next: string) => {
+    setSavedLens(next);
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("lens", next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
   if (!projectId) return null;
   return (
-    <ErrorBoundary label="readiness table">
-      <ReadinessGrid projectId={projectId} />
-    </ErrorBoundary>
+    <div className="space-y-3">
+      <LensPicker value={lens} onChange={chooseLens} />
+      <ErrorBoundary label="readiness table">
+        {lens === PROJECTS_TEAM ? (
+          <ReadinessGrid projectId={projectId} />
+        ) : (
+          <TeamReadinessGrid key={lens} projectId={projectId} teamCode={lens} />
+        )}
+      </ErrorBoundary>
+    </div>
   );
 }
 

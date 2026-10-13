@@ -8,7 +8,7 @@
  */
 import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
-import { useProjectGates } from "@/components/readiness/catalog";
+import { useLensChecks } from "@/components/readiness/catalog";
 import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor } from "@/lib/chart-colors";
@@ -89,12 +89,20 @@ export interface PrintRow {
   risk: string | null;
   readiness?: Record<string, CheckStatus>;
   readiness_required?: boolean;
+  /** Which rows share one readiness strip (the strip prints once per key per
+   *  page). Defaults to the field project; a well-level lens keys by well. */
+  readiness_key?: string | null;
   rig_contract_status?: string | null;
   rig_contract_end?: string | null;
   /** Set when the activity is finished — renders grey (same slate as the
    *  on-screen chart) in BOTH documents: live status on the working copy,
    *  the frozen at-submit status on the formal record. */
   completed_at?: string | null;
+}
+
+/** The row's readiness-strip group: its explicit key, else its field project. */
+function anchorKey(r: PrintRow): string | null {
+  return r.readiness_key !== undefined ? r.readiness_key : r.well_project;
 }
 
 // The exact grey the interactive chart uses for completed bars — one rule
@@ -245,25 +253,26 @@ function StaticGantt({
         // address, not a liveness judgement like the on-screen chart's.
         // Legacy snapshots (per-activity readiness, no well_project) keep
         // their per-bar strips — readers stay faithful to old revisions.
-        const readinessAnchors = new Map<string, string>(); // well_project → row id
+        const readinessAnchors = new Map<string, string>(); // readiness key → row id
         if (showReadiness) {
           for (const a of acts) {
+            const key = anchorKey(a);
             if (
               a.readiness_required === false ||
-              !a.well_project ||
+              !key ||
               !pg.keys.includes(rowLabel(a.location, printResource(a) ?? a.activity_type)) ||
               a.e.getTime() <= winStart ||
               a.s.getTime() >= w.to.getTime()
             )
               continue;
-            const cur = readinessAnchors.get(a.well_project);
+            const cur = readinessAnchors.get(key);
             const curAct = cur ? acts.find((x) => x.id === cur) : undefined;
             if (
               !curAct ||
               a.s.getTime() < curAct.s.getTime() ||
               (a.s.getTime() === curAct.s.getTime() && a.id < curAct.id)
             ) {
-              readinessAnchors.set(a.well_project, a.id);
+              readinessAnchors.set(key, a.id);
             }
           }
         }
@@ -495,8 +504,8 @@ function StaticGantt({
                                       the 7 gates never spill into a neighbour. Legacy rows
                                       with no well_project keep the old per-bar strip. */}
                                   {a.readiness_required !== false &&
-                                    (!a.well_project ||
-                                      readinessAnchors.get(a.well_project) === a.id) && (
+                                    (!anchorKey(a) ||
+                                      readinessAnchors.get(anchorKey(a)!) === a.id) && (
                                       <span
                                         data-testid="gantt-readiness-strip"
                                         className="pointer-events-none absolute top-[1.75rem] flex justify-center"
@@ -661,8 +670,9 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
 }
 
 function ReadinessKey() {
-  // Gates from the catalog in context — a revision print pins its frozen catalog.
-  const gates = useProjectGates();
+  // The lens's checks from the catalog in context — a revision print pins its
+  // frozen catalog; a working copy can print one team's lens.
+  const gates = useLensChecks();
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -701,7 +711,7 @@ function ReadinessIcons({
    *  width so it never overruns into the next well's strip. */
   fill?: boolean;
 }) {
-  const gates = useProjectGates();
+  const gates = useLensChecks();
   if (fill) {
     return (
       <span
@@ -1140,6 +1150,7 @@ export function WorkingCopyPrintDoc({
   includeSchedule = true,
   readinessYears = 3,
   asOf,
+  readinessLabel,
 }: {
   project: Project | null;
   rows: PrintRow[];
@@ -1148,6 +1159,9 @@ export function WorkingCopyPrintDoc({
   readinessYears?: PrintYears;
   /** Capture time of the live plan — the working copy's date of truth. */
   asOf: Date;
+  /** Which lens the readiness icons show (e.g. "Logistics"), stated in the
+   *  header so a sheet is never mistaken for the full readiness picture. */
+  readinessLabel?: string;
 }) {
   const isReadiness = chart === "readiness";
   const ordered = orderRows(rows);
@@ -1182,6 +1196,11 @@ export function WorkingCopyPrintDoc({
         <div className="text-right">
           <p className="font-medium text-muted-foreground">Working copy — unapproved plan</p>
           <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">As of {stamp}</p>
+          {isReadiness && readinessLabel && (
+            <p className="mt-0.5 text-[10px] font-medium" data-testid="print-readiness-lens">
+              Readiness: {readinessLabel} — live status
+            </p>
+          )}
         </div>
       </div>
 

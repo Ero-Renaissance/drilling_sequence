@@ -24,7 +24,14 @@ import { WorkingCopyPrintDoc, type PrintRow } from "@/components/revisions/Revis
 import { PRINT_CLAIM_EVENT, printDocCss } from "@/lib/print-css";
 import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
 import { rigLaneKey } from "@/lib/resource-identity";
-import type { ReadinessMap } from "@/lib/chart-utils";
+import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
+import {
+  PROJECTS_TEAM,
+  ReadinessLensProvider,
+  lensLabel,
+  useReadinessTeams,
+  type Lens,
+} from "@/components/readiness/catalog";
 
 /**
  * "Print" on the Sequence tab — a working copy of the LIVE plan, no revision
@@ -35,15 +42,22 @@ import type { ReadinessMap } from "@/lib/chart-utils";
 export function SequencePrintControl({
   projectId,
   activities,
-  readinessMap,
+  lens = PROJECTS_TEAM,
   rigContractsByLane,
 }: {
   projectId: string;
   activities: Activity[];
-  readinessMap?: ReadinessMap;
+  /** The chart's current lens — the default for the readiness icons printed. */
+  lens?: Lens;
   rigContractsByLane?: Map<string, RigContract>;
 }) {
   const [chart, setChart] = useState<"standard" | "readiness">("standard");
+  // Which team's icons the readiness print shows: a planner prints the project
+  // gates, the Wells / Logistics teams their own. Follows the chart's lens.
+  const teams = useReadinessTeams();
+  const [printLens, setPrintLens] = useState<Lens>(lens);
+  useEffect(() => setPrintLens(lens), [lens]);
+  const [lensData, setLensData] = useState<LensReadiness | null>(null);
   const [years, setYearsState] = useState<PrintYears>(() => {
     try {
       const v = Number(window.localStorage.getItem("ds.print-years"));
@@ -83,22 +97,31 @@ export function SequencePrintControl({
   const print = useCallback(async () => {
     window.dispatchEvent(new CustomEvent(PRINT_CLAIM_EVENT, { detail: claimId }));
     let p = project;
-    if (!p) {
-      setFetching(true);
-      try {
+    setFetching(true);
+    try {
+      if (!p) {
         p = await projectsApi.get(projectId);
         setProject(p);
-      } catch {
-        toast.error("Failed to load the campaign details for printing");
-        return;
-      } finally {
-        setFetching(false);
       }
+      // Readiness is captured at print time, for the chosen lens — the working
+      // copy shows live status as of this moment. Best-effort: a failed load
+      // prints the sequence without icons rather than not at all.
+      setLensData(
+        await loadLensReadiness(projectId, printLens).catch(() => ({
+          map: new Map(),
+          keyOf: () => null,
+        })),
+      );
+    } catch {
+      toast.error("Failed to load the campaign details for printing");
+      return;
+    } finally {
+      setFetching(false);
     }
     setAsOf(new Date());
     setPrinting(true);
     setNonce((n) => n + 1);
-  }, [claimId, project, projectId]);
+  }, [claimId, project, projectId, printLens]);
 
   useEffect(() => {
     if (!printing) return;
@@ -124,13 +147,15 @@ export function SequencePrintControl({
     };
   }, [nonce, project]);
 
-  // Live activities → print rows: denormalise each activity's project gates and
-  // its rig's contract end, mirroring what a revision snapshot stores. Live
-  // contracts are binding (no legacy "Draft" workflow), so status stays null.
+  // Live activities → print rows: denormalise each activity's readiness under
+  // the print lens and its rig's contract end, mirroring what a revision
+  // snapshot stores. Live contracts are binding (no legacy "Draft" workflow),
+  // so status stays null.
   const rows: PrintRow[] = useMemo(
     () =>
       activities.map((a) => {
-        const gates = a.well_project ? readinessMap?.get(a.well_project) : undefined;
+        const key = lensData?.keyOf(a) ?? null;
+        const gates = key !== null ? lensData?.map.get(key) : undefined;
         const readiness = gates
           ? Object.fromEntries(
               Object.entries(gates).map(([code, v]) => [code, v.status as CheckStatus]),
@@ -153,13 +178,18 @@ export function SequencePrintControl({
           plan_type: a.plan_type,
           risk: a.risk,
           readiness,
-          readiness_required: a.readiness_required,
+          // Under a team lens a row with no entry (e.g. no well name for a
+          // well-level lens) prints no strip; the project-gates lens keeps the
+          // existing per-project behaviour (no explicit key).
+          readiness_required:
+            printLens !== PROJECTS_TEAM && !gates ? false : a.readiness_required,
+          readiness_key: printLens === PROJECTS_TEAM ? undefined : key,
           rig_contract_status: null,
           rig_contract_end: contract?.contract_end ?? null,
           completed_at: a.completed_at,
         };
       }),
-    [activities, readinessMap, rigContractsByLane],
+    [activities, lensData, printLens, rigContractsByLane],
   );
 
   return (
@@ -196,6 +226,23 @@ export function SequencePrintControl({
               Sequence with Readiness Icons
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          {chart === "readiness" && teams.length > 1 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Readiness icons</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={printLens} onValueChange={setPrintLens}>
+                {teams.map((t) => (
+                  <DropdownMenuRadioItem
+                    key={t.code}
+                    value={t.code}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {lensLabel(t)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </>
+          )}
           {chart === "readiness" && (
             <>
               <DropdownMenuSeparator />
@@ -239,14 +286,19 @@ export function SequencePrintControl({
               {printDocCss(chart === "readiness" ? readinessPageCss(years) : "A4 landscape")}
             </style>
 
-            <WorkingCopyPrintDoc
-              project={project}
-              rows={rows}
-              chart={chart}
-              readinessYears={years}
-              includeSchedule={schedule}
-              asOf={asOf}
-            />
+            <ReadinessLensProvider lens={printLens}>
+              <WorkingCopyPrintDoc
+                project={project}
+                rows={rows}
+                chart={chart}
+                readinessYears={years}
+                includeSchedule={schedule}
+                asOf={asOf}
+                readinessLabel={lensLabel(
+                  teams.find((t) => t.code === printLens) ?? { code: printLens, name: printLens },
+                )}
+              />
+            </ReadinessLensProvider>
 
             {/* Print-only footer — clearly a working copy, never the record. */}
             <div className="fixed inset-x-0 bottom-0 hidden items-center justify-between border-t border-border/60 bg-white px-3 pt-1 text-[8px] text-muted-foreground print:flex">

@@ -224,6 +224,15 @@ describe("RevisionPrintDoc — page-local readiness anchors", () => {
     expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(2);
   });
 
+  it("anchors per readiness key: a well-level lens prints one strip per well", () => {
+    // Same field project, two wells: the project gates share one strip, but a
+    // well lens (readiness_key = the well) gives each well its own.
+    const w1 = { ...projRow("w1", "Bonga Phase 3", "2033-01-05", "2033-02-20"), readiness_key: "W-1" };
+    const w2 = { ...projRow("w2", "Bonga Phase 3", "2033-05-01", "2033-07-01"), readiness_key: "W-2" };
+    renderReadiness([w1, w2]);
+    expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(2);
+  });
+
   it("re-anchors on every page: a project spanning two windows gets a strip on each", () => {
     // windowYears=1 on the readiness chart → 2033 and 2034 are separate pages.
     renderReadiness([

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check } from "lucide-react";
+import { Check, RotateCcw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -26,6 +26,9 @@ interface BaseProps {
   disabled?: boolean;
   /** "sm" for dense inline strips, "lg" for the dedicated grid. */
   size?: "sm" | "lg";
+  /** The value is inherited from the field project (not this well's own) —
+   *  rendered faded and labelled so nobody mistakes it for a well entry. */
+  inherited?: boolean;
 }
 
 type ReadinessDotProps = BaseProps &
@@ -33,6 +36,9 @@ type ReadinessDotProps = BaseProps &
     | {
         /** Open the standard status dropdown picker. */
         onChange: (status: CheckStatus) => void;
+        /** When set, the picker offers "Reset to project" (drop this well's own
+         *  value so it follows its field project again). */
+        onReset?: () => void;
       }
     | {
         /** Display only — no interaction. Used for frozen snapshots. */
@@ -51,6 +57,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
       status,
       disabled,
       size = "lg",
+      inherited = false,
       onClick,
       ...rest
     },
@@ -58,7 +65,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   ) {
     const meta = useCheckDef(code);
     const Icon = checkIcon(meta.icon_key);
-    const title = `${meta.label}: ${STATUS_LABEL[status]}`;
+    const title = `${meta.label}: ${STATUS_LABEL[status]}${inherited ? " (from field project)" : ""}`;
     const iconSize = size === "lg" ? "h-[18px] w-[18px]" : "h-4 w-4";
     const buttonSize = size === "lg" ? "h-7 w-7" : "h-6 w-6";
 
@@ -84,6 +91,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
             "transition-transform group-hover:scale-110",
             iconSize,
             STATUS_ICON_COLOR[status],
+            inherited && "opacity-50",
           )}
           strokeWidth={2}
         />
@@ -93,7 +101,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
 );
 
 export function ReadinessDot(props: ReadinessDotProps) {
-  const { code, status, disabled, size = "lg" } = props;
+  const { code, status, disabled, size = "lg", inherited = false } = props;
   // Label + icon come from the catalog in context (a revision pins its own).
   const meta = useCheckDef(code);
   const Icon = checkIcon(meta.icon_key);
@@ -104,13 +112,16 @@ export function ReadinessDot(props: ReadinessDotProps) {
     const buttonSize = size === "lg" ? "h-7 w-7" : "h-6 w-6";
     return (
       <span
-        title={`${meta.label}: ${STATUS_LABEL[status]}`}
+        title={`${meta.label}: ${STATUS_LABEL[status]}${inherited ? " (from field project)" : ""}`}
         className={cn(
           "inline-flex items-center justify-center",
           buttonSize,
         )}
       >
-        <Icon className={cn(iconSize, STATUS_ICON_COLOR[status])} strokeWidth={2} />
+        <Icon
+          className={cn(iconSize, STATUS_ICON_COLOR[status], inherited && "opacity-50")}
+          strokeWidth={2}
+        />
       </span>
     );
   }
@@ -119,10 +130,13 @@ export function ReadinessDot(props: ReadinessDotProps) {
   // locked for approval), render a bare disabled button and DON'T mount the
   // dropdown: `disabled` on a Radix DropdownMenuTrigger child does not reliably
   // stop the menu from opening, so the only safe lock is to not mount it at all.
-  const onChange = (props as { onChange: (s: CheckStatus) => void }).onChange;
+  const { onChange, onReset } = props as {
+    onChange: (s: CheckStatus) => void;
+    onReset?: () => void;
+  };
 
   if (disabled) {
-    return <IconButton code={code} status={status} disabled size={size} />;
+    return <IconButton code={code} status={status} disabled size={size} inherited={inherited} />;
   }
 
   return (
@@ -133,6 +147,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
           status={status}
           disabled={disabled}
           size={size}
+          inherited={inherited}
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" sideOffset={6} className="w-48">
@@ -157,6 +172,15 @@ export function ReadinessDot(props: ReadinessDotProps) {
             </DropdownMenuItem>
           );
         })}
+        {onReset && (
+          <>
+            <div className="my-1 h-px bg-border" />
+            <DropdownMenuItem onClick={onReset} className="gap-2.5 py-2">
+              <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="flex-1">Reset to project</span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

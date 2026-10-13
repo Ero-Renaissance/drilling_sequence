@@ -40,20 +40,24 @@ export function worstCheck(
 export type IconTier = "full" | "half" | "grid" | "single";
 
 /**
- * Pick the readiness-strip tier by bar width (px). Sized for the 7-gate set
- * (FDP/LLI/LOC/FE/FID/EIA/BUD); the cutoffs predate the CON-gate removal and still
- * hold — 7 icons need a touch less width than the 8 they were tuned for, so each
- * tier keeps a little extra slack and the grid footprint is unchanged:
- *   ≥135 → "full"  (7 × 14px, one row)
- *   ≥90  → "half"  (7 × 10px, one row)
- *   ≥45  → "grid"  (4 + 3 mini grid, two rows)
- *   <45  → "single" (worst-status icon only)
+ * Pick the readiness-strip tier by bar width (px) and the number of icons in the
+ * strip (the lens's check count). The cutoffs scale with `count` and reproduce
+ * the tuned 7-gate values exactly (135 / 90 / 45), keeping the same slack:
+ *   ≥ 16·count + 23        → "full"  (count × 14px, one row)
+ *   ≥ 11·count + 13        → "half"  (count × 10px, one row)
+ *   ≥ 10·gridCols(count)+5 → "grid"  (mini grid, two rows)
+ *   otherwise              → "single" (worst-status icon only)
  */
-export function iconTier(barWidth: number): IconTier {
-  if (barWidth >= 135) return "full";
-  if (barWidth >= 90) return "half";
-  if (barWidth >= 45) return "grid";
+export function iconTier(barWidth: number, count = 7): IconTier {
+  if (barWidth >= 16 * count + 23) return "full";
+  if (barWidth >= 11 * count + 13) return "half";
+  if (barWidth >= 10 * gridCols(count) + 5) return "grid";
   return "single";
+}
+
+/** Columns of the two-row mini grid ("grid" tier): 7 icons → 4 + 3. */
+export function gridCols(count: number): number {
+  return Math.max(1, Math.ceil(count / 2));
 }
 
 /**

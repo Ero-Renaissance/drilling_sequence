@@ -7,8 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { fetchReadinessCatalog, type CatalogCheck, type CheckStatus } from "@/api/readiness";
+import {
+  fetchReadinessCatalog,
+  type CatalogCheck,
+  type CatalogTeam,
+  type CheckStatus,
+} from "@/api/readiness";
 import { logger } from "@/lib/logger";
+import { useAuthStore } from "@/store/auth";
 
 /** The team that owns the field-project gates (the "Project gates" lens). */
 export const PROJECTS_TEAM = "projects";
@@ -43,7 +49,13 @@ export const BUILTIN_PROJECT_GATES: readonly CatalogCheck[] = [
   gate("BUD", "Budget", "banknote", 70),
 ];
 
+/** The built-in team (the field-project gates), mirroring `BUILTIN_TEAMS`. */
+export const BUILTIN_TEAMS: readonly CatalogTeam[] = [
+  { code: PROJECTS_TEAM, name: "Projects", editor_source: "planner", icon_key: "land-plot", sort_order: 0 },
+];
+
 const CatalogContext = createContext<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
+const TeamsContext = createContext<readonly CatalogTeam[]>(BUILTIN_TEAMS);
 // Re-fetch the live catalog (after an admin edits it). A no-op outside the provider.
 const RefreshContext = createContext<() => void>(() => undefined);
 
@@ -51,13 +63,16 @@ const RefreshContext = createContext<() => void>(() => undefined);
  *  failure the built-in gates stay in place, so the readiness UI still renders. */
 export function ReadinessCatalogProvider({ children }: { children: ReactNode }) {
   const [checks, setChecks] = useState<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
+  const [teams, setTeams] = useState<readonly CatalogTeam[]>(BUILTIN_TEAMS);
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
   useEffect(() => {
     let active = true;
     fetchReadinessCatalog()
       .then((catalog) => {
-        if (active) setChecks(catalog.checks);
+        if (!active) return;
+        setChecks(catalog.checks);
+        setTeams(catalog.teams);
       })
       .catch((err: unknown) => {
         logger.warn("Readiness catalog unavailable; using the built-in gates", {
@@ -70,7 +85,9 @@ export function ReadinessCatalogProvider({ children }: { children: ReactNode }) 
   }, [version]);
   return (
     <RefreshContext.Provider value={refresh}>
-      <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
+      <TeamsContext.Provider value={teams}>
+        <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
+      </TeamsContext.Provider>
     </RefreshContext.Provider>
   );
 }
@@ -129,4 +146,83 @@ export function statusOf(
   code: string,
 ): CheckStatus {
   return checks?.[code]?.status ?? "On Track";
+}
+
+// ── Lenses (Phase 3): one team's checks at a time keeps each view uncluttered ──
+
+/** A lens is a team code, or "none" (a print with no readiness icons). */
+export type Lens = string;
+export const NO_LENS: Lens = "none";
+
+/** Active teams in lens order. */
+export function useReadinessTeams(): readonly CatalogTeam[] {
+  return useContext(TeamsContext);
+}
+
+/** What a lens is called: the built-in team reads "Project gates". */
+export function lensLabel(team: Pick<CatalogTeam, "code" | "name">): string {
+  return team.code === PROJECTS_TEAM ? "Project gates" : team.name;
+}
+
+/** Pure filter behind `useLensChecks`. */
+export function lensChecksOf(checks: readonly CatalogCheck[], lens: Lens): CatalogCheck[] {
+  if (lens === NO_LENS) return [];
+  if (lens === PROJECTS_TEAM) return projectGatesOf(checks);
+  return checks
+    .filter((c) => c.team_code === lens)
+    .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code));
+}
+
+const LensContext = createContext<Lens>(PROJECTS_TEAM);
+
+/** Renders a subtree (chart, legend, print) through one team's lens. */
+export function ReadinessLensProvider({ lens, children }: { lens: Lens; children: ReactNode }) {
+  return <LensContext.Provider value={lens}>{children}</LensContext.Provider>;
+}
+
+export function useLens(): Lens {
+  return useContext(LensContext);
+}
+
+/** The checks the current lens shows (chart strip, legend, print icons). */
+export function useLensChecks(): CatalogCheck[] {
+  const checks = useContext(CatalogContext);
+  const lens = useContext(LensContext);
+  return useMemo(() => lensChecksOf(checks, lens), [checks, lens]);
+}
+
+const LENS_KEY = "ds.readiness-lens";
+
+/** The lens a user starts on: their own team (first grant, in team order), else
+ *  the project gates. A convenience, not a restriction — reads are org-wide. */
+export function defaultLens(
+  teams: readonly CatalogTeam[],
+  userTeams: readonly string[] | undefined,
+): Lens {
+  const own = teams.find((t) => t.editor_source === "team_grant" && userTeams?.includes(t.code));
+  return own?.code ?? PROJECTS_TEAM;
+}
+
+/** The current lens + setter, remembered per user (localStorage) and falling
+ *  back to `defaultLens` when the saved team no longer exists. */
+export function useReadinessLens(): [Lens, (lens: Lens) => void] {
+  const teams = useReadinessTeams();
+  const userTeams = useAuthStore((s) => s.user?.teams);
+  const [saved, setSaved] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem(LENS_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const lens = saved && teams.some((t) => t.code === saved) ? saved : defaultLens(teams, userTeams);
+  const setLens = useCallback((next: Lens) => {
+    setSaved(next);
+    try {
+      window.localStorage.setItem(LENS_KEY, next);
+    } catch {
+      // storage unavailable — the in-session choice still applies
+    }
+  }, []);
+  return [lens, setLens];
 }

@@ -12,9 +12,14 @@ import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
-import { useProjectGates } from "@/components/readiness/catalog";
+import {
+  PROJECTS_TEAM,
+  useLens,
+  useLensChecks,
+  useReadinessTeams,
+} from "@/components/readiness/catalog";
 import { activitiesToChartData, activityLaneLabel, type ReadinessMap } from "@/lib/chart-utils";
-import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
+import { worstCheck, iconTier, gridCols, tagFits } from "@/lib/chart-layout";
 import { terrainRank } from "@/lib/gantt-rows";
 import { rigLaneKey } from "@/lib/resource-identity";
 import {
@@ -45,12 +50,16 @@ import { TimeScaleStrip } from "./TimeScaleStrip";
  * (The Y-axis AlarmClock is a separate, RIG-level signal — "how soon does this
  * rig's contract expire?" — and only fires for in-force (Completed) contracts;
  * the contract is no longer mirrored as a readiness gate.) Which gates, in which
- * order, and their icons come from the readiness catalog (useProjectGates).
+ * order, and their icons come from the readiness catalog through the current
+ * lens (useLensChecks: project gates by default, or one team's checks).
  */
 
 interface DrillChartProps {
   activities: Activity[];
   readinessMap?: ReadinessMap;
+  /** How an activity finds its entry in `readinessMap` under the current lens
+   *  (lib/readiness-lens.ts); defaults to its field project. */
+  readinessKeyOf?: (a: Activity) => string | null;
   /** Map of rig_name → contract. Drives the per-row contract-expiry marker.
    *  Legacy name-keyed form — prefer rigContractsByLane when a rig name can
    *  exist in more than one terrain. */
@@ -285,6 +294,7 @@ function MultiSelectFilter({
 export function DrillChart({
   activities,
   readinessMap,
+  readinessKeyOf,
   contractsByRig,
   rigContractsByLane,
   contractsByHwu,
@@ -301,7 +311,15 @@ export function DrillChart({
 }: DrillChartProps) {
   const resolved = useThemeStore((s) => s.resolved);
   const theme = resolved === "dark" ? DARK_THEME : LIGHT_THEME;
-  const gates = useProjectGates();
+  const gates = useLensChecks();
+  const lens = useLens();
+  const teams = useReadinessTeams();
+  // Tooltip heading for the lens: "PROJECT READINESS" for the gates, else the
+  // team's name (admin-entered — escaped where it's woven into tooltip HTML).
+  const readinessHeading =
+    lens === PROJECTS_TEAM
+      ? "PROJECT READINESS"
+      : `${(teams.find((t) => t.code === lens)?.name ?? lens).toUpperCase()} READINESS`;
 
   // Focused years — a SET, but the time axis can only show one contiguous
   // window, so the chart zooms to min(selected)..max(selected); years in
@@ -466,8 +484,8 @@ export function DrillChart({
   );
 
   const { categories, data, activityTypes, categoryToResource } = useMemo(
-    () => activitiesToChartData(chartActivities, readinessMap),
-    [chartActivities, readinessMap],
+    () => activitiesToChartData(chartActivities, readinessMap, readinessKeyOf),
+    [chartActivities, readinessMap, readinessKeyOf],
   );
 
   const completedIds = useMemo(
@@ -799,7 +817,7 @@ export function DrillChart({
           });
         };
 
-        const tier = iconTier(barWidth);
+        const tier = iconTier(barWidth, stripCodes.length);
         if (tier === "full") {
           for (let i = 0; i < stripCodes.length; i++) {
             const code = stripCodes[i];
@@ -821,8 +839,9 @@ export function DrillChart({
           for (let i = 0; i < stripCodes.length; i++) {
             const code = stripCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
-            const row = Math.floor(i / 4);
-            const col = i % 4;
+            const cols = gridCols(stripCodes.length);
+            const row = Math.floor(i / cols);
+            const col = i % cols;
             const x = stripX + col * (GRID_SIZE + GRID_GAP);
             const y = stripY + row * (GRID_SIZE + GRID_GAP);
             placeIcon(code, status, x, y, GRID_SIZE);
@@ -1101,7 +1120,7 @@ export function DrillChart({
             }).join("");
             checksHtml = `
               <div style="margin-top:10px;padding-top:8px;border-top:1px solid ${theme.tooltipDivider}">
-                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:${theme.tooltipMuted};margin-bottom:6px">PROJECT READINESS</div>
+                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:${theme.tooltipMuted};margin-bottom:6px">${esc(readinessHeading)}</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${cells}</div>
               </div>`;
           }
@@ -1280,7 +1299,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates, readinessHeading]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 

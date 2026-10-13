@@ -108,3 +108,91 @@ export async function upsertCheck(
   });
   if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }
+
+// ── Team lenses (Phase 3) ──────────────────────────────────────────────────
+
+/** Where a well's value comes from: its own entry, its field project's
+ *  (inherited), or the status set's default. */
+export type CheckSource = "well" | "project" | "default";
+
+export interface EffectiveCheckState extends CheckState {
+  source: CheckSource;
+}
+
+export interface TeamProjectRow {
+  well_project: string;
+  activity_count: number;
+  checks: Record<CheckCode, CheckState>;
+}
+
+export interface TeamWellRow {
+  /** "" = a well with no field project. */
+  well_project: string;
+  well_name: string;
+  activity_type: string;
+  /** >1: several activities share this project + well + activity type, and so
+   *  share its readiness (e.g. two workovers) — the grid warns. */
+  activity_count: number;
+  location: string | null;
+  start_date: string;
+  focus_start: string | null;
+  /** Every team check's effective value. */
+  checks: Record<CheckCode, EffectiveCheckState>;
+}
+
+export interface TeamReadiness {
+  team: CatalogTeam;
+  checks: CatalogCheck[];
+  project_rows: TeamProjectRow[];
+  well_rows: TeamWellRow[];
+  /** Plan lock — freezes only checks that lock with the plan. */
+  locked: boolean;
+}
+
+/** A readiness target: a field project, or one well (project + well + activity
+ *  type). Names go in the request BODY, never the URL path (ticket DS-001). */
+export type ReadinessTarget =
+  | { scope: "project"; well_project: string }
+  | { scope: "well"; well_project: string; well_name: string; activity_type: string };
+
+export async function getTeamReadiness(projectId: string, teamCode: string): Promise<TeamReadiness> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/readiness/teams/${encodeURIComponent(teamCode)}`,
+    { headers: await authHeaders() },
+  );
+  if (!resp.ok) await throwApiError(resp, "Failed to fetch readiness data");
+  return resp.json();
+}
+
+/** Set one check for a field project or a well. */
+export async function setReadiness(
+  projectId: string,
+  checkCode: CheckCode,
+  target: ReadinessTarget,
+  status: CheckStatus,
+  notes?: string | null,
+): Promise<void> {
+  const resp = await fetch(`/api/projects/${projectId}/readiness/${encodeURIComponent(checkCode)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ ...target, status, notes: notes ?? null }),
+  });
+  if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
+}
+
+/** "Reset to project": drop a well's own value so it follows its field project. */
+export async function resetWellReadiness(
+  projectId: string,
+  checkCode: CheckCode,
+  target: Extract<ReadinessTarget, { scope: "well" }>,
+): Promise<void> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/readiness/${encodeURIComponent(checkCode)}/reset`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(target),
+    },
+  );
+  if (!resp.ok) await throwApiError(resp, `Failed to reset ${checkCode}`);
+}
