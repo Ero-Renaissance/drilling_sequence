@@ -52,6 +52,7 @@ import {
 } from "@/components/readiness/catalog";
 import { AllReadinessGrid } from "@/components/readiness/AllReadinessGrid";
 import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
+import { ActivityReadinessPanel } from "@/components/readiness/ActivityReadinessPanel";
 import { LensPicker } from "@/components/readiness/LensPicker";
 import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
 
@@ -408,6 +409,12 @@ export function ChartTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editActivityId, setEditActivityId] = useState<string | null>(null);
+  // The per-activity Readiness panel (every team's checks) and the team section
+  // to open on — null opens every section.
+  const [readinessFor, setReadinessFor] = useState<{ id: string; team: string | null } | null>(
+    null,
+  );
+  const { canEditPlan } = useOutletContext<CampaignOutletContext>();
   const [notes, setNotes] = useState<ChangeNote[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
   const [chartFilters, setChartFilters] = useState<{
@@ -637,7 +644,14 @@ export function ChartTab() {
               rigContractsByLane={rigContractsByLane}
               contractsByHwu={contractsByHwu}
               conflictIds={conflictIds}
-              onActivityClick={setEditActivityId}
+              // Through the project-gates lens a bar opens its details (gates
+              // included); through a team lens or All it opens that activity's
+              // Readiness panel at that team — where team editors work.
+              onActivityClick={(id) =>
+                lens === PROJECTS_TEAM
+                  ? setEditActivityId(id)
+                  : setReadinessFor({ id, team: lens === ALL_LENS ? null : lens })
+              }
               onFiltersChange={setChartFilters}
               enableFilters
             />
@@ -693,6 +707,32 @@ export function ChartTab() {
               open={!!editActivityId}
               onOpenChange={(open) => { if (!open) setEditActivityId(null); }}
               onSaved={load}
+              onOpenReadiness={() => {
+                setEditActivityId(null);
+                setReadinessFor({ id: activity.id, team: null });
+              }}
+            />
+          );
+        })()
+      )}
+
+      {readinessFor && activities && projectId && (
+        (() => {
+          const activity = activities.find((a) => a.id === readinessFor.id);
+          if (!activity) return null;
+          return (
+            <ActivityReadinessPanel
+              projectId={projectId}
+              activity={activity}
+              canEditProjectGates={canEditPlan}
+              focusTeam={readinessFor.team}
+              open
+              onOpenChange={(open) => { if (!open) setReadinessFor(null); }}
+              onChanged={load}
+              onEditActivity={() => {
+                setReadinessFor(null);
+                setEditActivityId(activity.id);
+              }}
             />
           );
         })()
@@ -715,6 +755,7 @@ export function OverviewTab() {
 
 export function DataTab() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEditPlan } = useOutletContext<CampaignOutletContext>();
   if (!projectId) return null;
   return (
     <div className="space-y-3">
@@ -722,7 +763,7 @@ export function DataTab() {
         <ViewerStrip projectId={projectId} />
       </div>
       <ErrorBoundary label="activity table">
-        <ActivityGrid projectId={projectId} />
+        <ActivityGrid projectId={projectId} canEditPlan={canEditPlan} />
       </ErrorBoundary>
     </div>
   );

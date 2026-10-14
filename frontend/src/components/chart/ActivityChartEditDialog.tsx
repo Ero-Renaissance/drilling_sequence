@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { AlertTriangle, CheckCircle2, Lock, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ListChecks, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,6 +70,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  /** Open this activity's Readiness panel (every team's checks). */
+  onOpenReadiness?: () => void;
 }
 
 function Field({
@@ -108,6 +110,7 @@ export function ActivityChartEditDialog({
   open,
   onOpenChange,
   onSaved,
+  onOpenReadiness,
 }: Props) {
   // The field-project gates the user can edit — from the readiness catalog.
   const gates = useProjectGates();
@@ -529,9 +532,24 @@ export function ActivityChartEditDialog({
 
           {/* ── Readiness gates ──────────────────────────────────── */}
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Readiness
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Readiness
+              </p>
+              {onOpenReadiness && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={onOpenReadiness}
+                  title="Every team's checks for this activity — Wells, Logistics…"
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                  All teams&apos; readiness
+                </Button>
+              )}
+            </div>
             {/* Gates are per FIELD PROJECT — editing them here updates every activity
                 that shares this well's project. */}
             {hasProject ? (

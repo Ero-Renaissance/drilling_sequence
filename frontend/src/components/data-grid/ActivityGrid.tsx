@@ -24,6 +24,7 @@ import {
   ChevronRight,
   X,
   Lock,
+  ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ import {
   type CheckStatus,
 } from "@/api/readiness";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
+import { ActivityReadinessPanel } from "@/components/readiness/ActivityReadinessPanel";
 import { statusOf, useProjectGates } from "@/components/readiness/catalog";
 import { useSearchParams } from "react-router-dom";
 import { listContracts, type RigContract } from "@/api/contracts";
@@ -82,6 +84,8 @@ declare module "@tanstack/react-table" {
     readinessByProject: Map<string, Record<CheckCode, CheckState>>;
     onReadinessChange: (wellProject: string, code: CheckCode, next: CheckStatus) => void;
     savingReadinessKey: string | null;
+    /** Open the activity's Readiness panel (every team's checks). */
+    openReadiness: (id: string) => void;
   }
 }
 
@@ -189,9 +193,12 @@ function ReadinessStrip({
 
 interface ActivityGridProps {
   projectId: string;
+  /** Planner on this campaign (or admin) — may edit the project gates in the
+   *  Readiness panel. The API stays the authority. */
+  canEditPlan?: boolean;
 }
 
-export function ActivityGrid({ projectId }: ActivityGridProps) {
+export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridProps) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [readinessByProject, setReadinessByProject] = useState<
     Map<string, Record<CheckCode, CheckState>>
@@ -201,6 +208,7 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [historyActivityId, setHistoryActivityId] = useState<string | null>(null);
+  const [readinessActivityId, setReadinessActivityId] = useState<string | null>(null);
   const [savingReadinessKey, setSavingReadinessKey] = useState<string | null>(null);
 
   const [contracts, setContracts] = useState<RigContract[]>([]);
@@ -719,15 +727,28 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           const meta = table.options.meta;
           if (!meta) return null;
           const wp = row.original.well_project ?? null;
+          const label = row.original.well_name ?? row.original.activity_type;
           return (
-            <ReadinessStrip
-              wellProject={wp}
-              checks={wp ? meta.readinessByProject.get(wp) : undefined}
-              savingKey={meta.savingReadinessKey}
-              onChange={(code, next) => {
-                if (wp) meta.onReadinessChange(wp, code, next);
-              }}
-            />
+            <div className="flex items-center">
+              <ReadinessStrip
+                wellProject={wp}
+                checks={wp ? meta.readinessByProject.get(wp) : undefined}
+                savingKey={meta.savingReadinessKey}
+                onChange={(code, next) => {
+                  if (wp) meta.onReadinessChange(wp, code, next);
+                }}
+              />
+              {/* Every team's checks (Wells, Logistics…) for this activity. */}
+              <button
+                type="button"
+                onClick={() => meta.openReadiness(row.original.id)}
+                aria-label={`All teams' readiness for ${label}`}
+                title="All teams' readiness — Wells, Logistics…"
+                className="ml-0.5 rounded p-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+              </button>
+            </div>
           );
         },
       }),
@@ -897,8 +918,13 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
       readinessByProject,
       onReadinessChange,
       savingReadinessKey,
+      openReadiness: setReadinessActivityId,
     },
   });
+
+  const readinessActivity = readinessActivityId
+    ? activities.find((a) => a.id === readinessActivityId)
+    : null;
 
   const historyActivity = historyActivityId
     ? activities.find((a) => a.id === historyActivityId)
@@ -1279,6 +1305,19 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
         </kbd>{" "}
         to cancel
       </p>
+
+      {readinessActivity && (
+        <ActivityReadinessPanel
+          projectId={projectId}
+          activity={readinessActivity}
+          canEditProjectGates={canEditPlan}
+          open
+          onOpenChange={(open) => {
+            if (!open) setReadinessActivityId(null);
+          }}
+          onChanged={() => load()}
+        />
+      )}
     </div>
   );
 }
