@@ -16,6 +16,7 @@ from app.models.readiness import (
     PROJECTS_TEAM,
     STATUS_SETS,
     ReadinessCheck,
+    ReadinessTagItem,
     ReadinessTeam,
 )
 
@@ -32,6 +33,7 @@ _DEFINITION_FIELDS = (
     "icon_key",
     "locks_with_plan",
     "sort_order",
+    "tag_list",
 )
 
 
@@ -72,6 +74,29 @@ async def active_teams(db: AsyncSession) -> list[ReadinessTeam]:
         .order_by(ReadinessTeam.sort_order, ReadinessTeam.code)
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+async def active_tag_items(
+    db: AsyncSession, tag_list: str | None = None
+) -> list[ReadinessTagItem]:
+    stmt = select(ReadinessTagItem).where(ReadinessTagItem.retired_at.is_(None))
+    if tag_list is not None:
+        stmt = stmt.where(ReadinessTagItem.tag_list == tag_list)
+    stmt = stmt.order_by(
+        ReadinessTagItem.tag_list, ReadinessTagItem.sort_order, ReadinessTagItem.code
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+def gate_codes_of(definitions: list[dict[str, Any]]) -> list[str]:
+    """The governed field-project gate codes among frozen definitions — what a
+    snapshot's ``readiness`` block holds. Pre-Phase-4 definitions only ever held
+    governed gates, so a missing flag means governed."""
+    return [
+        d["code"]
+        for d in definitions
+        if d.get("locks_with_plan", True) and d.get("applies_project", True)
+    ]
 
 
 def default_status(status_set: str) -> str:

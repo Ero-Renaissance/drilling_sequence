@@ -3,7 +3,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -15,6 +15,7 @@ from app.models.readiness import (
     STATUS_SETS,
     ReadinessCheck,
     ReadinessEntry,
+    ReadinessEntryTag,
     ReadinessTeam,
 )
 from app.models.user import User
@@ -28,6 +29,7 @@ from app.schemas.readiness import (
     ReadinessCatalog,
     StatusOption,
     StatusSet,
+    TagItem,
     TeamProjectRow,
     TeamReadiness,
     TeamWellRow,
@@ -37,10 +39,17 @@ from app.schemas.readiness import ProjectReadiness as ProjectReadinessSchema
 from app.services.audit import ENTITY_READINESS, governance_event
 from app.services.readiness_catalog import (
     active_checks,
+    active_tag_items,
     active_teams,
     default_status,
     is_valid_status,
     project_gate_checks,
+)
+from app.services.readiness_effective import (
+    Effective,
+    load_index,
+    project_value,
+    well_value,
 )
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
@@ -86,6 +95,7 @@ async def get_catalog(current_user: CurrentUser, db: DB) -> ReadinessCatalog:
             )
             for name, spec in STATUS_SETS.items()
         },
+        tag_items=[TagItem.model_validate(t) for t in await active_tag_items(db)],
     )
 
 
@@ -249,6 +259,40 @@ async def _inherited(
     return default_status(check.status_set), None, "default"
 
 
+async def _entry_tags(entry_id: uuid.UUID, db: AsyncSession) -> list[str]:
+    return list(
+        (
+            await db.execute(
+                select(ReadinessEntryTag.item_code)
+                .where(ReadinessEntryTag.entry_id == entry_id)
+                .order_by(ReadinessEntryTag.item_code)
+            )
+        ).scalars()
+    )
+
+
+async def _validated_tags(
+    check: ReadinessCheck, tags: list[str] | None, db: AsyncSession
+) -> list[str] | None:
+    """The requested tags, de-duplicated (order kept), each an ACTIVE item of the
+    check's tag list — 422 otherwise. None = leave the entry's tags unchanged."""
+    if tags is None:
+        return None
+    if not check.tag_list:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This readiness check doesn't carry tags",
+        )
+    wanted = list(dict.fromkeys(tags))
+    allowed = {t.code for t in await active_tag_items(db, check.tag_list)}
+    if any(code not in allowed for code in wanted):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown or retired tag for this readiness check",
+        )
+    return wanted
+
+
 def _target_label(target: WellTarget) -> str:
     """Audit wording for a target. ASCII only: audit columns may be VARCHAR on
     SQL Server."""
@@ -300,6 +344,7 @@ async def upsert_readiness_check(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid status for this readiness check",
         )
+    new_tags = await _validated_tags(check, payload.tags, db)
     await _assert_target_exists(project_id, payload, db)
 
     # Governed checks are part of the snapshot under approval — they freeze with
@@ -316,6 +361,7 @@ async def upsert_readiness_check(
     # What the user saw before this write: the entry itself, else (for a well)
     # the inherited project value, else the status set's default — so saving the
     # value already shown is not a change.
+    old_tags = await _entry_tags(gate.id, db) if gate is not None else []
     if gate is not None:
         old_status, old_notes = gate.status, gate.notes
     elif payload.scope == "well":
@@ -341,12 +387,25 @@ async def upsert_readiness_check(
         gate.notes = payload.notes
         gate.updated_by = current_user.id
 
+    await db.flush()  # assigns gate.id for a new entry
+    tags_now = old_tags
+    if new_tags is not None and new_tags != old_tags:
+        await db.execute(delete(ReadinessEntryTag).where(ReadinessEntryTag.entry_id == gate.id))
+        db.add_all(ReadinessEntryTag(entry_id=gate.id, item_code=code) for code in new_tags)
+        tags_now = new_tags
+
     # Every real change is audited — `updated_by` only remembers the LAST editor,
     # and team grants span every campaign, so the full history must be on record.
     # Same transaction as the write, so the trail can't miss a committed change.
     notes_changed = old_notes != payload.notes
-    if old_status != payload.status or notes_changed:
-        await db.flush()  # assigns gate.id for a new entry
+    added = [t for t in tags_now if t not in old_tags]
+    removed = [t for t in old_tags if t not in tags_now]
+    tag_note = (
+        "; tags " + " ".join([*(f"+{t}" for t in added), *(f"-{t}" for t in removed)])
+        if added or removed
+        else ""
+    )
+    if old_status != payload.status or notes_changed or tag_note:
         db.add(
             governance_event(
                 project_id=project_id,
@@ -359,6 +418,7 @@ async def upsert_readiness_check(
                     f"{check.code} for {_target_label(payload)}: "
                     f"{old_status} -> {payload.status}"
                     + ("; notes changed" if notes_changed else "")
+                    + tag_note
                 )[:512],
                 old_value=old_status,
             )
@@ -366,7 +426,9 @@ async def upsert_readiness_check(
 
     await db.commit()
     await db.refresh(gate)
-    return CheckUpsertResponse.model_validate(gate)
+    response = CheckUpsertResponse.model_validate(gate)
+    response.tags = tags_now
+    return response
 
 
 @router.post("/readiness/{check_code}/reset", response_model=EffectiveCheckState)
@@ -422,10 +484,19 @@ async def reset_well_override(
                 old_value=override.status,
             )
         )
+        await db.execute(
+            delete(ReadinessEntryTag).where(ReadinessEntryTag.entry_id == override.id)
+        )
         await db.delete(override)
         await db.commit()
+    index = await load_index(db, project_id, [check.code])
+    inherited = project_value(index, check, payload.well_project)
     return EffectiveCheckState(
-        status=status_now, notes=notes_now, updated_at=None, source=source
+        status=status_now,
+        notes=notes_now,
+        updated_at=None,
+        source=source,
+        inherited_tags=inherited.tags if inherited.source == "project" else [],
     )
 
 
@@ -453,7 +524,7 @@ async def get_team_readiness(
     if team is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
     checks = await active_checks(db, team_code=team.code)
-    codes = [c.code for c in checks]
+    index = await load_index(db, project_id, [c.code for c in checks])
 
     activities = (
         await db.execute(
@@ -468,25 +539,11 @@ async def get_team_readiness(
             ).where(Activity.project_id == project_id)
         )
     ).all()
-    entries = (
-        await db.execute(
-            select(ReadinessEntry).where(
-                ReadinessEntry.project_id == project_id,
-                ReadinessEntry.check_code.in_(codes),
-            )
-        )
-    ).scalars().all()
-    project_entry = {(e.well_project, e.check_code): e for e in entries if e.scope == "project"}
-    well_entry = {
-        (e.well_project, e.well_name, e.activity_type, e.check_code): e
-        for e in entries
-        if e.scope == "well"
-    }
 
-    def state(entry: ReadinessEntry | None, check: ReadinessCheck) -> CheckState:
-        if entry is None:
-            return CheckState(status=default_status(check.status_set))
-        return CheckState(status=entry.status, notes=entry.notes, updated_at=entry.updated_at)
+    def state(value: Effective) -> CheckState:
+        return CheckState(
+            status=value.status, notes=value.notes, updated_at=value.updated_at, tags=value.tags
+        )
 
     project_checks = [c for c in checks if c.applies_project]
     project_rows: list[TeamProjectRow] = []
@@ -499,7 +556,7 @@ async def get_team_readiness(
             TeamProjectRow(
                 well_project=wp,
                 activity_count=n,
-                checks={c.code: state(project_entry.get((wp, c.code)), c) for c in project_checks},
+                checks={c.code: state(project_value(index, c, wp)) for c in project_checks},
             )
             for wp, n in sorted(counts.items())
         ]
@@ -508,27 +565,15 @@ async def get_team_readiness(
     if any(c.applies_well for c in checks):
         groups: dict[tuple[str, str, str], list] = {}
         for a in activities:
-            if a.well_name:  # no well name → no well gates
+            # No well name → no well gates; readiness opt-out → no readiness at all
+            # (from any team — decided 2026-10-14).
+            if a.well_name and a.readiness_required:
                 key = (a.well_project or "", a.well_name, a.activity_type)
                 groups.setdefault(key, []).append(a)
 
-        def effective(key: tuple[str, str, str], check: ReadinessCheck) -> EffectiveCheckState:
-            wp, wn, at = key
-            if check.applies_well and (own := well_entry.get((wp, wn, at, check.code))):
-                return EffectiveCheckState(
-                    status=own.status, notes=own.notes, updated_at=own.updated_at, source="well"
-                )
-            if check.applies_project and wp and (inh := project_entry.get((wp, check.code))):
-                return EffectiveCheckState(
-                    status=inh.status, notes=inh.notes, updated_at=inh.updated_at, source="project"
-                )
-            return EffectiveCheckState(status=default_status(check.status_set), source="default")
-
         for key, acts in groups.items():
             acts.sort(key=lambda a: a.start_date)
-            pending = [
-                a.start_date for a in acts if a.completed_at is None and a.readiness_required
-            ]
+            pending = [a.start_date for a in acts if a.completed_at is None]
             well_rows.append(
                 TeamWellRow(
                     well_project=key[0],
@@ -538,7 +583,17 @@ async def get_team_readiness(
                     location=acts[0].location,
                     start_date=acts[0].start_date,
                     focus_start=min(pending) if pending else None,
-                    checks={c.code: effective(key, c) for c in checks},
+                    checks={
+                        c.code: EffectiveCheckState(
+                            status=(v := well_value(index, c, key)).status,
+                            notes=v.notes,
+                            updated_at=v.updated_at,
+                            source=v.source,
+                            tags=v.tags,
+                            inherited_tags=v.inherited_tags,
+                        )
+                        for c in checks
+                    },
                 )
             )
         well_rows.sort(key=lambda r: (r.start_date, r.well_project, r.well_name, r.activity_type))

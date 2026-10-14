@@ -241,7 +241,7 @@ async def test_grants_show_on_me_and_the_admin_user_list(
         ({"locks_with_plan": True}, 422),  # governed + well scope
         ({"label": "   "}, 422),
         ({"label": "x" * 65}, 422),
-        ({"tag_list": "equipment"}, 422),  # not settable yet (Phase 4)
+        ({"tag_list": "nope"}, 422),  # tag lists are a code-defined allow-list
     ],
 )
 async def test_create_check_validation(

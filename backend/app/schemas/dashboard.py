@@ -36,6 +36,22 @@ class ReadinessStats(BaseModel):
     by_gate: list[GateBreakdown]  # per-gate PROJECT counts across the focus set
 
 
+class TeamReadinessStats(BaseModel):
+    """One readiness team's tile (Wells, Logistics…) over the same focus window
+    as the project gates. Counts wells — or field projects when the team has only
+    project-level checks — with effective (inherited) values; statuses roll up by
+    their shared severity, so availability checks count like any other."""
+
+    team_code: str
+    name: str
+    icon_key: str
+    unit: str  # "wells" | "projects"
+    focus_count: int
+    overall_pct: int | None  # done / counted (not-counted excluded)
+    blocked_cells: int
+    ready: int  # focus wells/projects with every counted check done
+
+
 class RigDetail(BaseModel):
     rig: str
     busy_days: int
@@ -104,6 +120,8 @@ class DashboardResponse(BaseModel):
     approval: ApprovalStats
     risk: RiskStats
     watchlist: Watchlist
+    # Readiness per non-project team (empty until a team has active checks).
+    team_readiness: list[TeamReadinessStats] = []
 
 
 # ── Home dashboard: the most-recently-approved sequence (snapshot-derived) ──────

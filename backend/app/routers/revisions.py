@@ -37,9 +37,9 @@ from app.services.conflicts import detect_resource_conflicts
 from app.services.email import notify_revision_decision, notify_revision_pending
 from app.services.integrity import revision_integrity_digest
 from app.services.readiness_catalog import (
+    active_checks,
     definition,
     definitions_from_json,
-    governed_project_checks,
 )
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
@@ -453,9 +453,10 @@ async def create_revision(
 
     # Capture activities + readiness state at the moment the revision is created
     snapshot = await build_project_snapshot(project_id, db)
-    # ...the definitions of the readiness checks it captured, so the revision keeps
-    # rendering its own labels/icons if the catalog later changes...
-    catalog = [definition(c) for c in await governed_project_checks(db)]
+    # ...the definitions of the readiness checks it captured (the governed gates
+    # in `readiness` and the live checks in `readiness_at_submission`), so the
+    # revision keeps rendering its own labels/icons if the catalog later changes...
+    catalog = [definition(c) for c in await active_checks(db)]
     # ...and the per-resource change notes ("what changed and why"), frozen with the
     # plan so the approved revision records the rationale alongside the schedule.
     note_rows = (

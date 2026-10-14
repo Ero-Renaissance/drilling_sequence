@@ -43,7 +43,7 @@ from app.database import Base
 SEVERITIES: Final = ("done", "in_progress", "blocked", "not_counted")
 
 # status_set -> its statuses (in picker order) with their severity, plus the value
-# an unset entry reads as. Only "standard" exists until Phase 4 adds "availability".
+# an unset entry reads as.
 STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
     "standard": {
         "statuses": {
@@ -54,7 +54,19 @@ STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
         },
         "default": "On Track",
     },
+    # Nominated Equipment (decided 2026-10-13): is the equipment available?
+    "availability": {
+        "statuses": {
+            "Available": "done",
+            "Not available": "blocked",
+        },
+        "default": "Not available",
+    },
 }
+
+# Controlled multi-select lists a check may carry (its items are admin-managed
+# rows in readiness_tag_items). "equipment" = the nominated equipment types.
+TAG_LISTS: Final = ("equipment",)
 
 # Owned icon registry keys — mirrored by the frontend registry.
 ICON_KEYS: Final = (
@@ -65,6 +77,15 @@ ICON_KEYS: Final = (
     "gavel",
     "leaf",
     "banknote",
+    # Phase 4 — Logistics
+    "truck",
+    "hand-coins",
+    "file-signature",
+    "forklift",
+    "shield-check",
+    "handshake",
+    "receipt",
+    "ship",
 )
 
 SCOPES: Final = ("project", "well")
@@ -209,6 +230,45 @@ class ReadinessEntry(Base):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+
+
+# ── Tag lists (Nominated Equipment) ─────────────────────────────────────────
+
+
+class ReadinessTagItem(Base):
+    """One item of a controlled tag list — e.g. an equipment type ("PSV",
+    "Platform Support Vessel", category "Vessels"). Admin-managed; ``code`` is
+    immutable and never reused; items are retired, never deleted (entries that
+    already carry one keep it)."""
+
+    __tablename__ = "readiness_tag_items"
+    __table_args__ = (UniqueConstraint("tag_list", "code", name="uq_readiness_tag_item"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tag_list: Mapped[str] = mapped_column(String(32), nullable=False)
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    label: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Display grouping only (Aviation, Vessels, Barges…).
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class ReadinessEntryTag(Base):
+    """A tag on one readiness entry (e.g. PSV nominated for a well). A well's
+    EFFECTIVE tags are its field project's ∪ its own (spec §3.5)."""
+
+    __tablename__ = "readiness_entry_tags"
+    __table_args__ = (UniqueConstraint("entry_id", "item_code", name="uq_readiness_entry_tag"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("readiness_entries.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Validated in the app against the check's tag list (items are never deleted).
+    item_code: Mapped[str] = mapped_column(String(16), nullable=False)
 
 
 # ── Team grants ─────────────────────────────────────────────────────────────

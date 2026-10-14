@@ -16,7 +16,7 @@ from app.models.activity import Activity
 from app.models.approver import ProjectApprover
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project
-from app.models.readiness import ReadinessEntry
+from app.models.readiness import PROJECTS_TEAM, ReadinessEntry
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -32,14 +32,19 @@ from app.schemas.dashboard import (
     RigDetail,
     RigStats,
     RiskStats,
+    TeamReadinessStats,
     Watchlist,
 )
 from app.services.conflicts import detect_resource_conflicts
 from app.services.readiness_catalog import (
+    active_checks,
+    active_teams,
     default_status,
     definitions_from_json,
+    gate_codes_of,
     project_gate_checks,
 )
+from app.services.readiness_effective import load_index, project_value, severity, well_value
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
 
@@ -463,7 +468,67 @@ async def build_dashboard(
         approval=approval_stats,
         risk=risk_stats,
         watchlist=watchlist,
+        team_readiness=await _team_readiness(
+            db,
+            project_id,
+            [
+                a
+                for a in activities
+                if not done(a)
+                and (focus_end is None or a.start_date <= focus_end)
+                and a.readiness_required
+            ],
+        ),
     )
+
+
+async def _team_readiness(
+    db: AsyncSession, project_id: uuid.UUID, focus: list[Activity]
+) -> list[TeamReadinessStats]:
+    """A tile per active non-project team with active checks, over the focus
+    activities (not done, readiness-required, starting in the window)."""
+    tiles: list[TeamReadinessStats] = []
+    for team in await active_teams(db):
+        if team.code == PROJECTS_TEAM:
+            continue
+        checks = await active_checks(db, team_code=team.code)
+        if not checks:
+            continue
+        index = await load_index(db, project_id, [c.code for c in checks])
+        if any(c.applies_well for c in checks):
+            unit = "wells"
+            keys = {
+                (a.well_project or "", a.well_name, a.activity_type) for a in focus if a.well_name
+            }
+            rows = [[well_value(index, c, key) for c in checks] for key in keys]
+        else:
+            unit = "projects"
+            projects = {a.well_project for a in focus if a.well_project}
+            rows = [[project_value(index, c, wp) for c in checks] for wp in projects]
+        counted = done_cells = blocked = ready = 0
+        for values in rows:
+            sev = [
+                severity(c.status_set, v.status) for c, v in zip(checks, values, strict=True)
+            ]
+            row_counted = [x for x in sev if x != "not_counted"]
+            counted += len(row_counted)
+            done_cells += sum(1 for x in row_counted if x == "done")
+            blocked += sum(1 for x in row_counted if x == "blocked")
+            if row_counted and all(x == "done" for x in row_counted):
+                ready += 1
+        tiles.append(
+            TeamReadinessStats(
+                team_code=team.code,
+                name=team.name,
+                icon_key=team.icon_key,
+                unit=unit,
+                focus_count=len(rows),
+                overall_pct=round(100 * done_cells / counted) if counted else None,
+                blocked_cells=blocked,
+                ready=ready,
+            )
+        )
+    return tiles
 
 
 # ── Home dashboard: KPIs of the most-recently-approved sequence ─────────────────
@@ -630,6 +695,6 @@ async def build_last_approved(
         kpis=compute_snapshot_kpis(
             json.loads(best.snapshot_json),
             date.today(),
-            gate_codes=[d["code"] for d in definitions_from_json(best.catalog_json)],
+            gate_codes=gate_codes_of(definitions_from_json(best.catalog_json)),
         ),
     )

@@ -23,6 +23,8 @@ from app.models.project import (
 from app.models.readiness import (
     ReadinessCheck,
     ReadinessEntry,
+    ReadinessEntryTag,
+    ReadinessTagItem,
     ReadinessTeam,
     UserTeamGrant,
 )
@@ -45,6 +47,8 @@ __all__ = [
     "ProjectStatus",
     "ReadinessCheck",
     "ReadinessEntry",
+    "ReadinessEntryTag",
+    "ReadinessTagItem",
     "ReadinessTeam",
     "ResourceRecord",
     "ReviewPolicy",

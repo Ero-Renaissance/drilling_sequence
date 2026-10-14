@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
-from app.models.readiness import ICON_KEYS, STATUS_SETS
+from app.models.readiness import ICON_KEYS, STATUS_SETS, TAG_LISTS
 
 # Check codes and statuses are no longer fixed enums here: codes come from the
 # admin-curated catalog and statuses from each check's code-defined status set
@@ -17,9 +17,12 @@ class CheckState(BaseModel):
     status: str
     notes: str | None = None
     updated_at: datetime | None = None
+    # Tag codes on this entry (checks with a tag list, e.g. Nominated Equipment).
+    tags: list[str] = []
 
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=256)]
+TagCode = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9-]{1,15}$")]
 
 
 class WellTarget(BaseModel):
@@ -57,6 +60,9 @@ class CheckUpsert(WellTarget):
     status: Status
     # Bounded to the String(512) column so an over-long note is a 422, not a DB error.
     notes: Annotated[str, StringConstraints(max_length=512)] | None = None
+    # Only for checks with a tag list: the entry's OWN tags, each an active item of
+    # that list (router-validated). None = leave unchanged; [] = clear.
+    tags: list[TagCode] | None = Field(default=None, max_length=50)
 
 
 class CheckUpsertResponse(BaseModel):
@@ -68,6 +74,7 @@ class CheckUpsertResponse(BaseModel):
     status: str
     notes: str | None
     updated_at: datetime
+    tags: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -117,6 +124,20 @@ class CatalogCheck(BaseModel):
     icon_key: str
     locks_with_plan: bool
     sort_order: int
+    # "" = none; else the controlled tag list the check carries ("equipment").
+    tag_list: str = ""
+
+    model_config = {"from_attributes": True}
+
+
+class TagItem(BaseModel):
+    """One item of a controlled tag list (e.g. an equipment type)."""
+
+    tag_list: str
+    code: str
+    label: str
+    category: str
+    sort_order: int
 
     model_config = {"from_attributes": True}
 
@@ -135,6 +156,8 @@ class ReadinessCatalog(BaseModel):
     teams: list[CatalogTeam]
     checks: list[CatalogCheck]
     status_sets: dict[str, StatusSet]
+    # Active items of every tag list (for the Nominated Equipment picker).
+    tag_items: list[TagItem] = []
 
 
 # ── Team lens (GET /readiness/teams/{team_code}) ────────────────────────────
@@ -146,6 +169,9 @@ class EffectiveCheckState(CheckState):
     only at project level), else the status set's default ("default")."""
 
     source: Literal["well", "project", "default"]
+    # The field project's tags this well inherits (two-level checks with a tag
+    # list); the well's effective tags are inherited_tags ∪ tags.
+    inherited_tags: list[str] = []
 
 
 class TeamProjectRow(BaseModel):
@@ -234,8 +260,17 @@ class CheckCreate(BaseModel):
     icon_key: str
     locks_with_plan: bool
     sort_order: SortOrder = 100
+    # "" or a code-defined tag list (TAG_LISTS).
+    tag_list: str = ""
 
     _icon = field_validator("icon_key")(_check_icon_key)
+
+    @field_validator("tag_list")
+    @classmethod
+    def _known_tag_list(cls, value: str) -> str:
+        if value and value not in TAG_LISTS:
+            raise ValueError("Unknown tag list")
+        return value
 
     @field_validator("status_set")
     @classmethod
@@ -279,14 +314,56 @@ class AdminCatalogCheck(CatalogCheck):
     retired_at: datetime | None
 
 
+class AdminTagItem(TagItem):
+    retired_at: datetime | None
+
+
 class AdminReadinessCatalog(BaseModel):
-    """Everything, including inactive teams and retired checks, plus the
-    code-defined allow-lists the admin forms pick from."""
+    """Everything, including inactive teams, retired checks and retired tag
+    items, plus the code-defined allow-lists the admin forms pick from."""
 
     teams: list[AdminCatalogTeam]
     checks: list[AdminCatalogCheck]
     status_sets: dict[str, StatusSet]
     icon_keys: list[str]
+    tag_lists: list[str] = []
+    tag_items: list[AdminTagItem] = []
+
+
+Category = Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)]
+
+
+class TagItemCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    tag_list: str
+    code: TagCode
+    label: Label
+    category: Category = ""
+    sort_order: SortOrder = 100
+
+    @field_validator("tag_list")
+    @classmethod
+    def _known_tag_list(cls, value: str) -> str:
+        if value not in TAG_LISTS:
+            raise ValueError("Unknown tag list")
+        return value
+
+
+class TagItemUpdate(BaseModel):
+    """Only label, category and order are editable — the code is fixed."""
+
+    model_config = {"extra": "forbid"}
+
+    label: Label | None = None
+    category: Category | None = None
+    sort_order: SortOrder | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "TagItemUpdate":
+        if all(v is None for v in (self.label, self.category, self.sort_order)):
+            raise ValueError("Provide at least one field to change")
+        return self
 
 
 class TeamGrantsUpdate(BaseModel):

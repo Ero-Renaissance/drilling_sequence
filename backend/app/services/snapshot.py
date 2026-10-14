@@ -15,7 +15,12 @@ from app.models.readiness import ReadinessEntry
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.rig_contract import RigContract
 from app.services.readiness import resolve_activity_contract
-from app.services.readiness_catalog import default_status, governed_project_checks
+from app.services.readiness_catalog import (
+    active_checks,
+    default_status,
+    governed_project_checks,
+)
+from app.services.readiness_effective import load_index, project_value, well_value
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -36,6 +41,27 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     # activity list and existing readers (diff, dashboard, print) keep parsing —
     # the values are now the project's shared gates, not per-activity ones.
     governed = await governed_project_checks(db)
+    # Live (operational) checks — Wells, Logistics… — are recorded too, as they
+    # stood at submission, for the revision print; they never lock or diff.
+    operational = [c for c in await active_checks(db) if not c.locks_with_plan]
+    index = await load_index(db, project_id, [c.code for c in operational])
+
+    def at_submission(a: Activity) -> dict[str, dict]:
+        if not a.readiness_required:  # opt-out: no readiness from any team
+            return {}
+        values: dict[str, dict] = {}
+        for c in operational:
+            if c.applies_well and a.well_name:
+                v = well_value(index, c, (a.well_project or "", a.well_name, a.activity_type))
+            elif c.applies_project and a.well_project:
+                v = project_value(index, c, a.well_project)
+            else:
+                continue
+            item: dict = {"status": v.status, "source": v.source}
+            if c.tag_list:
+                item["tags"] = v.all_tags
+            values[c.code] = item
+        return values
     gates_result = await db.execute(
         select(ReadinessEntry).where(
             ReadinessEntry.project_id == project_id,
@@ -144,6 +170,8 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             },
             "resource_planned": resource_planned(a),
             **contract_fields(a),
+            # Only once live checks exist, so snapshots without them are unchanged.
+            **({"readiness_at_submission": at_submission(a)} if operational else {}),
         }
         for a in activities
     ]

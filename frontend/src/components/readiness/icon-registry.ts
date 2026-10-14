@@ -2,10 +2,18 @@ import {
   Banknote,
   CircleDot,
   DraftingCompass,
+  FilePenLine,
+  Forklift,
   Gavel,
+  HandCoins,
+  Handshake,
   LandPlot,
   Leaf,
   MapPin,
+  Receipt,
+  ShieldCheck,
+  Ship,
+  Truck,
   type LucideIcon,
 } from "lucide-react";
 import { RotaryTable } from "./rotary-table-icon";
@@ -26,6 +34,15 @@ export const ICON_KEYS = [
   "gavel",
   "leaf",
   "banknote",
+  // Phase 4 — Logistics
+  "truck",
+  "hand-coins",
+  "file-signature",
+  "forklift",
+  "shield-check",
+  "handshake",
+  "receipt",
+  "ship",
 ] as const;
 export type IconKey = (typeof ICON_KEYS)[number];
 
@@ -39,6 +56,15 @@ export const CHECK_ICONS: Record<IconKey, LucideIcon> = {
   gavel: Gavel,
   leaf: Leaf,
   banknote: Banknote,
+  truck: Truck,
+  "hand-coins": HandCoins,
+  // lucide's FileSignature is an alias of FilePenLine (same paths).
+  "file-signature": FilePenLine,
+  forklift: Forklift,
+  "shield-check": ShieldCheck,
+  handshake: Handshake,
+  receipt: Receipt,
+  ship: Ship,
 };
 
 /** The React icon for a check's `icon_key`; a neutral dot for an unknown key

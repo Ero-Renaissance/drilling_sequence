@@ -158,7 +158,12 @@ logic against these active business rules:
   ids); a well with no field project uses `""`. Values follow an activity rename
   (`app/services/readiness_rekey.py`, audited `readiness_rekeyed`) — keep that hook
   on any new path that edits those names. A check applying at both levels is
-  inherited by each well from its field project until the well overrides it. Revisions freeze their check definitions (`catalog_json`). A check's team,
+  inherited by each well from its field project until the well overrides it
+  (tags: project ∪ well). An activity with `readiness_required = false` carries NO
+  readiness from ANY team (lens rows, snapshot `readiness_at_submission`, team
+  tiles, chart). Live (non-locking) checks are recorded in the snapshot's
+  `readiness_at_submission` but never lock or diff; only governed gates
+  (`gate_codes_of`) feed the snapshot gate KPIs. Revisions freeze their check definitions (`catalog_json`). A check's team,
   status set, scope and lock behaviour are fixed at creation (only label, icon and
   order are editable); `projects` checks must lock with the plan, and a check that
   locks with the plan applies at project level only.

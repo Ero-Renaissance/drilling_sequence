@@ -16,7 +16,7 @@ from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
-from app.models.readiness import ReadinessEntry
+from app.models.readiness import ReadinessEntry, ReadinessEntryTag
 from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -246,20 +246,36 @@ async def clone_project(
             select(ReadinessEntry).where(ReadinessEntry.project_id == project_id)
         )
     ).scalars().all()
+    cloned_entry_by_source: dict[uuid.UUID, ReadinessEntry] = {}
     for gate in source_gates:
-        db.add(
-            ReadinessEntry(
-                project_id=clone.id,
-                check_code=gate.check_code,
-                scope=gate.scope,
-                well_project=gate.well_project,
-                well_name=gate.well_name,
-                activity_type=gate.activity_type,
-                status=gate.status,
-                notes=gate.notes,
-                updated_by=current_user.id,
-            )
+        cloned_entry = ReadinessEntry(
+            project_id=clone.id,
+            check_code=gate.check_code,
+            scope=gate.scope,
+            well_project=gate.well_project,
+            well_name=gate.well_name,
+            activity_type=gate.activity_type,
+            status=gate.status,
+            notes=gate.notes,
+            updated_by=current_user.id,
         )
+        db.add(cloned_entry)
+        cloned_entry_by_source[gate.id] = cloned_entry
+    # ...and their tags (e.g. nominated equipment), re-linked to the new entries.
+    if cloned_entry_by_source:
+        await db.flush()
+        for entry_id, item_code in (
+            await db.execute(
+                select(ReadinessEntryTag.entry_id, ReadinessEntryTag.item_code).where(
+                    ReadinessEntryTag.entry_id.in_(list(cloned_entry_by_source))
+                )
+            )
+        ).all():
+            db.add(
+                ReadinessEntryTag(
+                    entry_id=cloned_entry_by_source[entry_id].id, item_code=item_code
+                )
+            )
 
     # Carry the rig contracts over so the new quarter starts from the same contract
     # state — otherwise the clone has no contracts, the expiry markers read as unset,
