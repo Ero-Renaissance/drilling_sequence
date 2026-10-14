@@ -156,9 +156,11 @@ export function statusOf(
 
 // ── Lenses (Phase 3): one team's checks at a time keeps each view uncluttered ──
 
-/** A lens is a team code, or "none" (a print with no readiness icons). */
+/** A lens is a team code, "all" (every team, one summary badge each), or "none"
+ *  (a print with no readiness icons). */
 export type Lens = string;
 export const NO_LENS: Lens = "none";
+export const ALL_LENS: Lens = "all";
 
 /** Active teams in lens order. */
 export function useReadinessTeams(): readonly CatalogTeam[] {
@@ -167,12 +169,34 @@ export function useReadinessTeams(): readonly CatalogTeam[] {
 
 /** What a lens is called: the built-in team reads "Project gates". */
 export function lensLabel(team: Pick<CatalogTeam, "code" | "name">): string {
+  if (team.code === ALL_LENS) return "All teams";
   return team.code === PROJECTS_TEAM ? "Project gates" : team.name;
 }
 
+/** The "All" lens shows one summary badge per team: a synthetic check per team
+ *  (code = team code, the team's icon) whose status is the team's worst. */
+export function teamSummaryCheck(team: CatalogTeam): CatalogCheck {
+  return {
+    code: team.code,
+    label: lensLabel(team),
+    team_code: team.code,
+    applies_project: true,
+    applies_well: true,
+    status_set: "standard",
+    icon_key: team.icon_key,
+    locks_with_plan: false,
+    sort_order: team.sort_order,
+  };
+}
+
 /** Pure filter behind `useLensChecks`. */
-export function lensChecksOf(checks: readonly CatalogCheck[], lens: Lens): CatalogCheck[] {
+export function lensChecksOf(
+  checks: readonly CatalogCheck[],
+  lens: Lens,
+  teams: readonly CatalogTeam[] = BUILTIN_TEAMS,
+): CatalogCheck[] {
   if (lens === NO_LENS) return [];
+  if (lens === ALL_LENS) return teams.map(teamSummaryCheck);
   if (lens === PROJECTS_TEAM) return projectGatesOf(checks);
   return checks
     .filter((c) => c.team_code === lens)
@@ -193,8 +217,9 @@ export function useLens(): Lens {
 /** The checks the current lens shows (chart strip, legend, print icons). */
 export function useLensChecks(): CatalogCheck[] {
   const checks = useContext(CatalogContext);
+  const teams = useContext(TeamsContext);
   const lens = useContext(LensContext);
-  return useMemo(() => lensChecksOf(checks, lens), [checks, lens]);
+  return useMemo(() => lensChecksOf(checks, lens, teams), [checks, lens, teams]);
 }
 
 const LENS_KEY = "ds.readiness-lens";
@@ -221,7 +246,9 @@ export function useReadinessLens(): [Lens, (lens: Lens) => void] {
       return null;
     }
   });
-  const lens = saved && teams.some((t) => t.code === saved) ? saved : defaultLens(teams, userTeams);
+  const valid =
+    !!saved && (teams.some((t) => t.code === saved) || (saved === ALL_LENS && teams.length > 1));
+  const lens = valid ? saved : defaultLens(teams, userTeams);
   const setLens = useCallback((next: Lens) => {
     setSaved(next);
     try {

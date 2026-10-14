@@ -13,6 +13,7 @@ import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import {
+  ALL_LENS,
   PROJECTS_TEAM,
   useLens,
   useLensChecks,
@@ -319,7 +320,9 @@ export function DrillChart({
   const readinessHeading =
     lens === PROJECTS_TEAM
       ? "PROJECT READINESS"
-      : `${(teams.find((t) => t.code === lens)?.name ?? lens).toUpperCase()} READINESS`;
+      : lens === ALL_LENS
+        ? "READINESS BY TEAM"
+        : `${(teams.find((t) => t.code === lens)?.name ?? lens).toUpperCase()} READINESS`;
 
   // Focused years — a SET, but the time axis can only show one contiguous
   // window, so the chart zooms to min(selected)..max(selected); years in
@@ -525,6 +528,10 @@ export function DrillChart({
     // The readiness strip's gates (catalog order) and each gate's icon key.
     const stripCodes = gates.map((g) => g.code);
     const iconKeyByCode = new Map(gates.map((g) => [g.code, g.icon_key]));
+    // The All lens's "checks" are teams: name them in the tooltip, not by code.
+    const tooltipName = new Map(
+      gates.map((g) => [g.code, lens === ALL_LENS ? g.label : g.code]),
+    );
     const iconKeyOf = (code: CheckCode) => iconKeyByCode.get(code) ?? "";
     const ROW_HEIGHT = 56;
     const ICON_SIZE = 14;
@@ -1114,7 +1121,7 @@ export function DrillChart({
               // this HTML tooltip.
               return `<div style="display:flex;align-items:center;gap:6px;font-size:11px">
                 <img src="${iconSrc}" width="13" height="13" style="display:block;flex-shrink:0" alt="" />
-                <span style="color:${theme.tooltipText};font-weight:600">${esc(code)}</span>
+                <span style="color:${theme.tooltipText};font-weight:600">${esc(tooltipName.get(code) ?? code)}</span>
                 <span style="color:${theme.tooltipMuted}">${STATUS_LABEL[status]}</span>
               </div>`;
             }).join("");
@@ -1299,7 +1306,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates, readinessHeading]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates, readinessHeading, lens]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 

@@ -166,6 +166,30 @@ describe("ProjectDashboard", () => {
     expect(screen.queryByText(/Rig idle gaps/i)).not.toBeInTheDocument();
   });
 
+  it("shows a readiness tile per team, linking to that team's view", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(
+      makeData({
+        team_readiness: [
+          {
+            team_code: "logistics",
+            name: "Logistics",
+            icon_key: "truck",
+            unit: "wells",
+            focus_count: 4,
+            overall_pct: 25,
+            blocked_cells: 3,
+            ready: 1,
+          },
+        ],
+      }),
+    );
+    renderDash();
+    const tile = (await screen.findByText(/Logistics readiness/i)).closest("a")!;
+    expect(tile).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics");
+    expect(tile).toHaveTextContent("25%");
+    expect(tile).toHaveTextContent("1/4 wells ready · 3 blocked");
+  });
+
   it("breakdown panel is open by default and collapses/expands from its header", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();

@@ -22,6 +22,16 @@ import { buildDocRef } from "@/lib/doc-id";
 import { PRINT_CLAIM_EVENT } from "@/lib/print-css";
 import { printDocCss } from "@/lib/print-css";
 import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
+import { hasTeamReadiness, snapshotRowsForLens } from "@/lib/readiness-snapshot";
+import {
+  ALL_LENS,
+  FrozenCatalogProvider,
+  PROJECTS_TEAM,
+  ReadinessLensProvider,
+  lensLabel,
+  useReadinessTeams,
+  type Lens,
+} from "@/components/readiness/catalog";
 
 function statusLabel(status: Revision["status"]): string {
   switch (status) {
@@ -67,6 +77,10 @@ export function RevisionPrintControl({
     }
   });
   const [schedule, setSchedule] = useState(true);
+  // Which team's icons a readiness print shows: the project gates (what was
+  // signed) by default, or a team's / all teams' status AT SUBMISSION.
+  const teams = useReadinessTeams();
+  const [printLens, setPrintLens] = useState<Lens>(PROJECTS_TEAM);
   const [detail, setDetail] = useState<RevisionDetail | null>(null);
   const [fetching, setFetching] = useState(false);
   // Non-null while THIS control owns the print document.
@@ -107,10 +121,19 @@ export function RevisionPrintControl({
           setFetching(false);
         }
       }
+      // Revisions from before team readiness only recorded the project gates.
+      if (
+        chart === "readiness" &&
+        printLens !== PROJECTS_TEAM &&
+        !hasTeamReadiness(JSON.parse(d.snapshot_json))
+      ) {
+        toast.info("This revision predates team readiness — printing the project gates.");
+        setPrintLens(PROJECTS_TEAM);
+      }
       setPrinting(mode);
       setNonce((n) => n + 1);
     },
-    [projectId, revision.id, detail],
+    [projectId, revision.id, detail, chart, printLens],
   );
 
   // While this control owns the print, mark <body> so the print stylesheet can
@@ -142,7 +165,15 @@ export function RevisionPrintControl({
     };
   }, [nonce, project, revision.rev_number]);
 
-  const rows: PrintRow[] = printing && detail ? JSON.parse(detail.snapshot_json) : [];
+  const rows: PrintRow[] =
+    printing && detail
+      ? snapshotRowsForLens(
+          JSON.parse(detail.snapshot_json),
+          chart === "readiness" ? printLens : PROJECTS_TEAM,
+          detail.readiness_catalog ?? [],
+          teams,
+        )
+      : [];
   const docRef = buildDocRef(project?.name, revision.rev_number);
 
   return (
@@ -173,6 +204,27 @@ export function RevisionPrintControl({
               Sequence with Readiness Icons
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          {chart === "readiness" && teams.length > 1 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Readiness icons</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={printLens} onValueChange={setPrintLens}>
+                {teams.map((t) => (
+                  <DropdownMenuRadioItem
+                    key={t.code}
+                    value={t.code}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {lensLabel(t)}
+                    {t.code !== PROJECTS_TEAM && " (at submission)"}
+                  </DropdownMenuRadioItem>
+                ))}
+                <DropdownMenuRadioItem value={ALL_LENS} onSelect={(e) => e.preventDefault()}>
+                  All teams (one badge each)
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </>
+          )}
           {chart === "readiness" && (
             <>
               <DropdownMenuSeparator />
@@ -220,15 +272,24 @@ export function RevisionPrintControl({
           {/* Print stylesheet (shared) — mounted only while this control owns the print. */}
           <style>{printDocCss(chart === "readiness" ? readinessPageCss(years) : "A4 landscape")}</style>
 
-          <RevisionPrintDoc
-            revision={detail}
-            project={project}
-            rows={rows}
-            chart={chart}
-            readinessYears={years}
-            includeSchedule={schedule}
-            signatures={printing}
-          />
+          {/* The revision prints with the check definitions frozen at its submit,
+              through the chosen lens. */}
+          <FrozenCatalogProvider checks={detail.readiness_catalog}>
+            <ReadinessLensProvider lens={chart === "readiness" ? printLens : PROJECTS_TEAM}>
+              <RevisionPrintDoc
+                revision={detail}
+                project={project}
+                rows={rows}
+                chart={chart}
+                readinessYears={years}
+                includeSchedule={schedule}
+                signatures={printing}
+                readinessLabel={lensLabel(
+                  teams.find((t) => t.code === printLens) ?? { code: printLens, name: printLens },
+                )}
+              />
+            </ReadinessLensProvider>
+          </FrozenCatalogProvider>
 
           {/* Print-only confidentiality footer (repeats per page in Chrome). Only the
               JV record (standard chart + recorded signatures) carries the system refs. */}

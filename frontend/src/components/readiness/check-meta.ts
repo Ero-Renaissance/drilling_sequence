@@ -86,3 +86,28 @@ export function legendStatuses(checks: { status_set: string }[]): CheckStatus[] 
   const sets = checks.length ? checks.map((c) => c.status_set) : ["standard"];
   return [...new Set(sets.flatMap((s) => statusesOf(s)))];
 }
+
+const SEVERITY_RANK: Record<Severity, number> = {
+  blocked: 3,
+  in_progress: 2,
+  done: 1,
+  not_counted: 0,
+};
+// A standard status that wears each severity's colour — for team summaries.
+const SEVERITY_STATUS: Record<Severity, CheckStatus> = {
+  blocked: "Behind",
+  in_progress: "On Track",
+  done: "Completed",
+  not_counted: "N/A",
+};
+
+/** One status summarising several (e.g. a team's checks on a well): the worst
+ *  severity wins, shown as the standard status of that colour. Undefined when
+ *  there is nothing to summarise. */
+export function worstStatus(statuses: CheckStatus[]): CheckStatus | undefined {
+  if (statuses.length === 0) return undefined;
+  const worst = statuses
+    .map((s) => STATUS_SEVERITY[s] ?? "in_progress")
+    .reduce((a, b) => (SEVERITY_RANK[b] > SEVERITY_RANK[a] ? b : a));
+  return SEVERITY_STATUS[worst];
+}

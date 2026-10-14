@@ -1,6 +1,7 @@
+import { Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { checkIcon } from "./icon-registry";
-import { lensLabel, useReadinessTeams, type Lens } from "./catalog";
+import { ALL_LENS, lensLabel, useReadinessTeams, type Lens } from "./catalog";
 
 /**
  * Pick which team's readiness a view shows — Project gates · Wells · Logistics…
@@ -49,6 +50,23 @@ export function LensPicker({
           </button>
         );
       })}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === ALL_LENS}
+        onClick={() => onChange(ALL_LENS)}
+        aria-label="All"
+        title="Every team at once — one badge per team, coloured by its worst status"
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+          value === ALL_LENS
+            ? "bg-primary/15 text-primary"
+            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+        )}
+      >
+        <Layers className="h-3.5 w-3.5" />
+        All
+      </button>
     </div>
   );
 }

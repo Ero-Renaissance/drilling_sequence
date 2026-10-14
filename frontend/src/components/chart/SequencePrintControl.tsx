@@ -26,6 +26,7 @@ import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/pri
 import { rigLaneKey } from "@/lib/resource-identity";
 import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
 import {
+  ALL_LENS,
   PROJECTS_TEAM,
   ReadinessLensProvider,
   lensLabel,
@@ -107,7 +108,7 @@ export function SequencePrintControl({
       // copy shows live status as of this moment. Best-effort: a failed load
       // prints the sequence without icons rather than not at all.
       setLensData(
-        await loadLensReadiness(projectId, printLens).catch(() => ({
+        await loadLensReadiness(projectId, printLens, { activities, teams }).catch(() => ({
           map: new Map(),
           keyOf: () => null,
         })),
@@ -121,7 +122,7 @@ export function SequencePrintControl({
     setAsOf(new Date());
     setPrinting(true);
     setNonce((n) => n + 1);
-  }, [claimId, project, projectId, printLens]);
+  }, [claimId, project, projectId, printLens, activities, teams]);
 
   useEffect(() => {
     if (!printing) return;
@@ -240,6 +241,9 @@ export function SequencePrintControl({
                     {lensLabel(t)}
                   </DropdownMenuRadioItem>
                 ))}
+                <DropdownMenuRadioItem value={ALL_LENS} onSelect={(e) => e.preventDefault()}>
+                  All teams (one badge each)
+                </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </>
           )}

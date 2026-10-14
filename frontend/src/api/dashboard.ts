@@ -15,6 +15,20 @@ export interface GateBreakdown {
   na: number;
 }
 
+/** One readiness team's tile (Wells, Logistics…) over the same focus window. */
+export interface TeamReadinessStats {
+  team_code: string;
+  name: string;
+  icon_key: string;
+  /** What `focus_count` / `ready` count: wells, or field projects for a team
+   *  with only project-level checks. */
+  unit: "wells" | "projects";
+  focus_count: number;
+  overall_pct: number | null;
+  blocked_cells: number;
+  ready: number;
+}
+
 export interface DashboardResponse {
   generated_at: string;
   plan: { start: string | null; end: string | null };
@@ -74,6 +88,8 @@ export interface DashboardResponse {
      *  lead-time window — "this rig doesn't exist yet, start tendering". */
     unprocured_slots: number;
   };
+  /** Readiness per non-project team (empty until a team has active checks). */
+  team_readiness?: TeamReadinessStats[];
 }
 
 async function authHeaders(): Promise<HeadersInit> {

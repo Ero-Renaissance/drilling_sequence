@@ -441,7 +441,7 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **1. Catalog refactor** — ✅ **shipped 2026-10-13** | Catalog tables (incl. `readiness_teams`, seeded with the `projects` team) seeded with the 7 gates (same codes, labels, icons); `project_readiness` → `readiness_entries` data migration (034); backend and the §8.6 files read the catalog; `revisions.catalog_json`. | **None.** Riskiest step, so it ships alone. Tests: snapshot JSON identical before/after; pre-change revisions render; diff unchanged. |
 | **2. Teams and grants** — ✅ **shipped 2026-10-13** | `user_team_grants` (035), `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
 | **3. Well scope + lenses** — ✅ **shipped 2026-10-13** | Well-keyed entries, team lens API + grid (field-project and well rows), lens selector on the Readiness page, chart and sequence print with per-user default (§8.1, §8.4), rename carry-over (§7.1), shared-key warning in the grid, operational lock behaviour. **Moved forward from Phase 4:** project → well inheritance with override + "Reset to project" (§3.6) — admins could already create two-level checks in Phase 2, so the well grid needed it. **Deferred to Phase 4:** the lens on the *revision* print (needs `readiness_at_submission`), the All view, dashboard team tiles; the data-grid strip stays on project gates. | Lens picker appears once a second team exists; planners can print "project gates only". |
-| **4. Logistics + All** | Seed the logistics checks (project + well) + `availability` status set + 21 equipment types; `NEQ` tags (with project → well tag inheritance); `readiness_at_submission` + lens on the revision print; All view (grid groups, chart team badges, print); dashboard team tiles. | Logistics live; All view. |
+| **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
@@ -490,16 +490,15 @@ Updated **in the same commit as the code that changes them**, not before:
 14. **Inheritance with override (§3.6):** a project-level status applies to all its
     wells until a well sets its own value; "Reset to project" removes the
     override. Tags combine (project ∪ well).
+15. **Logistics codes confirmed (2026-10-14):** `L-BUD, CTR, NEQ, FFP, CTS, PO, NAV`.
+16. **Readiness opt-out hides every team's checks (2026-10-14):** an activity with
+    `readiness_required = false` carries no readiness from any team.
 
 ## 12. Open questions
 
 1. **Well-gate list** — names and status set for each (location preparation,
    permits, …). Left blank; added via the catalog, no code change needed.
-2. **Logistics codes** — confirm `CTR, NEQ, FFP, CTS, PO, NAV` before Phase 4 (codes
-   are immutable once seeded).
-3. **Readiness opt-out** — should `readiness_required = false` hide well and
-   logistics checks too (proposed), or only project gates?
-4. **Who can see the Logistics lens** — org-wide read is assumed (as all readiness
+2. **Who can see the Logistics lens** — org-wide read is assumed (as all readiness
    today); confirm nothing in logistics data is restricted.
 
 ## 13. Future ideas (not decided)

@@ -330,6 +330,22 @@ export function ProjectDashboard({
         />
       </div>
 
+      {/* One tile per readiness team (Wells, Logistics…), same focus window. */}
+      {(data.team_readiness ?? []).length > 0 && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {(data.team_readiness ?? []).map((t) => (
+            <Tile
+              key={t.team_code}
+              to={`${base}/readiness?lens=${encodeURIComponent(t.team_code)}`}
+              label={`${t.name} readiness · ${horizonSuffix(horizon)}`}
+              value={t.overall_pct === null ? "—" : `${t.overall_pct}%`}
+              sub={`${t.ready}/${t.focus_count} ${t.unit} ready · ${t.blocked_cells} blocked`}
+              tone={readinessTone(t.overall_pct)}
+            />
+          ))}
+        </div>
+      )}
+
       {afterTiles}
 
 

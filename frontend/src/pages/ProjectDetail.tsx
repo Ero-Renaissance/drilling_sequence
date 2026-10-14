@@ -43,11 +43,13 @@ import { ChangeNotesPanel } from "@/components/revisions/ChangeNotesPanel";
 import { ProjectAuditLog } from "@/components/activity/ProjectAuditLog";
 import { ViewerStrip } from "@/components/viewers/ViewerStrip";
 import {
+  ALL_LENS,
   PROJECTS_TEAM,
   ReadinessLensProvider,
   useReadinessLens,
   useReadinessTeams,
 } from "@/components/readiness/catalog";
+import { AllReadinessGrid } from "@/components/readiness/AllReadinessGrid";
 import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
 import { LensPicker } from "@/components/readiness/LensPicker";
 import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
@@ -389,6 +391,7 @@ export function ChartTab() {
   const [readinessMap, setReadinessMap] = useState<ReadinessMap | undefined>(undefined);
   // The chart's readiness lens (Project gates · Wells · Logistics…) and its data.
   const [lens, setLens] = useReadinessLens();
+  const teams = useReadinessTeams();
   const [lensReadiness, setLensReadiness] = useState<LensReadiness | null>(null);
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(
     undefined,
@@ -479,13 +482,13 @@ export function ChartTab() {
       return;
     }
     let active = true;
-    loadLensReadiness(projectId, lens)
+    loadLensReadiness(projectId, lens, { activities: activities ?? [], teams })
       .then((data) => active && setLensReadiness(data))
       .catch(() => active && setLensReadiness(null)); // best-effort, like the gates
     return () => {
       active = false;
     };
-  }, [projectId, lens, activities]);
+  }, [projectId, lens, activities, teams]);
 
   function handleImported(_count: number) { load(); }
 
@@ -754,7 +757,10 @@ export function ReadinessTab() {
   // The lens: a ?lens= deep link wins, else the user's remembered/default lens.
   const [savedLens, setSavedLens] = useReadinessLens();
   const urlLens = searchParams.get("lens");
-  const lens = urlLens && teams.some((t) => t.code === urlLens) ? urlLens : savedLens;
+  const urlValid =
+    !!urlLens &&
+    (teams.some((t) => t.code === urlLens) || (urlLens === ALL_LENS && teams.length > 1));
+  const lens = urlValid ? urlLens : savedLens;
   const chooseLens = (next: string) => {
     setSavedLens(next);
     setSearchParams(
@@ -773,6 +779,8 @@ export function ReadinessTab() {
       <ErrorBoundary label="readiness table">
         {lens === PROJECTS_TEAM ? (
           <ReadinessGrid projectId={projectId} />
+        ) : lens === ALL_LENS ? (
+          <AllReadinessGrid projectId={projectId} onOpenLens={chooseLens} />
         ) : (
           <TeamReadinessGrid key={lens} projectId={projectId} teamCode={lens} />
         )}

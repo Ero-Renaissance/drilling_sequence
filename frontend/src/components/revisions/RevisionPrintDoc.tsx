@@ -96,6 +96,8 @@ export interface PrintRow {
   /** Which rows share one readiness strip (the strip prints once per key per
    *  page). Defaults to the field project; a well-level lens keys by well. */
   readiness_key?: string | null;
+  /** Live (team) checks as they stood at submission — revision snapshots only. */
+  readiness_at_submission?: Record<string, { status: CheckStatus; source?: string; tags?: string[] }>;
   rig_contract_status?: string | null;
   rig_contract_end?: string | null;
   /** Set when the activity is finished — renders grey (same slate as the
@@ -977,6 +979,7 @@ export function RevisionPrintDoc({
   includeSchedule = true,
   signatures = "system",
   readinessYears = 1,
+  readinessLabel,
 }: {
   revision: RevisionDetail;
   project: Project | null;
@@ -993,6 +996,9 @@ export function RevisionPrintDoc({
    *  page matches the @page paper size to this (A4/A3/A2) so month density —
    *  and gate-icon legibility — stays near the 1-year-on-A4 baseline. */
   readinessYears?: PrintYears;
+  /** Which lens the readiness icons show (e.g. "Logistics"), stated in the
+   *  header so a sheet is never mistaken for the full readiness picture. */
+  readinessLabel?: string;
 }) {
   const isReadiness = chart === "readiness";
   const isWetInk = signatures === "wetink";
@@ -1060,6 +1066,11 @@ export function RevisionPrintDoc({
           <p className="text-muted-foreground">
             {[project?.field, project?.region].filter(Boolean).join(" · ") || "—"}
           </p>
+          {isReadiness && readinessLabel && (
+            <p className="mt-0.5 text-[10px] font-medium" data-testid="print-readiness-lens">
+              Readiness: {readinessLabel} — status at submission
+            </p>
+          )}
           {/* Wet-ink forms are standalone (no system references). Recorded-signature
               outputs show the doc ref; only the JV record adds the Document ID. */}
           {!isWetInk && (
