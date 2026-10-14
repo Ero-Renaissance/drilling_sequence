@@ -125,6 +125,7 @@ describe("ReadinessCatalogAdmin", () => {
         icon_key: "banknote",
         locks_with_plan: false,
         sort_order: 10,
+        tag_list: "",
       }),
     );
     await waitFor(() => expect(onChanged).toHaveBeenCalled());

@@ -360,3 +360,15 @@ def test_frontend_mirrors_the_builtin_gates_and_icon_keys() -> None:
     assert [(c, label, icon, int(order)) for c, label, icon, order in gates] == [
         (c["code"], c["label"], c["icon_key"], c["sort_order"]) for c in BUILTIN_CHECKS
     ]
+
+
+@pytest.mark.skipif(not FRONTEND_SRC.exists(), reason="frontend sources not present")
+def test_frontend_status_severities_mirror_the_backend_status_sets() -> None:
+    meta = (FRONTEND_SRC / "components" / "readiness" / "check-meta.ts").read_text()
+    block = re.search(r"STATUS_SEVERITY: Record<CheckStatus, Severity> = \{(.*?)\};", meta, re.S)
+    assert block
+    frontend = {
+        k.strip(): v for k, v in re.findall(r'"?([A-Za-z/ ]+?)"?:\s*"([a-z_]+)"', block.group(1))
+    }
+    backend = {s: sev for spec in STATUS_SETS.values() for s, sev in spec["statuses"].items()}
+    assert frontend == backend

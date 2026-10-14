@@ -31,6 +31,7 @@ import {
 import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { ReadinessCatalogAdmin } from "@/components/admin/ReadinessCatalogAdmin";
+import { TagListAdmin } from "@/components/admin/TagListAdmin";
 import { useRefreshReadinessCatalog } from "@/components/readiness/catalog";
 import { adminApi, type AdminReadinessCatalog } from "@/api/admin";
 import { useAuthStore } from "@/store/auth";
@@ -373,6 +374,16 @@ export function Admin() {
           refreshLiveCatalog();
         }}
       />
+
+      {catalog && (
+        <TagListAdmin
+          catalog={catalog}
+          onChanged={() => {
+            loadCatalog();
+            refreshLiveCatalog();
+          }}
+        />
+      )}
 
       <Dialog open={!!confirmUser} onOpenChange={(o) => !o && setConfirmUser(null)}>
         <DialogContent className="sm:max-w-sm">

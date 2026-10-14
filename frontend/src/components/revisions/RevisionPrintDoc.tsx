@@ -9,7 +9,12 @@
 import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
 import { useLensChecks } from "@/components/readiness/catalog";
-import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "@/components/readiness/check-meta";
+import {
+  STATUS_DOT,
+  STATUS_ICON_COLOR,
+  STATUS_LABEL,
+  legendStatuses,
+} from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor } from "@/lib/chart-colors";
 import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
@@ -41,7 +46,6 @@ function hasContractMarker(
 // The one red every expiration date wears (same as the interactive chart).
 const EXPIRY_HEX = CONTRACT_MARKER_HEX;
 
-const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 const WINDOW_YEARS = 2; // sequence paginates into ≤2-year chunks; each is then fitted to its data
 const ROWS_PER_PAGE = 9; // rig rows per chart page, so a window never overflows / slices a page
 const RIG_COL = "11rem"; // "Terrain – Rig" label column width
@@ -690,7 +694,7 @@ function ReadinessKey() {
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-        {STATUSES.map((s) => (
+        {legendStatuses(gates).map((s) => (
           <span key={s} className="inline-flex items-center gap-1">
             <span className={cn("inline-block h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
             {STATUS_LABEL[s]}

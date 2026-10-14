@@ -12,6 +12,7 @@ import {
   type CatalogCheck,
   type CatalogTeam,
   type CheckStatus,
+  type TagItem,
 } from "@/api/readiness";
 import { logger } from "@/lib/logger";
 import { useAuthStore } from "@/store/auth";
@@ -56,6 +57,7 @@ export const BUILTIN_TEAMS: readonly CatalogTeam[] = [
 
 const CatalogContext = createContext<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
 const TeamsContext = createContext<readonly CatalogTeam[]>(BUILTIN_TEAMS);
+const TagItemsContext = createContext<readonly TagItem[]>([]);
 // Re-fetch the live catalog (after an admin edits it). A no-op outside the provider.
 const RefreshContext = createContext<() => void>(() => undefined);
 
@@ -64,6 +66,7 @@ const RefreshContext = createContext<() => void>(() => undefined);
 export function ReadinessCatalogProvider({ children }: { children: ReactNode }) {
   const [checks, setChecks] = useState<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
   const [teams, setTeams] = useState<readonly CatalogTeam[]>(BUILTIN_TEAMS);
+  const [tagItems, setTagItems] = useState<readonly TagItem[]>([]);
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
   useEffect(() => {
@@ -73,6 +76,7 @@ export function ReadinessCatalogProvider({ children }: { children: ReactNode }) 
         if (!active) return;
         setChecks(catalog.checks);
         setTeams(catalog.teams);
+        setTagItems(catalog.tag_items ?? []);
       })
       .catch((err: unknown) => {
         logger.warn("Readiness catalog unavailable; using the built-in gates", {
@@ -86,7 +90,9 @@ export function ReadinessCatalogProvider({ children }: { children: ReactNode }) 
   return (
     <RefreshContext.Provider value={refresh}>
       <TeamsContext.Provider value={teams}>
-        <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
+        <TagItemsContext.Provider value={tagItems}>
+          <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
+        </TagItemsContext.Provider>
       </TeamsContext.Provider>
     </RefreshContext.Provider>
   );
@@ -225,4 +231,18 @@ export function useReadinessLens(): [Lens, (lens: Lens) => void] {
     }
   }, []);
   return [lens, setLens];
+}
+
+/** Active items of one tag list (e.g. the equipment types), in display order. */
+export function useTagItems(tagList: string | undefined): TagItem[] {
+  const items = useContext(TagItemsContext);
+  return useMemo(
+    () =>
+      tagList
+        ? items
+            .filter((t) => t.tag_list === tagList)
+            .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
+        : [],
+    [items, tagList],
+  );
 }

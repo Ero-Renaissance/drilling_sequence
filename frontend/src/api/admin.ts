@@ -1,5 +1,5 @@
 import type { AdminUser } from "@/types";
-import type { CatalogCheck, CatalogTeam, ReadinessCatalog } from "./readiness";
+import type { CatalogCheck, CatalogTeam, ReadinessCatalog, TagItem } from "./readiness";
 import { api } from "./client";
 
 export interface AdminCatalogTeam extends CatalogTeam {
@@ -10,6 +10,10 @@ export interface AdminCatalogCheck extends CatalogCheck {
   retired_at: string | null;
 }
 
+export interface AdminTagItem extends TagItem {
+  retired_at: string | null;
+}
+
 /** The full catalog (incl. inactive teams and retired checks) plus the
  *  code-defined allow-lists the admin forms pick from. */
 export interface AdminReadinessCatalog {
@@ -17,7 +21,22 @@ export interface AdminReadinessCatalog {
   checks: AdminCatalogCheck[];
   status_sets: ReadinessCatalog["status_sets"];
   icon_keys: string[];
+  /** Code-defined tag lists a check may carry (e.g. "equipment"). */
+  tag_lists?: string[];
+  /** Every item of every tag list, retired included. */
+  tag_items?: AdminTagItem[];
 }
+
+export interface TagItemCreate {
+  tag_list: string;
+  code: string;
+  label: string;
+  category?: string;
+  sort_order?: number;
+}
+
+/** Only label, category and order are editable — the code is fixed. */
+export type TagItemUpdate = Partial<Pick<AdminTagItem, "label" | "category" | "sort_order">>;
 
 export interface TeamCreate {
   code: string;
@@ -38,6 +57,8 @@ export interface CheckCreate {
   icon_key: string;
   locks_with_plan: boolean;
   sort_order?: number;
+  /** "" or a code-defined tag list. */
+  tag_list?: string;
 }
 
 /** Only label, icon and order are editable — the rest is fixed at creation. */
@@ -65,4 +86,21 @@ export const adminApi = {
     api.post<AdminCatalogCheck>(`/api/admin/readiness/checks/${encodeURIComponent(code)}/retire`, {}),
   restoreCheck: (code: string) =>
     api.post<AdminCatalogCheck>(`/api/admin/readiness/checks/${encodeURIComponent(code)}/restore`, {}),
+
+  createTag: (body: TagItemCreate) => api.post<AdminTagItem>("/api/admin/readiness/tags", body),
+  updateTag: (tagList: string, code: string, body: TagItemUpdate) =>
+    api.patch<AdminTagItem>(
+      `/api/admin/readiness/tags/${encodeURIComponent(tagList)}/${encodeURIComponent(code)}`,
+      body,
+    ),
+  retireTag: (tagList: string, code: string) =>
+    api.post<AdminTagItem>(
+      `/api/admin/readiness/tags/${encodeURIComponent(tagList)}/${encodeURIComponent(code)}/retire`,
+      {},
+    ),
+  restoreTag: (tagList: string, code: string) =>
+    api.post<AdminTagItem>(
+      `/api/admin/readiness/tags/${encodeURIComponent(tagList)}/${encodeURIComponent(code)}/restore`,
+      {},
+    ),
 };

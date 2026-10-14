@@ -1,4 +1,4 @@
-import type { CheckStatus } from "@/api/readiness";
+import type { CheckStatus, Severity } from "@/api/readiness";
 
 /**
  * How readiness STATUSES are presented. Which checks exist — and each check's
@@ -19,6 +19,8 @@ export const STATUS_ICON_COLOR: Record<CheckStatus, string> = {
   Completed: "text-emerald-500",
   Behind: "text-red-500",
   "N/A": "text-zinc-300 dark:text-zinc-600 line-through",
+  Available: "text-emerald-500",
+  "Not available": "text-red-500",
 };
 
 /**
@@ -31,6 +33,8 @@ export const STATUS_DOT: Record<CheckStatus, string> = {
   Completed: "bg-emerald-500",
   Behind: "bg-red-500",
   "N/A": "bg-white ring-1 ring-zinc-300 dark:bg-zinc-100 dark:ring-zinc-400",
+  Available: "bg-emerald-500",
+  "Not available": "bg-red-500",
 };
 
 /**
@@ -42,4 +46,43 @@ export const STATUS_LABEL: Record<CheckStatus, string> = {
   Completed: "Completed",
   Behind: "Behind",
   "N/A": "N/A",
+  Available: "Available",
+  "Not available": "Not available",
 };
+
+/**
+ * The code-defined status sets — mirrors `STATUS_SETS` in
+ * backend/app/models/readiness.py (a backend test keeps the severities in step).
+ * `statuses` is the picker order; colour follows the shared severity, so an
+ * "Available" reads like "Completed" and "Not available" like "Behind".
+ */
+export const STATUS_SETS: Record<string, { statuses: CheckStatus[]; default: CheckStatus }> = {
+  standard: { statuses: ["On Track", "Behind", "Completed", "N/A"], default: "On Track" },
+  availability: { statuses: ["Available", "Not available"], default: "Not available" },
+};
+
+export const STATUS_SEVERITY: Record<CheckStatus, Severity> = {
+  "On Track": "in_progress",
+  Completed: "done",
+  Behind: "blocked",
+  "N/A": "not_counted",
+  Available: "done",
+  "Not available": "blocked",
+};
+
+/** A check's statuses in picker order (unknown set → standard). */
+export function statusesOf(statusSet: string | undefined): CheckStatus[] {
+  return (STATUS_SETS[statusSet ?? "standard"] ?? STATUS_SETS.standard).statuses;
+}
+
+/** What an unset entry of this status set reads as. */
+export function defaultStatusOf(statusSet: string | undefined): CheckStatus {
+  return (STATUS_SETS[statusSet ?? "standard"] ?? STATUS_SETS.standard).default;
+}
+
+/** The statuses to show in a legend for a set of checks (their status sets, in
+ *  order, without repeats). */
+export function legendStatuses(checks: { status_set: string }[]): CheckStatus[] {
+  const sets = checks.length ? checks.map((c) => c.status_set) : ["standard"];
+  return [...new Set(sets.flatMap((s) => statusesOf(s)))];
+}

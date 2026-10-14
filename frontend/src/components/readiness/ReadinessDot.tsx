@@ -9,16 +9,16 @@ import {
 import { cn } from "@/lib/utils";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { useCheckDef } from "./catalog";
-import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL } from "./check-meta";
+import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL, statusesOf } from "./check-meta";
 import { checkIcon } from "./icon-registry";
 
 export { STATUS_DOT, STATUS_ICON_COLOR };
 
-// The planner-pickable statuses. N/A is selectable so a planner can mark a
-// single gate "not applicable" for a well even when the activity still requires
-// readiness — an N/A gate is excluded from the readiness rollup (see
-// dashboard.ready: only non-N/A gates count).
-const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
+// The pickable statuses come from the check's status set (statusesOf): the
+// standard set keeps N/A selectable so a planner can mark a single gate "not
+// applicable" even when the activity still requires readiness — an N/A gate is
+// excluded from the rollups — and availability checks offer Available / Not
+// available.
 
 interface BaseProps {
   code: CheckCode;
@@ -156,7 +156,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
           {meta.label}
         </div>
         <div className="my-1 h-px bg-border" />
-        {STATUSES.map((s) => {
+        {statusesOf(meta.status_set).map((s) => {
           const selected = s === status;
           return (
             <DropdownMenuItem

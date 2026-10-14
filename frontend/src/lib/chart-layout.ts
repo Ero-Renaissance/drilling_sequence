@@ -19,10 +19,13 @@ export function worstCheck(
   order?: readonly CheckCode[],
 ): { code: CheckCode; status: CheckStatus } | null {
   if (!checks) return null;
+  // By shared severity: blocked > in progress > done > not counted.
   const rank: Record<CheckStatus, number> = {
     Behind: 3,
+    "Not available": 3,
     "On Track": 2,
     Completed: 1,
+    Available: 1,
     "N/A": 0,
   };
   let winner: { code: CheckCode; status: CheckStatus } | null = null;

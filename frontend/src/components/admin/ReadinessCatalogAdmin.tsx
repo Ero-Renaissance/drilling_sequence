@@ -234,6 +234,7 @@ function CheckDialog({
   const [appliesWell, setAppliesWell] = useState(check?.applies_well ?? !isProjectGate);
   const [statusSet, setStatusSet] = useState(check?.status_set ?? statusSets[0] ?? "standard");
   const [locks, setLocks] = useState(check?.locks_with_plan ?? isProjectGate);
+  const [tagList, setTagList] = useState(check?.tag_list ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -283,6 +284,7 @@ function CheckDialog({
           icon_key: icon,
           locks_with_plan: effLocks,
           sort_order: sortOrder,
+          tag_list: tagList,
         });
         onSaved(`Check ${code} added to ${team.name}`);
       }
@@ -345,6 +347,12 @@ function CheckDialog({
               <dd>{statusSetLabel(catalog, check.status_set)}</dd>
               <dt className="text-muted-foreground">Plan lock</dt>
               <dd>{check.locks_with_plan ? "Locks with the plan" : "Stays editable after approval"}</dd>
+              {check.tag_list && (
+                <>
+                  <dt className="text-muted-foreground">Tags</dt>
+                  <dd>{check.tag_list}</dd>
+                </>
+              )}
             </dl>
           ) : (
             <>
@@ -388,6 +396,24 @@ function CheckDialog({
                   ))}
                 </select>
               </div>
+              {(catalog.tag_lists ?? []).length > 0 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="check-tag-list">Tags</Label>
+                  <select
+                    id="check-tag-list"
+                    value={tagList}
+                    onChange={(e) => setTagList(e.target.value)}
+                    className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                  >
+                    <option value="">None</option>
+                    {(catalog.tag_lists ?? []).map((list) => (
+                      <option key={list} value={list}>
+                        {list === "equipment" ? "Equipment types" : list}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"

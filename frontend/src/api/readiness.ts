@@ -8,7 +8,14 @@ import { throwApiError } from "./http";
  * set below; more sets arrive with later phases).
  */
 export type CheckCode = string;
-export type CheckStatus = "On Track" | "Completed" | "Behind" | "N/A";
+export type CheckStatus =
+  | "On Track"
+  | "Completed"
+  | "Behind"
+  | "N/A"
+  // "availability" status set (e.g. Nominated Equipment)
+  | "Available"
+  | "Not available";
 export type Severity = "done" | "in_progress" | "blocked" | "not_counted";
 
 export interface CatalogTeam {
@@ -31,18 +38,33 @@ export interface CatalogCheck {
   icon_key: string;
   locks_with_plan: boolean;
   sort_order: number;
+  /** "" = none; else the controlled tag list it carries ("equipment"). Optional
+   *  for definitions frozen before tag lists existed. */
+  tag_list?: string;
+}
+
+/** One item of a controlled tag list — e.g. an equipment type. */
+export interface TagItem {
+  tag_list: string;
+  code: string;
+  label: string;
+  category: string;
+  sort_order: number;
 }
 
 export interface ReadinessCatalog {
   teams: CatalogTeam[];
   checks: CatalogCheck[];
   status_sets: Record<string, { statuses: { status: string; severity: Severity }[]; default: string }>;
+  tag_items?: TagItem[];
 }
 
 export interface CheckState {
   status: CheckStatus;
   notes: string | null;
   updated_at: string | null;
+  /** The entry's own tags (checks with a tag list). */
+  tags?: string[];
 }
 
 /**
@@ -117,6 +139,8 @@ export type CheckSource = "well" | "project" | "default";
 
 export interface EffectiveCheckState extends CheckState {
   source: CheckSource;
+  /** The field project's tags a well inherits; effective = inherited ∪ own. */
+  inherited_tags?: string[];
 }
 
 export interface TeamProjectRow {
@@ -164,18 +188,25 @@ export async function getTeamReadiness(projectId: string, teamCode: string): Pro
   return resp.json();
 }
 
-/** Set one check for a field project or a well. */
+/** Set one check for a field project or a well. `tags` (checks with a tag list)
+ *  replaces the entry's own tags; omit it to leave them unchanged. */
 export async function setReadiness(
   projectId: string,
   checkCode: CheckCode,
   target: ReadinessTarget,
   status: CheckStatus,
   notes?: string | null,
+  tags?: string[],
 ): Promise<void> {
   const resp = await fetch(`/api/projects/${projectId}/readiness/${encodeURIComponent(checkCode)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({ ...target, status, notes: notes ?? null }),
+    body: JSON.stringify({
+      ...target,
+      status,
+      notes: notes ?? null,
+      ...(tags !== undefined ? { tags } : {}),
+    }),
   });
   if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }

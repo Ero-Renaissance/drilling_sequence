@@ -1,13 +1,11 @@
 import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CheckStatus } from "@/api/readiness";
 import { useLensChecks } from "@/components/readiness/catalog";
-import { STATUS_DOT, STATUS_LABEL } from "@/components/readiness/check-meta";
+import { STATUS_DOT, STATUS_LABEL, legendStatuses } from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
 import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 
-const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
 interface ChartLegendProps {
   activityTypes: string[];
@@ -111,7 +109,7 @@ export function ChartLegend({
           </Section>
 
           <Section label="Status" className="md:max-w-[10rem]">
-            {STATUSES.map((s) => (
+            {legendStatuses(gates).map((s) => (
               <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
                 <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
                 {STATUS_LABEL[s]}

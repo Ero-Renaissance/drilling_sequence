@@ -17,11 +17,11 @@ import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { cn, formatDate } from "@/lib/utils";
 import { ReadinessDot } from "./ReadinessDot";
+import { TagCheckCell } from "./TagCheckCell";
 import { FrozenCatalogProvider } from "./catalog";
-import { STATUS_DOT } from "./check-meta";
+import { STATUS_DOT, defaultStatusOf, legendStatuses } from "./check-meta";
 import { checkIcon } from "./icon-registry";
 
-const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
 
 function wellKey(r: TeamWellRow): string {
   return `${r.well_project}\u0001${r.well_name}\u0001${r.activity_type}`;
@@ -149,7 +149,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border/70 bg-card/60 px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {STATUSES.map((s) => (
+            {legendStatuses(data.checks).map((s) => (
               <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
                 <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
                 {s}
@@ -229,17 +229,38 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 scope: "project",
                                 well_project: row.well_project,
                               };
+                              const current = row.checks[c.code];
+                              const status: CheckStatus =
+                                current?.status ?? defaultStatusOf(c.status_set);
+                              const disabled = !canEdit || saving === key || frozen(c);
                               return (
                                 <td key={c.code} className="px-1 py-2 text-center">
                                   <div className="flex justify-center">
-                                    <ReadinessDot
-                                      code={c.code}
-                                      status={(row.checks[c.code]?.status ?? "On Track") as CheckStatus}
-                                      disabled={!canEdit || saving === key || frozen(c)}
-                                      onChange={(next) =>
-                                        write(key, () => setReadiness(projectId, c.code, target, next))
-                                      }
-                                    />
+                                    {c.tag_list ? (
+                                      <TagCheckCell
+                                        check={c}
+                                        targetLabel={`${row.well_project} (field project)`}
+                                        status={status}
+                                        tags={current?.tags ?? []}
+                                        inheritedTags={[]}
+                                        inherited={false}
+                                        disabled={disabled}
+                                        onSave={(next, tags) =>
+                                          write(key, () =>
+                                            setReadiness(projectId, c.code, target, next, null, tags),
+                                          )
+                                        }
+                                      />
+                                    ) : (
+                                      <ReadinessDot
+                                        code={c.code}
+                                        status={status}
+                                        disabled={disabled}
+                                        onChange={(next) =>
+                                          write(key, () => setReadiness(projectId, c.code, target, next))
+                                        }
+                                      />
+                                    )}
                                   </div>
                                 </td>
                               );
@@ -304,7 +325,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                               </td>
                               {data.checks.map((c) => {
                                 const state = row.checks[c.code];
-                                const status = (state?.status ?? "On Track") as CheckStatus;
+                                const status = state?.status ?? defaultStatusOf(c.status_set);
                                 const key = `w:${wk}:${c.code}`;
                                 // Project-only checks are set on the field-project row.
                                 if (!c.applies_well) {
@@ -318,6 +339,36 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 }
                                 const inherited = state?.source !== "well" && c.applies_project;
                                 const canReset = c.applies_project && state?.source === "well";
+                                if (c.tag_list) {
+                                  return (
+                                    <td key={c.code} className="px-1 py-2 text-center">
+                                      <div className="flex justify-center">
+                                        <TagCheckCell
+                                          check={c}
+                                          targetLabel={`${row.well_name} · ${row.well_project || "No field project"} · ${row.activity_type}`}
+                                          status={status}
+                                          tags={state?.tags ?? []}
+                                          inheritedTags={state?.inherited_tags ?? []}
+                                          inherited={inherited}
+                                          disabled={!canEdit || saving === key || frozen(c)}
+                                          onSave={(next, tags) =>
+                                            write(key, () =>
+                                              setReadiness(projectId, c.code, target, next, null, tags),
+                                            )
+                                          }
+                                          onReset={
+                                            canReset
+                                              ? () =>
+                                                  write(key, () =>
+                                                    resetWellReadiness(projectId, c.code, target),
+                                                  )
+                                              : undefined
+                                          }
+                                        />
+                                      </div>
+                                    </td>
+                                  );
+                                }
                                 return (
                                   <td key={c.code} className="px-1 py-2 text-center">
                                     <div className="flex justify-center">
