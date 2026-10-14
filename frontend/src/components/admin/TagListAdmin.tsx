@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
@@ -165,9 +166,15 @@ function TagDialog({
 export function TagListAdmin({
   catalog,
   onChanged,
+  defaultOpen = true,
+  storageKeyPrefix,
 }: {
   catalog: AdminReadinessCatalog;
   onChanged: () => void;
+  /** Whether each list starts unfolded (before any remembered choice). */
+  defaultOpen?: boolean;
+  /** Remember each list's folded/unfolded choice under `${prefix}.${list}`. */
+  storageKeyPrefix?: string;
 }) {
   const [dialog, setDialog] = useState<{ tagList: string; item: AdminTagItem | null } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -190,28 +197,29 @@ export function TagListAdmin({
   }
 
   return (
-    <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm">
+    <>
       {lists.map((list) => {
         const items = (catalog.tag_items ?? []).filter((t) => t.tag_list === list);
         const nextOrder = items.length ? Math.max(...items.map((i) => i.sort_order)) + 10 : 10;
         return (
-          <section key={list} aria-label={LIST_TITLE[list] ?? list}>
-            <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
-              <Tags className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold">
-                {LIST_TITLE[list] ?? list}
-                <span className="ml-2 font-normal text-muted-foreground">{items.length}</span>
-              </h2>
+          <CollapsibleSection
+            key={list}
+            title={LIST_TITLE[list] ?? list}
+            icon={Tags}
+            count={items.filter((i) => i.retired_at === null).length}
+            defaultOpen={defaultOpen}
+            storageKey={storageKeyPrefix ? `${storageKeyPrefix}.${list}` : undefined}
+            actions={
               <Button
                 size="sm"
                 variant="outline"
-                className="ml-auto"
                 onClick={() => setDialog({ tagList: list, item: null })}
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add
               </Button>
-            </div>
+            }
+          >
             <p className="px-4 pt-3 text-xs text-muted-foreground">
               Picked on the Nominated Equipment check for a field project or a well. Retiring keeps
               the type on entries that already have it but stops it being added again.
@@ -290,9 +298,9 @@ export function TagListAdmin({
                 }}
               />
             )}
-          </section>
+          </CollapsibleSection>
         );
       })}
-    </div>
+    </>
   );
 }

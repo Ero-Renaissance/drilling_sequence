@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toaster";
 import { PROJECTS_TEAM } from "@/components/readiness/catalog";
@@ -478,11 +479,17 @@ export function ReadinessCatalogAdmin({
   catalog,
   loading,
   onChanged,
+  defaultOpen = true,
+  storageKey,
 }: {
   catalog: AdminReadinessCatalog | null;
   loading: boolean;
   /** Reload the admin catalog and the app's live catalog. */
   onChanged: () => void;
+  /** Whether the section starts unfolded (before any remembered choice). */
+  defaultOpen?: boolean;
+  /** Remember the folded/unfolded choice under this key. */
+  storageKey?: string;
 }) {
   const [teamDialog, setTeamDialog] = useState<TeamDialogState>(null);
   const [checkDialog, setCheckDialog] = useState<CheckDialogState>(null);
@@ -511,21 +518,30 @@ export function ReadinessCatalogAdmin({
   const nextOrder = (orders: number[]) => (orders.length ? Math.max(...orders) + 10 : 10);
 
   return (
-    <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
-        <ListChecks className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Readiness checks</h2>
+    <CollapsibleSection
+      title="Readiness checks"
+      icon={ListChecks}
+      defaultOpen={defaultOpen}
+      storageKey={storageKey}
+      count={
+        catalog
+          ? `${catalog.teams.length} ${catalog.teams.length === 1 ? "team" : "teams"} · ${
+              catalog.checks.filter((c) => c.retired_at === null).length
+            } checks`
+          : ""
+      }
+      actions={
         <Button
           size="sm"
           variant="outline"
-          className="ml-auto"
           disabled={!catalog}
           onClick={() => setTeamDialog({ team: null })}
         >
           <Plus className="h-3.5 w-3.5" />
           Add team
         </Button>
-      </div>
+      }
+    >
       <p className="px-4 pt-3 text-xs text-muted-foreground">
         Each team owns its readiness checks. The project gates are updated by campaign planners;
         other teams by the users given that team&apos;s grant above. Retire a check instead of
@@ -717,6 +733,6 @@ export function ReadinessCatalogAdmin({
           onSaved={saved}
         />
       )}
-    </div>
+    </CollapsibleSection>
   );
 }

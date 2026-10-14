@@ -77,6 +77,20 @@ describe("Admin", () => {
     setTeams.mockReset();
     readinessCatalog.mockReset();
     readinessCatalog.mockResolvedValue(catalog(true));
+    window.localStorage.clear(); // section fold state is remembered per browser
+  });
+
+  it("opens on the users; the readiness configuration starts folded", async () => {
+    listUsers.mockResolvedValue([user({})]);
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+    expect(screen.getByRole("button", { name: /^users/i })).toHaveAttribute("aria-expanded", "true");
+    const checks = await screen.findByRole("button", { name: /readiness checks/i });
+    expect(checks).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "Projects checks" })).not.toBeInTheDocument();
+
+    fireEvent.click(checks);
+    expect(await screen.findByRole("region", { name: "Projects checks" })).toBeInTheDocument();
   });
 
   it("marks allowlist admins and disables their revoke button", async () => {

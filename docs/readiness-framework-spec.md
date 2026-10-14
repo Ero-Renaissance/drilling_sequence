@@ -493,13 +493,13 @@ Updated **in the same commit as the code that changes them**, not before:
 15. **Logistics codes confirmed (2026-10-14):** `L-BUD, CTR, NEQ, FFP, CTS, PO, NAV`.
 16. **Readiness opt-out hides every team's checks (2026-10-14):** an activity with
     `readiness_required = false` carries no readiness from any team.
+17. **Logistics data is visible to everyone (2026-10-14):** no restriction — like
+    all readiness, reads are org-wide; only writes need the team grant.
 
 ## 12. Open questions
 
 1. **Well-gate list** — names and status set for each (location preparation,
    permits, …). Left blank; added via the catalog, no code change needed.
-2. **Who can see the Logistics lens** — org-wide read is assumed (as all readiness
-   today); confirm nothing in logistics data is restricted.
 
 ## 13. Future ideas (not decided)
 

@@ -28,6 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { ReadinessCatalogAdmin } from "@/components/admin/ReadinessCatalogAdmin";
@@ -152,7 +153,7 @@ export function Admin() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">User Management</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
         <p className="text-sm text-muted-foreground">
           Grant or revoke global access. Admins can view and manage every campaign; planners
           can create campaigns and manage the plans they hold the planner role on. A readiness
@@ -175,20 +176,19 @@ export function Admin() {
         </div>
       )}
 
-      <div className="rounded-xl border border-border/70 bg-card shadow-soft-sm">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-3">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">
-            Users
-            <span className="ml-2 font-normal text-muted-foreground">
-              {loading
-                ? ""
-                : filtered.length === users.length
-                  ? users.length
-                  : `${filtered.length} of ${users.length}`}
-            </span>
-          </h2>
-          <div className="ml-auto flex items-center gap-2">
+      <CollapsibleSection
+        title="Users"
+        icon={Users}
+        storageKey="ds.admin-section.users"
+        count={
+          loading
+            ? ""
+            : filtered.length === users.length
+              ? users.length
+              : `${filtered.length} of ${users.length}`
+        }
+        actions={
+          <>
             <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
               <input
                 type="checkbox"
@@ -205,9 +205,9 @@ export function Admin() {
               ariaLabel="Search users"
               testId="admin-user-search"
             />
-          </div>
-        </div>
-
+          </>
+        }
+      >
         {loading ? (
           <div className="space-y-2 p-4">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -364,11 +364,15 @@ export function Admin() {
             })}
           </ul>
         )}
-      </div>
+      </CollapsibleSection>
 
+      {/* Configuration sections start folded so the page opens on the people;
+          each remembers being opened. */}
       <ReadinessCatalogAdmin
         catalog={catalog}
         loading={catalogLoading}
+        defaultOpen={false}
+        storageKey="ds.admin-section.readiness"
         onChanged={() => {
           loadCatalog();
           refreshLiveCatalog();
@@ -378,6 +382,8 @@ export function Admin() {
       {catalog && (
         <TagListAdmin
           catalog={catalog}
+          defaultOpen={false}
+          storageKeyPrefix="ds.admin-section.tags"
           onChanged={() => {
             loadCatalog();
             refreshLiveCatalog();
