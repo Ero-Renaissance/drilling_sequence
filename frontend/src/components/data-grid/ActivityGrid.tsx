@@ -64,6 +64,7 @@ function laneLabelOf(a: Activity): string | null {
 }
 import { EditableCell } from "./EditableCell";
 import { toast } from "@/components/ui/toaster";
+import { AddProjectDialog } from "./AddProjectDialog";
 import { ActivityFormDialog, LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
 import { HistoryPanel } from "@/components/activity/HistoryPanel";
 
@@ -981,6 +982,21 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
             .filter((n): n is string => !!n)}
           existingProjects={activities
             .map((a) => a.well_project)
+            .filter((n): n is string => !!n)}
+        />
+        <AddProjectDialog
+          projectId={projectId}
+          onCreated={() => load()}
+          locked={isLocked}
+          existingProjects={activities
+            .map((a) => a.well_project)
+            .filter((n): n is string => !!n)}
+          existingActivityTypes={activities.map((a) => a.activity_type)}
+          existingRigNames={activities
+            .map((a) => a.rig_name)
+            .filter((n): n is string => !!n)}
+          existingHwuNames={activities
+            .map((a) => a.hwu_name)
             .filter((n): n is string => !!n)}
         />
         <div className="mx-1 h-4 w-px bg-border" />

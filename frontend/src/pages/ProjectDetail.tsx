@@ -27,6 +27,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ImportDialog } from "@/components/chart/ImportDialog";
 import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDialog";
 import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
+import { AddProjectDialog } from "@/components/data-grid/AddProjectDialog";
 import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
 import { rigLaneKey } from "@/lib/resource-identity";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
@@ -525,6 +526,23 @@ export function ChartTab() {
               .filter((n): n is string => !!n)}
             existingProjects={(activities ?? [])
               .map((a) => a.well_project)
+              .filter((n): n is string => !!n)}
+          />
+        )}
+        {projectId && (
+          <AddProjectDialog
+            projectId={projectId}
+            onCreated={() => load()}
+            locked={isLocked}
+            existingProjects={(activities ?? [])
+              .map((a) => a.well_project)
+              .filter((n): n is string => !!n)}
+            existingActivityTypes={(activities ?? []).map((a) => a.activity_type)}
+            existingRigNames={(activities ?? [])
+              .map((a) => a.rig_name)
+              .filter((n): n is string => !!n)}
+            existingHwuNames={(activities ?? [])
+              .map((a) => a.hwu_name)
               .filter((n): n is string => !!n)}
           />
         )}

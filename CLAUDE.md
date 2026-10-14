@@ -101,7 +101,8 @@ logic against these active business rules:
   auto-approves. A revision that skipped optional review is flagged `review_skipped`.
 - **Plan-lock lifecycle (freeze after approval):** creating a revision locks the
   plan's activities (`Activity.locked_by_revision_id`); every plan-mutating write
-  (activity create/edit/complete/delete, CSV import, rig/HWU contract upsert/delete,
+  (activity create/edit/complete/delete, CSV import, "Add project" bulk wells
+  (`POST .../activities/project-wells`), rig/HWU contract upsert/delete,
   readiness PUT for a **governed** check — `locks_with_plan`, i.e. the project
   gates; operational checks stay editable) is then refused with **423** via `app/core/locks.py`
   (`ensure_activity_unlocked` / `assert_project_not_locked`). **Approval keeps the

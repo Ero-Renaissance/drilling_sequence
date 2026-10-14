@@ -1,6 +1,6 @@
 import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useLensChecks } from "@/components/readiness/catalog";
+import { ALL_LENS, useLens, useLensChecks } from "@/components/readiness/catalog";
 import { STATUS_DOT, STATUS_LABEL, legendStatuses } from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
@@ -56,6 +56,8 @@ export function ChartLegend({
 }: ChartLegendProps) {
   // The current lens's checks (project gates by default); none → no section.
   const gates = useLensChecks();
+  // Under the All lens the "checks" are teams — name them, don't show codes.
+  const teamsOnly = useLens() === ALL_LENS;
   return (
     <div
       className={cn(
@@ -101,7 +103,7 @@ export function ChartLegend({
                     className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                     strokeWidth={2}
                   />
-                  <span className="font-medium">{code}</span>
+                  {!teamsOnly && <span className="font-medium">{code}</span>}
                   <span className="text-muted-foreground">{label}</span>
                 </span>
               );

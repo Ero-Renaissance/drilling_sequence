@@ -42,6 +42,12 @@ def _resource(a: Activity) -> tuple[str, str, str] | None:
     return None
 
 
+def resource_key(a: Activity) -> tuple[str, str, str] | None:
+    """Public form of the resource-lane identity above — for planners that place
+    new work and must recognise the same physical unit the same way."""
+    return _resource(a)
+
+
 def detect_resource_conflicts(activities: list[Activity]) -> list[dict]:
     """Same-resource date overlaps among non-completed activities, worst first.
 

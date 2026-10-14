@@ -125,6 +125,66 @@ export async function createActivity(projectId: string, payload: ActivityCreate)
   return resp.json();
 }
 
+// ── Add a field project with its wells (the "Add project" dialog) ─────────────
+
+export interface PlannedWellIn {
+  well_name: string;
+  activity_type: string;
+  resource_type: "rig" | "hwu" | "none";
+  resource_name: string | null;
+  /** Rig time in months (decimals allowed) — 30.44 days/month, like the optimizer. */
+  duration_months: number;
+}
+
+export interface ProjectWellsIn {
+  well_project: string;
+  start_date: string;
+  location: string;
+  plan_type: string;
+  risk: string;
+  market: string | null;
+  readiness_required: boolean;
+  comment: string | null;
+  wells: PlannedWellIn[];
+  /** true → only compute and return the plan; false → create the activities. */
+  dry_run: boolean;
+}
+
+export interface PlannedWell {
+  well_name: string;
+  activity_type: string;
+  rig_name: string | null;
+  hwu_name: string | null;
+  start_date: string;
+  end_date: string;
+  duration_days: number;
+  gap_before_days: number;
+  gap_kind: "none" | "inter_well" | "batch" | "project_move";
+}
+
+export interface ProjectWellsPlan {
+  wells: PlannedWell[];
+  conflicts: { well_name: string; resource: string; clashes_with: string; overlap_days: number }[];
+  created: number;
+}
+
+/** Preview (dry_run) or create a field project's wells, laid out with the rig
+ *  optimizer's gap rules on the server. Creation is all-or-nothing. */
+export async function planProjectWells(
+  projectId: string,
+  payload: ProjectWellsIn,
+): Promise<ProjectWellsPlan> {
+  const resp = await fetch(`/api/projects/${projectId}/activities/project-wells`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    await throwApiError(resp, payload.dry_run ? "Failed to preview the wells" : "Failed to add the wells");
+  }
+  return resp.json();
+}
+
 export class ConflictError extends Error {
   constructor(
     public readonly updatedBy: string,

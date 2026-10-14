@@ -30,7 +30,8 @@ from app.schemas.activity import (
     ImportResponse,
 )
 from app.schemas.audit import AuditEntryResponse
-from app.services.audit import ENTITY_VOCABULARY, governance_event
+from app.schemas.project_wells import ProjectWellsIn, ProjectWellsPlan
+from app.services.audit import ENTITY_PROJECT, ENTITY_VOCABULARY, governance_event
 from app.services.data_processor import (
     CANONICAL_ACTIVITY_TYPES,
     SCHEDULE_SHEET,
@@ -43,6 +44,7 @@ from app.services.data_processor import (
     unknown_activity_type_warnings,
     validate_csv_columns,
 )
+from app.services.project_planner import plan_conflicts, plan_project_wells
 from app.services.readiness_rekey import carry_readiness_over, well_key
 from app.services.registry import (
     ensure_activity_resources_registered,
@@ -719,6 +721,84 @@ async def _remember_type_aliases(
                 detail=f"Import mapping remembered: '{display}' → '{canonical}'",
             )
         )
+
+
+@router.post("/project-wells", response_model=ProjectWellsPlan)
+async def add_project_wells(
+    project_id: uuid.UUID, payload: ProjectWellsIn, current_user: CurrentUser, db: DB
+) -> ProjectWellsPlan:
+    """Add a field project with its wells in one go (the "Add project" dialog).
+
+    The wells are laid out with the rig optimizer's rules
+    (app/services/project_planner.py): durations in months, 2 weeks between
+    wells on the same rig and 4 weeks after every 3rd, each rig's first well on
+    the start date or after its current job + the rig-move time. ``dry_run``
+    returns that plan (and any clashes) without writing; otherwise every well is
+    created in ONE transaction — all or nothing.
+    """
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # Same gate as Add Activity / import: the plan can't change while locked.
+    await assert_project_not_locked(project_id, db)
+
+    existing = list(
+        (await db.execute(select(Activity).where(Activity.project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    planned = plan_project_wells(
+        start_date=payload.start_date,
+        location=payload.location,
+        wells=payload.wells,
+        existing=existing,
+    )
+    conflicts = plan_conflicts(planned, payload.location, existing)
+    if payload.dry_run:
+        return ProjectWellsPlan(wells=planned, conflicts=conflicts)
+
+    for p in planned:
+        db.add(
+            Activity(
+                project_id=project_id,
+                activity_type=p.activity_type,
+                start_date=p.start_date,
+                end_date=p.end_date,
+                well_name=p.well_name,
+                rig_name=p.rig_name,
+                hwu_name=p.hwu_name,
+                well_project=payload.well_project,
+                location=payload.location,
+                plan_type=payload.plan_type,
+                risk=payload.risk,
+                market=payload.market,
+                comment=payload.comment,
+                readiness_required=payload.readiness_required,
+                updated_by=current_user.id,
+            )
+        )
+    # Register each physical unit once (new units start as placeholder slots),
+    # exactly as a single create does.
+    await ensure_activity_resources_registered(
+        db,
+        project_id,
+        {("rig", p.rig_name, payload.location) for p in planned if p.rig_name}
+        | {("hwu", p.hwu_name, None) for p in planned if p.hwu_name},
+        user_id=current_user.id,
+    )
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_PROJECT,
+            entity_id=project_id,
+            action="project_wells_added",
+            detail=(
+                f"Added {len(planned)} well(s) for {payload.well_project}"
+                + (f" ({len(conflicts)} clash(es) to resolve)" if conflicts else "")
+            )[:512],
+        )
+    )
+    await db.commit()
+    return ProjectWellsPlan(wells=planned, conflicts=conflicts, created=len(planned))
 
 
 @router.post("/import", response_model=ImportResponse)

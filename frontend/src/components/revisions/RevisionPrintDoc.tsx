@@ -8,7 +8,7 @@
  */
 import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
-import { useLensChecks } from "@/components/readiness/catalog";
+import { ALL_LENS, useLens, useLensChecks } from "@/components/readiness/catalog";
 import {
   STATUS_DOT,
   STATUS_ICON_COLOR,
@@ -679,6 +679,8 @@ function ReadinessKey() {
   // The lens's checks from the catalog in context — a revision print pins its
   // frozen catalog; a working copy can print one team's lens.
   const gates = useLensChecks();
+  // Under the All lens the "checks" are teams — name them, don't show codes.
+  const teamsOnly = useLens() === ALL_LENS;
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -688,7 +690,7 @@ function ReadinessKey() {
           return (
             <span key={code} className="inline-flex items-center gap-1">
               <Icon className="h-3 w-3" />
-              <span className="font-medium">{code}</span>
+              {!teamsOnly && <span className="font-medium">{code}</span>}
               <span className="text-muted-foreground">{label}</span>
             </span>
           );
