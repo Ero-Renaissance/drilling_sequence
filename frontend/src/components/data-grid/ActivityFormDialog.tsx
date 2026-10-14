@@ -36,6 +36,9 @@ const schema = z
     start_date: z.string().min(1, "Required"),
     end_date: z.string().min(1, "Required"),
     well_name: z.string().min(1, "Required"),
+    // The field-development project the well belongs to — optional (rig idle
+    // time, contracting… have none); bounded like the API (256).
+    well_project: z.string().max(256, "At most 256 characters").optional(),
     no_resource: z.boolean(),
     resource_type: z.enum(["Rig", "HWU"]),
     resource_name: z.string().optional(),
@@ -69,6 +72,9 @@ interface ActivityFormDialogProps {
   existingRigNames?: string[];
   /** Existing HWUs in the project — fed into the resource combobox. */
   existingHwuNames?: string[];
+  /** Existing field projects in the campaign — suggested in the Project field
+   *  so a new well joins "Bonga Phase 3", not a typo of it. */
+  existingProjects?: string[];
 }
 
 function Field({
@@ -98,6 +104,7 @@ export function ActivityFormDialog({
   existingActivityTypes,
   existingRigNames,
   existingHwuNames,
+  existingProjects,
 }: ActivityFormDialogProps) {
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -106,6 +113,14 @@ export function ActivityFormDialog({
   const activityTypeSuggestions = useMemo(
     () => suggestedActivityTypes(existingActivityTypes ?? []),
     [existingActivityTypes],
+  );
+  const projectSuggestions = useMemo(
+    // Natural order, so "PROJECT_2" comes before "PROJECT_10".
+    () =>
+      Array.from(new Set((existingProjects ?? []).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+      ),
+    [existingProjects],
   );
   const {
     register,
@@ -141,6 +156,8 @@ export function ActivityFormDialog({
         start_date: values.start_date,
         end_date: values.end_date,
         well_name: values.well_name || null,
+        // Matched exactly against the campaign's projects — trim stray spaces.
+        well_project: values.well_project?.trim() || null,
         rig_name:
           !values.no_resource && values.resource_type === "Rig" ? values.resource_name || null : null,
         hwu_name:
@@ -214,8 +231,25 @@ export function ActivityFormDialog({
             </Field>
           </div>
 
-          {/* Optional row 1 */}
+          {/* Project + well */}
           <div className="grid grid-cols-2 gap-3">
+            <Field label="Project" htmlFor="add-well-project" error={errors.well_project?.message}>
+              <Input
+                id="add-well-project"
+                {...register("well_project")}
+                list="add-project-suggestions"
+                placeholder="Type or pick existing"
+                spellCheck
+              />
+              <datalist id="add-project-suggestions">
+                {projectSuggestions.map((p) => (
+                  <option key={p} value={p} />
+                ))}
+              </datalist>
+              <p className="text-[11px] text-muted-foreground">
+                Wells in the same project share its readiness gates.
+              </p>
+            </Field>
             <Field label="Well Name *" htmlFor="add-well-name" error={errors.well_name?.message}>
               <Input
                 id="add-well-name"
@@ -224,6 +258,10 @@ export function ActivityFormDialog({
                 spellCheck
               />
             </Field>
+          </div>
+
+          {/* Resource */}
+          <div className="grid grid-cols-2 gap-3">
             <Field label="Resource *" error={errors.resource_name?.message}>
               <div className="flex gap-2">
                 <select

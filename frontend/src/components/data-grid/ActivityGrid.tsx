@@ -979,6 +979,9 @@ export function ActivityGrid({ projectId }: ActivityGridProps) {
           existingHwuNames={activities
             .map((a) => a.hwu_name)
             .filter((n): n is string => !!n)}
+          existingProjects={activities
+            .map((a) => a.well_project)
+            .filter((n): n is string => !!n)}
         />
         <div className="mx-1 h-4 w-px bg-border" />
         <Button

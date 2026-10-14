@@ -520,6 +520,12 @@ export function ChartTab() {
             existingRigNames={(activities ?? [])
               .map((a) => a.rig_name)
               .filter((n): n is string => !!n)}
+            existingHwuNames={(activities ?? [])
+              .map((a) => a.hwu_name)
+              .filter((n): n is string => !!n)}
+            existingProjects={(activities ?? [])
+              .map((a) => a.well_project)
+              .filter((n): n is string => !!n)}
           />
         )}
         <div className="mx-1 h-4 w-px bg-border" />
