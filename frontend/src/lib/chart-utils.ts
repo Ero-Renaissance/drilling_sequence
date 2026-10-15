@@ -11,7 +11,15 @@ import { terrainRank } from "./gantt-rows";
  * resolves to the same gates; for a well-level lens it's the well key (project +
  * well + activity type). Activities with no key have no entry (and show no gates).
  */
-export type ReadinessMap = Map<string, Record<CheckCode, { status: CheckStatus }>>;
+export type ReadinessMap = Map<string, Record<CheckCode, ChartCheckState>>;
+
+/** One check's value on a bar. `tags` / `inherited_tags` carry a tag list's
+ *  items (e.g. nominated equipment: the well's own and its project's). */
+export interface ChartCheckState {
+  status: CheckStatus;
+  tags?: string[];
+  inherited_tags?: string[];
+}
 
 /** The scheduling resource a row represents — a rig or an HWU. */
 export interface ChartResource {
@@ -37,7 +45,7 @@ export interface ChartDataItem {
     end: string;
     plan: string | null;
     risk: string | null;
-    checks: Record<CheckCode, { status: CheckStatus }> | null;
+    checks: Record<CheckCode, ChartCheckState> | null;
   };
   isConflict?: boolean;
   isCompleted?: boolean;

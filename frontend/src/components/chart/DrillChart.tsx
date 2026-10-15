@@ -19,7 +19,12 @@ import {
   useLensChecks,
   useReadinessTeams,
 } from "@/components/readiness/catalog";
-import { activitiesToChartData, activityLaneLabel, type ReadinessMap } from "@/lib/chart-utils";
+import {
+  activitiesToChartData,
+  activityLaneLabel,
+  type ChartCheckState,
+  type ReadinessMap,
+} from "@/lib/chart-utils";
 import { worstCheck, iconTier, gridCols, tagFits } from "@/lib/chart-layout";
 import { terrainRank } from "@/lib/gantt-rows";
 import { rigLaneKey } from "@/lib/resource-identity";
@@ -533,6 +538,22 @@ export function DrillChart({
       gates.map((g) => [g.code, lens === ALL_LENS ? g.label : g.code]),
     );
     const iconKeyOf = (code: CheckCode) => iconKeyByCode.get(code) ?? "";
+    // Checks carrying a tag list (Nominated Equipment): their effective tags —
+    // the project's plus the well's own — are written after the strip and listed
+    // in the tooltip, so the chart shows WHICH equipment, not just its status.
+    const tagCodes = gates.filter((g) => g.tag_list).map((g) => g.code);
+    const labelByCode = new Map(gates.map((g) => [g.code, g.label]));
+    const tagsOf = (
+      checks: Record<string, ChartCheckState> | null | undefined,
+      code: CheckCode,
+    ): string[] => {
+      const c = checks?.[code];
+      return c ? [...new Set([...(c.inherited_tags ?? []), ...(c.tags ?? [])])] : [];
+    };
+    const equipmentOf = (checks: Record<string, ChartCheckState> | null | undefined): string[] => [...new Set(tagCodes.flatMap((code) => tagsOf(checks, code)))];
+    // A team lens lists each check on its own line (code, name, status, tags);
+    // the project gates keep their compact two-column tooltip.
+    const detailedTooltip = lens !== PROJECTS_TEAM && lens !== ALL_LENS;
     const ROW_HEIGHT = 56;
     const ICON_SIZE = 14;
     const ICON_GAP = 2;
@@ -786,7 +807,8 @@ export function DrillChart({
           if (!(x + ICON < minX || x > maxX)) {
             children.push({
               type: "image",
-              silent: true,
+              // Hoverable: shows the bar's tooltip (its readiness listed in full).
+              silent: false,
               style: {
                 image: buildCheckSvgDataUri(iconKeyOf(worst.code), worst.status),
                 x,
@@ -813,13 +835,38 @@ export function DrillChart({
           if (x + size < minX || x > maxX) return;
           children.push({
             type: "image",
-            silent: true,
+            // Hoverable: hovering an icon shows the bar's tooltip, which lists
+            // every check (name, status, equipment); clicking acts like the bar.
+            silent: false,
             style: {
               image: buildCheckSvgDataUri(iconKeyOf(code), status),
               x,
               y,
               width: size,
               height: size,
+            },
+          });
+        };
+
+        // Nominated equipment, written right after the strip ("RW · DSV"),
+        // truncated to the space left in the plot; the tooltip has the full list.
+        const placeEquipment = (afterX: number, midY: number) => {
+          const equipment = equipmentOf(checks);
+          const x = afterX + 4;
+          const width = Math.min(maxX - x, 160);
+          if (equipment.length === 0 || width < 16 || x < minX) return;
+          children.push({
+            type: "text",
+            silent: false,
+            style: {
+              text: equipment.join(" · "),
+              x,
+              y: midY,
+              verticalAlign: "middle",
+              fill: theme.axisLabel,
+              font: "600 9px sans-serif",
+              width,
+              overflow: "truncate",
             },
           });
         };
@@ -831,6 +878,7 @@ export function DrillChart({
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (ICON_SIZE + ICON_GAP), stripY, ICON_SIZE);
           }
+          placeEquipment(stripX + stripCodes.length * (ICON_SIZE + ICON_GAP), stripY + ICON_SIZE / 2);
         } else if (tier === "half") {
           const SMALL = 10;
           const SMALL_GAP = 1;
@@ -839,6 +887,7 @@ export function DrillChart({
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
+          placeEquipment(stripX + stripCodes.length * (SMALL + SMALL_GAP), stripY + 2 + SMALL / 2);
         } else if (tier === "grid") {
           // Mini grid — 7 icons across two rows (4 on top, 3 below)
           const GRID_SIZE = 9;
@@ -1117,18 +1166,25 @@ export function DrillChart({
               // Embed the same Lucide icon used in the on-bar strip + readiness
               // grid, status-coloured. Renders as an HTML <img> via data URI.
               const iconSrc = buildCheckSvgDataUri(iconKeyOf(code), status);
-              // Codes are catalog data now — escape them like any other text in
-              // this HTML tooltip.
+              // Codes, labels and tags are catalog data — escape them like any
+              // other text in this HTML tooltip.
+              const tags = tagsOf(t.checks, code);
+              const detail = detailedTooltip
+                ? `<span style="color:${theme.tooltipMuted}">${esc(labelByCode.get(code) ?? "")}</span>
+                   <span style="margin-left:auto;padding-left:10px;color:${theme.tooltipText}">${STATUS_LABEL[status] ?? esc(status)}${
+                     tags.length ? ` · ${esc(tags.join(", "))}` : ""
+                   }</span>`
+                : `<span style="color:${theme.tooltipMuted}">${STATUS_LABEL[status] ?? esc(status)}</span>`;
               return `<div style="display:flex;align-items:center;gap:6px;font-size:11px">
                 <img src="${iconSrc}" width="13" height="13" style="display:block;flex-shrink:0" alt="" />
                 <span style="color:${theme.tooltipText};font-weight:600">${esc(tooltipName.get(code) ?? code)}</span>
-                <span style="color:${theme.tooltipMuted}">${STATUS_LABEL[status]}</span>
+                ${detail}
               </div>`;
             }).join("");
             checksHtml = `
               <div style="margin-top:10px;padding-top:8px;border-top:1px solid ${theme.tooltipDivider}">
                 <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:${theme.tooltipMuted};margin-bottom:6px">${esc(readinessHeading)}</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${cells}</div>
+                <div style="display:grid;grid-template-columns:${detailedTooltip ? "1fr" : "1fr 1fr"};gap:4px 12px">${cells}</div>
               </div>`;
           }
 
