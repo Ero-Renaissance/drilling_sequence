@@ -28,6 +28,7 @@ export function mockRowFigures(statuses: CheckStatus[]): RowFigures {
     done,
     in_progress: counted.filter((x) => x === "in_progress").length,
     behind: counted.filter((x) => x === "blocked").length,
+    na: sev.length - counted.length,
     ready: counted.length > 0 && done === counted.length,
   };
 }
@@ -248,6 +249,7 @@ export const handlers = [
         activity_count,
         checks,
         focus_start: SOON,
+        focus_in_days: 30,
         figures: mockRowFigures(statuses),
       };
     };

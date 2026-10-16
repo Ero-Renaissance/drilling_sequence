@@ -106,7 +106,11 @@ async def build_dashboard(
     gate_checks = await project_gate_checks(db)
     gate_codes = [c.code for c in gate_checks]
     _, gate_cells = await live_cells(
-        db, project_id, gate_checks, [a for a in activities if in_scope(a, None)]
+        db,
+        project_id,
+        gate_checks,
+        [a for a in activities if in_scope(a, None)],
+        unit="projects",  # the Project gates are always per field project
     )
 
     contracts = (

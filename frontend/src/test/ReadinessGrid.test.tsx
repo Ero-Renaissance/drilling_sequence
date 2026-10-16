@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 
 vi.mock("@/lib/auth", () => ({
   getAccessToken: async () => "test-token",
@@ -13,7 +13,8 @@ vi.mock("@/lib/auth", () => ({
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 import { server } from "./mocks/server";
-import { SOON } from "./mocks/handlers";
+import { SOON, mockRowFigures, savedGates } from "./mocks/handlers";
+import type { CheckStatus } from "@/api/readiness";
 
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
@@ -93,6 +94,86 @@ describe("ReadinessGrid", () => {
     expect(summary).toHaveTextContent("0/2ready");
     expect(summary).toHaveTextContent("2 field projects · all");
     expect(summary.getAttribute("title")).toMatch(/Completed or On Track \(nothing behind\)/);
+    // The checks behind the figures, as the old bar counted them.
+    expect(summary).toHaveTextContent("1 done");
+    expect(summary).toHaveTextContent("13 on track");
+    expect(summary).toHaveTextContent("of 14 checks");
+  });
+
+  it("refreshes the server's figures after a gate is saved", async () => {
+    renderGrid();
+    const summary = await screen.findByTestId("readiness-summary");
+    expect(summary).toHaveTextContent("7%complete");
+    const egina = screen.getByText("Egina North").closest("tr")!;
+    await userEvent.click(within(egina).getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Completed/ }));
+    // 2 of 14 done now — read back from the server, Done column included.
+    await waitFor(() => expect(summary).toHaveTextContent("14%complete"));
+    expect(within(egina).getByText("1/7")).toBeInTheDocument();
+  });
+
+  it("a slow reload from before a later edit can't overwrite that edit", async () => {
+    const gates = BUILTIN_PROJECT_GATES.map((g) => g.code);
+    const rowFor = (wp: string, count: number) => {
+      const statuses = Object.fromEntries(
+        gates.map((c) => [c, (savedGates.get(wp)?.[c] ?? "On Track") as CheckStatus]),
+      );
+      return {
+        well_project: wp,
+        activity_count: count,
+        checks: Object.fromEntries(
+          gates.map((c) => [c, { status: statuses[c], notes: null, updated_at: null }]),
+        ),
+        focus_start: SOON,
+        focus_in_days: 30,
+        figures: mockRowFigures(Object.values(statuses)),
+      };
+    };
+    let calls = 0;
+    server.use(
+      http.get("/api/projects/:projectId/readiness", async () => {
+        calls += 1;
+        // Answered as the server stood when asked; the first reload is slow.
+        const body = [rowFor("Bonga Phase 3", 3), rowFor("Egina North", 2)];
+        if (calls === 2) await delay(250);
+        return HttpResponse.json(body);
+      }),
+    );
+    renderGrid();
+    await screen.findByText("Egina North");
+    const bonga = screen.getByText("Bonga Phase 3").closest("tr")!;
+    const egina = screen.getByText("Egina North").closest("tr")!;
+
+    // Edit A (its reload is slow), then edit B before that reload lands.
+    await userEvent.click(within(bonga).getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Completed/ }));
+    await userEvent.click(within(egina).getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+
+    await waitFor(() => expect(calls).toBeGreaterThanOrEqual(3));
+    await new Promise((resolve) => setTimeout(resolve, 400)); // the slow reload lands
+    expect(within(egina).getAllByTitle(/: Behind$/)).toHaveLength(1);
+    expect(within(bonga).getAllByTitle(/: Completed$/)).toHaveLength(1);
+  });
+
+  it("a row without figures doesn't claim every gate is N/A", async () => {
+    server.use(
+      http.get("/api/projects/:projectId/readiness", () =>
+        HttpResponse.json([
+          {
+            well_project: "Bonga Phase 3",
+            activity_count: 1,
+            checks: Object.fromEntries(
+              BUILTIN_PROJECT_GATES.map(({ code }) => [code, { status: "On Track", notes: null, updated_at: null }]),
+            ),
+            focus_start: SOON,
+          },
+        ]),
+      ),
+    );
+    renderGrid();
+    await screen.findByText("Bonga Phase 3");
+    expect(screen.queryByTitle(/Every gate is N\/A/)).not.toBeInTheDocument();
   });
 
   it("shows per-row completion count", async () => {

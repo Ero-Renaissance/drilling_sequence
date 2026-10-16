@@ -18,15 +18,40 @@ export function parseWindow(param: string | null): number {
   return n in HORIZON_DAYS ? n : 0;
 }
 
-/** Whether a target with this `focus_start` is in scope for the window. */
-export function inWindow(focusStart: string | null | undefined, months: number): boolean {
-  if (!focusStart) return false; // nothing left to be ready for
+/** A target's window signal: the server's days-to-focus-start when it sent them
+ *  (the server's calendar — what the Overview tile uses), else its focus start. */
+export interface WindowTarget {
+  focus_in_days?: number | null;
+  focus_start?: string | null;
+}
+
+/** Whether a target is in scope for the window: it has readiness work left
+ *  (a focus start) starting on/before today + the window. */
+export function inWindow(target: WindowTarget, months: number): boolean {
   const days = HORIZON_DAYS[months];
+  if (typeof target.focus_in_days === "number") {
+    return !days || target.focus_in_days <= days;
+  }
+  if (!target.focus_start) return false; // nothing left to be ready for
   if (!days) return true; // All
   const cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
   cutoff.setDate(cutoff.getDate() + days);
-  return new Date(`${focusStart}T00:00:00`).getTime() <= cutoff.getTime();
+  return new Date(`${target.focus_start}T00:00:00`).getTime() <= cutoff.getTime();
+}
+
+/** A target's focus start from its activities — mirrors the backend's
+ *  `focus_start_of`: the earliest start among readiness-required, not completed
+ *  activities; null when none (completed or opted out → in no window). */
+export function focusStartOf(
+  activities: readonly { start_date: string; completed_at?: string | null; readiness_required?: boolean }[],
+): string | null {
+  let first: string | null = null;
+  for (const a of activities) {
+    if (a.readiness_required === false || a.completed_at) continue;
+    if (first === null || a.start_date < first) first = a.start_date;
+  }
+  return first;
 }
 
 /** "next 12 months" / "all" — for scope lines. */

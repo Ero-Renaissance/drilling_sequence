@@ -262,7 +262,9 @@ the window (All: no date limit).
   the window. The per-activity readiness panel still shows any activity's values.
 - Overview tiles default to 12 months; the Readiness tab opens on **All**.
 - Links carry the window: a tile opens its grid on the same window, so the grid
-  shows the number the tile showed.
+  shows the number the tile showed. Each row carries its days to focus start
+  counted from the SERVER's today, so the browser applies the window on the same
+  calendar as the tile (no time-zone drift at midnight).
 - A summary above a grid describes exactly the rows shown, after every filter
   including search, and says what it covers: "12 field projects · next 12 months".
 
@@ -278,7 +280,8 @@ readiness is reported by the team tiles, not by this warning.
 - The last-approved tile and the revision compare % apply this section to the
   snapshot, with the revision's frozen catalog — each field project once (the
   compare % no longer weights a project by its number of activities). Snapshots
-  from before per-field-project readiness keep their legacy reading.
+  too old to carry a field project (before 2026-06-19) had per-activity gates:
+  each of their activities is its own target.
 
 **One implementation.** A single backend rollup service computes cells,
 severities and the three figures. It feeds the Overview tiles (the Project gates

@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -53,7 +53,7 @@ from app.services.readiness_effective import (
     project_value,
     well_value,
 )
-from app.services.readiness_rollup import rollup
+from app.services.readiness_rollup import days_until, focus_start_of, target_figures
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
 # Campaign-independent catalog reads. Separate router: a different prefix.
@@ -65,12 +65,13 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 
 def _row_figures(statuses: Iterable[str]) -> RowFigures:
     """One row (one target) through the rollup of spec §3.7."""
-    f = rollup([dict(enumerate(statuses))])
+    f = target_figures(statuses)
     return RowFigures(
         counted=f.counted,
         done=f.done,
         in_progress=f.in_progress,
         behind=f.behind,
+        na=f.na,
         ready=f.ready == 1,
     )
 
@@ -123,15 +124,25 @@ async def list_readiness(
     project gates. Activities with no project have no gates and are omitted.
     """
     # Reads are org-wide: any authenticated user may view campaign data.
-    # Distinct projects + how many activities each carries (grid context).
-    counts_result = await db.execute(
-        select(Activity.well_project, func.count(Activity.id))
-        .where(Activity.project_id == project_id, Activity.well_project.is_not(None))
-        .group_by(Activity.well_project)
-        .order_by(Activity.well_project)
-    )
-    project_counts = [(wp, n) for wp, n in counts_result.all() if wp]
-    if not project_counts:
+    # The campaign's activities per field project (exact names, as readiness
+    # entries and the Overview tile key them), in the database's name order.
+    activity_rows = (
+        await db.execute(
+            select(
+                Activity.well_project,
+                Activity.start_date,
+                Activity.completed_at,
+                Activity.readiness_required,
+            )
+            .where(Activity.project_id == project_id, Activity.well_project.is_not(None))
+            .order_by(Activity.well_project)
+        )
+    ).all()
+    by_project: dict[str, list] = {}
+    for a in activity_rows:
+        if a.well_project:
+            by_project.setdefault(a.well_project, []).append(a)
+    if not by_project:
         return []
 
     checks = await project_gate_checks(db)
@@ -145,25 +156,7 @@ async def list_readiness(
         (g.well_project, g.check_code): g for g in gates_result.scalars().all()
     }
     locked = await _campaign_locked(project_id, db)
-
-    # Earliest not-done, readiness-required activity start per field project — the
-    # same signal the Overview readiness KPI uses for its focus window, so the
-    # page can filter to exactly the projects a "next N months" card counted.
-    # completed_at IS NULL = not done; the bare readiness_required column compiles
-    # to ``= 1`` on SQL Server (``.is_(True)`` would be a syntax error there).
-    focus_result = await db.execute(
-        select(Activity.well_project, func.min(Activity.start_date))
-        .where(
-            Activity.project_id == project_id,
-            Activity.well_project.is_not(None),
-            Activity.completed_at.is_(None),
-            Activity.readiness_required,
-        )
-        .group_by(Activity.well_project)
-    )
-    focus_start_by_project: dict[str, date] = {
-        wp: d for wp, d in focus_result.all() if wp and d is not None
-    }
+    today = date.today()
 
     def _state(well_project: str, check: ReadinessCheck) -> CheckState:
         gate = by_gate.get((well_project, check.code))
@@ -172,15 +165,18 @@ async def list_readiness(
         return CheckState(status=default_status(check.status_set), notes=None, updated_at=None)
 
     rows = []
-    for wp, n in project_counts:
+    for wp, acts in by_project.items():
         states = {c.code: _state(wp, c) for c in checks}
+        # The window signal (spec §3.7): the same scope rule as the Overview tile.
+        focus = focus_start_of(acts)
         rows.append(
             ProjectReadinessSchema(
                 well_project=wp,
                 checks=states,
-                activity_count=n,
+                activity_count=len(acts),
                 locked=locked,
-                focus_start=focus_start_by_project.get(wp),
+                focus_start=focus,
+                focus_in_days=days_until(focus, today),
                 figures=_row_figures(s.status for s in states.values()),
             )
         )
@@ -564,29 +560,25 @@ async def get_team_readiness(
             status=value.status, notes=value.notes, updated_at=value.updated_at, tags=value.tags
         )
 
+    today = date.today()
     project_checks = [c for c in checks if c.applies_project]
     project_rows: list[TeamProjectRow] = []
     if project_checks:
-        counts: dict[str, int] = {}
-        # Earliest not-done, readiness-required start per field project — the
-        # window filter's signal, as on the project gates (None: nothing left).
-        focus: dict[str, date] = {}
+        by_project: dict[str, list] = {}
         for a in activities:
             if a.well_project:
-                counts[a.well_project] = counts.get(a.well_project, 0) + 1
-                if a.completed_at is None and a.readiness_required:
-                    current = focus.get(a.well_project)
-                    focus[a.well_project] = (
-                        a.start_date if current is None else min(current, a.start_date)
-                    )
-        for wp, n in sorted(counts.items()):
+                by_project.setdefault(a.well_project, []).append(a)
+        for wp, acts in sorted(by_project.items()):
             values = {c.code: project_value(index, c, wp) for c in project_checks}
+            # The window signal — the same scope rule as the tiles (spec §3.7).
+            focus = focus_start_of(acts)
             project_rows.append(
                 TeamProjectRow(
                     well_project=wp,
-                    activity_count=n,
+                    activity_count=len(acts),
                     checks={code: state(v) for code, v in values.items()},
-                    focus_start=focus.get(wp),
+                    focus_start=focus,
+                    focus_in_days=days_until(focus, today),
                     figures=_row_figures(v.status for v in values.values()),
                 )
             )
@@ -603,7 +595,7 @@ async def get_team_readiness(
 
         for key, acts in groups.items():
             acts.sort(key=lambda a: a.start_date)
-            pending = [a.start_date for a in acts if a.completed_at is None]
+            focus = focus_start_of(acts)
             cells = {
                 c.code: EffectiveCheckState(
                     status=(v := well_value(index, c, key)).status,
@@ -623,7 +615,8 @@ async def get_team_readiness(
                     activity_count=len(acts),
                     location=acts[0].location,
                     start_date=acts[0].start_date,
-                    focus_start=min(pending) if pending else None,
+                    focus_start=focus,
+                    focus_in_days=days_until(focus, today),
                     checks=cells,
                     figures=_row_figures(cell.status for cell in cells.values()),
                 )
