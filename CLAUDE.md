@@ -102,7 +102,9 @@ logic against these active business rules:
 - **Plan-lock lifecycle (freeze after approval):** creating a revision locks the
   plan's activities (`Activity.locked_by_revision_id`); every plan-mutating write
   (activity create/edit/complete/delete, CSV import, "Add project" bulk wells
-  (`POST .../activities/project-wells`), rig/HWU contract upsert/delete,
+  (`POST .../activities/project-wells`) and "Edit project" (`PUT` same path —
+  all-or-nothing, must list every well of the project, 409 on a stale well or a
+  rename onto another project's name), rig/HWU contract upsert/delete,
   readiness PUT for a **governed** check — `locks_with_plan`, i.e. the project
   gates; operational checks stay editable) is then refused with **423** via `app/core/locks.py`
   (`ensure_activity_unlocked` / `assert_project_not_locked`). **Approval keeps the
@@ -134,7 +136,8 @@ logic against these active business rules:
 - **Governance is auditable:** submit (`submitted_for_review`/`submitted_for_approval`),
   `review_signed`/`review_completed`/`review_changes_requested`, sign/approve/reject/
   request-changes/discard, reviewer/approver add/remove, `review_policy_changed`,
-  project create/clone, readiness team grant/revoke, readiness catalog changes
+  project create/clone, project wells add/edit (`project_wells_added`/
+  `project_wells_updated`), readiness team grant/revoke, readiness catalog changes
   (`readiness_team_*` / `readiness_check_*`) and every real readiness value change
   (`readiness_updated`, old → new) must emit governance events via
   `app/services/audit.py::governance_event`. Do not add or change a
