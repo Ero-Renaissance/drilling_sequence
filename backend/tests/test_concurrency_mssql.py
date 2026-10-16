@@ -141,12 +141,18 @@ async def test_lock_revision_serialises_status_transitions() -> None:
         # A decides and commits → B acquires and sees A's decision.
         rev_a.status = "rejected"
         await a.commit()
-        rev_b = await asyncio.wait_for(b_lock, timeout=5.0)
+        # Shielded like the 2 s check: a timeout must never cancel b_lock. A
+        # cancelled query makes SQLAlchemy close B's connection, and that close
+        # waits on B's blocked SELECT, which waits on A's lock — released only
+        # in the finally below, so the test would hang instead of failing.
+        rev_b = await asyncio.wait_for(asyncio.shield(b_lock), timeout=5.0)
         assert rev_b is stale
         assert rev_b.status == "rejected"
         await b.commit()
     finally:
         await a.close()  # rolls back anything still open → releases A's lock
+        # b_lock is never cancelled (both waits are shielded), so draining it
+        # here can't raise CancelledError; with A's lock gone it finishes.
         if b_lock is not None:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(b_lock, timeout=5.0)
