@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -74,7 +75,11 @@ beforeEach(() => {
     ),
     http.get("/api/projects/:projectId/readiness/teams/:team", () => HttpResponse.json(teamData())),
     http.get("/api/projects/:projectId/activities", () =>
-      HttpResponse.json([act("a1"), act("a2", { well_name: "W-OPT", readiness_required: false })]),
+      HttpResponse.json([
+        act("a1"),
+        act("a2", { well_name: "W-OPT", readiness_required: false }),
+        act("a3", { well_name: "W-DONE", completed_at: "2026-10-01T00:00:00Z" }),
+      ]),
     ),
     http.get("/api/projects/:projectId/readiness", () =>
       HttpResponse.json([
@@ -166,9 +171,11 @@ describe("AllReadinessGrid", () => {
       <ReadinessCatalogProvider>
         <AllReadinessGrid projectId={PID} onOpenLens={onOpenLens} />
       </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
     );
     const w1 = (await screen.findByText("W-1")).closest("tr")!;
     expect(screen.queryByText("W-OPT")).not.toBeInTheDocument(); // opt-out
+    expect(screen.queryByText("W-DONE")).not.toBeInTheDocument(); // nothing left to be ready for
     // Logistics starts folded: one worst badge (NEQ "Not available" → Behind).
     await waitFor(() =>
       expect(within(w1).getByLabelText("Logistics: 1 of 2 done · Not available: NEQ")).toBeInTheDocument(),

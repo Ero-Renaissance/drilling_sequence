@@ -79,6 +79,18 @@ class CheckUpsertResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RowFigures(BaseModel):
+    """One row's readiness by the rollup of spec §3.7 (each row is one target).
+    The grid adds the counts of the rows it shows and divides — it never decides
+    which cells count; the server does."""
+
+    counted: int  # cells that count (not N/A)
+    done: int
+    in_progress: int  # on track
+    behind: int  # blocked (Behind, Not available)
+    ready: bool  # ≥1 counted cell and every counted cell done
+
+
 class ProjectReadiness(BaseModel):
     """Readiness for one field-development project (the "Project" column) — the
     seven gates shared by every well/activity under it."""
@@ -97,6 +109,8 @@ class ProjectReadiness(BaseModel):
     # ``focus_start <= today + N``. None when the project has no pending
     # readiness-required work (all done or opt-out): it never falls in a window.
     focus_start: date | None = None
+    # The row's rollup (spec §3.7) over its gates at their effective values.
+    figures: RowFigures | None = None
 
 
 # ── Catalog (GET /api/readiness/catalog) ────────────────────────────────────
@@ -178,6 +192,10 @@ class TeamProjectRow(BaseModel):
     well_project: str
     activity_count: int
     checks: dict[str, CheckState]  # the team's project-level checks only
+    # Earliest start of a not-done, readiness-required activity under this field
+    # project (None: nothing left to be ready for) — the window filter's signal.
+    focus_start: date | None = None
+    figures: RowFigures | None = None  # over the team's project-level checks
 
 
 class TeamWellRow(BaseModel):
@@ -193,6 +211,7 @@ class TeamWellRow(BaseModel):
     # readiness work) — the same focus signal the project gates page uses.
     focus_start: date | None = None
     checks: dict[str, EffectiveCheckState]  # every team check, effective value
+    figures: RowFigures | None = None  # over every team check, effective values
 
 
 class TeamReadiness(BaseModel):

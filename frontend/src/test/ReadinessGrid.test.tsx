@@ -13,6 +13,7 @@ vi.mock("@/lib/auth", () => ({
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 import { server } from "./mocks/server";
+import { SOON } from "./mocks/handlers";
 
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
@@ -59,6 +60,7 @@ describe("ReadinessGrid", () => {
             activity_count: 2,
             checks,
             locked: true,
+            focus_start: SOON,
           },
         ]),
       ),
@@ -81,11 +83,16 @@ describe("ReadinessGrid", () => {
     expect(completedCells.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows progress summary bar", async () => {
+  it("shows the three figures over the rows shown (spec §3.7)", async () => {
     renderGrid();
-    await waitFor(() => {
-      expect(screen.getByText("Overall Readiness")).toBeInTheDocument();
-    });
+    // Bonga: BUD Completed of 7; Egina: nothing set (On Track) → 1 of 14 done.
+    const summary = await screen.findByTestId("readiness-summary");
+    expect(summary).toHaveTextContent("7%complete");
+    expect(summary).toHaveTextContent("100%on track");
+    expect(summary).toHaveTextContent("0behind");
+    expect(summary).toHaveTextContent("0/2ready");
+    expect(summary).toHaveTextContent("2 field projects · all");
+    expect(summary.getAttribute("title")).toMatch(/Completed or On Track \(nothing behind\)/);
   });
 
   it("shows per-row completion count", async () => {
@@ -165,13 +172,23 @@ describe("ReadinessGrid", () => {
   // Near = starts in ~1 month (inside every window); Far = ~13 months out
   // (outside 6/12mo); Done = no pending readiness work (focus_start null → never
   // in a window).
+  // Figures as the server sends them: Near all done; Far 1 behind, 6 on track.
   function useWindowFixture() {
     server.use(
       http.get("/api/projects/:projectId/readiness", () =>
         HttpResponse.json([
-          { well_project: "Near Field", activity_count: 2, checks: mkChecks(), focus_start: isoInDays(30) },
-          { well_project: "Far Field", activity_count: 1, checks: mkChecks(), focus_start: isoInDays(400) },
-          { well_project: "Done Field", activity_count: 1, checks: mkChecks(), focus_start: null },
+          {
+            well_project: "Near Field", activity_count: 2, checks: mkChecks(), focus_start: isoInDays(30),
+            figures: { counted: 7, done: 7, in_progress: 0, behind: 0, ready: true },
+          },
+          {
+            well_project: "Far Field", activity_count: 1, checks: mkChecks(), focus_start: isoInDays(400),
+            figures: { counted: 7, done: 0, in_progress: 6, behind: 1, ready: false },
+          },
+          {
+            well_project: "Done Field", activity_count: 1, checks: mkChecks(), focus_start: null,
+            figures: { counted: 7, done: 0, in_progress: 7, behind: 0, ready: false },
+          },
         ]),
       ),
     );
@@ -202,9 +219,10 @@ describe("ReadinessGrid", () => {
     useWindowFixture();
     renderAt("/");
     await waitFor(() => screen.getByText("Near Field"));
-    // No window → all three field projects show.
+    // All → every field project with work left; "Done Field" has none (its
+    // activities are completed or opted out), so it drops out under every window.
     expect(screen.getByText("Far Field")).toBeInTheDocument();
-    expect(screen.getByText("Done Field")).toBeInTheDocument();
+    expect(screen.queryByText("Done Field")).not.toBeInTheDocument();
 
     await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "6");
     await waitFor(() => expect(screen.queryByText("Far Field")).not.toBeInTheDocument());
@@ -213,6 +231,35 @@ describe("ReadinessGrid", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
     await waitFor(() => screen.getByText("Far Field"));
-    expect(screen.getByText("Done Field")).toBeInTheDocument();
+    expect(screen.queryByText("Done Field")).not.toBeInTheDocument();
+  });
+
+  it("the summary follows the window and the search — exactly the rows shown", async () => {
+    useWindowFixture();
+    renderAt("/");
+    const summary = await screen.findByTestId("readiness-summary");
+    // Near + Far: 7 of 14 done; 13 of 14 done or on track; Far's 1 behind.
+    expect(summary).toHaveTextContent("50%complete");
+    expect(summary).toHaveTextContent("93%on track");
+    expect(summary).toHaveTextContent("1behind");
+    expect(summary).toHaveTextContent("1/2ready");
+    expect(summary).toHaveTextContent("2 field projects · all");
+
+    await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "6");
+    await waitFor(() => expect(summary).toHaveTextContent("1 field project · next 6 months"));
+    expect(summary).toHaveTextContent("100%complete");
+    expect(summary).toHaveTextContent("0behind");
+
+    await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "0");
+    await userEvent.type(screen.getByTestId("readiness-search"), "far");
+    await waitFor(() => expect(summary).toHaveTextContent("0%complete"));
+    expect(summary).toHaveTextContent("1 field project · all");
+  });
+
+  it("?focus=not-ready keeps the field projects the server says aren't ready", async () => {
+    useWindowFixture();
+    renderAt("/?focus=not-ready");
+    await waitFor(() => screen.getByText("Far Field"));
+    expect(screen.queryByText("Near Field")).not.toBeInTheDocument();
   });
 });

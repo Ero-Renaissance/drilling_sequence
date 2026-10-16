@@ -256,3 +256,73 @@ async def test_no_field_project_is_never_not_ready(client: AsyncClient) -> None:
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     assert d["watchlist"]["near_term_not_ready"] == 0
     assert d["readiness"]["focus_count"] == 0
+
+
+# ── The Readiness tab rows carry the same rollup (step 2) ──────────────────
+
+
+def _sum_rows(rows: list[dict], window_end: date | None) -> dict:
+    """What the Readiness tab does: keep the rows in scope for the window, add
+    their server-computed figures, divide (half up)."""
+    shown = [
+        r for r in rows
+        if r["focus_start"] and (window_end is None or date.fromisoformat(r["focus_start"]) <= window_end)
+    ]
+    figs = [r["figures"] for r in shown]
+    counted = sum(f["counted"] for f in figs)
+    done = sum(f["done"] for f in figs)
+    return {
+        "targets": len(shown),
+        "complete": pct(done, counted),
+        "on_track": pct(done + sum(f["in_progress"] for f in figs), counted),
+        "behind": sum(f["behind"] for f in figs),
+        "ready": sum(1 for f in figs if f["ready"]),
+        "ready_of": sum(1 for f in figs if f["counted"]),
+    }
+
+
+@pytest.mark.asyncio
+async def test_readiness_rows_carry_their_figures(client: AsyncClient) -> None:
+    pid = await _campaign(client)
+    await _activity(client, pid, "P1", "W1", TODAY + timedelta(days=10))
+    done = await _activity(client, pid, "Finished", "W2", TODAY + timedelta(days=10))
+    await client.post(f"/api/projects/{pid}/activities/{done['id']}/complete")
+    await _gate(client, pid, "P1", "BUD", "Completed")
+    await _gate(client, pid, "P1", "EIA", "N/A")
+
+    rows = {r["well_project"]: r for r in (await client.get(f"/api/projects/{pid}/readiness")).json()}
+    assert rows["P1"]["figures"] == {
+        "counted": 6, "done": 1, "in_progress": 5, "behind": 0, "ready": False,
+    }
+    # Still listed (the chart and panels read gates from here), but with nothing
+    # left to be ready for — the tab drops it.
+    assert rows["Finished"]["focus_start"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_tab_adds_up_to_the_tile(client: AsyncClient) -> None:
+    """The Readiness tab, adding up the rows it shows for a window, reads exactly
+    what the Overview tile reads for that window."""
+    pid = await _campaign(client)
+    await _activity(client, pid, "Soon", "W1", TODAY + timedelta(days=20))
+    await _activity(client, pid, "Later", "W2", TODAY + timedelta(days=500))
+    await _activity(client, pid, "Overdue", "W3", TODAY - timedelta(days=30))
+    await _activity(client, pid, None, "W4", TODAY + timedelta(days=5))
+    for code in SEVEN:
+        await _gate(client, pid, "Soon", code, "Completed")
+    await _gate(client, pid, "Later", "FID", "Behind")
+    await _gate(client, pid, "Overdue", "BUD", "N/A")
+
+    rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
+    for months, window_end in ((12, TODAY + timedelta(days=365)), (0, None)):
+        tile = (
+            await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months={months}")
+        ).json()["readiness"]
+        assert _sum_rows(rows, window_end) == {
+            "targets": tile["focus_count"],
+            "complete": tile["overall_pct"],
+            "on_track": tile["on_track_pct"],
+            "behind": tile["behind_cells"],
+            "ready": tile["ready"],
+            "ready_of": tile["ready_of"],
+        }, months

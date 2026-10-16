@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterable
 from datetime import date
 from typing import Annotated
 
@@ -27,6 +28,7 @@ from app.schemas.readiness import (
     CheckUpsertResponse,
     EffectiveCheckState,
     ReadinessCatalog,
+    RowFigures,
     StatusOption,
     StatusSet,
     TagItem,
@@ -51,6 +53,7 @@ from app.services.readiness_effective import (
     project_value,
     well_value,
 )
+from app.services.readiness_rollup import rollup
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["readiness"])
 # Campaign-independent catalog reads. Separate router: a different prefix.
@@ -58,6 +61,18 @@ catalog_router = APIRouter(prefix="/api/readiness", tags=["readiness"])
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+
+def _row_figures(statuses: Iterable[str]) -> RowFigures:
+    """One row (one target) through the rollup of spec §3.7."""
+    f = rollup([dict(enumerate(statuses))])
+    return RowFigures(
+        counted=f.counted,
+        done=f.done,
+        in_progress=f.in_progress,
+        behind=f.behind,
+        ready=f.ready == 1,
+    )
 
 
 async def _campaign_locked(project_id: uuid.UUID, db: AsyncSession) -> bool:
@@ -156,16 +171,20 @@ async def list_readiness(
             return CheckState(status=gate.status, notes=gate.notes, updated_at=gate.updated_at)
         return CheckState(status=default_status(check.status_set), notes=None, updated_at=None)
 
-    return [
-        ProjectReadinessSchema(
-            well_project=wp,
-            checks={c.code: _state(wp, c) for c in checks},
-            activity_count=n,
-            locked=locked,
-            focus_start=focus_start_by_project.get(wp),
+    rows = []
+    for wp, n in project_counts:
+        states = {c.code: _state(wp, c) for c in checks}
+        rows.append(
+            ProjectReadinessSchema(
+                well_project=wp,
+                checks=states,
+                activity_count=n,
+                locked=locked,
+                focus_start=focus_start_by_project.get(wp),
+                figures=_row_figures(s.status for s in states.values()),
+            )
         )
-        for wp, n in project_counts
-    ]
+    return rows
 
 
 # ── Writes: shared helpers ──────────────────────────────────────────────────
@@ -549,17 +568,28 @@ async def get_team_readiness(
     project_rows: list[TeamProjectRow] = []
     if project_checks:
         counts: dict[str, int] = {}
+        # Earliest not-done, readiness-required start per field project — the
+        # window filter's signal, as on the project gates (None: nothing left).
+        focus: dict[str, date] = {}
         for a in activities:
             if a.well_project:
                 counts[a.well_project] = counts.get(a.well_project, 0) + 1
-        project_rows = [
-            TeamProjectRow(
-                well_project=wp,
-                activity_count=n,
-                checks={c.code: state(project_value(index, c, wp)) for c in project_checks},
+                if a.completed_at is None and a.readiness_required:
+                    current = focus.get(a.well_project)
+                    focus[a.well_project] = (
+                        a.start_date if current is None else min(current, a.start_date)
+                    )
+        for wp, n in sorted(counts.items()):
+            values = {c.code: project_value(index, c, wp) for c in project_checks}
+            project_rows.append(
+                TeamProjectRow(
+                    well_project=wp,
+                    activity_count=n,
+                    checks={code: state(v) for code, v in values.items()},
+                    focus_start=focus.get(wp),
+                    figures=_row_figures(v.status for v in values.values()),
+                )
             )
-            for wp, n in sorted(counts.items())
-        ]
 
     well_rows: list[TeamWellRow] = []
     if any(c.applies_well for c in checks):
@@ -574,6 +604,17 @@ async def get_team_readiness(
         for key, acts in groups.items():
             acts.sort(key=lambda a: a.start_date)
             pending = [a.start_date for a in acts if a.completed_at is None]
+            cells = {
+                c.code: EffectiveCheckState(
+                    status=(v := well_value(index, c, key)).status,
+                    notes=v.notes,
+                    updated_at=v.updated_at,
+                    source=v.source,
+                    tags=v.tags,
+                    inherited_tags=v.inherited_tags,
+                )
+                for c in checks
+            }
             well_rows.append(
                 TeamWellRow(
                     well_project=key[0],
@@ -583,17 +624,8 @@ async def get_team_readiness(
                     location=acts[0].location,
                     start_date=acts[0].start_date,
                     focus_start=min(pending) if pending else None,
-                    checks={
-                        c.code: EffectiveCheckState(
-                            status=(v := well_value(index, c, key)).status,
-                            notes=v.notes,
-                            updated_at=v.updated_at,
-                            source=v.source,
-                            tags=v.tags,
-                            inherited_tags=v.inherited_tags,
-                        )
-                        for c in checks
-                    },
+                    checks=cells,
+                    figures=_row_figures(cell.status for cell in cells.values()),
                 )
             )
         well_rows.sort(key=lambda r: (r.start_date, r.well_project, r.well_name, r.activity_type))

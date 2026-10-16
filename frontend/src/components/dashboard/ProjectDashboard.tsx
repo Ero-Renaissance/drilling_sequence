@@ -4,6 +4,8 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
 import { READINESS_FIGURES_HINT, readinessSubline } from "@/lib/readiness-figures";
+import { HORIZON_DAYS } from "@/lib/readiness-window";
+import { PROJECTS_TEAM } from "@/components/readiness/catalog";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
 
@@ -214,6 +216,14 @@ const HORIZON_OPTIONS = [
   { value: 0, label: "All duration" },
 ] as const;
 
+/** A readiness tile's door: the Readiness tab on that tile's lens and window, so
+ *  the tab lists exactly what the tile counted (spec §3.7). */
+function readinessLink(base: string, lens: string, months: number): string {
+  const params = new URLSearchParams({ lens });
+  if (months in HORIZON_DAYS) params.set("horizon", String(months));
+  return `${base}/readiness?${params.toString()}`;
+}
+
 function horizonSuffix(months: number): string {
   return months === 0 ? "all duration" : `next ${months} months`;
 }
@@ -320,9 +330,7 @@ export function ProjectDashboard({
           sub={`${activities.completed_this_quarter} this quarter`}
         />
         <Tile
-          to={`${base}/readiness${
-            horizon === 6 || horizon === 12 || horizon === 24 ? `?horizon=${horizon}` : ""
-          }`}
+          to={readinessLink(base, PROJECTS_TEAM, horizon)}
           label={`Readiness · ${horizonSuffix(horizon)}`}
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
           sub={readinessSubline({ ...readiness, behind: readiness.behind_cells })}
@@ -345,7 +353,7 @@ export function ProjectDashboard({
           {(data.team_readiness ?? []).map((t) => (
             <Tile
               key={t.team_code}
-              to={`${base}/readiness?lens=${encodeURIComponent(t.team_code)}`}
+              to={readinessLink(base, t.team_code, horizon)}
               label={`${t.name} readiness · ${horizonSuffix(horizon)}`}
               value={t.overall_pct === null ? "—" : `${t.overall_pct}%`}
               sub={readinessSubline({ ...t, behind: t.behind_cells }, t.unit)}
