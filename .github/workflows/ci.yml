@@ -2,12 +2,25 @@ name: CI
 
 # Backstop for the local pre-push hook (.githooks/pre-push): a clean-room run of
 # the same checks, so a push that was made with --no-verify (or that only breaks
-# in a fresh environment) still gets caught. Direct-to-main, so this runs after
-# the push — a tripwire, not a gate; the hook is the gate.
+# in a fresh environment) still gets caught. On a pull request it runs before the
+# merge, on every push to the PR branch; a small fix pushed straight to main gets
+# it after the push — a tripwire there, not a gate; the hook is the gate.
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+
+# The checks only read the repo; PR code must not run with a write token.
+permissions:
+  contents: read
+
+# A new push to a PR cancels that PR's in-flight run. Every other run (a push to
+# main, a manual dispatch) gets a group of its own, so none is queued or cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   frontend:
