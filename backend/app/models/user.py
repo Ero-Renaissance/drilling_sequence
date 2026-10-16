@@ -11,9 +11,10 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    ad_object_id: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    # unique=True is a unique constraint, whose own index serves the lookups.
+    ad_object_id: Mapped[str] = mapped_column(String(256), unique=True)
     name: Mapped[str] = mapped_column(String(256))
-    email: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(256), unique=True)
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=expression.false()
     )
