@@ -83,3 +83,63 @@ jobs:
           python -m venv /tmp/lockcheck
           /tmp/lockcheck/bin/pip install --upgrade pip
           /tmp/lockcheck/bin/pip install -r requirements.txt
+
+  # The jobs above run on SQLite, but production is SQL Server, and some bugs
+  # only exist there: SQLAlchemy renders no lock for FOR UPDATE on SQL Server,
+  # and migrations that build the schema on SQL Server never run on SQLite. This
+  # job builds the schema from the migrations on a real SQL Server and runs the
+  # SQL Server-only tests.
+  #
+  # Pinned to the image local dev runs (2022 CU25; tag and digest, so it can't
+  # drift) and to ubuntu-24.04, because the ODBC driver comes from Microsoft's
+  # per-release apt repo. SQL Server Developer edition: licensed for dev/test, and
+  # the SA password below is a throwaway for this job's private container, not a
+  # secret.
+  backend-mssql:
+    name: Backend · SQL Server (migrations + concurrency tests)
+    runs-on: ubuntu-24.04
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-CU25-ubuntu-22.04@sha256:e07b9699a2b749969f19d86563ceeea22bd3a69f7f1db85a8d1ac4bdaf0c6f56
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: CiThrowaway2026Pw
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P CiThrowaway2026Pw -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 20s
+    env:
+      DATABASE_URL: mssql+aioodbc://sa:CiThrowaway2026Pw@localhost:1433/drilling_sequence?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Microsoft ODBC Driver 18 (same apt source as backend/Dockerfile)
+        run: |
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+            | sudo gpg --dearmor --yes -o /usr/share/keyrings/microsoft-prod.gpg
+          curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list \
+            | sudo tee /etc/apt/sources.list.d/microsoft-prod.list > /dev/null
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev
+      - name: Create the database
+        run: >-
+          docker exec ${{ job.services.mssql.id }}
+          /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P CiThrowaway2026Pw -b
+          -Q "CREATE DATABASE drilling_sequence"
+      - run: pip install -e ".[dev]"
+      - name: Migrations build the schema (alembic upgrade head)
+        run: alembic upgrade head
+      # -p no:skipping: here these tests must run, so a broken DATABASE_URL fails
+      # the job instead of quietly skipping the module.
+      - name: SQL Server concurrency tests
+        run: python -m pytest -q -p no:skipping tests/test_concurrency_mssql.py
