@@ -214,22 +214,47 @@ async def live_cells(
 # ── Frozen snapshots ────────────────────────────────────────────────────────
 
 
+def per_activity_readiness(snapshot: Sequence[Mapping]) -> bool:
+    """Whether a frozen snapshot carries PER-ACTIVITY gates (revisions from before
+    readiness became per field project on 2026-07-16 — migration 029 kept their
+    blocks) rather than per-field-project ones.
+
+    No format marker was ever stored, and ``well_project`` doesn't tell them apart
+    (it predates the change). So read the invariant every per-field-project
+    snapshot satisfies by construction: each field project's gates are ONE copy
+    repeated on all its activities, and an activity with no field project carries
+    only defaults (or, from phase 5, nothing). A snapshot that breaks it — or has
+    no ``well_project`` at all — recorded its gates per activity."""
+    blocks: dict[str, dict] = {}
+    for a in snapshot:
+        if "well_project" not in a:
+            return True
+        readiness = dict(a.get("readiness") or {})
+        if a["well_project"]:
+            if blocks.setdefault(a["well_project"], readiness) != readiness:
+                return True
+        elif any(status != SNAPSHOT_GATE_DEFAULT for status in readiness.values()):
+            return True
+    return False
+
+
 def snapshot_gate_targets(
     snapshot: Iterable[Mapping],
     gate_codes: Sequence[str] | None = None,
     window_end: date | None = None,
 ) -> list[dict[str, str]]:
-    """The governed project gates of a frozen snapshot, one cell map per FIELD
-    PROJECT in scope (readiness-required, not completed, starting by
-    ``window_end`` — None = no date limit). ``gate_codes`` are the revision's
-    frozen gates (a gate missing from a block reads On Track); None = whatever
-    each block holds.
+    """The governed gates of a frozen snapshot, one cell map per TARGET in scope
+    (readiness-required, not completed, starting by ``window_end`` — None = no
+    date limit). ``gate_codes`` are the revision's frozen gates (a gate missing
+    from a block reads On Track); None = whatever each block holds.
 
-    The snapshot denormalises each field project's gates onto every activity under
-    it; the first activity in scope speaks for its project. An activity with no
-    field project carries no gates. The one exception is a snapshot too old to
-    carry ``well_project`` at all (before 2026-06-19), whose gates were PER
-    ACTIVITY: each of its activities is its own target, as it was then."""
+    Per-field-project snapshots denormalise each field project's gates onto every
+    activity under it: the target is the FIELD PROJECT (the first activity in
+    scope speaks for it), and an activity with no field project carries no gates.
+    Per-activity snapshots (``per_activity_readiness``) recorded gates per
+    ACTIVITY: each activity is its own target, as they were aggregated then."""
+    snapshot = list(snapshot)
+    per_activity = per_activity_readiness(snapshot)
     by_target: dict[object, Mapping[str, str]] = {}
     for i, a in enumerate(snapshot):
         if a.get("completed_at") or not a.get("readiness_required", True):
@@ -237,9 +262,9 @@ def snapshot_gate_targets(
         start = _snap_date(a.get("start_date"))
         if start is None or (window_end is not None and start > window_end):
             continue
-        if "well_project" not in a:
-            key: object = ("activity", i)  # legacy: per-activity gates
-        elif a["well_project"]:
+        if per_activity:
+            key: object = ("activity", i)
+        elif a.get("well_project"):
             key = a["well_project"]
         else:
             continue  # no field project → no project gates (§3.7)

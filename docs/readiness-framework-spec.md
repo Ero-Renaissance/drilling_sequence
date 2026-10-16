@@ -281,9 +281,11 @@ readiness is reported by the team tiles, not by this warning.
   Pending existed reads Not available there.
 - The last-approved tile and the revision compare % apply this section to the
   snapshot, with the revision's frozen catalog — each field project once (the
-  compare % no longer weights a project by its number of activities). Snapshots
-  too old to carry a field project (before 2026-06-19) had per-activity gates:
-  each of their activities is its own target.
+  compare % no longer weights a project by its number of activities). Revisions
+  that recorded gates PER ACTIVITY (before 2026-07-16) keep that aggregation:
+  each activity is its own target. No format marker was stored, so they are told
+  apart by shape — a per-field-project snapshot repeats one copy of a project's
+  gates on all its activities and only defaults where there is no field project.
 
 **One implementation.** A single backend rollup service computes cells,
 severities and the three figures. It feeds the Overview tiles (the Project gates

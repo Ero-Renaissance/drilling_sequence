@@ -116,8 +116,10 @@ def test_snapshot_targets_count_each_field_project_once() -> None:
 def test_snapshot_targets_skip_what_carries_no_readiness() -> None:
     snapshot = [
         _snap("P1"),
-        _snap(None),  # no field project → no project gates
-        _snap(""),
+        # No field project → no project gates. A per-field-project snapshot
+        # stored only defaults for such an activity.
+        _snap(None, readiness=_gates()),
+        _snap("", readiness=_gates()),
         _snap("DONE", completed_at="2026-02-01T00:00:00Z"),
         _snap("OPT", readiness_required=False),
         _snap("LATE", start="2027-06-01"),
@@ -144,7 +146,7 @@ def test_snapshot_gate_missing_from_a_block_reads_on_track() -> None:
 
 def test_snapshot_kpis_ignore_activities_without_a_field_project() -> None:
     start = (TODAY + timedelta(days=30)).isoformat()
-    snapshot = [_snap("P1", start=start), _snap(None, start=start)]
+    snapshot = [_snap("P1", start=start), _snap(None, start=start, readiness=_gates())]
     k = compute_snapshot_kpis(snapshot, TODAY, gate_codes=SEVEN)
     assert k.readiness_focus_count == 1  # no phantom "" project
     assert (k.readiness_pct, k.readiness_on_track_pct) == (14, 100)  # BUD done of 7
@@ -395,3 +397,42 @@ def test_compare_ignores_stored_defaults_for_activities_without_a_field_project(
     legacy_new = {**legacy_old, "readiness": _gates(BUD="Completed")}
     fields = diff_snapshots([legacy_old], [legacy_new])["activities"][0]["fields"]
     assert fields == [{"field": "Readiness: BUD", "old": "On Track", "new": "Completed"}]
+
+
+# ── Per-activity snapshots (before 2026-07-16; PR #21 review) ──────────────
+
+
+def test_per_activity_snapshots_are_told_apart_by_their_shape() -> None:
+    from app.services.readiness_rollup import per_activity_readiness
+
+    project = [_snap("P1"), _snap("P1"), _snap(None, readiness=_gates())]  # one copy; defaults
+    assert per_activity_readiness(project) is False
+    assert per_activity_readiness([*project[:2], _snap(None, readiness={})]) is False  # phase 5
+    # Two copies of P1 that disagree can only have been recorded per activity…
+    mixed = [_snap("P1", readiness=_gates(BUD="Completed")), _snap("P1", readiness=_gates(BUD="Behind"))]
+    assert per_activity_readiness(mixed) is True
+    # …as can a real (non-default) gate on an activity with no field project,
+    assert per_activity_readiness([_snap(None, readiness=_gates(FID="Behind"))]) is True
+    # …or a snapshot from before well_project existed.
+    assert per_activity_readiness([{k: v for k, v in _snap("P1").items() if k != "well_project"}])
+
+
+def test_mixed_per_activity_gates_keep_their_recorded_aggregation() -> None:
+    """Copilot's case: two legacy activities under P1, BUD Completed and Behind —
+    50% whatever the order, not 100% (or 0%) from the first activity alone."""
+    def act(aid: str, bud: str) -> dict:
+        return {"id": aid, **_snap("P1", readiness={"BUD": bud}), "activity_type": "Drilling"}
+
+    for snapshot in ([act("a", "Completed"), act("b", "Behind")], [act("b", "Behind"), act("a", "Completed")]):
+        assert diff_snapshots(snapshot, snapshot)["summary"]["base_readiness_pct"] == 50
+        k = compute_snapshot_kpis(snapshot, date(2026, 1, 1), gate_codes=["BUD"])
+        assert (k.readiness_pct, k.readiness_focus_count, k.readiness_behind) == (50, 2, 1)
+
+
+def test_per_activity_snapshot_still_diffs_gates_without_a_field_project() -> None:
+    """In a per-activity snapshot an activity with no field project carried real
+    gates — a change to them is a real change, not stored defaults to ignore."""
+    base = [{"id": "a", **_snap(None, readiness={"FID": "Behind"}), "activity_type": "Drilling"}]
+    target = [{**base[0], "readiness": {"FID": "Completed"}}]
+    fields = diff_snapshots(base, target)["activities"][0]["fields"]
+    assert fields == [{"field": "Readiness: FID", "old": "Behind", "new": "Completed"}]
