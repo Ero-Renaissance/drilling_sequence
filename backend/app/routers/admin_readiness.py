@@ -252,6 +252,14 @@ async def create_check(payload: CheckCreate, admin: CurrentAdmin, db: DB) -> Adm
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Project gates must lock with the plan",
         )
+    # …and only they do (spec §3.7): a governed check in another team would be
+    # signed and frozen with the plan but never shown as a project gate — on the
+    # Project gates lens, its tile or the gate KPIs.
+    if team.code != PROJECTS_TEAM and payload.locks_with_plan:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only project gates lock with the plan",
+        )
     taken = (
         await db.execute(select(ReadinessCheck.id).where(ReadinessCheck.code == payload.code))
     ).scalar_one_or_none()

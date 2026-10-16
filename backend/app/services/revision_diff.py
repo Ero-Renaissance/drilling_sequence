@@ -65,6 +65,16 @@ def _readiness_pct(snapshot: list[dict]) -> int | None:
     return rollup(snapshot_gate_targets(snapshot)).complete_pct
 
 
+def _gates(activity: dict) -> dict:
+    """An activity's governed gates. One with no field project carries none (spec
+    §3.7) — older snapshots stored defaults for it, so ignore those rather than
+    report "On Track → (none)" against a newer snapshot. Legacy snapshots with no
+    ``well_project`` key at all had per-activity gates and keep them."""
+    if "well_project" in activity and not activity["well_project"]:
+        return {}
+    return activity.get("readiness") or {}
+
+
 def _is_done(activity: dict) -> bool:
     return bool(_norm(activity.get("completed_at")))
 
@@ -76,8 +86,8 @@ def _field_changes(base: dict, target: dict) -> list[dict]:
         if old != new:
             changes.append({"field": label, "old": old, "new": new})
 
-    base_readiness = base.get("readiness") or {}
-    target_readiness = target.get("readiness") or {}
+    base_readiness = _gates(base)
+    target_readiness = _gates(target)
     for code in sorted(set(base_readiness) | set(target_readiness)):
         old, new = _norm(base_readiness.get(code)), _norm(target_readiness.get(code))
         if old != new:

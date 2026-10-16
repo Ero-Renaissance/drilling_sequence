@@ -251,6 +251,15 @@ describe("RevisionPrintDoc — page-local readiness anchors", () => {
     expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(2);
   });
 
+  it("prints no gates for an activity with no field project (spec §3.7)", () => {
+    // Snapshots from phase 5 on record an empty block for such an activity.
+    renderReadiness([
+      { ...projRow("np", null, "2033-01-05", "2033-02-20"), readiness: {} },
+      projRow("real", "Bonga Phase 3", "2033-05-01", "2033-07-01"),
+    ]);
+    expect(screen.getAllByTestId("gantt-readiness-strip")).toHaveLength(1);
+  });
+
   it("never anchors on an opt-out bar", () => {
     renderReadiness([
       { ...projRow("opt", "Bonga Phase 3", "2033-01-05", "2033-02-20"), readiness_required: false },

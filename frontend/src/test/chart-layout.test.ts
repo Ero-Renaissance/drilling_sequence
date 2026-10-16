@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { barStripCodes, worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
+import { barStripCodes, worstCheck, iconTier, siblingMarker, tagFits } from "@/lib/chart-layout";
 
 describe("iconTier", () => {
   it("picks the strip tier by bar width, at the exact thresholds", () => {
@@ -75,5 +75,30 @@ describe("barStripCodes", () => {
   it("keeps the strip order under the All lens", () => {
     const checks = { logistics: { status: "Available" }, projects: { status: "On Track" } };
     expect(barStripCodes(strip, checks, true)).toEqual(["projects", "logistics"]);
+  });
+});
+
+
+describe("siblingMarker — a project's other bars flag only blocked checks", () => {
+  it("flags Behind and Not available alike (severity, not status text)", () => {
+    expect(siblingMarker({ FDP: { status: "Behind" } })).toEqual({ code: "FDP", status: "Behind" });
+    expect(siblingMarker({ NEQ: { status: "Not available" } })).toEqual({
+      code: "NEQ",
+      status: "Not available",
+    });
+  });
+
+  it("still flags when an earlier blocked check ties a later Behind", () => {
+    // NEQ comes first in catalog order — the old literal "Behind" test hid PO.
+    expect(
+      siblingMarker({ NEQ: { status: "Not available" }, PO: { status: "Behind" } }, ["NEQ", "PO"]),
+    ).toEqual({ code: "NEQ", status: "Not available" });
+  });
+
+  it("stays silent while nothing is blocked", () => {
+    expect(
+      siblingMarker({ FDP: { status: "On Track" }, NEQ: { status: "Pending" }, BUD: { status: "Completed" } }),
+    ).toBeNull();
+    expect(siblingMarker(null)).toBeNull();
   });
 });

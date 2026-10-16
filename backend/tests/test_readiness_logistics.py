@@ -9,6 +9,8 @@ SQL Server; on the SQLite test schema they're created here through the admin API
 """
 import importlib.util
 import json
+import uuid
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.activity import Activity
 from app.models.audit import AuditLog
 from app.models.readiness import ICON_KEYS, STATUS_SETS
 from app.models.user import User
@@ -299,6 +302,36 @@ async def test_live_checks_are_recorded_at_submission(client: AsyncClient, db: A
     assert frozen["NEQ"]["tag_list"] == "equipment" and frozen["NEQ"]["locks_with_plan"] is False
     # …but only governed gates feed the snapshot's gate KPIs.
     assert gate_codes_of(detail["readiness_catalog"]) == ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+
+
+@pytest.mark.asyncio
+async def test_no_well_name_records_no_well_level_checks(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Spec §3.7: well-level checks — two-level ones included — need a well name,
+    in the snapshot as in the live lens (which shows no strip for such a bar)."""
+    await _seed_logistics(client, db)
+    pid = await _campaign(client)
+    await _put(client, pid, "PO", PROJECT, "Completed")
+    # No well name only arrives through import (the form requires one).
+    db.add(
+        Activity(
+            project_id=uuid.UUID(pid),
+            activity_type="Contracting",
+            start_date=date(2026, 12, 1),
+            end_date=date(2026, 12, 20),
+            well_project="Bonga Phase 3",
+            well_name=None,
+        )
+    )
+    await db.commit()
+    rev = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert rev.status_code in (200, 201), rev.text
+    detail = (await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")).json()
+    rows = json.loads(detail["snapshot_json"])
+    contracting = next(a for a in rows if a["activity_type"] == "Contracting")
+    assert contracting["readiness_at_submission"] == {}  # every logistics check is two-level
+    assert list(contracting["readiness"]) == ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
 
 
 # ── Dashboard team tiles ────────────────────────────────────────────────────
