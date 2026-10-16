@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle, FolderPlus, Loader2, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { FolderPlus, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   planProjectWells,
   type PlannedWellIn,
@@ -19,9 +19,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toaster";
-import { suggestedActivityTypes } from "@/lib/chart-colors";
-import { cn, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
+import {
+  ConflictList,
+  ResourceInputs,
+  WellDatalists,
+  gapLabel,
+  resourceText,
+  selectClass,
+  useProjectSuggestions,
+} from "./project-dialog-shared";
 
 interface WellRow {
   key: number;
@@ -31,10 +39,6 @@ interface WellRow {
   resource_name: string;
   duration_months: string;
 }
-
-// Natural order, so "PROJECT_2" sorts before "PROJECT_10".
-const natural = (a: string, b: string) =>
-  a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 
 let nextKey = 1;
 const blankWell = (from?: WellRow): WellRow => ({
@@ -46,19 +50,6 @@ const blankWell = (from?: WellRow): WellRow => ({
   resource_name: from?.resource_name ?? "",
   duration_months: from?.duration_months ?? "2.5",
 });
-
-function gapLabel(kind: string, days: number): string {
-  switch (kind) {
-    case "inter_well":
-      return `${days / 7} wk after previous well`;
-    case "batch":
-      return `${days / 7} wk after 3rd well`;
-    case "project_move":
-      return `rig move ${days} d after current job`;
-    default:
-      return "starts on start date";
-  }
-}
 
 /**
  * "Add project" — a field project and its wells in one go. The project details
@@ -97,16 +88,12 @@ export function AddProjectDialog({
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<"preview" | "create" | null>(null);
 
-  const projectSuggestions = useMemo(
-    () => [...new Set(existingProjects.filter(Boolean))].sort(natural),
-    [existingProjects],
-  );
-  const typeSuggestions = useMemo(
-    () => suggestedActivityTypes(existingActivityTypes),
-    [existingActivityTypes],
-  );
-  const rigSuggestions = useMemo(() => [...new Set(existingRigNames)].sort(natural), [existingRigNames]);
-  const hwuSuggestions = useMemo(() => [...new Set(existingHwuNames)].sort(natural), [existingHwuNames]);
+  const suggestions = useProjectSuggestions({
+    existingProjects,
+    existingActivityTypes,
+    existingRigNames,
+    existingHwuNames,
+  });
 
   function reset() {
     setProject("");
@@ -207,9 +194,6 @@ export function AddProjectDialog({
     }
   }
 
-  const selectClass =
-    "flex h-9 w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring";
-
   return (
     <Dialog
       open={open}
@@ -257,7 +241,7 @@ export function AddProjectDialog({
               maxLength={256}
             />
             <datalist id="ap-project-suggestions">
-              {projectSuggestions.map((p) => (
+              {suggestions.projects.map((p) => (
                 <option key={p} value={p} />
               ))}
             </datalist>
@@ -359,33 +343,13 @@ export function AddProjectDialog({
                       />
                     </td>
                     <td className="py-1 pr-2">
-                      <div className="flex gap-1.5">
-                        <select
-                          aria-label={`Well ${i + 1} resource type`}
-                          value={w.resource_type}
-                          onChange={(e) =>
-                            updateWell(w.key, {
-                              resource_type: e.target.value as WellRow["resource_type"],
-                              ...(e.target.value === "none" ? { resource_name: "" } : {}),
-                            })
-                          }
-                          className={cn(selectClass, "w-20 shrink-0")}
-                        >
-                          <option value="rig">Rig</option>
-                          <option value="hwu">HWU</option>
-                          <option value="none">None</option>
-                        </select>
-                        <Input
-                          aria-label={`Well ${i + 1} resource name`}
-                          value={w.resource_name}
-                          disabled={w.resource_type === "none"}
-                          onChange={(e) => updateWell(w.key, { resource_name: e.target.value })}
-                          list={w.resource_type === "hwu" ? "ap-hwu-suggestions" : "ap-rig-suggestions"}
-                          placeholder={w.resource_type === "hwu" ? "Pick an HWU" : "Pick a rig"}
-                          className="min-w-0"
-                          maxLength={256}
-                        />
-                      </div>
+                      <ResourceInputs
+                        label={`Well ${i + 1}`}
+                        prefix="ap"
+                        type={w.resource_type}
+                        name={w.resource_name}
+                        onChange={(patch) => updateWell(w.key, patch)}
+                      />
                     </td>
                     <td className="py-1 pr-2">
                       <Input
@@ -418,15 +382,12 @@ export function AddProjectDialog({
               </tbody>
             </table>
           </div>
-          <datalist id="ap-type-suggestions">
-            {typeSuggestions.map((t) => <option key={t} value={t} />)}
-          </datalist>
-          <datalist id="ap-rig-suggestions">
-            {rigSuggestions.map((r) => <option key={r} value={r} />)}
-          </datalist>
-          <datalist id="ap-hwu-suggestions">
-            {hwuSuggestions.map((h) => <option key={h} value={h} />)}
-          </datalist>
+          <WellDatalists
+            prefix="ap"
+            types={suggestions.types}
+            rigs={suggestions.rigs}
+            hwus={suggestions.hwus}
+          />
         </div>
 
         {errors.length > 0 && (
@@ -456,7 +417,7 @@ export function AddProjectDialog({
                       <span className="font-medium">{p.well_name}</span>{" "}
                       <span className="text-muted-foreground">{p.activity_type}</span>
                     </td>
-                    <td className="py-1 pr-2">{p.rig_name ?? (p.hwu_name ? `HWU · ${p.hwu_name}` : "—")}</td>
+                    <td className="py-1 pr-2">{resourceText(p.rig_name, p.hwu_name)}</td>
                     <td className="py-1 pr-2 tabular-nums">{formatDate(p.start_date)}</td>
                     <td className="py-1 pr-2 tabular-nums">{formatDate(p.end_date)}</td>
                     <td className="py-1 text-muted-foreground">{gapLabel(p.gap_kind, p.gap_before_days)}</td>
@@ -464,22 +425,10 @@ export function AddProjectDialog({
                 ))}
               </tbody>
             </table>
-            {plan.conflicts.length > 0 && (
-              <div className="space-y-1 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                <p className="flex items-center gap-1.5 font-medium">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  {plan.conflicts.length} clash{plan.conflicts.length === 1 ? "" : "es"} with work already on these rigs —
-                  adjust the start date or rigs, or fix them after creating.
-                </p>
-                <ul className="list-disc pl-5">
-                  {plan.conflicts.map((c) => (
-                    <li key={`${c.well_name}-${c.clashes_with}`}>
-                      {c.well_name} overlaps {c.clashes_with} on {c.resource} by {c.overlap_days} days
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <ConflictList
+              conflicts={plan.conflicts}
+              hint="with work already on these rigs — adjust the start date or rigs, or fix them after creating."
+            />
           </section>
         )}
 

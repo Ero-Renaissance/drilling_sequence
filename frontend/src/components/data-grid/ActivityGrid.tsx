@@ -25,6 +25,7 @@ import {
   X,
   Lock,
   ListChecks,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,8 @@ function laneLabelOf(a: Activity): string | null {
 import { EditableCell } from "./EditableCell";
 import { toast } from "@/components/ui/toaster";
 import { AddProjectDialog } from "./AddProjectDialog";
+import { EditProjectDialog } from "./EditProjectDialog";
+import { projectReadOnlyReason } from "./project-dialog-shared";
 import { ActivityFormDialog, LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "./ActivityFormDialog";
 import { HistoryPanel } from "@/components/activity/HistoryPanel";
 
@@ -209,6 +212,8 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
   const [globalFilter, setGlobalFilter] = useState("");
   const [historyActivityId, setHistoryActivityId] = useState<string | null>(null);
   const [readinessActivityId, setReadinessActivityId] = useState<string | null>(null);
+  // The field project opened from the Project column (its wells, editable).
+  const [projectDialog, setProjectDialog] = useState<string | null>(null);
   const [savingReadinessKey, setSavingReadinessKey] = useState<string | null>(null);
 
   const [contracts, setContracts] = useState<RigContract[]>([]);
@@ -579,13 +584,31 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
       helper.accessor("well_project", {
         header: "Project",
         size: 130,
-        cell: ({ getValue, row, table }) => (
-          <EditableCell
-            value={getValue() ?? null}
-            readOnly={!!row.original.locked_by_revision_id}
-            onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_project", v)}
-          />
-        ),
+        cell: ({ getValue, row, table }) => {
+          const project = getValue();
+          return (
+            <div className="flex items-center gap-1">
+              <EditableCell
+                value={project ?? null}
+                className="min-w-0"
+                readOnly={!!row.original.locked_by_revision_id}
+                onSave={(v) => table.options.meta?.updateCell(row.original.id, "well_project", v)}
+              />
+              {/* Clicking the name edits it in place; this opens the whole project. */}
+              {project && (
+                <button
+                  type="button"
+                  onClick={() => setProjectDialog(project)}
+                  aria-label={`Open project ${project}`}
+                  title="Open the project and its wells"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        },
       }),
       helper.accessor("activity_type", {
         header: "Activity Type",
@@ -1305,6 +1328,26 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
         </kbd>{" "}
         to cancel
       </p>
+
+      {projectDialog && (
+        <EditProjectDialog
+          key={projectDialog}
+          projectId={projectId}
+          projectName={projectDialog}
+          activities={activities}
+          canEdit={canEditPlan && !isLocked}
+          readOnlyReason={projectReadOnlyReason(canEditPlan, isLocked)}
+          open
+          onOpenChange={(open) => {
+            if (!open) setProjectDialog(null);
+          }}
+          onSaved={() => load()}
+          onOpenReadiness={(id) => {
+            setProjectDialog(null);
+            setReadinessActivityId(id);
+          }}
+        />
+      )}
 
       {readinessActivity && (
         <ActivityReadinessPanel

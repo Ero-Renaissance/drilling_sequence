@@ -5,10 +5,19 @@ import { MemoryRouter } from "react-router-dom";
 
 // Mock echarts-for-react to avoid canvas in jsdom; capture the last option so
 // tests can assert on the chart's declarative shape (axes, zoom, marklines).
-const captured = vi.hoisted(() => ({ option: undefined as unknown }));
+const captured = vi.hoisted(() => ({ option: undefined as unknown, onEvents: undefined as unknown }));
 vi.mock("echarts-for-react/lib/core", () => ({
-  default: ({ option, style }: { option?: unknown; style?: React.CSSProperties }) => {
+  default: ({
+    option,
+    style,
+    onEvents,
+  }: {
+    option?: unknown;
+    style?: React.CSSProperties;
+    onEvents?: unknown;
+  }) => {
     captured.option = option;
+    captured.onEvents = onEvents;
     return <div data-testid="echarts-instance" style={style} />;
   },
 }));
@@ -340,6 +349,26 @@ describe("activitiesToChartData", () => {
     const { activitiesToChartData } = await import("@/lib/chart-utils");
     const { data } = activitiesToChartData(MOCK_ACTIVITIES);
     expect(data).toHaveLength(2);
+  });
+
+  it("a click on a bar's project tag opens the project; a bar click still opens the activity", () => {
+    const onProjectClick = vi.fn();
+    const onActivityClick = vi.fn();
+    render(
+      <DrillChart
+        activities={FILTER_ACTIVITIES}
+        onProjectClick={onProjectClick}
+        onActivityClick={onActivityClick}
+      />,
+    );
+    const { click } = captured.onEvents as { click: (p: unknown) => void };
+    // ECharts reports the clicked element's `info` — set only on the project tag.
+    click({ info: { project: "Project Alpha" }, data: { activityId: "act-pa" } });
+    expect(onProjectClick).toHaveBeenCalledWith("Project Alpha");
+    expect(onActivityClick).not.toHaveBeenCalled();
+
+    click({ data: { activityId: "act-pa" } });
+    expect(onActivityClick).toHaveBeenCalledWith("act-pa");
   });
 
   it("suppresses readiness checks for an opt-out activity (readiness_required=false)", async () => {
