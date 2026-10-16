@@ -156,13 +156,16 @@ def test_migration_seeds_the_confirmed_logistics_checks_and_equipment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_neq_uses_available_not_available(client: AsyncClient, db: AsyncSession) -> None:
+async def test_neq_uses_the_availability_status_set(client: AsyncClient, db: AsyncSession) -> None:
     await _seed_logistics(client, db)
     pid = await _campaign(client)
     neq = _well_row(await _lens(client, pid), "W-1")["checks"]["NEQ"]
-    assert neq["status"] == "Not available"  # the availability default
+    # Unset reads the on-track default (spec §3.7), not "Not available".
+    assert (neq["status"], neq["source"]) == ("Pending", "default")
     assert (await _put(client, pid, "NEQ", PROJECT, "Completed")).status_code == 422
     assert (await _put(client, pid, "NEQ", PROJECT, "Available")).status_code == 200
+    assert (await _put(client, pid, "NEQ", PROJECT, "Pending")).status_code == 200
+    assert (await _put(client, pid, "NEQ", PROJECT, "Not available")).status_code == 200
     # Standard checks don't accept availability statuses.
     assert (await _put(client, pid, "PO", PROJECT, "Available")).status_code == 422
 
@@ -315,10 +318,11 @@ async def test_dashboard_has_a_logistics_tile(client: AsyncClient, db: AsyncSess
     tile = next(t for t in dash["team_readiness"] if t["team_code"] == "logistics")
     assert tile["unit"] == "wells"
     assert tile["focus_count"] == 2  # W-OPT opted out
-    assert tile["ready"] == 1
+    assert (tile["ready"], tile["ready_of"]) == (1, 2)
     assert tile["overall_pct"] == 50  # 7 done of 14 counted
-    # W-2: PO behind + NEQ "Not available" by default.
-    assert tile["blocked_cells"] == 2
+    # W-2: PO behind; its unset checks read On Track / Pending (on track).
+    assert tile["behind_cells"] == 1
+    assert tile["on_track_pct"] == 93  # 13 of 14
 
 
 # ── Admin: equipment types ──────────────────────────────────────────────────

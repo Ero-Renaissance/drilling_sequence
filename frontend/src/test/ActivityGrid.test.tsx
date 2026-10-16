@@ -396,3 +396,56 @@ describe("Conflicts queue empty state", () => {
     expect(await screen.findByText("W0")).toBeInTheDocument();
   });
 });
+
+describe("Not-ready drill-through", () => {
+  it("lists near-term work whose project gates aren't all done — never work with no field project", async () => {
+    // Mirrors the Overview warning (spec §3.7): project gates only; an unset
+    // gate arrives as On Track (not ready); opt-outs and work with no field
+    // project carry no project gates.
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 10);
+    const start = soon.toISOString().slice(0, 10);
+    const act = (id: string, well: string, wellProject: string | null, required = true) => ({
+      id, project_id: PROJECT_ID, activity_type: "Oil Development",
+      start_date: start, end_date: start, well_name: well,
+      rig_name: `Rig ${id}`, hwu_name: null, well_project: wellProject, project_group: null,
+      location: "LAND", risk: null, comment: null, plan_type: null, market: null,
+      readiness_required: required, completed_at: null, created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z", updated_by_name: null, locked_by_revision_id: null,
+    });
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          act("a1", "W-NOT-READY", "P1"),
+          act("a2", "W-READY", "P2"),
+          act("a3", "W-NO-PROJECT", null),
+          act("a4", "W-OPTED-OUT", "P1", false),
+        ]),
+      ),
+      http.get("/api/projects/:projectId/readiness", () =>
+        HttpResponse.json([
+          {
+            well_project: "P1", activity_count: 2, locked: false, focus_start: start,
+            checks: { FDP: { status: "Completed" }, BUD: { status: "On Track" } },
+          },
+          {
+            well_project: "P2", activity_count: 1, locked: false, focus_start: start,
+            checks: { FDP: { status: "Completed" }, BUD: { status: "N/A" } },
+          },
+        ]),
+      ),
+    );
+    render(
+      <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}/data?focus=not-ready`]}>
+        <Routes>
+          <Route path="/projects/:projectId/data" element={<ActivityGrid projectId={PROJECT_ID} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("W-NOT-READY")).toBeInTheDocument();
+    expect(screen.queryByText("W-READY")).not.toBeInTheDocument();
+    expect(screen.queryByText("W-NO-PROJECT")).not.toBeInTheDocument();
+    expect(screen.queryByText("W-OPTED-OUT")).not.toBeInTheDocument();
+  });
+});

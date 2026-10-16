@@ -15,6 +15,7 @@ export type CheckStatus =
   | "N/A"
   // "availability" status set (e.g. Nominated Equipment)
   | "Available"
+  | "Pending"
   | "Not available";
 export type Severity = "done" | "in_progress" | "blocked" | "not_counted";
 

@@ -1,4 +1,6 @@
 import type { Activity } from "@/api/activities";
+import type { CheckStatus } from "@/api/readiness";
+import { STATUS_SEVERITY } from "@/components/readiness/check-meta";
 import { detectResourceConflicts } from "@/lib/conflicts";
 
 // Watchlist "focus" filters — shared by the dashboard links and the grids that
@@ -44,14 +46,17 @@ export function isOverdue(endDate: string): boolean {
   return daysFromToday(endDate) < 0;
 }
 
-/** Ready = ≥1 applicable (non-N/A) gate AND all applicable gates Completed. */
+/** Ready (spec §3.7) = ≥1 counted check AND every counted check done, by
+ *  shared severity (N/A isn't counted). `checks` are effective values — an unset
+ *  gate arrives as On Track, so it isn't ready. */
 export function checksReady(
   checks: Record<string, { status: string }> | undefined,
 ): boolean {
-  const applicable = Object.values(checks ?? {}).filter(
-    (c) => c && c.status !== "N/A",
+  const severity = (status: string) => STATUS_SEVERITY[status as CheckStatus] ?? "in_progress";
+  const counted = Object.values(checks ?? {}).filter(
+    (c) => c && severity(c.status) !== "not_counted",
   );
-  return applicable.length > 0 && applicable.every((c) => c.status === "Completed");
+  return counted.length > 0 && counted.every((c) => severity(c.status) === "done");
 }
 
 /** Activity ids in any same-resource (rig or HWU) overlap; completed work is excluded. */

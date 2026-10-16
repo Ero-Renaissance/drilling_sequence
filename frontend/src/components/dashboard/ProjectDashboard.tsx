@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
+import { READINESS_FIGURES_HINT, readinessSubline } from "@/lib/readiness-figures";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
 
@@ -23,6 +24,7 @@ function Tile({
   sub,
   tone = "neutral",
   to,
+  hint,
 }: {
   label: string;
   value: string;
@@ -30,6 +32,8 @@ function Tile({
   tone?: Tone;
   /** Destination tab — every tile deep-links to the page that acts on it. */
   to?: string;
+  /** Hover text explaining the figures. */
+  hint?: string;
 }) {
   const body = (
     <>
@@ -40,12 +44,16 @@ function Tile({
   );
   if (to) {
     return (
-      <Link to={to} className={TILE_LINK_CLASS}>
+      <Link to={to} className={TILE_LINK_CLASS} title={hint}>
         {body}
       </Link>
     );
   }
-  return <div className={TILE_CLASS}>{body}</div>;
+  return (
+    <div className={TILE_CLASS} title={hint}>
+      {body}
+    </div>
+  );
 }
 
 /** Fleet demand over the plan window as a 2×2: kind (rigs / HWUs) ×
@@ -317,7 +325,8 @@ export function ProjectDashboard({
           }`}
           label={`Readiness · ${horizonSuffix(horizon)}`}
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
-          sub={`${readiness.ready}/${readiness.focus_count} ready · ${readiness.behind_cells} behind`}
+          sub={readinessSubline({ ...readiness, behind: readiness.behind_cells })}
+          hint={READINESS_FIGURES_HINT}
           tone={readinessTone(readiness.overall_pct)}
         />
         <FleetTile rigs={rigs} to={`${base}/fleet`} />
@@ -339,7 +348,8 @@ export function ProjectDashboard({
               to={`${base}/readiness?lens=${encodeURIComponent(t.team_code)}`}
               label={`${t.name} readiness · ${horizonSuffix(horizon)}`}
               value={t.overall_pct === null ? "—" : `${t.overall_pct}%`}
-              sub={`${t.ready}/${t.focus_count} ${t.unit} ready · ${t.blocked_cells} blocked`}
+              sub={readinessSubline({ ...t, behind: t.behind_cells }, t.unit)}
+              hint={READINESS_FIGURES_HINT}
               tone={readinessTone(t.overall_pct)}
             />
           ))}

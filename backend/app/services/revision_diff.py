@@ -7,6 +7,8 @@ moved/renamed activity reads as "modified", not add+remove.
 """
 from datetime import date
 
+from app.services.readiness_rollup import rollup, snapshot_gate_targets
+
 # Scalar activity fields compared field-for-field, with human labels.
 _SCALAR_FIELDS: list[tuple[str, str]] = [
     ("activity_type", "Activity type"),
@@ -57,16 +59,10 @@ def _norm(value) -> str | None:
 
 
 def _readiness_pct(snapshot: list[dict]) -> int | None:
-    """Completed / applicable (non-N/A) readiness cells across the snapshot, as a %."""
-    applicable = completed = 0
-    for act in snapshot:
-        for status in (act.get("readiness") or {}).values():
-            if status == "N/A":
-                continue
-            applicable += 1
-            if status == "Completed":
-                completed += 1
-    return round(100 * completed / applicable) if applicable else None
+    """The plan's project-gate COMPLETE % (spec §3.7): done / counted gates, each
+    field project with live (readiness-required, not completed) work counted once
+    — not once per activity. None when nothing counts."""
+    return rollup(snapshot_gate_targets(snapshot)).complete_pct
 
 
 def _is_done(activity: dict) -> bool:

@@ -29,27 +29,35 @@ class GateBreakdown(BaseModel):
 
 
 class ReadinessStats(BaseModel):
+    """The Project gates tile — the rollup of spec §3.7 over the field projects
+    in the focus window (an unset gate reads On Track; N/A isn't counted)."""
+
     focus_count: int  # field projects in the focus window (not-done activity within it)
-    overall_pct: int | None  # Completed cells / applicable cells, across focus projects
+    overall_pct: int | None  # COMPLETE (the headline): done / counted; None = nothing counts
+    on_track_pct: int | None = None  # (done + on track) / counted — nothing behind
     behind_cells: int
-    ready: int  # focus projects with all applicable gates Completed
+    ready: int  # focus projects with ≥1 counted gate, every counted gate done
+    ready_of: int = 0  # focus projects with ≥1 counted gate (all-N/A ones left out)
     by_gate: list[GateBreakdown]  # per-gate PROJECT counts across the focus set
 
 
 class TeamReadinessStats(BaseModel):
     """One readiness team's tile (Wells, Logistics…) over the same focus window
-    as the project gates. Counts wells — or field projects when the team has only
-    project-level checks — with effective (inherited) values; statuses roll up by
-    their shared severity, so availability checks count like any other."""
+    as the project gates, by the same rollup (spec §3.7). Counts wells — or field
+    projects when the team has only project-level checks — with effective
+    (inherited) values; statuses roll up by their shared severity, so availability
+    checks count like any other."""
 
     team_code: str
     name: str
     icon_key: str
     unit: str  # "wells" | "projects"
     focus_count: int
-    overall_pct: int | None  # done / counted (not-counted excluded)
-    blocked_cells: int
-    ready: int  # focus wells/projects with every counted check done
+    overall_pct: int | None  # COMPLETE: done / counted (N/A excluded)
+    on_track_pct: int | None = None  # (done + on track) / counted
+    behind_cells: int  # blocked cells (Behind, Not available)
+    ready: int  # focus wells/projects with ≥1 counted check, every counted check done
+    ready_of: int = 0  # focus wells/projects with ≥1 counted check
 
 
 class RigDetail(BaseModel):
@@ -138,7 +146,12 @@ class LastApprovedKPIs(BaseModel):
     activities_total: int
     schedule_start: str | None = None
     schedule_end: str | None = None
-    readiness_pct: int | None = None  # Completed / applicable cells over the focus window
+    # Project gates over the focus window, by the rollup of spec §3.7.
+    readiness_pct: int | None = None  # COMPLETE: done / counted
+    readiness_on_track_pct: int | None = None  # (done + on track) / counted
+    readiness_behind: int = 0
+    readiness_ready: int = 0
+    readiness_ready_of: int = 0
     readiness_focus_count: int = 0
     # Fleet demand split (mirrors RigStats): units with live work in the approved
     # plan, per physical unit. Snapshots approved before the planned flag was

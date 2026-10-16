@@ -17,6 +17,7 @@ import { useProjectsStore } from "@/store/projects";
 import { useAuthStore } from "@/store/auth";
 import { getLastApprovedDashboard, type LastApprovedDashboard } from "@/api/me";
 import { cn, formatDate } from "@/lib/utils";
+import { READINESS_FIGURES_HINT, readinessSubline } from "@/lib/readiness-figures";
 
 type KpiTone = "primary" | "info" | "warning" | "success";
 
@@ -33,16 +34,19 @@ function KpiCard({
   icon: Icon,
   description,
   tone = "primary",
+  hint,
 }: {
   title: string;
   value: string | number;
   icon: React.ElementType;
   description?: string;
   tone?: KpiTone;
+  /** Hover text explaining the figure. */
+  hint?: string;
 }) {
   const styles = TONE_STYLES[tone];
   return (
-    <Card className="hover:shadow-soft-md transition-shadow">
+    <Card className="hover:shadow-soft-md transition-shadow" title={hint}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 p-5 pb-2">
         <div className="space-y-1">
           <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -109,7 +113,17 @@ function ApprovedKpis({ d }: { d: LastApprovedDashboard }) {
           title="Readiness"
           value={k.readiness_pct === null ? "—" : `${k.readiness_pct}%`}
           icon={Gauge}
-          description="Approved plan · next 12 months"
+          description={
+            k.readiness_pct === null
+              ? "Approved plan · next 12 months"
+              : `${readinessSubline({
+                  on_track_pct: k.readiness_on_track_pct,
+                  behind: k.readiness_behind,
+                  ready: k.readiness_ready,
+                  ready_of: k.readiness_ready_of,
+                })} · next 12 months`
+          }
+          hint={READINESS_FIGURES_HINT}
           tone="success"
         />
         <KpiCard
