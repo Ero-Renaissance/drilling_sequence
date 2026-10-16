@@ -83,7 +83,9 @@ class ActivityCreateStrict(ActivityCreate):
 
 
 class ActivityUpdate(BaseModel):
-    activity_type: str | None = None
+    # Same bounds as ActivityCreate: an edit is a write path too, and a value
+    # past the column width must 422 here, not fail at the database.
+    activity_type: Str256 | None = None
     start_date: date | None = None
 
     # Canonicalize a manual edit's type exactly like create/import (idempotent;
@@ -93,14 +95,14 @@ class ActivityUpdate(BaseModel):
     def _canonicalize_type(cls, v: str | None) -> str | None:
         return canonicalize_activity_type(v)
     end_date: date | None = None
-    well_name: str | None = None
-    rig_name: str | None = None
-    hwu_name: str | None = None
-    well_project: str | None = None
-    project_group: str | None = None
+    well_name: Str256 | None = None
+    rig_name: Str256 | None = None
+    hwu_name: Str256 | None = None
+    well_project: Str256 | None = None
+    project_group: Str256 | None = None
     location: Location | None = None
     risk: Risk | None = None
-    comment: str | None = None
+    comment: Str512 | None = None
     plan_type: PlanType | None = None
     market: Market | None = None
     readiness_required: bool | None = None

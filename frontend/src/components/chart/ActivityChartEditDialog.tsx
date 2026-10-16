@@ -14,7 +14,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { setActivityCompletion, updateActivity, type Activity } from "@/api/activities";
+import {
+  COMMENT_MAX_LENGTH,
+  setActivityCompletion,
+  updateActivity,
+  type Activity,
+} from "@/api/activities";
 import { upsertCheck, type CheckCode, type CheckStatus } from "@/api/readiness";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
@@ -43,7 +48,10 @@ const schema = z
     plan_type: z.string().min(1, "Required"),
     risk: z.string().min(1, "Required"),
     market: z.string().optional(),
-    comment: z.string().optional(),
+    comment: z
+      .string()
+      .max(COMMENT_MAX_LENGTH, `Comment must be ${COMMENT_MAX_LENGTH} characters or fewer`)
+      .optional(),
     readiness_required: z.boolean(),
   })
   .refine((d) => !d.start_date || !d.end_date || d.end_date >= d.start_date, {
@@ -520,7 +528,7 @@ export function ActivityChartEditDialog({
             )}
 
 
-            <Field label="Comment">
+            <Field label="Comment" error={errors.comment?.message}>
               <Input
                 {...register("comment")}
                 placeholder="Optional note…"

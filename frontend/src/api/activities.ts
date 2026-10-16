@@ -2,6 +2,9 @@ import { getAccessToken } from "@/lib/auth";
 import { throwApiError } from "./http";
 import { logger } from "@/lib/logger";
 
+/** Server-side bound on an activity comment (backend `Str512`, create and edit). */
+export const COMMENT_MAX_LENGTH = 512;
+
 export interface Activity {
   id: string;
   project_id: string;

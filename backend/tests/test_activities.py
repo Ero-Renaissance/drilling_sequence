@@ -99,6 +99,58 @@ async def test_update_allows_omitting_required_fields(client: AsyncClient) -> No
     assert body["location"] == activity["location"]
 
 
+async def _get_activity(client: AsyncClient, project_id: str, activity_id: str) -> dict:
+    response = await client.get(f"/api/projects/{project_id}/activities")
+    assert response.status_code == 200, response.text
+    return next(a for a in response.json() if a["id"] == activity_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "limit"),
+    [
+        ("comment", 512),
+        ("activity_type", 256),
+        ("well_name", 256),
+        ("rig_name", 256),
+        ("hwu_name", 256),
+        ("well_project", 256),
+        ("project_group", 256),
+    ],
+)
+async def test_update_enforces_create_length_bounds(
+    client: AsyncClient, field: str, limit: int
+) -> None:
+    # An edit is bounded exactly like a create: one character past the limit is a
+    # 422 at validation (never a database error on SQL Server) and nothing is written.
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"], comment="Original")
+    response = await client.patch(
+        f"/api/projects/{project['id']}/activities/{activity['id']}",
+        json={field: "x" * (limit + 1)},
+    )
+    assert response.status_code == 422, response.text
+    error = response.json()["detail"][0]
+    assert error["type"] == "string_too_long"
+    assert error["loc"][-1] == field
+    after = await _get_activity(client, project["id"], activity["id"])
+    assert after[field] == activity[field]
+
+
+@pytest.mark.asyncio
+async def test_update_accepts_comment_at_limit_and_clearing(client: AsyncClient) -> None:
+    project = await _create_project(client)
+    activity = await _create_activity(client, project["id"])
+    url = f"/api/projects/{project['id']}/activities/{activity['id']}"
+    at_limit = await client.patch(url, json={"comment": "x" * 512})
+    assert at_limit.status_code == 200, at_limit.text
+    assert at_limit.json()["comment"] == "x" * 512
+    # Comment is the one optional field: clearing it is still allowed.
+    cleared = await client.patch(url, json={"comment": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["comment"] is None
+
+
 @pytest.mark.asyncio
 async def test_create_activity_full(client: AsyncClient) -> None:
     project = await _create_project(client)
