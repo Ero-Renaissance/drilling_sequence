@@ -25,7 +25,14 @@ import {
   type ChartCheckState,
   type ReadinessMap,
 } from "@/lib/chart-utils";
-import { barStripCodes, worstCheck, iconTier, gridCols, tagFits } from "@/lib/chart-layout";
+import {
+  barStripCodes,
+  worstCheck,
+  iconTier,
+  gridCols,
+  siblingMarker,
+  tagFits,
+} from "@/lib/chart-layout";
 import { summariseTeam, summaryLine } from "@/lib/team-summary";
 import { terrainRank } from "@/lib/gantt-rows";
 import { rigLaneKey } from "@/lib/resource-identity";
@@ -809,8 +816,8 @@ export function DrillChart({
       // Readiness — gates are per FIELD PROJECT, rendered anchor-plus-exception:
       // the project's earliest pending bar (readinessRole "anchor") carries the
       // full strip below the bar; its other pending bars ("sibling") show a
-      // single worst-gate marker ONLY while a gate is Behind — silence means
-      // fine. Every bar's tooltip still lists the full gates. The anchor strip
+      // single worst-check marker ONLY while a check is blocked (Behind, or
+      // Not available) — silence means fine. Every bar's tooltip still lists the full gates. The anchor strip
       // keeps the 4 adaptive width tiers:
       //   ≥ 135px → 7 full-size icons (14px) in a single row
       //   90–135  → 7 half-size icons (10px) in a single row
@@ -822,8 +829,8 @@ export function DrillChart({
       if (checks && readinessRole === "sibling") {
         // Exception marker: this bar's project is flagged elsewhere on the
         // chart (its anchor bar carries the full strip) — repeat only trouble.
-        const worst = worstCheck(checks, stripCodes);
-        if (worst && worst.status === "Behind") {
+        const worst = siblingMarker(checks, stripCodes);
+        if (worst) {
           const stripY = barTop + barH + BAR_TO_ICON_GAP;
           const minX = coordSys.x;
           const maxX = coordSys.x + coordSys.width;

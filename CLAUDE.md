@@ -176,8 +176,9 @@ logic against these active business rules:
   `readiness_at_submission` but never lock or diff; only governed gates
   (`gate_codes_of`) feed the snapshot gate KPIs. Revisions freeze their check definitions (`catalog_json`). A check's team,
   status set, scope and lock behaviour are fixed at creation (only label, icon and
-  order are editable); `projects` checks must lock with the plan, and a check that
-  locks with the plan applies at project level only.
+  order are editable); `projects` checks must lock with the plan, ONLY `projects`
+  checks may (admin catalog 422s a governed check in any other team), and a check
+  that locks with the plan applies at project level only.
 - **Readiness rollups have ONE definition** (spec §3.7,
   `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,
   never a local formula; Readiness-tab grids add up the server's per-row

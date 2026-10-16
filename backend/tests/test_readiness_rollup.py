@@ -362,3 +362,36 @@ def test_one_scope_rule_for_every_target() -> None:
     assert focus_start_of([act(soon, done=True)]) is None
     assert in_scope(acts[1], TODAY + timedelta(days=60)) and not in_scope(acts[1], soon)
     assert days_until(later, TODAY) == 50 and days_until(None, TODAY) is None
+
+
+
+# ── Snapshots follow the same rules (step 3) ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_snapshot_records_no_gates_without_a_field_project(client: AsyncClient) -> None:
+    import json
+
+    pid = await _campaign(client)
+    await _activity(client, pid, "P1", "W1", TODAY + timedelta(days=10))
+    await _activity(client, pid, None, "W2", TODAY + timedelta(days=12))
+    rev = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert rev.status_code in (200, 201), rev.text
+    detail = (await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")).json()
+    by_well = {a["well_name"]: a for a in json.loads(detail["snapshot_json"])}
+    assert list(by_well["W1"]["readiness"]) == SEVEN
+    assert by_well["W2"]["readiness"] == {}  # no field project → no project gates
+
+
+def test_compare_ignores_stored_defaults_for_activities_without_a_field_project() -> None:
+    """Older snapshots stored default gates for an activity with no field project;
+    newer ones store none. Comparing the two must not report gate changes."""
+    old = {"id": "a", **_snap(None, readiness=_gates()), "activity_type": "Drilling"}
+    new = {**old, "readiness": {}}
+    diff = diff_snapshots([old], [new])
+    assert diff["summary"]["modified"] == 0
+    # Legacy per-activity snapshots (no well_project key) still compare their gates.
+    legacy_old = {k: v for k, v in old.items() if k != "well_project"}
+    legacy_new = {**legacy_old, "readiness": _gates(BUD="Completed")}
+    fields = diff_snapshots([legacy_old], [legacy_new])["activities"][0]["fields"]
+    assert fields == [{"field": "Readiness: BUD", "old": "On Track", "new": "Completed"}]
