@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -315,19 +315,36 @@ async def list_revisions(
     ]
 
 
+def _revision_lock_stmt(revision_id: uuid.UUID) -> Select[tuple[Revision]]:
+    """The row-locking read behind `_lock_revision`.
+
+    SQLAlchemy's SQL Server dialect drops FOR UPDATE (it renders nothing), so
+    the lock there comes from the `WITH (UPDLOCK, ROWLOCK)` table hint, scoped
+    to mssql; PostgreSQL gets FOR UPDATE and ignores the hint, SQLite ignores
+    both. `populate_existing` makes the ORM take the locked row's values even if
+    this revision is already in the session's identity map.
+    """
+    return (
+        select(Revision)
+        .where(Revision.id == revision_id)
+        .with_for_update()
+        .with_hint(Revision, "WITH (UPDLOCK, ROWLOCK)", dialect_name="mssql")
+        .execution_options(populate_existing=True)
+    )
+
+
 async def _lock_revision(
     project_id: uuid.UUID, revision_id: uuid.UUID, db: AsyncSession
 ) -> Revision:
-    """Fetch the revision row FOR UPDATE (MSSQL UPDLOCK/ROWLOCK; a no-op on
-    SQLite, where the test suite is single-session anyway) so a status
-    transition serialises against concurrent ones. Callers re-check status
-    AFTER this returns — the lock guarantees they read post-commit state, so a
-    sign can't overwrite a concurrent reject, and two final signers can't both
-    miss the all-signed advancement. BOLA-scoped to the path project."""
+    """Fetch the revision row under an update lock held until the request's
+    commit or rollback (SQL Server UPDLOCK/ROWLOCK hint, PostgreSQL FOR UPDATE;
+    a no-op on SQLite, where the test suite is single-session anyway) so a
+    status transition serialises against concurrent ones. Callers re-check
+    status AFTER this returns — the lock guarantees they read post-commit state,
+    so a sign can't overwrite a concurrent reject, and two final signers can't
+    both miss the all-signed advancement. BOLA-scoped to the path project."""
     revision = (
-        await db.execute(
-            select(Revision).where(Revision.id == revision_id).with_for_update()
-        )
+        await db.execute(_revision_lock_stmt(revision_id))
     ).scalar_one_or_none()
     if not revision or revision.project_id != project_id:
         raise HTTPException(status_code=404, detail="Revision not found")
