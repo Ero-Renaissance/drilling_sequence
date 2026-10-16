@@ -192,6 +192,22 @@ is never stored and is not a choice in the picker. It counts toward the total bu
 is not complete, on track or behind — so a target nobody has looked at reads 0%,
 not "on track".
 
+**Clear** removes a cell's own entry (its status, notes and tags), so the cell
+shows what it would without it: the field project's value for a well that
+inherits (the existing "Reset to project", now a special case of Clear), else
+**Not set**. It is for a value set by mistake — not the same as N/A, which says
+the check doesn't apply and leaves the totals.
+- It sits at the foot of the status picker, apart from the statuses, and is
+  disabled when the cell has no entry of its own. Its label says what follows:
+  "Reset to project" when the well will inherit, "Clear" otherwise.
+- Clearing a field project's value that wells inherit changes those wells too;
+  the confirmation names how many wells follow it.
+- Same authorization as setting a value (`assert_can_edit_check`, BOLA target
+  check); a governed check is refused with **423** while the plan is locked.
+- Audited: `readiness_cleared` (old value → Not set) when the cell goes to Not
+  set; `readiness_reset`, as today, when a well goes back to its project's value.
+  Clearing a cell with no entry of its own changes nothing and writes no event.
+
 **The three figures** — shown together, in this order, wherever readiness is
 summarised:
 
@@ -250,6 +266,9 @@ other bars — it takes the highest severity: `blocked` > `not_set` >
 months, or **All**. A target is in scope when it has at least one
 readiness-required activity that is not completed and starts on or before today +
 the window (All: no date limit).
+- Grids list only the targets in scope: a field project or well whose activities
+  are all completed (or all opted out) drops out of the Readiness tab, whatever
+  the window. The per-activity readiness panel still shows any activity's values.
 - Overview tiles default to 12 months; the Readiness tab opens on **All**.
 - Links carry the window: a tile opens its grid on the same window, so the grid
   shows the number the tile showed.
@@ -364,6 +383,7 @@ Writes default to deny.
 | GET | `/api/readiness/catalog` | Any user — teams, active checks, status sets (with severity), tag lists |
 | GET | `/api/projects/{id}/readiness?lens={team\|all}` | Any user — project rows and/or well rows for that lens, with effective (inherited) values marked; `lens` allow-listed against active teams + `all` |
 | PUT | `/api/projects/{id}/readiness/{check_code}` | Check's editors (§5.2) |
+| POST | `/api/projects/{id}/readiness/{check_code}/clear` | Check's editors (§5.2) — Clear (§3.7); target in the body like the PUT. Supersedes `…/reset`, which stays as an alias until the frontend moves over |
 | POST/PATCH | `/api/admin/readiness/checks[/{code}]` | Admin |
 | POST | `/api/admin/readiness/checks/{code}/retire` | Admin |
 | POST/PATCH | `/api/admin/readiness/tags[/{list}/{code}]` (+ retire) | Admin |
@@ -416,6 +436,8 @@ Catalog and grant endpoints require `is_admin`.
   global grants spanning every campaign, each entry change also writes an audit
   event (`readiness_updated`, old → new status and tags, `project_id` set), so the
   full history is visible in the campaign audit feed. Append-only, as always.
+- **Clearing an entry** (§3.7) writes `readiness_cleared` (old → Not set), or
+  `readiness_reset` when a well goes back to its project's value.
 - Logs carry ids only (no names or emails), per the logging rules.
 
 ## 6. Snapshot, diff and history
@@ -566,7 +588,7 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **2. Teams and grants** — ✅ **shipped 2026-10-13** | `user_team_grants` (035), `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
 | **3. Well scope + lenses** — ✅ **shipped 2026-10-13** | Well-keyed entries, team lens API + grid (field-project and well rows), lens selector on the Readiness page, chart and sequence print with per-user default (§8.1, §8.4), rename carry-over (§7.1), shared-key warning in the grid, operational lock behaviour. **Moved forward from Phase 4:** project → well inheritance with override + "Reset to project" (§3.6) — admins could already create two-level checks in Phase 2, so the well grid needed it. **Deferred to Phase 4:** the lens on the *revision* print (needs `readiness_at_submission`), the All view, dashboard team tiles; the data-grid strip stays on project gates. | Lens picker appears once a second team exists; planners can print "project gates only". |
 | **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
-| **5. Rollups (§3.7)** — agreed 2026-10-16, not started | Three steps: **(1)** one backend rollup service; **Not set** (API, legend, colours); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; untouched checks show grey "Not set". |
+| **5. Rollups (§3.7)** — agreed 2026-10-16, not started | Three steps: **(1)** one backend rollup service; **Not set** (API, legend, colours); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden, the **Clear** action (endpoint, picker, audit, denial tests). **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; untouched checks show grey "Not set". |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
@@ -632,15 +654,18 @@ Updated **in the same commit as the code that changes them**, not before:
 22. **The Readiness tab opens on All (2026-10-16);** the dashboard tiles keep their
     12-month default, and links carry the window.
 23. **Governed checks belong to the Projects team only (2026-10-16).**
+24. **Completed work drops out (2026-10-16):** a field project or well whose
+    activities are all completed leaves the Readiness tab and every figure.
+25. **Clear (2026-10-16):** editors can remove a value they set; the cell then shows
+    its project's value or Not set (§3.7). Audited.
+26. **Display details (2026-10-16):** Not set ranks between Behind and On Track for
+    the worst-status colour; percentages round half up, identically on backend and
+    frontend.
 
 ## 12. Open questions
 
 1. **Well-gate list** — names and status set for each (location preparation,
    permits, …). Left blank; added via the catalog, no code change needed.
-2. **Clearing a value back to Not set** — a set value can be changed but not
-   removed today (only a well override can be reset to its project). Whether
-   editors need a "Clear" action now that Not set is visible is undecided.
-
 ## 13. Future ideas (not decided)
 
 - Terrain defaults (auto N/A, terrain-sorted equipment list).
