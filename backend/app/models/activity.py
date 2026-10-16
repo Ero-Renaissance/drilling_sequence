@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, func, true
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -24,7 +24,7 @@ class Activity(Base):
 
     # ── Mandatory ──────────────────────────────────────────────────────────────
     activity_type: Mapped[str] = mapped_column(String(256), nullable=False)
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # ── Entity (well / item / task / name) ────────────────────────────────────
@@ -48,7 +48,9 @@ class Activity(Base):
 
     # ── Status / quality ──────────────────────────────────────────────────────
     risk: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    comment: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Text, as migration 002 built it: edits don't bound the comment, so a
+    # narrower column would reject them.
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     plan_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Market the field-development project's production is destined for — a
     # PROJECT-level assignment (Oil / Domestic Gas / Export Gas / Not Applicable)

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -25,9 +25,11 @@ class AuditLog(Base):
     )
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)  # "activity"
     entity_id: Mapped[uuid.UUID] = mapped_column(nullable=False, index=True)
-    field: Mapped[str] = mapped_column(String(64), nullable=False)
-    old_value: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    new_value: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # Widths as migration 003 built them; the log is append-only and governance
+    # details can be long, so the values stay unbounded.
+    field: Mapped[str] = mapped_column(String(128), nullable=False)
+    old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
