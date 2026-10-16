@@ -30,7 +30,13 @@ from app.schemas.activity import (
     ImportResponse,
 )
 from app.schemas.audit import AuditEntryResponse
-from app.schemas.project_wells import ProjectWellsIn, ProjectWellsPlan
+from app.schemas.project_wells import (
+    EditedWellOut,
+    ProjectWellsEditIn,
+    ProjectWellsEditPlan,
+    ProjectWellsIn,
+    ProjectWellsPlan,
+)
 from app.services.audit import ENTITY_PROJECT, ENTITY_VOCABULARY, governance_event
 from app.services.data_processor import (
     CANONICAL_ACTIVITY_TYPES,
@@ -44,7 +50,12 @@ from app.services.data_processor import (
     unknown_activity_type_warnings,
     validate_csv_columns,
 )
-from app.services.project_planner import plan_conflicts, plan_project_wells
+from app.services.project_planner import (
+    EditRefused,
+    plan_conflicts,
+    plan_project_edit,
+    plan_project_wells,
+)
 from app.services.readiness_rekey import carry_readiness_over, well_key
 from app.services.registry import (
     ensure_activity_resources_registered,
@@ -799,6 +810,174 @@ async def add_project_wells(
     )
     await db.commit()
     return ProjectWellsPlan(wells=planned, conflicts=conflicts, created=len(planned))
+
+
+_PROJECT_CHANGED = "The project changed since you opened it. Reload and try again."
+
+
+@router.put("/project-wells", response_model=ProjectWellsEditPlan)
+async def edit_project_wells(
+    project_id: uuid.UUID, payload: ProjectWellsEditIn, current_user: CurrentUser, db: DB
+) -> ProjectWellsEditPlan:
+    """Edit a field project and its wells in one go (the project dialog's edit
+    mode): rename it, set its details, change, add or remove wells.
+
+    Existing wells keep their dates unless the planner changed them or asked for
+    a re-sequence; new wells are placed with the Add-project gap rules
+    (app/services/project_planner.py). ``dry_run`` previews; otherwise the whole
+    edit is written in ONE transaction — all or nothing.
+    """
+    await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await assert_project_not_locked(project_id, db)
+
+    campaign = list(
+        (await db.execute(select(Activity).where(Activity.project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    project_wells = [a for a in campaign if a.well_project == payload.well_project]
+    if not project_wells:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    # The request must account for exactly this project's wells — a well added
+    # (or moved in) by someone else since the dialog opened would otherwise be
+    # left behind by a rename. Ids from elsewhere fail the same check.
+    ours = {a.id for a in project_wells}
+    expected = {w.id: w.expected_updated_at for w in payload.wells if w.id is not None}
+    expected |= {r.id: r.expected_updated_at for r in payload.removed}
+    if set(expected) != ours:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_PROJECT_CHANGED)
+    for a in project_wells:
+        ensure_activity_unlocked(a)
+        loaded = expected[a.id]
+        if (
+            loaded is None
+            or abs((_normalize_ts(a.updated_at) - _normalize_ts(loaded)).total_seconds()) > 1
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "conflict",
+                    "message": (
+                        f"{a.well_name or 'A well'} was changed by "
+                        f"{a.updated_by_name or 'another user'} after you opened the project. "
+                        "Reload and try again."
+                    ),
+                    "updated_by": a.updated_by_name or "Unknown",
+                    "updated_at": a.updated_at.isoformat(),
+                },
+            )
+
+    # Renaming onto another project's name would merge the two (and their
+    # readiness) — refused; a case-only rename of this project is fine.
+    if payload.new_name and payload.new_name != payload.well_project:
+        taken = {
+            a.well_project.casefold() for a in campaign if a.well_project and a.id not in ours
+        }
+        if payload.new_name.casefold() in taken:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Another project in this campaign already has that name.",
+            )
+
+    others = [a for a in campaign if a.id not in ours]
+    try:
+        edit = plan_project_edit(payload, project_wells, others)
+    except EditRefused as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    if payload.dry_run or not edit.changed:
+        return edit.plan(saved=not payload.dry_run)
+
+    # Readiness is keyed by names — remember each well's keys so its values
+    # follow a rename (carry_readiness_over below).
+    old_keys = {
+        a.id: (a.well_project, well_key(a.well_project, a.well_name, a.activity_type))
+        for a in project_wells
+    }
+    for a in edit.removed:
+        await db.delete(a)
+    now = datetime.now(timezone.utc)
+    created: list[tuple[Activity, EditedWellOut]] = []
+    for w in edit.wells:
+        if w.activity is None:
+            activity = Activity(
+                project_id=project_id, updated_by=current_user.id, **w.values.as_columns()
+            )
+            db.add(activity)
+            created.append((activity, w.out))
+            continue
+        for column, (old_val, new_val) in w.changes.items():
+            db.add(AuditLog(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type="activity",
+                entity_id=w.activity.id,
+                field=column,
+                old_value=str(old_val) if old_val is not None else None,
+                new_value=str(new_val) if new_val is not None else None,
+            ))
+            setattr(w.activity, column, new_val)
+        if w.changes:
+            w.activity.updated_by = current_user.id
+            w.activity.updated_at = now
+    # Flush first so the re-key sees every well under its new names at once
+    # (the project's entries move with the LAST well to leave the old name).
+    await db.flush()
+    for activity, out in created:
+        out.id = activity.id
+    # The answer, built before the commit expires (or detaches) the rows.
+    result = edit.plan(saved=True)
+    for w in edit.wells:
+        if w.activity is None or not w.changes:
+            continue
+        old_project, old_well = old_keys[w.activity.id]
+        await carry_readiness_over(
+            db,
+            project_id=project_id,
+            activity_id=w.activity.id,
+            user_id=current_user.id,
+            old_project=old_project,
+            new_project=w.activity.well_project,
+            old_well=old_well,
+            new_well=well_key(
+                w.activity.well_project, w.activity.well_name, w.activity.activity_type
+            ),
+        )
+    await ensure_activity_resources_registered(
+        db,
+        project_id,
+        {("rig", w.values.rig_name, w.values.location) for w in edit.wells if w.values.rig_name}
+        | {("hwu", w.values.hwu_name, None) for w in edit.wells if w.values.hwu_name},
+        user_id=current_user.id,
+    )
+
+    changed = sum(1 for w in edit.wells if w.activity is not None and w.changes)
+    parts = [f"renamed to {edit.name}"] if edit.renamed else []
+    if payload.layout == "resequence":
+        parts.append(f"re-sequenced from {payload.start_date}")
+    if changed:
+        parts.append(f"{changed} well(s) changed")
+    if created:
+        parts.append(f"{len(created)} added")
+    if edit.removed:
+        names = ", ".join(a.well_name or a.activity_type for a in edit.removed)
+        parts.append(f"{len(edit.removed)} removed ({names})")
+    if edit.conflicts:
+        parts.append(f"{len(edit.conflicts)} clash(es) to resolve")
+    db.add(
+        governance_event(
+            project_id=project_id,
+            user_id=current_user.id,
+            entity_type=ENTITY_PROJECT,
+            entity_id=project_id,
+            action="project_wells_updated",
+            detail=f"Edited {payload.well_project}: {'; '.join(parts)}"[:512],
+        )
+    )
+    await db.commit()
+    return result
 
 
 @router.post("/import", response_model=ImportResponse)
