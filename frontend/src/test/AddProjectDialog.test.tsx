@@ -121,6 +121,28 @@ describe("AddProjectDialog", () => {
     expect(await within(dialog).findByText("B4-1 overlaps OLD-7 on Rig A by 12 days")).toBeInTheDocument();
   });
 
+  it("ignores a preview that comes back after a later edit", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    server.use(
+      http.post("/api/projects/:projectId/activities/project-wells", async () => {
+        calls += 1;
+        await gate;
+        return HttpResponse.json(plan());
+      }),
+    );
+    render(<AddProjectDialog projectId={PID} onCreated={vi.fn()} />);
+    const dialog = await openAndFill();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+    await userEvent.type(within(dialog).getByLabelText("Well 2 name"), "X");
+    release();
+    await waitFor(() => expect(calls).toBe(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(dialog).queryByRole("region", { name: "Preview" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Create" })).toBeDisabled();
+  });
+
   it("is disabled while the plan is locked", () => {
     render(<AddProjectDialog projectId={PID} onCreated={vi.fn()} locked />);
     expect(screen.getByRole("button", { name: /add project/i })).toBeDisabled();

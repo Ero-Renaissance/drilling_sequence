@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FolderPlus, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   planProjectWells,
@@ -95,6 +95,16 @@ export function AddProjectDialog({
     existingHwuNames,
   });
 
+  // Bumped by every edit: a preview answered after a later edit is discarded,
+  // and Create sends exactly the request that was previewed.
+  const generation = useRef(0);
+  const previewed = useRef<ProjectWellsIn | null>(null);
+  function invalidate() {
+    generation.current += 1;
+    previewed.current = null;
+    setPlan(null);
+  }
+
   function reset() {
     setProject("");
     setStartDate("");
@@ -104,7 +114,7 @@ export function AddProjectDialog({
     setMarket("");
     setReadiness(true);
     setWells([blankWell()]);
-    setPlan(null);
+    invalidate();
     setErrors([]);
   }
 
@@ -112,12 +122,12 @@ export function AddProjectDialog({
   function touch<T>(setter: (v: T) => void) {
     return (v: T) => {
       setter(v);
-      setPlan(null);
+      invalidate();
     };
   }
   const updateWell = (key: number, patch: Partial<WellRow>) => {
     setWells((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-    setPlan(null);
+    invalidate();
   };
 
   function validate(): string[] {
@@ -170,9 +180,15 @@ export function AddProjectDialog({
     setErrors(problems);
     if (problems.length) return;
     setBusy("preview");
+    const asked = generation.current;
+    const body = payload(true);
     try {
-      setPlan(await planProjectWells(projectId, payload(true)));
+      const result = await planProjectWells(projectId, body);
+      if (asked !== generation.current) return; // edited meanwhile — out of date
+      previewed.current = body;
+      setPlan(result);
     } catch (err: unknown) {
+      if (asked !== generation.current) return;
       setErrors([err instanceof Error ? err.message : "Failed to preview the wells"]);
     } finally {
       setBusy(null);
@@ -180,9 +196,12 @@ export function AddProjectDialog({
   }
 
   async function create() {
+    const body = previewed.current;
+    if (!body) return;
     setBusy("create");
     try {
-      const result = await planProjectWells(projectId, payload(false));
+      // Exactly the wells the preview showed.
+      const result = await planProjectWells(projectId, { ...body, dry_run: false });
       toast.success(`Added ${result.created} well${result.created === 1 ? "" : "s"} to ${project.trim()}`);
       onCreated();
       reset();
@@ -300,7 +319,7 @@ export function AddProjectDialog({
               disabled={wells.length >= 50}
               onClick={() => {
                 setWells((rows) => [...rows, blankWell(rows[rows.length - 1])]);
-                setPlan(null);
+                invalidate();
               }}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -371,7 +390,7 @@ export function AddProjectDialog({
                         disabled={wells.length === 1}
                         onClick={() => {
                           setWells((rows) => rows.filter((r) => r.key !== w.key));
-                          setPlan(null);
+                          invalidate();
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

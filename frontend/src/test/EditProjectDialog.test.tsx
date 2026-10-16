@@ -211,7 +211,7 @@ describe("EditProjectDialog", () => {
     await userEvent.clear(within(dialog).getByLabelText("Well 2 name"));
     await userEvent.type(within(dialog).getByLabelText("Well 2 name"), "B4-1"); // same well + activity twice
     await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("already listed with that activity");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("listed twice with that activity");
     expect(calls).toHaveLength(0);
   });
 
@@ -244,6 +244,54 @@ describe("EditProjectDialog", () => {
 
     await userEvent.type(within(dialog).getByLabelText("Well 2 name"), "X");
     expect(within(dialog).getByRole("button", { name: "Open readiness for B4-2X" })).toBeDisabled();
+  });
+});
+
+describe("EditProjectDialog — review fixes", () => {
+  it("ignores a preview that comes back after a later edit", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const calls = capture(() => HttpResponse.json(editPlan()));
+    server.use(
+      http.put("/api/projects/:projectId/activities/project-wells", async ({ request }) => {
+        calls.push((await request.json()) as Record<string, unknown>);
+        await gate;
+        return HttpResponse.json(editPlan());
+      }),
+    );
+    const { dialog } = renderDialog();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+    // While the preview is out, a well is marked for removal...
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove B4-2" }));
+    release();
+    // ...so the late answer (which knew nothing of it) must not come back.
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(dialog).queryByRole("region", { name: "Preview" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
+  it("lets wells that already share a name and activity keep it", async () => {
+    const calls = capture(() => HttpResponse.json(editPlan()));
+    const twins = [
+      act("a1", "B4-1", "2027-01-01", "2027-03-18"),
+      act("a2", "B4-1", "2028-01-01", "2028-03-18"),
+    ];
+    const { dialog } = renderDialog({ activities: twins });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("counts only the wells being kept against the 100-well limit", async () => {
+    const many = Array.from({ length: 100 }, (_, i) =>
+      act(`w${i}`, `W-${i}`, "2027-01-01", "2027-02-01"),
+    );
+    const { dialog } = renderDialog({ activities: many });
+    const addWell = within(dialog).getByRole("button", { name: /add well/i });
+    expect(addWell).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove W-0" }));
+    expect(addWell).toBeEnabled();
   });
 });
 
