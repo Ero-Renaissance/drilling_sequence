@@ -86,6 +86,8 @@ export interface RowFigures {
   in_progress: number;
   /** Behind or Not available. */
   behind: number;
+  /** Not counted (N/A). */
+  na?: number;
   /** At least one counted cell, and every counted cell done. */
   ready: boolean;
 }
@@ -104,6 +106,9 @@ export interface ProjectReadiness {
    *  `focus_start <= today + N`. Null when the project has no pending readiness
    *  work (all done or opt-out), so it never falls inside a window. */
   focus_start?: string | null;
+  /** Days from the SERVER's today to `focus_start` — the window is applied on the
+   *  server's calendar, exactly as the Overview tile applies it. */
+  focus_in_days?: number | null;
   /** The row's rollup over its gates (server-computed). */
   figures?: RowFigures;
 }
@@ -167,6 +172,8 @@ export interface TeamProjectRow {
   checks: Record<CheckCode, CheckState>;
   /** Earliest start of not-done, readiness-required work (null: nothing left). */
   focus_start?: string | null;
+  /** Days from the server's today to `focus_start`. */
+  focus_in_days?: number | null;
   figures?: RowFigures;
 }
 
@@ -181,6 +188,8 @@ export interface TeamWellRow {
   location: string | null;
   start_date: string;
   focus_start: string | null;
+  /** Days from the server's today to `focus_start`. */
+  focus_in_days?: number | null;
   /** Every team check's effective value. */
   checks: Record<CheckCode, EffectiveCheckState>;
   figures?: RowFigures;

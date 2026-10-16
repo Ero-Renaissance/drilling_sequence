@@ -17,7 +17,7 @@ import { useAuthStore } from "@/store/auth";
 import { teamValuesFor } from "@/lib/readiness-lens";
 import { summariseTeam, summaryLine, type TeamCheckDetail } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
-import { inWindow } from "@/lib/readiness-window";
+import { focusStartOf, inWindow } from "@/lib/readiness-window";
 import { ReadinessDot } from "./ReadinessDot";
 import {
   PROJECTS_TEAM,
@@ -99,31 +99,37 @@ export function AllReadinessGrid({
 
   // One row per well activity (project + well + activity type) with readiness
   // work left (spec §3.7): opt-outs carry no readiness from any team, and
-  // completed work has nothing left to be ready for. A row's date is its earliest
-  // unfinished start — what the page's window filters on.
+  // completed work has nothing left to be ready for. A row's date is its focus
+  // start (`focusStartOf`, the backend's rule) — what the page's window uses.
   const rows = useMemo<WellRow[]>(() => {
-    const byKey = new Map<string, WellRow>();
+    const byKey = new Map<string, { row: Omit<WellRow, "start_date">; acts: Activity[] }>();
     for (const a of activities ?? []) {
-      if (!a.well_name || a.readiness_required === false || a.completed_at) continue;
+      if (!a.well_name) continue;
       const key = `${a.well_project ?? ""}\u0001${a.well_name}\u0001${a.activity_type}`;
-      const cur = byKey.get(key);
-      if (!cur || a.start_date < cur.start_date) {
-        byKey.set(key, {
+      const group = byKey.get(key) ?? {
+        row: {
           key,
           well_project: a.well_project ?? "",
           well_name: a.well_name,
           activity_type: a.activity_type,
-          start_date: a.start_date,
-        });
-      }
+        },
+        acts: [],
+      };
+      group.acts.push(a);
+      byKey.set(key, group);
     }
-    return [...byKey.values()].sort((x, y) => x.start_date.localeCompare(y.start_date));
+    const out: WellRow[] = [];
+    for (const { row, acts } of byKey.values()) {
+      const start = focusStartOf(acts);
+      if (start) out.push({ ...row, start_date: start });
+    }
+    return out.sort((x, y) => x.start_date.localeCompare(y.start_date));
   }, [activities]);
 
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(
     (r) =>
-      inWindow(r.start_date, months) &&
+      inWindow({ focus_start: r.start_date }, months) &&
       (!q ||
         r.well_name.toLowerCase().includes(q) ||
         r.well_project.toLowerCase().includes(q) ||

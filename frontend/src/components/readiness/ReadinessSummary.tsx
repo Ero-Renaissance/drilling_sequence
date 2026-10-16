@@ -2,6 +2,7 @@ import type { RowFigures } from "@/api/readiness";
 import { READINESS_FIGURES_HINT, sumFigures } from "@/lib/readiness-figures";
 import { windowPhrase } from "@/lib/readiness-window";
 import { cn } from "@/lib/utils";
+import { STATUS_DOT } from "./check-meta";
 
 /**
  * The three readiness figures (spec §3.7) over EXACTLY the rows a grid shows —
@@ -38,6 +39,14 @@ export function ReadinessSummary({
             style={{ width: `${f.complete_pct ?? 0}%` }}
           />
         </div>
+        {/* The checks behind the figures, as the old bar counted them. */}
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <Count dot={STATUS_DOT.Completed} value={f.done} label="done" />
+          <Count dot={STATUS_DOT["On Track"]} value={f.in_progress} label="on track" />
+          <Count dot={STATUS_DOT.Behind} value={f.behind} label="behind" />
+          {f.na > 0 && <Count dot={STATUS_DOT["N/A"]} value={f.na} label="N/A" />}
+          <span className="tabular-nums">of {f.counted + f.na} checks</span>
+        </div>
       </div>
       <div className="flex items-baseline gap-4 text-xs">
         <Figure value={f.complete_pct === null ? "—" : `${f.complete_pct}%`} label="complete" strong />
@@ -46,6 +55,15 @@ export function ReadinessSummary({
         <Figure value={`${f.ready}/${f.ready_of}`} label="ready" />
       </div>
     </div>
+  );
+}
+
+function Count({ dot, value, label }: { dot: string; value: number; label: string }) {
+  return (
+    <span className="flex items-center gap-1 tabular-nums">
+      <span className={cn("h-2 w-2 rounded-full", dot)} />
+      {value} {label}
+    </span>
   );
 }
 

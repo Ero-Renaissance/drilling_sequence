@@ -126,9 +126,15 @@ def test_snapshot_targets_skip_what_carries_no_readiness() -> None:
     assert len(snapshot_gate_targets(snapshot, SEVEN)) == 2  # no window: LATE counts
 
 
-def test_snapshot_too_old_for_well_project_reads_as_one_plan() -> None:
+def test_snapshot_too_old_for_well_project_reads_per_activity() -> None:
+    """Before 2026-06-19 gates were PER ACTIVITY: every activity is its own target
+    (not just the first one), as the old compare % read them."""
     legacy = {k: v for k, v in _snap(None).items() if k != "well_project"}
-    assert snapshot_gate_targets([legacy, dict(legacy)], SEVEN) == [_gates(BUD="Completed")]
+    other = {**legacy, "readiness": _gates(**{c: "Completed" for c in SEVEN})}
+    targets = snapshot_gate_targets([legacy, other], SEVEN)
+    assert targets == [_gates(BUD="Completed"), _gates(**{c: "Completed" for c in SEVEN})]
+    # Compare %: 1 + 7 done of 14 — not 1 of 7 (first activity only).
+    assert rollup(targets).complete_pct == 57
 
 
 def test_snapshot_gate_missing_from_a_block_reads_on_track() -> None:
@@ -266,7 +272,8 @@ def _sum_rows(rows: list[dict], window_end: date | None) -> dict:
     their server-computed figures, divide (half up)."""
     shown = [
         r for r in rows
-        if r["focus_start"] and (window_end is None or date.fromisoformat(r["focus_start"]) <= window_end)
+        if r["focus_in_days"] is not None
+        and (window_end is None or r["focus_in_days"] <= (window_end - TODAY).days)
     ]
     figs = [r["figures"] for r in shown]
     counted = sum(f["counted"] for f in figs)
@@ -292,11 +299,14 @@ async def test_readiness_rows_carry_their_figures(client: AsyncClient) -> None:
 
     rows = {r["well_project"]: r for r in (await client.get(f"/api/projects/{pid}/readiness")).json()}
     assert rows["P1"]["figures"] == {
-        "counted": 6, "done": 1, "in_progress": 5, "behind": 0, "ready": False,
+        "counted": 6, "done": 1, "in_progress": 5, "behind": 0, "na": 1, "ready": False,
     }
+    # The window signal comes on the server's calendar.
+    assert rows["P1"]["focus_in_days"] == 10
     # Still listed (the chart and panels read gates from here), but with nothing
     # left to be ready for — the tab drops it.
     assert rows["Finished"]["focus_start"] is None
+    assert rows["Finished"]["focus_in_days"] is None
 
 
 @pytest.mark.asyncio
@@ -326,3 +336,29 @@ async def test_the_tab_adds_up_to_the_tile(client: AsyncClient) -> None:
             "ready": tile["ready"],
             "ready_of": tile["ready_of"],
         }, months
+
+
+def test_one_scope_rule_for_every_target() -> None:
+    """carries_readiness / in_scope / focus_start_of are the single rule the tile,
+    the tab rows and the team lens all use (spec §3.7)."""
+    from types import SimpleNamespace
+
+    from app.services.readiness_rollup import (
+        carries_readiness,
+        days_until,
+        focus_start_of,
+        in_scope,
+    )
+
+    def act(start: date, *, done: bool = False, required: bool = True) -> SimpleNamespace:
+        return SimpleNamespace(
+            start_date=start, completed_at="x" if done else None, readiness_required=required
+        )
+
+    soon, later = TODAY + timedelta(days=5), TODAY + timedelta(days=50)
+    acts = [act(soon, done=True), act(later), act(TODAY, required=False)]
+    assert [carries_readiness(a) for a in acts] == [False, True, False]
+    assert focus_start_of(acts) == later  # completed and opted-out work don't count
+    assert focus_start_of([act(soon, done=True)]) is None
+    assert in_scope(acts[1], TODAY + timedelta(days=60)) and not in_scope(acts[1], soon)
+    assert days_until(later, TODAY) == 50 and days_until(None, TODAY) is None

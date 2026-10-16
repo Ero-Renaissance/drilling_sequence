@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, Lock } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { inWindow } from "@/lib/readiness-window";
+import { checksReady } from "@/lib/watchlist";
 import {
   type ProjectReadiness,
   type CheckCode,
@@ -91,15 +92,25 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Rows come from the server (with their figures). A response may only replace
+  // them if it is the newest load AND no edit is still being saved — otherwise a
+  // slow or early response (served before an edit committed) would overwrite
+  // that edit. Each edit reloads once its save settles, so the last load wins.
+  const loadSeq = useRef(0);
+  const pendingEdits = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      setRows(await listReadiness(projectId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      const data = await listReadiness(projectId);
+      if (seq === loadSeq.current && pendingEdits.current === 0) setRows(data);
+    } catch (err: unknown) {
+      if (seq === loadSeq.current) {
+        setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [projectId]);
 
@@ -128,11 +139,10 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       );
 
       setSaving(key);
+      pendingEdits.current += 1;
       try {
         await upsertCheck(projectId, wellProject, code, next);
-        // The row's figures (and the summary) are the server's — refresh them.
-        await load();
-      } catch (err) {
+      } catch (err: unknown) {
         if (previous) {
           setRows((prev) =>
             prev.map((r) =>
@@ -147,8 +157,12 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         }
         toast.error(err instanceof Error ? err.message : `Failed to save ${code} status.`);
       } finally {
-        setSaving(null);
+        pendingEdits.current -= 1;
+        setSaving((current) => (current === key ? null : current));
       }
+      // The row's figures (and the summary) are the server's — refresh them,
+      // after a failed save too, so the grid shows what the server holds.
+      await load();
     },
     [projectId, rows, load],
   );
@@ -164,10 +178,11 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   // The summary adds up exactly the rows that pass, across every page.
   const [horizon, setHorizon] = useReadinessWindow();
   const notReadyFocus = searchParams.get("focus") === "not-ready";
-  const scopedRows = rows.filter((r) => inWindow(r.focus_start, horizon));
+  const scopedRows = rows.filter((r) => inWindow(r, horizon));
   const filteredRows = scopedRows.filter((r) => {
     if (q && !r.well_project.toLowerCase().includes(q)) return false;
-    if (notReadyFocus && r.figures?.ready) return false;
+    // Ready is the server's call; checksReady only covers a row without figures.
+    if (notReadyFocus && (r.figures ? r.figures.ready : checksReady(r.checks))) return false;
     return true;
   });
   const filtering = Boolean(q) || notReadyFocus;
@@ -368,7 +383,9 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                       </div>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      {f && f.counted > 0 ? (
+                      {!f ? (
+                        <span className="text-xs text-muted-foreground/60">—</span>
+                      ) : f.counted > 0 ? (
                         <span
                           className={cn(
                             "text-xs font-semibold tabular-nums",

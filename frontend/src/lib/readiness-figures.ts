@@ -36,6 +36,8 @@ export interface SummedFigures extends ReadinessFigures {
   counted: number;
   done: number;
   in_progress: number;
+  /** Not-counted (N/A) cells. */
+  na: number;
 }
 
 /** Add up the server's per-row figures of the rows shown. */
@@ -44,6 +46,7 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
   let done = 0;
   let inProgress = 0;
   let behind = 0;
+  let na = 0;
   let ready = 0;
   let readyOf = 0;
   for (const f of rows) {
@@ -52,6 +55,7 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
     done += f.done;
     inProgress += f.in_progress;
     behind += f.behind;
+    na += f.na ?? 0;
     if (f.counted > 0) readyOf += 1;
     if (f.ready) ready += 1;
   }
@@ -61,6 +65,7 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
     done,
     in_progress: inProgress,
     behind,
+    na,
     ready,
     ready_of: readyOf,
     complete_pct: pct(done, counted),

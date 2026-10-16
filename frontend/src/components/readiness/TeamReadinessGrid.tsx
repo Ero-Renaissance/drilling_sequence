@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Lock, RefreshCw } from "lucide-react";
 import {
   getTeamReadiness,
@@ -72,15 +72,22 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   const [pageSize, setPageSize] = useState(25);
   const [months, setMonths] = useReadinessWindow();
 
+  // Only the newest load may apply its data — a slow response from before a
+  // later write can't overwrite the rows (and the summary) that write reloaded.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      setData(await getTeamReadiness(projectId, teamCode));
+      const next = await getTeamReadiness(projectId, teamCode);
+      if (seq === loadSeq.current) setData(next);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      if (seq === loadSeq.current) {
+        setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [projectId, teamCode]);
 
@@ -120,7 +127,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
     () =>
       (data?.well_rows ?? []).filter(
         (r) =>
-          inWindow(r.focus_start, months) &&
+          inWindow(r, months) &&
           (!q ||
             r.well_name.toLowerCase().includes(q) ||
             r.well_project.toLowerCase().includes(q) ||
@@ -131,7 +138,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   const projects = useMemo(
     () =>
       (data?.project_rows ?? []).filter(
-        (r) => inWindow(r.focus_start, months) && (!q || r.well_project.toLowerCase().includes(q)),
+        (r) => inWindow(r, months) && (!q || r.well_project.toLowerCase().includes(q)),
       ),
     [data, q, months],
   );

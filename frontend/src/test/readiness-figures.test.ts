@@ -5,7 +5,7 @@ import {
   readinessSubline,
   sumFigures,
 } from "@/lib/readiness-figures";
-import { inWindow, parseWindow } from "@/lib/readiness-window";
+import { focusStartOf, inWindow, parseWindow } from "@/lib/readiness-window";
 import { checksReady } from "@/lib/watchlist";
 
 // docs/readiness-framework-spec.md §3.7 — the frontend formats the backend's
@@ -65,10 +65,10 @@ describe("adding up the rows shown", () => {
     const f = sumFigures([
       { counted: 6, done: 3, in_progress: 2, behind: 1, ready: false },
       { counted: 7, done: 7, in_progress: 0, behind: 0, ready: true },
-      { counted: 0, done: 0, in_progress: 0, behind: 0, ready: false }, // all N/A
+      { counted: 0, done: 0, in_progress: 0, behind: 0, na: 7, ready: false }, // all N/A
     ]);
     expect(f).toMatchObject({
-      targets: 3, complete_pct: 77, on_track_pct: 92, behind: 1, ready: 1, ready_of: 2,
+      targets: 3, complete_pct: 77, on_track_pct: 92, behind: 1, na: 7, ready: 1, ready_of: 2,
     });
     expect(sumFigures([]).complete_pct).toBeNull();
   });
@@ -78,11 +78,31 @@ describe("the window", () => {
   const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
   it("needs work left, and a start inside the window", () => {
-    expect(inWindow(null, 0)).toBe(false); // completed / opted out
-    expect(inWindow(inDays(-30), 6)).toBe(true); // overdue work still counts
-    expect(inWindow(inDays(100), 6)).toBe(true);
-    expect(inWindow(inDays(400), 12)).toBe(false);
-    expect(inWindow(inDays(4000), 0)).toBe(true); // All
+    expect(inWindow({ focus_start: null }, 0)).toBe(false); // completed / opted out
+    expect(inWindow({ focus_start: inDays(-30) }, 6)).toBe(true); // overdue work still counts
+    expect(inWindow({ focus_start: inDays(100) }, 6)).toBe(true);
+    expect(inWindow({ focus_start: inDays(400) }, 12)).toBe(false);
+    expect(inWindow({ focus_start: inDays(4000) }, 0)).toBe(true); // All
+  });
+
+  it("prefers the server's days-to-start (its calendar, as the tile uses)", () => {
+    // The browser's date would say 366 days; the server says 365 — the server wins.
+    expect(inWindow({ focus_start: inDays(366), focus_in_days: 365 }, 12)).toBe(true);
+    expect(inWindow({ focus_start: inDays(300), focus_in_days: 366 }, 12)).toBe(false);
+    expect(inWindow({ focus_in_days: -10 }, 6)).toBe(true);
+    expect(inWindow({ focus_in_days: null, focus_start: null }, 0)).toBe(false);
+  });
+
+  it("derives a focus start like the backend: unfinished, readiness-required work", () => {
+    expect(
+      focusStartOf([
+        { start_date: "2026-01-01", completed_at: "2026-02-01T00:00:00Z" },
+        { start_date: "2026-03-01", readiness_required: false },
+        { start_date: "2026-05-01" },
+        { start_date: "2026-04-01" },
+      ]),
+    ).toBe("2026-04-01");
+    expect(focusStartOf([{ start_date: "2026-01-01", completed_at: "2026-02-01T00:00:00Z" }])).toBeNull();
   });
 
   it("only accepts the tiles' windows", () => {

@@ -20,6 +20,7 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Literal, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +74,7 @@ class Figures:
     done: int = 0
     in_progress: int = 0
     behind: int = 0  # blocked cells
+    na: int = 0  # not-counted cells (N/A)
     ready: int = 0  # targets with ≥1 counted cell, every counted cell done
     ready_of: int = 0  # targets with ≥1 counted cell
     by_check: dict[str, dict[str, int]] = field(default_factory=dict)
@@ -88,56 +90,85 @@ class Figures:
         return pct(self.done + self.in_progress, self.counted)
 
 
+def target_figures(statuses: Iterable[str]) -> Figures:
+    """ONE target (a field project or a well) from its cells' effective statuses."""
+    severities = [severity_of(s) for s in statuses]
+    counted = [s for s in severities if s != "not_counted"]
+    return Figures(
+        targets=1,
+        counted=len(counted),
+        done=counted.count("done"),
+        in_progress=counted.count("in_progress"),
+        behind=counted.count("blocked"),
+        na=len(severities) - len(counted),
+        ready=1 if counted and all(s == "done" for s in counted) else 0,
+        ready_of=1 if counted else 0,
+    )
+
+
 def rollup(targets: Iterable[Mapping[str, str]], codes: Sequence[str] = ()) -> Figures:
-    """Roll up targets, each a ``{check_code: effective status}`` cell map.
+    """Roll up targets, each a ``{check_code: effective status}`` cell map — the
+    sum of each target's ``target_figures``.
 
     ``codes`` (optional) names the checks to break down per check — the "by gate"
     card — in display order."""
-    n = counted = done = in_progress = behind = ready = ready_of = 0
+    totals = dict.fromkeys(
+        ("targets", "counted", "done", "in_progress", "behind", "na", "ready", "ready_of"), 0
+    )
     by_check = {c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0} for c in codes}
     for cells in targets:
-        n += 1
-        severities = [severity_of(s) for s in cells.values()]
-        target_counted = [s for s in severities if s != "not_counted"]
-        counted += len(target_counted)
-        done += target_counted.count("done")
-        in_progress += target_counted.count("in_progress")
-        behind += target_counted.count("blocked")
-        if target_counted:
-            ready_of += 1
-            if all(s == "done" for s in target_counted):
-                ready += 1
+        one = target_figures(cells.values())
+        for name in totals:
+            totals[name] += getattr(one, name)
         for code, buckets in by_check.items():
             if code in cells:
                 buckets[BUCKET_OF_SEVERITY[severity_of(cells[code])]] += 1
-    return Figures(
-        targets=n,
-        counted=counted,
-        done=done,
-        in_progress=in_progress,
-        behind=behind,
-        ready=ready,
-        ready_of=ready_of,
-        by_check=by_check,
-    )
+    return Figures(**totals, by_check=by_check)
 
 
 def target_ready(cells: Mapping[str, str]) -> bool:
     """One target's readiness: ≥1 counted cell and every counted cell done."""
-    return rollup([cells]).ready == 1
+    return target_figures(cells.values()).ready == 1
+
+
+# ── Scope: which activities carry readiness ─────────────────────────────────
+# The one rule (spec §3.7) every endpoint and figure uses — the dashboard's focus
+# window, the Readiness tab's `focus_start` / `focus_in_days`, the team lens.
+
+
+class ActivityLike(Protocol):
+    start_date: date
+    completed_at: object
+    readiness_required: bool
+
+
+def carries_readiness(activity: ActivityLike) -> bool:
+    """Readiness-required and not completed — work left to be ready for."""
+    return bool(activity.readiness_required) and activity.completed_at is None
+
+
+def in_scope(activity: ActivityLike, window_end: date | None) -> bool:
+    """An activity that puts its target in scope for a window: it carries
+    readiness and starts on/before the window's end (None = no date limit)."""
+    return carries_readiness(activity) and (
+        window_end is None or activity.start_date <= window_end
+    )
+
+
+def focus_start_of(activities: Iterable[ActivityLike]) -> date | None:
+    """A target's focus start: the earliest start among its activities that carry
+    readiness. None = nothing left to be ready for (completed or opted out), so
+    the target is in no window. In a window of N days iff focus start ≤ today + N."""
+    return min((a.start_date for a in activities if carries_readiness(a)), default=None)
+
+
+def days_until(day: date | None, today: date) -> int | None:
+    """Days from the SERVER's today to ``day`` — sent with each row so the browser
+    windows rows on the server's calendar, exactly as the Overview tile does."""
+    return None if day is None else (day - today).days
 
 
 # ── Live plan ───────────────────────────────────────────────────────────────
-
-
-def in_scope(activity: Activity, window_end: date | None) -> bool:
-    """An activity that puts its target in scope for a window: readiness-required,
-    not completed, starting on/before the window's end (None = no date limit)."""
-    return (
-        activity.readiness_required
-        and activity.completed_at is None
-        and (window_end is None or activity.start_date <= window_end)
-    )
 
 
 async def live_cells(
@@ -145,6 +176,8 @@ async def live_cells(
     project_id: uuid.UUID,
     checks: Sequence[ReadinessCheck],
     activities: Iterable[Activity],
+    *,
+    unit: Literal["projects", "wells"] | None = None,
 ) -> tuple[str, dict[tuple[str, ...], dict[str, str]]]:
     """One team's targets among ``activities`` (already narrowed by ``in_scope``)
     with every check's effective status.
@@ -152,12 +185,16 @@ async def live_cells(
     Returns ``(unit, {target key: cells})``. A team with well-level checks counts
     WELLS, keyed (field project or "", well, activity type) — project-level values
     reach them by inheritance. The Project gates and a team with only
-    project-level checks count FIELD PROJECTS, keyed (field project,). An activity
-    without a well name has no well target; one without a field project has no
-    field-project target."""
+    project-level checks count FIELD PROJECTS, keyed (field project,). ``unit``
+    forces one (the Project gates are always counted per field project). An
+    activity without a well name has no well target; one without a field project
+    has no field-project target."""
     activities = list(activities)
-    index = await load_index(db, project_id, [c.code for c in checks])
-    if any(c.applies_well for c in checks):
+    # Statuses only — tags never reach a figure, so skip loading them.
+    index = await load_index(db, project_id, [c.code for c in checks], with_tags=False)
+    if unit is None:
+        unit = "wells" if any(c.applies_well for c in checks) else "projects"
+    if unit == "wells":
         wells = sorted(
             {
                 (a.well_project or "", a.well_name, a.activity_type)
@@ -191,23 +228,27 @@ def snapshot_gate_targets(
     The snapshot denormalises each field project's gates onto every activity under
     it; the first activity in scope speaks for its project. An activity with no
     field project carries no gates. The one exception is a snapshot too old to
-    carry ``well_project`` at all (before 2026-06-19): it is read, as before, as
-    one plan-wide group."""
-    by_project: dict[str, Mapping[str, str]] = {}
-    for a in snapshot:
+    carry ``well_project`` at all (before 2026-06-19), whose gates were PER
+    ACTIVITY: each of its activities is its own target, as it was then."""
+    by_target: dict[object, Mapping[str, str]] = {}
+    for i, a in enumerate(snapshot):
         if a.get("completed_at") or not a.get("readiness_required", True):
             continue
         start = _snap_date(a.get("start_date"))
         if start is None or (window_end is not None and start > window_end):
             continue
-        if "well_project" in a and not a["well_project"]:
+        if "well_project" not in a:
+            key: object = ("activity", i)  # legacy: per-activity gates
+        elif a["well_project"]:
+            key = a["well_project"]
+        else:
             continue  # no field project → no project gates (§3.7)
-        by_project.setdefault(a.get("well_project") or "", a.get("readiness") or {})
+        by_target.setdefault(key, a.get("readiness") or {})
     if gate_codes is None:
-        return [dict(readiness) for readiness in by_project.values()]
+        return [dict(readiness) for readiness in by_target.values()]
     return [
         {c: readiness.get(c, SNAPSHOT_GATE_DEFAULT) for c in gate_codes}
-        for readiness in by_project.values()
+        for readiness in by_target.values()
     ]
 
 

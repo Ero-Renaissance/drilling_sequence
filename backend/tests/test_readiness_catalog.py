@@ -391,3 +391,16 @@ def test_frontend_status_sets_mirror_the_backend() -> None:
     for name, (statuses, default) in sets.items():
         assert sorted(statuses) == sorted(backend[name][0]), name
         assert default == backend[name][1], name
+
+
+@pytest.mark.skipif(not FRONTEND_SRC.exists(), reason="frontend sources not present")
+def test_frontend_readiness_windows_mirror_the_backend() -> None:
+    """The Readiness tab's window must cover what the Overview tile's window
+    covers (spec §3.7): the same months → days."""
+    from app.services.dashboard import HORIZON_DAYS
+
+    src = (FRONTEND_SRC / "lib" / "readiness-window.ts").read_text()
+    block = re.search(r"export const HORIZON_DAYS: Record<number, number> = \{(.*?)\};", src, re.S)
+    assert block
+    frontend = {int(m): int(d) for m, d in re.findall(r"(\d+):\s*(\d+)", block.group(1))}
+    assert frontend == HORIZON_DAYS
