@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createActivity, type Activity } from "@/api/activities";
+import { COMMENT_MAX_LENGTH, createActivity, type Activity } from "@/api/activities";
 import { suggestedActivityTypes } from "@/lib/chart-colors";
 import { cn } from "@/lib/utils";
 import {
@@ -46,7 +46,10 @@ const schema = z
     plan_type: z.string().min(1, "Required"),
     risk: z.string().min(1, "Required"),
     market: z.string().optional(),
-    comment: z.string().optional(),
+    comment: z
+      .string()
+      .max(COMMENT_MAX_LENGTH, `Comment must be ${COMMENT_MAX_LENGTH} characters or fewer`)
+      .optional(),
     readiness_required: z.boolean(),
   })
   .refine((d) => !d.start_date || !d.end_date || d.end_date >= d.start_date, {
