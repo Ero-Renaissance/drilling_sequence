@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ClipboardCheck, Loader2, Lock, Plus, Trash2, Undo2 } from "lucide-react";
 import {
   editProjectWells,
@@ -44,6 +44,9 @@ interface EditRow {
   updatedAt: string | null;
   completed: boolean;
   removed: boolean;
+  /** The well's name + activity as loaded (null for a new row) — wells that
+   *  already shared them may keep doing so. */
+  original: { well_name: string; activity_type: string } | null;
   well_name: string;
   activity_type: string;
   resource_type: ResourceType;
@@ -62,6 +65,7 @@ function fromActivity(a: Activity): EditRow {
     updatedAt: a.updated_at,
     completed: a.completed_at != null,
     removed: false,
+    original: { well_name: a.well_name ?? "", activity_type: a.activity_type },
     well_name: a.well_name ?? "",
     activity_type: a.activity_type,
     resource_type: a.rig_name ? "rig" : a.hwu_name ? "hwu" : "none",
@@ -79,6 +83,7 @@ function newRow(from?: EditRow): EditRow {
     updatedAt: null,
     completed: false,
     removed: false,
+    original: null,
     well_name: "",
     // A new row copies the previous well's activity and rig — the common case.
     activity_type: from?.activity_type ?? "",
@@ -184,12 +189,18 @@ export function EditProjectDialog({
   const [dirty, setDirty] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<"preview" | "save" | null>(null);
+  // Bumped by every edit: a preview answered after a later edit is discarded,
+  // and Save sends exactly the request that was previewed (never newer edits).
+  const generation = useRef(0);
+  const previewed = useRef<ProjectWellsEditIn | null>(null);
 
   const readOnly = !canEdit;
   const kept = rows.filter((r) => !r.removed);
 
   // Any edit invalidates the preview — dates and clashes must be recomputed.
   function changed() {
+    generation.current += 1;
+    previewed.current = null;
     setPlan(null);
     setConfirmRemoval(false);
     setDirty(true);
@@ -211,7 +222,7 @@ export function EditProjectDialog({
     if (kept.length === 0) problems.push("Keep at least one well.");
     if (layout === "resequence" && !resequenceStart)
       problems.push("Pick the date to re-sequence from.");
-    const seen = new Set<string>();
+    const byKey = new Map<string, EditRow[]>();
     rows.forEach((r, i) => {
       if (r.removed) return;
       const n = `Well ${i + 1}`;
@@ -227,10 +238,18 @@ export function EditProjectDialog({
         if (!(months > 0 && months <= 36)) problems.push(`${n}: duration must be 0–36 months.`);
       }
       const key = `${r.well_name.trim()}\u0001${r.activity_type.trim().toLowerCase()}`;
-      if (r.well_name.trim() && seen.has(key))
-        problems.push(`${n}: ${r.well_name.trim()} is already listed with that activity.`);
-      seen.add(key);
+      if (r.well_name.trim()) byKey.set(key, [...(byKey.get(key) ?? []), r]);
     });
+    // One well + activity per row — except wells that already shared them.
+    const unchanged = (r: EditRow) =>
+      !!r.original &&
+      r.original.well_name === r.well_name.trim() &&
+      r.original.activity_type.toLowerCase() === r.activity_type.trim().toLowerCase();
+    for (const sharing of byKey.values()) {
+      if (sharing.length > 1 && !sharing.every(unchanged)) {
+        problems.push(`${sharing[0].well_name.trim()} is listed twice with that activity.`);
+      }
+    }
     return problems;
   }
 
@@ -280,9 +299,15 @@ export function EditProjectDialog({
     setErrors(problems);
     if (problems.length) return;
     setBusy("preview");
+    const asked = generation.current;
+    const body = payload(true);
     try {
-      setPlan(await editProjectWells(projectId, payload(true)));
+      const result = await editProjectWells(projectId, body);
+      if (asked !== generation.current) return; // edited meanwhile — out of date
+      previewed.current = body;
+      setPlan(result);
     } catch (err: unknown) {
+      if (asked !== generation.current) return;
       setErrors([err instanceof Error ? err.message : "Failed to preview the changes"]);
     } finally {
       setBusy(null);
@@ -290,9 +315,12 @@ export function EditProjectDialog({
   }
 
   async function save() {
+    const body = previewed.current;
+    if (!body) return;
     setBusy("save");
     try {
-      const result = await editProjectWells(projectId, payload(false));
+      // Exactly what the preview showed (and the deletion confirmed).
+      const result = await editProjectWells(projectId, { ...body, dry_run: false });
       toast.success(`Saved ${result.well_project}`);
       onSaved();
       onOpenChange(false);
@@ -401,7 +429,7 @@ export function EditProjectDialog({
                 type="button"
                 size="sm"
                 variant="ghost"
-                disabled={rows.length >= 100}
+                disabled={kept.length >= 100}
                 onClick={() => {
                   setRows((all) => {
                     const listed = all.filter((r) => !r.removed);
