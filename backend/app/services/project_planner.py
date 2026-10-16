@@ -341,8 +341,10 @@ def plan_project_edit(
             raise EditRefused(f"{a.well_name or a.activity_type} is completed and can't be removed")
 
     # A new well takes the project's details: those set in this edit, else the
-    # first listed existing well's.
-    template = next((by_id[w.id] for w in payload.wells if w.id is not None), None)
+    # first listed existing well's — or, when every original well is being
+    # replaced, the project's earliest well's (removed or not).
+    earliest = min(project_wells, key=lambda a: a.start_date, default=None)
+    template = next((by_id[w.id] for w in payload.wells if w.id is not None), earliest)
 
     def project_value(f: str, act: Activity | None) -> object:
         if f in set_fields:
@@ -383,6 +385,18 @@ def plan_project_edit(
             )
         rows.append((act, values))
 
+    # One readiness key per well + activity (spec §7.2) — but only for keys this
+    # edit introduces: existing activities that already share a key keep it.
+    by_key: dict[tuple[str, str], list[tuple[Activity | None, WellValues]]] = {}
+    for act, values in rows:
+        by_key.setdefault((values.well_name, values.activity_type), []).append((act, values))
+    for (well, activity_type), sharing in by_key.items():
+        if len(sharing) > 1 and any(
+            act is None or (act.well_name, act.activity_type) != (well, activity_type)
+            for act, _ in sharing
+        ):
+            raise EditRefused(f"{well} is listed twice with activity {activity_type}")
+
     def new_days(i: int) -> int:
         return months_to_days(payload.wells[i].duration_months or 0)
 
@@ -407,8 +421,12 @@ def plan_project_edit(
         new_rows = [i for i, (act, _) in enumerate(rows) if act is None]
         if new_rows:
             kept = [v for act, v in rows if act is not None]
-            start = payload.start_date or min(
-                (v.start_date for v in kept if v.start_date is not None), default=None
+            # The project's start: its earliest kept well, else (every original
+            # well replaced) its earliest original one.
+            start = (
+                payload.start_date
+                or min((v.start_date for v in kept if v.start_date is not None), default=None)
+                or (earliest.start_date if earliest is not None else None)
             )
             if start is None:
                 raise EditRefused("Give a start date for the new wells")

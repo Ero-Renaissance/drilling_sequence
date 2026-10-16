@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
+from app.core.locks import lock_campaign_writes
 from app.core.rbac import (
     assert_can_review,
     assert_can_sign,
@@ -360,6 +361,9 @@ async def create_revision(
     current_user: User = Depends(get_current_user),
 ) -> RevisionResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    # Serialize with plan writes: nothing may change between the snapshot and
+    # the lock below (and two submits can't both pass the open-revision check).
+    await lock_campaign_writes(project_id, db)
     # Refuse if there's already an open revision (in review or awaiting approval).
     pending = await db.execute(
         select(Revision).where(

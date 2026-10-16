@@ -1,10 +1,11 @@
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.project import Project
 from app.models.revision import Revision
 
 _ACTIVITY_LOCKED_DETAIL = (
@@ -19,6 +20,28 @@ _SIGNERS_FROZEN_DETAIL = (
     "are frozen until it is resolved, so the required signatures can't change "
     "under the people signing."
 )
+
+
+async def lock_campaign_writes(project_id: uuid.UUID, db: AsyncSession) -> None:
+    """Serialize plan writes within one campaign (call right after the role check).
+
+    A write that reads the plan to decide what to write — "is the plan locked?",
+    "is this the version the planner loaded?", "is that project name free?",
+    "which wells does this project have?" — takes this lock FIRST, so no other
+    plan write in the same campaign can commit between its checks and its
+    writes. It is the campaign row's write lock, held until the request's
+    commit or rollback; writes in different campaigns don't wait on each other.
+
+    A no-op UPDATE rather than SELECT ... FOR UPDATE: SQLAlchemy's SQL Server
+    dialect drops FOR UPDATE, whereas an UPDATE takes an exclusive row lock on
+    SQL Server and PostgreSQL alike (SQLite locks the whole database to write).
+    """
+    await db.execute(
+        update(Project)
+        .where(Project.id == project_id)
+        .values(name=Project.name)
+        .execution_options(synchronize_session=False)
+    )
 
 
 def ensure_activity_unlocked(activity: Activity) -> None:
