@@ -159,3 +159,29 @@ async def test_lock_revision_serialises_status_transitions() -> None:
         await b.close()
         await _teardown(Session, pid, uid)
         await engine.dispose()
+
+
+async def test_campaign_write_lock_serialises_two_writers() -> None:
+    """lock_campaign_writes (app/core/locks.py) — a no-op UPDATE on the campaign
+    row, because the MSSQL dialect drops FOR UPDATE — must make a second plan
+    write in the same campaign wait until the first commits."""
+    from app.core.locks import lock_campaign_writes
+
+    engine = create_async_engine(_URL)
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    pid, uid = await _seed(Session)
+    a, b = Session(), Session()
+    try:
+        await lock_campaign_writes(pid, a)
+        b_lock = asyncio.create_task(lock_campaign_writes(pid, b))
+        # B must block while A holds the campaign lock.
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(b_lock), timeout=2.0)
+        await a.commit()  # A releases → B acquires.
+        await asyncio.wait_for(b_lock, timeout=5.0)
+        await b.commit()
+    finally:
+        await a.close()
+        await b.close()
+        await _teardown(Session, pid, uid)
+        await engine.dispose()

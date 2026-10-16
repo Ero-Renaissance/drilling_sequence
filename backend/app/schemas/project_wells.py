@@ -224,13 +224,8 @@ class ProjectWellsEditIn(BaseModel):
         ids = [w.id for w in self.wells if w.id is not None] + [r.id for r in self.removed]
         if len(ids) != len(set(ids)):
             raise ValueError("A well is listed more than once")
-        # Same rule as adding: one readiness key per well + activity (spec §7.2).
-        seen: set[tuple[str, str]] = set()
-        for w in self.wells:
-            key = (w.well_name, w.activity_type)
-            if key in seen:
-                raise ValueError(f"{w.well_name} is listed twice with activity {w.activity_type}")
-            seen.add(key)
+        # Duplicate well + activity keys are checked against the loaded wells in
+        # plan_project_edit: activities that already share a key may keep it.
         return self
 
 

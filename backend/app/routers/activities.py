@@ -12,7 +12,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.locks import assert_project_not_locked, ensure_activity_unlocked
+from app.core.locks import (
+    assert_project_not_locked,
+    ensure_activity_unlocked,
+    lock_campaign_writes,
+)
 from app.core.rbac import assert_member
 from app.database import get_db
 from app.models.activity import Activity
@@ -308,6 +312,7 @@ async def create_activity(
     project_id: uuid.UUID, payload: ActivityCreateStrict, current_user: CurrentUser, db: DB
 ) -> ActivityResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await lock_campaign_writes(project_id, db)
     # Adding an activity mutates the plan, so it is barred while a revision is
     # awaiting approval — the same gate as import (which also creates activities),
     # consistent with the update/complete/delete locks on existing activities.
@@ -340,6 +345,7 @@ async def update_activity(
     db: DB,
 ) -> ActivityResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await lock_campaign_writes(project_id, db)
     result = await db.execute(
         select(Activity).where(
             Activity.id == activity_id, Activity.project_id == project_id
@@ -431,6 +437,7 @@ async def _set_completion(
     db: AsyncSession,
 ) -> ActivityResponse:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await lock_campaign_writes(project_id, db)
     result = await db.execute(
         select(Activity).where(
             Activity.id == activity_id, Activity.project_id == project_id
@@ -482,6 +489,7 @@ async def delete_activity(
     project_id: uuid.UUID, activity_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> None:
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await lock_campaign_writes(project_id, db)
     result = await db.execute(
         select(Activity).where(
             Activity.id == activity_id, Activity.project_id == project_id
@@ -748,6 +756,7 @@ async def add_project_wells(
     created in ONE transaction — all or nothing.
     """
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await lock_campaign_writes(project_id, db)
     # Same gate as Add Activity / import: the plan can't change while locked.
     await assert_project_not_locked(project_id, db)
 
@@ -828,6 +837,7 @@ async def edit_project_wells(
     edit is written in ONE transaction — all or nothing.
     """
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    await lock_campaign_writes(project_id, db)
     await assert_project_not_locked(project_id, db)
 
     campaign = list(
@@ -850,10 +860,9 @@ async def edit_project_wells(
     for a in project_wells:
         ensure_activity_unlocked(a)
         loaded = expected[a.id]
-        if (
-            loaded is None
-            or abs((_normalize_ts(a.updated_at) - _normalize_ts(loaded)).total_seconds()) > 1
-        ):
+        # Exactly the version the dialog loaded (it echoes the timestamp back
+        # untouched) — any later write, however soon after, is a conflict.
+        if loaded is None or _normalize_ts(a.updated_at) != _normalize_ts(loaded):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -1007,6 +1016,8 @@ async def import_activities(
     existing schedule (replace mode) or leaves a partial import behind.
     """
     await assert_member(project_id, current_user, db, allowed_roles={ProjectRole.planner})
+    if not dry_run:  # a preview writes nothing, so it needn't hold up other writes
+        await lock_campaign_writes(project_id, db)
 
     # A bulk import would delete/replace activities that may be frozen under a
     # pending revision — refuse while any are locked.

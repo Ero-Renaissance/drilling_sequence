@@ -447,3 +447,83 @@ async def test_validation(client: AsyncClient, mutate) -> None:
     mutate(body)
     r = await _put(client, pid, body)
     assert r.status_code == 422, r.text
+
+
+# ── Review fixes: exact versions, shared keys, replacing every well ─────────
+
+
+def test_wells_that_already_share_a_key_keep_it_but_no_new_duplicates() -> None:
+    # Two activities of one well + activity already exist (e.g. two campaigns'
+    # worth of the same job) — they may be renamed with the project...
+    w1 = act("W-1", START, 30)
+    w1b = act("W-1", START + timedelta(days=200), 30)
+    ok = plan_project_edit(edit([row(w1), row(w1b)], new_name="Bonga 4B"), [w1, w1b], [])
+    assert [w.out.change for w in ok.wells] == ["changed", "changed"]
+
+    # ...but an edit may not introduce another one: a new row...
+    with pytest.raises(EditRefused, match="listed twice"):
+        plan_project_edit(edit([row(w1), row(w1b), new_row("W-1")]), [w1, w1b], [])
+    # ...or another well renamed onto the key.
+    w2 = act("W-2", START + timedelta(days=400), 30)
+    with pytest.raises(EditRefused, match="listed twice"):
+        plan_project_edit(
+            edit([row(w1), row(w1b), row(w2, well_name="W-1")]), [w1, w1b, w2], []
+        )
+
+
+def test_replacing_every_well_keeps_the_projects_details_and_start() -> None:
+    w1 = act("W-1", START, 30, location="LAND", risk="Flood Risk", market="Domestic Gas")
+    gone = {"id": str(w1.id), "expected_updated_at": NOW.isoformat()}
+    plan = plan_project_edit(edit([new_row("N-1", "Rig Z")], removed=[gone]), [w1], [])
+    new = plan.wells[0]
+    assert (new.values.location, new.values.risk, new.values.market) == (
+        "LAND", "Flood Risk", "Domestic Gas"
+    )
+    assert new.out.start_date == START  # the original project's start
+
+
+@pytest.mark.asyncio
+async def test_a_version_even_a_moment_old_is_a_conflict(client: AsyncClient) -> None:
+    pid = await _campaign(client)
+    b1, b2, b3 = await _seed(client, pid)
+    loaded = (datetime.fromisoformat(b1["updated_at"]) - timedelta(milliseconds=500)).isoformat()
+    r = await _put(client, pid, {
+        "well_project": PROJECT, "dry_run": False,
+        "wells": [_row(b1, expected_updated_at=loaded), _row(b2), _row(b3)],
+    })
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_shared_keys_and_replacing_every_well_through_the_api(client: AsyncClient) -> None:
+    pid = await _campaign(client)
+    b1, b2, b3 = await _seed(client, pid)
+    # B4-1 gets a second activity of the same type in the project.
+    twin = await client.post(f"/api/projects/{pid}/activities", json={
+        "activity_type": b1["activity_type"], "start_date": "2029-01-01", "end_date": "2029-02-01",
+        "well_name": "B4-1", "rig_name": "Rig A", "location": "SWAMP", "plan_type": "Firm",
+        "risk": "No Flood Risk", "well_project": PROJECT,
+    })
+    assert twin.status_code == 201
+    wells = await _wells(client, pid)
+
+    # A plain rename of the whole project is fine.
+    r = await _put(client, pid, {
+        "well_project": PROJECT, "new_name": "Bonga 4B", "dry_run": False,
+        "wells": [_row(w) for w in wells],
+    })
+    assert r.status_code == 200, r.text
+
+    # Replace every well with a new one: it inherits the project's details.
+    wells = await _wells(client, pid, "Bonga 4B")
+    r = await _put(client, pid, {
+        "well_project": "Bonga 4B", "dry_run": False,
+        "wells": [new_row("N-1", "Rig Q", 1)],
+        "removed": [_removed(w) for w in wells],
+    })
+    assert r.status_code == 200, r.text
+    (new,) = await _wells(client, pid, "Bonga 4B")
+    assert (new["well_name"], new["location"], new["plan_type"], new["market"]) == (
+        "N-1", "SWAMP", "Firm", "Oil"
+    )
+    assert new["start_date"] == "2027-01-01"
