@@ -80,6 +80,9 @@ interface DrillChartProps {
   contractsByHwu?: Map<string, HwuContract>;
   conflictIds?: Set<string>;
   onActivityClick?: (activityId: string) => void;
+  /** Clicking a bar's project tag opens that field project (its wells); without
+   *  it the tag is a plain label. */
+  onProjectClick?: (project: string) => void;
   /** Show the multi-select project + location filters (each dims the bars it
    *  doesn't match). Off in the read-only revision snapshot view; on for the
    *  live project chart. */
@@ -307,6 +310,7 @@ export function DrillChart({
   contractsByHwu,
   conflictIds,
   onActivityClick,
+  onProjectClick,
   enableFilters = false,
   initialProjects,
   initialLocations,
@@ -530,6 +534,9 @@ export function DrillChart({
     return t.length ? [Math.min(...t), Math.max(...t)] : [Date.now(), Date.now()];
   }, [displayData]);
 
+  // A boolean, not the callback, so a new handler each render doesn't rebuild
+  // the whole chart option.
+  const projectClickable = !!onProjectClick;
   const option: EChartsOption = useMemo(() => {
     // The readiness strip's gates (catalog order) and each gate's icon key.
     const stripCodes = gates.map((g) => g.code);
@@ -780,6 +787,23 @@ export function DrillChart({
               : { width: clippedBar.width - 4, overflow: "truncate" }),
           },
         });
+        if (projectClickable) {
+          // The click target: an invisible box over the tag carrying `info`,
+          // which onEvents.click reads. (A text element can't carry it — ECharts
+          // reports the text's inner span as the clicked element.)
+          children.push({
+            type: "rect",
+            info: { project: String(project) },
+            cursor: "pointer",
+            shape: {
+              x: clippedBar.x + 1,
+              y: clippedBar.y - 15,
+              width: Math.min(String(project).length * 6 + 10, clippedBar.width - 2),
+              height: 14,
+            },
+            style: { fill: "rgba(0,0,0,0)" },
+          });
+        }
       }
 
       // Readiness — gates are per FIELD PROJECT, rendered anchor-plus-exception:
@@ -1403,7 +1427,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates, readinessHeading, lens]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates, readinessHeading, lens, projectClickable]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -1529,7 +1553,13 @@ export function DrillChart({
         componentType?: string;
         value?: number | string;
         data?: { activityId?: string };
+        info?: { project?: string };
       }) => {
+        // A click on a bar's project tag opens the project, not the bar.
+        if (params.info?.project && onProjectClick) {
+          onProjectClick(params.info.project);
+          return;
+        }
         // A click on an x-axis (month/year) label focuses that whole year.
         if (params.componentType === "xAxis") {
           const ts =
@@ -1552,7 +1582,7 @@ export function DrillChart({
         });
       },
     }),
-    [focusYear, onActivityClick, updateBands],
+    [focusYear, onActivityClick, onProjectClick, updateBands],
   );
 
   const chartEl = (

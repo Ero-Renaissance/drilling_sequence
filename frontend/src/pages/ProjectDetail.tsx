@@ -28,6 +28,8 @@ import { ImportDialog } from "@/components/chart/ImportDialog";
 import { ActivityChartEditDialog } from "@/components/chart/ActivityChartEditDialog";
 import { ActivityFormDialog } from "@/components/data-grid/ActivityFormDialog";
 import { AddProjectDialog } from "@/components/data-grid/AddProjectDialog";
+import { EditProjectDialog } from "@/components/data-grid/EditProjectDialog";
+import { projectReadOnlyReason } from "@/components/data-grid/project-dialog-shared";
 import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
 import { rigLaneKey } from "@/lib/resource-identity";
 import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
@@ -416,6 +418,8 @@ export function ChartTab() {
   const [readinessFor, setReadinessFor] = useState<{ id: string; team: string | null } | null>(
     null,
   );
+  // The field project opened from a bar's project tag (its wells, editable).
+  const [projectDialog, setProjectDialog] = useState<string | null>(null);
   const { canEditPlan } = useOutletContext<CampaignOutletContext>();
   const [notes, setNotes] = useState<ChangeNote[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -654,6 +658,7 @@ export function ChartTab() {
                   ? setEditActivityId(id)
                   : setReadinessFor({ id, team: lens === ALL_LENS ? null : lens })
               }
+              onProjectClick={setProjectDialog}
               onFiltersChange={setChartFilters}
               enableFilters
             />
@@ -716,6 +721,24 @@ export function ChartTab() {
             />
           );
         })()
+      )}
+
+      {projectDialog && activities && projectId && (
+        <EditProjectDialog
+          key={projectDialog}
+          projectId={projectId}
+          projectName={projectDialog}
+          activities={activities}
+          canEdit={canEditPlan && !isLocked}
+          readOnlyReason={projectReadOnlyReason(canEditPlan, isLocked)}
+          open
+          onOpenChange={(open) => { if (!open) setProjectDialog(null); }}
+          onSaved={load}
+          onOpenReadiness={(id) => {
+            setProjectDialog(null);
+            setReadinessFor({ id, team: null });
+          }}
+        />
       )}
 
       {readinessFor && activities && projectId && (

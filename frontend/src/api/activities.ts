@@ -162,12 +162,20 @@ export interface PlannedWell {
   end_date: string;
   duration_days: number;
   gap_before_days: number;
-  gap_kind: "none" | "inter_well" | "batch" | "project_move";
+  /** "kept": an existing well whose dates were not laid out (edit mode). */
+  gap_kind: "none" | "inter_well" | "batch" | "project_move" | "kept";
+}
+
+export interface PlanConflict {
+  well_name: string;
+  resource: string;
+  clashes_with: string;
+  overlap_days: number;
 }
 
 export interface ProjectWellsPlan {
   wells: PlannedWell[];
-  conflicts: { well_name: string; resource: string; clashes_with: string; overlap_days: number }[];
+  conflicts: PlanConflict[];
   created: number;
 }
 
@@ -184,6 +192,74 @@ export async function planProjectWells(
   });
   if (!resp.ok) {
     await throwApiError(resp, payload.dry_run ? "Failed to preview the wells" : "Failed to add the wells");
+  }
+  return resp.json();
+}
+
+// ── Edit a field project and its wells (the project dialog's edit mode) ──────
+
+/** One row of the edit: an existing well (id + the updated_at it was loaded at,
+ *  explicit dates) or a new one (no id, a duration in months — the server places
+ *  it after the project's last well on its rig). */
+export interface EditedWellIn {
+  id?: string;
+  expected_updated_at?: string;
+  well_name: string;
+  activity_type: string;
+  resource_type: "rig" | "hwu" | "none";
+  resource_name: string | null;
+  start_date?: string;
+  end_date?: string;
+  duration_months?: number;
+}
+
+export interface ProjectWellsEditIn {
+  /** The project's name as the dialog loaded it. */
+  well_project: string;
+  new_name?: string;
+  /** Project-level fields: present → applied to every well; absent → each well
+   *  keeps its own ("Mixed"). */
+  location?: string;
+  plan_type?: string;
+  risk?: string;
+  market?: string | null;
+  readiness_required?: boolean;
+  wells: EditedWellIn[];
+  removed: { id: string; expected_updated_at: string }[];
+  /** keep: existing wells keep their dates. resequence: lay every open well out
+   *  again from start_date, keeping durations. */
+  layout: "keep" | "resequence";
+  start_date?: string;
+  dry_run: boolean;
+}
+
+export interface EditedWell extends PlannedWell {
+  id: string | null;
+  change: "new" | "changed" | "unchanged";
+  completed: boolean;
+}
+
+export interface ProjectWellsEditPlan {
+  well_project: string;
+  wells: EditedWell[];
+  removed: { id: string; well_name: string | null; activity_type: string }[];
+  conflicts: PlanConflict[];
+  saved: boolean;
+}
+
+/** Preview (dry_run) or save an edit of a field project and its wells — all or
+ *  nothing. A 409 means the project changed since it was loaded (reload). */
+export async function editProjectWells(
+  projectId: string,
+  payload: ProjectWellsEditIn,
+): Promise<ProjectWellsEditPlan> {
+  const resp = await fetch(`/api/projects/${projectId}/activities/project-wells`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    await throwApiError(resp, payload.dry_run ? "Failed to preview the changes" : "Failed to save the project");
   }
   return resp.json();
 }
