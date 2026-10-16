@@ -1,5 +1,6 @@
 import type { Activity } from "@/api/activities";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
+import type { TeamCheckDetail } from "./team-summary";
 import { getActivityColor } from "./chart-colors";
 import { formatDate } from "./utils";
 import { terrainRank } from "./gantt-rows";
@@ -19,6 +20,8 @@ export interface ChartCheckState {
   status: CheckStatus;
   tags?: string[];
   inherited_tags?: string[];
+  /** All lens only: the team's checks behind this summary badge. */
+  details?: TeamCheckDetail[];
 }
 
 /** The scheduling resource a row represents — a rig or an HWU. */

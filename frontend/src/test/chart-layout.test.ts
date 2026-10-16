@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
+import { barStripCodes, worstCheck, iconTier, tagFits } from "@/lib/chart-layout";
 
 describe("iconTier", () => {
   it("picks the strip tier by bar width, at the exact thresholds", () => {
@@ -54,5 +54,26 @@ describe("worstCheck", () => {
     expect(worstCheck({ FDP: { status: "N/A" }, LLI: { status: "Completed" } })?.status).toBe(
       "Completed",
     );
+  });
+});
+
+describe("barStripCodes", () => {
+  const strip = ["projects", "wells", "logistics"];
+
+  it("draws every check of a team lens, set or not (unset gates show their default)", () => {
+    expect(barStripCodes(strip, { projects: { status: "Behind" } }, false)).toEqual(strip);
+  });
+
+  it("drops a team with no readiness for the activity under the All lens", () => {
+    // A well without a field project: no Project gates badge, only Logistics.
+    expect(barStripCodes(strip, { logistics: { status: "Not available" } }, true)).toEqual([
+      "logistics",
+    ]);
+    expect(barStripCodes(strip, {}, true)).toEqual([]);
+  });
+
+  it("keeps the strip order under the All lens", () => {
+    const checks = { logistics: { status: "Available" }, projects: { status: "On Track" } };
+    expect(barStripCodes(strip, checks, true)).toEqual(["projects", "logistics"]);
   });
 });

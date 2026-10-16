@@ -109,7 +109,12 @@ describe("worst-of summaries", () => {
       teams: TEAMS,
     });
     expect(keyOf(act("a1"))).toBe("a1");
-    expect(map.get("a1")).toEqual({ projects: { status: "Behind" }, logistics: { status: "Behind" } });
+    expect(map.get("a1")).toMatchObject({ projects: { status: "Behind" }, logistics: { status: "Behind" } });
+    // The checks behind each badge are kept for the tooltip's team summary.
+    expect(map.get("a1")?.logistics.details?.map((x) => [x.code, x.status])).toEqual([
+      ["PO", "Completed"],
+      ["NEQ", "Not available"],
+    ]);
     expect(map.has("a2")).toBe(false);
   });
 });
@@ -166,7 +171,7 @@ describe("AllReadinessGrid", () => {
     expect(screen.queryByText("W-OPT")).not.toBeInTheDocument(); // opt-out
     // Logistics starts folded: one worst badge (NEQ "Not available" → Behind).
     await waitFor(() =>
-      expect(within(w1).getByLabelText("Logistics: Behind (worst of 2)")).toBeInTheDocument(),
+      expect(within(w1).getByLabelText("Logistics: 1 of 2 done · Not available: NEQ")).toBeInTheDocument(),
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Unfold Logistics" }));

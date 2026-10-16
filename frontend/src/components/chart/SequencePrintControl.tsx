@@ -30,6 +30,7 @@ import {
   PROJECTS_TEAM,
   ReadinessLensProvider,
   lensLabel,
+  useProjectGates,
   useReadinessTeams,
   type Lens,
 } from "@/components/readiness/catalog";
@@ -56,6 +57,7 @@ export function SequencePrintControl({
   // Which team's icons the readiness print shows: a planner prints the project
   // gates, the Wells / Logistics teams their own. Follows the chart's lens.
   const teams = useReadinessTeams();
+  const projectGates = useProjectGates();
   const [printLens, setPrintLens] = useState<Lens>(lens);
   useEffect(() => setPrintLens(lens), [lens]);
   const [lensData, setLensData] = useState<LensReadiness | null>(null);
@@ -108,7 +110,7 @@ export function SequencePrintControl({
       // copy shows live status as of this moment. Best-effort: a failed load
       // prints the sequence without icons rather than not at all.
       setLensData(
-        await loadLensReadiness(projectId, printLens, { activities, teams }).catch(() => ({
+        await loadLensReadiness(projectId, printLens, { activities, teams, projectGates }).catch(() => ({
           map: new Map(),
           keyOf: () => null,
         })),
@@ -122,7 +124,7 @@ export function SequencePrintControl({
     setAsOf(new Date());
     setPrinting(true);
     setNonce((n) => n + 1);
-  }, [claimId, project, projectId, printLens, activities, teams]);
+  }, [claimId, project, projectId, printLens, activities, teams, projectGates]);
 
   useEffect(() => {
     if (!printing) return;

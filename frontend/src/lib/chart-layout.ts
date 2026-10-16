@@ -39,6 +39,20 @@ export function worstCheck(
   return winner;
 }
 
+/**
+ * The icons one bar's strip draws, in strip order. A lens draws every one of its
+ * checks (an unset gate shows its default). The "All" lens's icons are teams, so
+ * a team with no readiness for this activity — e.g. Project gates on a well
+ * without a field project — gets no badge, matching the tooltip.
+ */
+export function barStripCodes(
+  stripCodes: readonly CheckCode[],
+  checks: Record<string, unknown>,
+  allLens: boolean,
+): readonly CheckCode[] {
+  return allLens ? stripCodes.filter((c) => checks[c] !== undefined) : stripCodes;
+}
+
 /** Which readiness-strip layout a bar of `barWidth` px receives. */
 export type IconTier = "full" | "half" | "grid" | "single";
 

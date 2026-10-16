@@ -15,6 +15,7 @@ import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
 import { useAuthStore } from "@/store/auth";
 import { teamValuesFor } from "@/lib/readiness-lens";
+import { summariseTeam, summaryLine, type TeamCheckDetail } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
 import { ReadinessDot } from "./ReadinessDot";
 import {
@@ -25,7 +26,7 @@ import {
   useReadinessTeams,
   type Lens,
 } from "./catalog";
-import { STATUS_ICON_COLOR, STATUS_LABEL, worstStatus } from "./check-meta";
+import { STATUS_ICON_COLOR } from "./check-meta";
 import { checkIcon } from "./icon-registry";
 
 interface WellRow {
@@ -36,7 +37,7 @@ interface WellRow {
   start_date: string;
 }
 
-type Values = Record<string, CheckState & { source?: string }>;
+type Values = Record<string, CheckState & { source?: string; inherited_tags?: string[] }>;
 
 /**
  * Every team at once — the "All" view of the Readiness page. One row per well
@@ -292,7 +293,7 @@ export function AllReadinessGrid({
                     if (!open) {
                       return (
                         <td key={team.code} className="border-l border-border/60 px-2 py-2 text-center">
-                          <TeamWorst team={team} values={v} />
+                          <TeamWorst team={team} checks={checks} values={v} />
                         </td>
                       );
                     }
@@ -344,13 +345,35 @@ export function AllReadinessGrid({
   );
 }
 
-/** A folded team: its icon, coloured by the worst of its checks on this well. */
-function TeamWorst({ team, values }: { team: CatalogTeam; values: Values | undefined }) {
-  const statuses = Object.values(values ?? {}).map((s) => s.status as CheckStatus);
-  const worst = worstStatus(statuses);
-  if (!worst) return <span className="text-xs text-muted-foreground/50">—</span>;
+/** A folded team: its icon, coloured by the worst of its checks on this well;
+ *  its hover text is the same summary the chart's All tooltip gives. */
+function TeamWorst({
+  team,
+  checks,
+  values,
+}: {
+  team: CatalogTeam;
+  checks: CatalogCheck[];
+  values: Values | undefined;
+}) {
+  const details: TeamCheckDetail[] = checks
+    .filter((c) => values?.[c.code])
+    .map((c) => {
+      const v = values![c.code];
+      return {
+        code: c.code,
+        label: c.label,
+        status: v.status as CheckStatus,
+        ...(c.tag_list
+          ? { tags: [...new Set([...(v.inherited_tags ?? []), ...(v.tags ?? [])])] }
+          : {}),
+      };
+    });
+  const summary = summariseTeam(details);
+  if (!summary) return <span className="text-xs text-muted-foreground/50">—</span>;
+  const worst = summary.worst;
   const Icon = checkIcon(team.icon_key);
-  const label = `${lensLabel(team)}: ${STATUS_LABEL[worst]} (worst of ${statuses.length})`;
+  const label = `${lensLabel(team)}: ${summaryLine(summary)}`;
   return (
     <span title={label} aria-label={label} className="inline-flex justify-center">
       <Icon className={cn("h-[18px] w-[18px]", STATUS_ICON_COLOR[worst])} strokeWidth={2} />

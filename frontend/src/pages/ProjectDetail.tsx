@@ -47,6 +47,7 @@ import {
   ALL_LENS,
   PROJECTS_TEAM,
   ReadinessLensProvider,
+  useProjectGates,
   useReadinessLens,
   useReadinessTeams,
 } from "@/components/readiness/catalog";
@@ -394,6 +395,7 @@ export function ChartTab() {
   // The chart's readiness lens (Project gates · Wells · Logistics…) and its data.
   const [lens, setLens] = useReadinessLens();
   const teams = useReadinessTeams();
+  const projectGates = useProjectGates();
   const [lensReadiness, setLensReadiness] = useState<LensReadiness | null>(null);
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(
     undefined,
@@ -490,13 +492,13 @@ export function ChartTab() {
       return;
     }
     let active = true;
-    loadLensReadiness(projectId, lens, { activities: activities ?? [], teams })
+    loadLensReadiness(projectId, lens, { activities: activities ?? [], teams, projectGates })
       .then((data) => active && setLensReadiness(data))
       .catch(() => active && setLensReadiness(null)); // best-effort, like the gates
     return () => {
       active = false;
     };
-  }, [projectId, lens, activities, teams]);
+  }, [projectId, lens, activities, teams, projectGates]);
 
   function handleImported(_count: number) { load(); }
 

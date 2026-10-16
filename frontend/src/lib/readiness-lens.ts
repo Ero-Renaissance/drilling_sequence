@@ -2,6 +2,7 @@ import type { Activity } from "@/api/activities";
 import {
   getTeamReadiness,
   listReadiness,
+  type CatalogCheck,
   type CatalogTeam,
   type CheckStatus,
   type TeamReadiness,
@@ -13,7 +14,8 @@ import {
   type Lens,
 } from "@/components/readiness/catalog";
 import { worstStatus } from "@/components/readiness/check-meta";
-import type { ReadinessMap } from "./chart-utils";
+import type { ChartCheckState, ReadinessMap } from "./chart-utils";
+import type { TeamCheckDetail } from "./team-summary";
 
 /** How an activity finds its readiness under a lens: the map key for it, or null
  *  (no readiness under this lens — e.g. no well name for a well lens). */
@@ -52,11 +54,13 @@ export function teamValuesFor(
     : undefined;
 }
 
-/** "All": per activity, each team's WORST status (a summary badge per team). */
+/** "All": per activity, each team's WORST status (a summary badge per team),
+ *  keeping the checks behind it (`details`) for the tooltip's team summary. */
 async function loadAll(
   projectId: string,
   activities: readonly Activity[],
   teams: readonly CatalogTeam[],
+  projectGateDefs: readonly CatalogCheck[],
 ): Promise<LensReadiness> {
   const [gates, ...teamData] = await Promise.all([
     listReadiness(projectId),
@@ -65,19 +69,44 @@ async function loadAll(
       .map((t) => getTeamReadiness(projectId, t.code)),
   ]);
   const gatesByProject = new Map(gates.map((r) => [r.well_project, r.checks]));
+  const gateLabel = new Map(projectGateDefs.map((g) => [g.code, g.label]));
   const map: ReadinessMap = new Map();
   for (const a of activities) {
     if (a.readiness_required === false) continue; // opt-out: no readiness at all
-    const summary: Record<string, { status: CheckStatus }> = {};
+    const summary: Record<string, ChartCheckState> = {};
     const projectGates = a.well_project ? gatesByProject.get(a.well_project) : undefined;
-    const projectWorst = projectGates
-      ? worstStatus(Object.values(projectGates).map((v) => v.status))
-      : undefined;
-    if (projectWorst) summary[PROJECTS_TEAM] = { status: projectWorst };
+    if (projectGates) {
+      const order = projectGateDefs.length
+        ? projectGateDefs.map((g) => g.code).filter((c) => c in projectGates)
+        : Object.keys(projectGates);
+      const details: TeamCheckDetail[] = order.map((code) => ({
+        code,
+        label: gateLabel.get(code) ?? code,
+        status: projectGates[code].status,
+      }));
+      const worst = worstStatus(details.map((d) => d.status));
+      if (worst) summary[PROJECTS_TEAM] = { status: worst, details };
+    }
     for (const team of teamData) {
-      const values = teamValuesFor(team, a);
-      const worst = values ? worstStatus(Object.values(values).map((v) => v.status)) : undefined;
-      if (worst) summary[team.team.code] = { status: worst };
+      const values = teamValuesFor(team, a) as
+        | Record<string, { status: CheckStatus; tags?: string[]; inherited_tags?: string[] }>
+        | undefined;
+      if (!values) continue;
+      const details: TeamCheckDetail[] = team.checks
+        .filter((c) => values[c.code])
+        .map((c) => {
+          const v = values[c.code];
+          return {
+            code: c.code,
+            label: c.label,
+            status: v.status,
+            ...(c.tag_list
+              ? { tags: [...new Set([...(v.inherited_tags ?? []), ...(v.tags ?? [])])] }
+              : {}),
+          };
+        });
+      const worst = worstStatus(details.map((d) => d.status));
+      if (worst) summary[team.team.code] = { status: worst, details };
     }
     if (Object.keys(summary).length > 0) map.set(a.id, summary);
   }
@@ -98,10 +127,22 @@ async function loadAll(
 export async function loadLensReadiness(
   projectId: string,
   lens: Lens,
-  context: { activities?: readonly Activity[]; teams?: readonly CatalogTeam[] } = {},
+  context: {
+    activities?: readonly Activity[];
+    teams?: readonly CatalogTeam[];
+    /** The project gates' definitions — names them in the All lens summary. */
+    projectGates?: readonly CatalogCheck[];
+  } = {},
 ): Promise<LensReadiness> {
   if (lens === NO_LENS) return { map: new Map(), keyOf: () => null };
-  if (lens === ALL_LENS) return loadAll(projectId, context.activities ?? [], context.teams ?? []);
+  if (lens === ALL_LENS) {
+    return loadAll(
+      projectId,
+      context.activities ?? [],
+      context.teams ?? [],
+      context.projectGates ?? [],
+    );
+  }
   if (lens === PROJECTS_TEAM) {
     const rows = await listReadiness(projectId);
     return {

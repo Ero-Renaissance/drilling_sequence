@@ -25,7 +25,8 @@ import {
   type ChartCheckState,
   type ReadinessMap,
 } from "@/lib/chart-utils";
-import { worstCheck, iconTier, gridCols, tagFits } from "@/lib/chart-layout";
+import { barStripCodes, worstCheck, iconTier, gridCols, tagFits } from "@/lib/chart-layout";
+import { summariseTeam, summaryLine } from "@/lib/team-summary";
 import { terrainRank } from "@/lib/gantt-rows";
 import { rigLaneKey } from "@/lib/resource-identity";
 import {
@@ -668,7 +669,7 @@ export function DrillChart({
         isConflict?: boolean;
         isCompleted?: boolean;
         _barText?: string | null;
-        tooltip?: { checks?: Record<string, { status: CheckStatus }> | null };
+        tooltip?: { checks?: Record<string, ChartCheckState> | null };
         readinessRole?: "anchor" | "sibling" | "none";
       };
       const isConflict = item?.isConflict ?? false;
@@ -820,6 +821,7 @@ export function DrillChart({
           }
         }
       } else if (checks && readinessRole === "anchor") {
+        const barCodes = barStripCodes(stripCodes, checks, lens === ALL_LENS);
         const stripY = barTop + barH + BAR_TO_ICON_GAP;
         const stripX = start[0];
         const minX = coordSys.x;
@@ -871,31 +873,31 @@ export function DrillChart({
           });
         };
 
-        const tier = iconTier(barWidth, stripCodes.length);
+        const tier = iconTier(barWidth, barCodes.length);
         if (tier === "full") {
-          for (let i = 0; i < stripCodes.length; i++) {
-            const code = stripCodes[i];
+          for (let i = 0; i < barCodes.length; i++) {
+            const code = barCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (ICON_SIZE + ICON_GAP), stripY, ICON_SIZE);
           }
-          placeEquipment(stripX + stripCodes.length * (ICON_SIZE + ICON_GAP), stripY + ICON_SIZE / 2);
+          placeEquipment(stripX + barCodes.length * (ICON_SIZE + ICON_GAP), stripY + ICON_SIZE / 2);
         } else if (tier === "half") {
           const SMALL = 10;
           const SMALL_GAP = 1;
-          for (let i = 0; i < stripCodes.length; i++) {
-            const code = stripCodes[i];
+          for (let i = 0; i < barCodes.length; i++) {
+            const code = barCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
-          placeEquipment(stripX + stripCodes.length * (SMALL + SMALL_GAP), stripY + 2 + SMALL / 2);
+          placeEquipment(stripX + barCodes.length * (SMALL + SMALL_GAP), stripY + 2 + SMALL / 2);
         } else if (tier === "grid") {
           // Mini grid — 7 icons across two rows (4 on top, 3 below)
           const GRID_SIZE = 9;
           const GRID_GAP = 1;
-          for (let i = 0; i < stripCodes.length; i++) {
-            const code = stripCodes[i];
+          for (let i = 0; i < barCodes.length; i++) {
+            const code = barCodes[i];
             const status = (checks[code]?.status ?? "On Track") as CheckStatus;
-            const cols = gridCols(stripCodes.length);
+            const cols = gridCols(barCodes.length);
             const row = Math.floor(i / cols);
             const col = i % cols;
             const x = stripX + col * (GRID_SIZE + GRID_GAP);
@@ -904,7 +906,7 @@ export function DrillChart({
           }
         } else {
           // Single worst-status icon — keeps identity even at the smallest size
-          const worst = worstCheck(checks, stripCodes);
+          const worst = worstCheck(checks, barCodes);
           if (worst) {
             const ICON = 12;
             const x = stripX + Math.max(0, (barWidth - ICON) / 2);
@@ -1125,7 +1127,7 @@ export function DrillChart({
                 end: string;
                 plan: string | null;
                 risk: string | null;
-                checks: Record<string, { status: CheckStatus }> | null;
+                checks: Record<string, ChartCheckState> | null;
               };
             };
           };
@@ -1159,7 +1161,46 @@ export function DrillChart({
           if (!t) return "";
 
           let checksHtml = "";
-          if (t.checks) {
+          if (t.checks && lens === ALL_LENS) {
+            // All lens: a short block per team — its worst status, "X of Y
+            // done", and only the checks that need attention (lib/team-summary).
+            const blocks = stripCodes
+              .map((code) => {
+                const state = t.checks?.[code];
+                if (!state) return "";
+                const summary = state.details ? summariseTeam(state.details) : undefined;
+                const colour = summary?.worst ?? state.status;
+                // Name the worst ACTUAL status ("Not available"), not its
+                // colour-equivalent standard status.
+                const headline = summary
+                  ? summary.attention[0]
+                    ? (STATUS_LABEL[summary.attention[0].status] ?? summary.attention[0].status)
+                    : summary.total === 0
+                      ? STATUS_LABEL["N/A"]
+                      : "Done"
+                  : (STATUS_LABEL[state.status] ?? state.status);
+                const line = summary ? summaryLine(summary) : "";
+                return `<div style="margin-bottom:6px">
+                  <div style="display:flex;align-items:center;gap:6px;font-size:11px">
+                    <img src="${buildCheckSvgDataUri(iconKeyOf(code), colour)}" width="13" height="13" style="display:block;flex-shrink:0" alt="" />
+                    <span style="color:${theme.tooltipText};font-weight:600">${esc(tooltipName.get(code) ?? code)}</span>
+                    <span style="margin-left:auto;padding-left:14px;color:${theme.tooltipText}">${esc(headline)}</span>
+                  </div>
+                  ${
+                    line
+                      ? `<div style="margin:2px 0 0 19px;max-width:300px;white-space:normal;font-size:11px;color:${theme.tooltipMuted}">${esc(line)}</div>`
+                      : ""
+                  }
+                </div>`;
+              })
+              .join("");
+            checksHtml = `
+              <div style="margin-top:10px;padding-top:8px;border-top:1px solid ${theme.tooltipDivider}">
+                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:${theme.tooltipMuted};margin-bottom:6px">${esc(readinessHeading)}</div>
+                ${blocks}
+                <div style="margin-top:2px;font-size:10px;text-align:right;color:${theme.tooltipMuted}">Click the bar for the full readiness panel</div>
+              </div>`;
+          } else if (t.checks) {
             const cells = stripCodes.map((code) => {
               const status =
                 (t.checks?.[code]?.status as CheckStatus | undefined) ?? "On Track";
