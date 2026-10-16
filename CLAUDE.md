@@ -180,7 +180,8 @@ logic against these active business rules:
   locks with the plan applies at project level only.
 - **Readiness rollups have ONE definition** (spec §3.7,
   `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,
-  never a local formula. Readiness = what is DONE: headline **Complete** = done ÷
+  never a local formula; Readiness-tab grids add up the server's per-row
+  `figures` of exactly the rows shown, they never decide what counts. Readiness = what is DONE: headline **Complete** = done ÷
   counted, with **On track** ((done + in progress) ÷ counted) and **Behind**
   (blocked cells) beside it. Roll up by shared SEVERITY, never status text; N/A
   isn't counted. An unset check reads its default and every default is on track

@@ -75,6 +75,21 @@ export interface CheckState {
  * backend returns one entry per distinct field project in the campaign;
  * activities with no `well_project` are omitted.
  */
+/** One row's readiness by the server's rollup (spec §3.7) — each row is one
+ *  target. Grids add the counts of the rows they show; they never decide which
+ *  cells count. */
+export interface RowFigures {
+  /** Cells that count (N/A doesn't). */
+  counted: number;
+  done: number;
+  /** On track (On Track, Pending). */
+  in_progress: number;
+  /** Behind or Not available. */
+  behind: number;
+  /** At least one counted cell, and every counted cell done. */
+  ready: boolean;
+}
+
 export interface ProjectReadiness {
   well_project: string;
   /** Keyed by catalog check code — the active project gates, in catalog order. */
@@ -89,6 +104,8 @@ export interface ProjectReadiness {
    *  `focus_start <= today + N`. Null when the project has no pending readiness
    *  work (all done or opt-out), so it never falls inside a window. */
   focus_start?: string | null;
+  /** The row's rollup over its gates (server-computed). */
+  figures?: RowFigures;
 }
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -148,6 +165,9 @@ export interface TeamProjectRow {
   well_project: string;
   activity_count: number;
   checks: Record<CheckCode, CheckState>;
+  /** Earliest start of not-done, readiness-required work (null: nothing left). */
+  focus_start?: string | null;
+  figures?: RowFigures;
 }
 
 export interface TeamWellRow {
@@ -163,6 +183,7 @@ export interface TeamWellRow {
   focus_start: string | null;
   /** Every team check's effective value. */
   checks: Record<CheckCode, EffectiveCheckState>;
+  figures?: RowFigures;
 }
 
 export interface TeamReadiness {

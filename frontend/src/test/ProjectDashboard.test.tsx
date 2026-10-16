@@ -76,7 +76,8 @@ describe("ProjectDashboard", () => {
     const href = (label: string | RegExp) =>
       screen.getByRole("link", { name: label }).getAttribute("href");
     expect(href(/Completed YTD/)).toBe("/projects/p1/data");
-    expect(href(/Readiness ·/)).toBe("/projects/p1/readiness?horizon=12");
+    // The tile opens the tab on its own lens and window (spec §3.7).
+    expect(href(/Readiness ·/)).toBe("/projects/p1/readiness?lens=projects&horizon=12");
     expect(href(/Fleet status/)).toBe("/projects/p1/fleet");
     expect(href(/Contracts at risk/)).toBe("/projects/p1/fleet?focus=contracts");
   });
@@ -122,14 +123,14 @@ describe("ProjectDashboard", () => {
     expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
     expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
     // The tile deep-links into the readiness page pre-filtered to its window.
-    expect(readinessHref()).toBe("/projects/p1/readiness?horizon=12");
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&horizon=12");
 
     fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "6" } });
     await waitFor(() =>
       expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 6, 0),
     );
     expect(await screen.findByText(/Readiness · next 6 months/i)).toBeInTheDocument();
-    expect(readinessHref()).toBe("/projects/p1/readiness?horizon=6");
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&horizon=6");
 
     fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "0" } });
     await waitFor(() =>
@@ -137,7 +138,7 @@ describe("ProjectDashboard", () => {
     );
     expect(await screen.findByText(/Readiness · all duration/i)).toBeInTheDocument();
     // "All duration" is not a finite window — the tile links to the unfiltered page.
-    expect(readinessHref()).toBe("/projects/p1/readiness");
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects");
   });
 
   it("activity-mix horizon select refetches with its own window and relabels", async () => {
@@ -189,7 +190,7 @@ describe("ProjectDashboard", () => {
     );
     renderDash();
     const tile = (await screen.findByText(/Logistics readiness/i)).closest("a")!;
-    expect(tile).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics");
+    expect(tile).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&horizon=12");
     expect(tile).toHaveTextContent("25%");
     expect(tile).toHaveTextContent("complete · 70% on track · 3 behind · 1/4 wells ready");
     expect(tile.getAttribute("title")).toMatch(/Completed or On Track \(nothing behind\)/);

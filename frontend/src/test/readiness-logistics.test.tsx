@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -62,7 +63,14 @@ function teamData(): TeamReadiness {
   return {
     team: { code: "logistics", name: "Logistics", editor_source: "team_grant", icon_key: "truck", sort_order: 20 },
     checks: [NEQ],
-    project_rows: [{ well_project: "Bonga Phase 3", activity_count: 2, checks: { NEQ: st("Available", ["RW"]) } }],
+    project_rows: [
+      {
+        well_project: "Bonga Phase 3",
+        activity_count: 2,
+        checks: { NEQ: st("Available", ["RW"]) },
+        focus_start: "2026-11-01",
+      },
+    ],
     well_rows: [
       {
         well_project: "Bonga Phase 3",
@@ -145,6 +153,7 @@ describe("Nominated Equipment", () => {
       <ReadinessCatalogProvider>
         <TeamReadinessGrid projectId={PID} teamCode="logistics" />
       </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
     );
     const wells = await screen.findByRole("region", { name: "Wells" });
     // Effective = the project's RW + the well's own DSV.
@@ -182,6 +191,7 @@ describe("Nominated Equipment", () => {
       <ReadinessCatalogProvider>
         <TeamReadinessGrid projectId={PID} teamCode="logistics" />
       </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
     );
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(wells).getByTitle(/Nominated Equipment: Not available/));

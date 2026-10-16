@@ -325,6 +325,39 @@ async def test_dashboard_has_a_logistics_tile(client: AsyncClient, db: AsyncSess
     assert tile["on_track_pct"] == 93  # 13 of 14
 
 
+@pytest.mark.asyncio
+async def test_logistics_tab_adds_up_to_its_tile(client: AsyncClient, db: AsyncSession) -> None:
+    """The Logistics tab, adding up the server's per-well figures for the wells
+    it shows, reads exactly what the Logistics tile reads (spec §3.7)."""
+    from app.services.readiness_rollup import pct
+
+    await _seed_logistics(client, db)
+    pid = await _campaign(client)
+    await _put(client, pid, "PO", PROJECT, "Completed")  # inherited by both wells
+    await _put(client, pid, "NEQ", _well("W-1"), "Not available")
+
+    lens = await _lens(client, pid)
+    # Field-project rows carry the window signal too.
+    assert lens["project_rows"][0]["focus_start"] is not None
+    figs = [r["figures"] for r in lens["well_rows"] if r["focus_start"]]
+    w1 = _well_row(lens, "W-1")["figures"]
+    assert (w1["done"], w1["in_progress"], w1["behind"]) == (1, 5, 1)  # unset NEQ elsewhere = Pending
+
+    tile = next(
+        t
+        for t in (await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=0")).json()[
+            "team_readiness"
+        ]
+        if t["team_code"] == "logistics"
+    )
+    counted = sum(f["counted"] for f in figs)
+    done = sum(f["done"] for f in figs)
+    assert (len(figs), pct(done, counted), sum(f["behind"] for f in figs)) == (
+        tile["focus_count"], tile["overall_pct"], tile["behind_cells"],
+    )
+    assert pct(done + sum(f["in_progress"] for f in figs), counted) == tile["on_track_pct"]
+
+
 # ── Admin: equipment types ──────────────────────────────────────────────────
 
 

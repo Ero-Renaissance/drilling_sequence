@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { http, HttpResponse } from "msw";
@@ -68,7 +69,12 @@ function teamData(over: Partial<TeamReadiness> = {}): TeamReadiness {
     team: LOGISTICS,
     checks: [LBUD, CTS],
     project_rows: [
-      { well_project: "Bonga Phase 3", activity_count: 3, checks: { "L-BUD": st("Completed"), CTS: st("On Track") } },
+      {
+        well_project: "Bonga Phase 3",
+        activity_count: 3,
+        checks: { "L-BUD": st("Completed"), CTS: st("On Track") },
+        focus_start: "2026-01-01",
+      },
     ],
     well_rows: [
       {
@@ -215,7 +221,7 @@ describe("LensPicker", () => {
 describe("TeamReadinessGrid", () => {
   it("shows field-project and well rows, inherited values, and shared-key warnings", async () => {
     serveTeam(teamData());
-    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />);
+    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });
     const projects = await screen.findByRole("region", { name: "Field projects" });
     expect(within(projects).getByText("Bonga Phase 3")).toBeInTheDocument();
 
@@ -237,7 +243,7 @@ describe("TeamReadinessGrid", () => {
         return HttpResponse.json({});
       }),
     );
-    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />);
+    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });
     const wells = await screen.findByRole("region", { name: "Wells" });
     const w1 = within(wells).getByText("W-1").closest("tr")!;
     await userEvent.click(within(w1).getByTitle(/Budget Availability/));
@@ -263,7 +269,7 @@ describe("TeamReadinessGrid", () => {
         return HttpResponse.json({ status: "Completed", source: "project" });
       }),
     );
-    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />);
+    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });
     const wells = await screen.findByRole("region", { name: "Wells" });
     const w2 = within(wells).getByText("W-2").closest("tr")!;
     await userEvent.click(within(w2).getByTitle(/Budget Availability: Behind$/));
@@ -279,7 +285,7 @@ describe("TeamReadinessGrid", () => {
   it("is view-only without the team's grant", async () => {
     currentUser = { id: "u2", is_admin: false, teams: ["wells"] };
     serveTeam(teamData());
-    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />);
+    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });
     expect(await screen.findByText(/View only — updating Logistics readiness needs/)).toBeInTheDocument();
     const wells = screen.getByRole("region", { name: "Wells" });
     for (const button of within(wells).getAllByRole("button")) {
@@ -287,9 +293,55 @@ describe("TeamReadinessGrid", () => {
     }
   });
 
+  it("lists wells with work left in the window and sums exactly those (spec §3.7)", async () => {
+    const soon = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    const far = new Date(Date.now() + 600 * 86_400_000).toISOString().slice(0, 10);
+    const base = teamData().well_rows[0];
+    serveTeam(
+      teamData({
+        well_rows: [
+          {
+            ...base, well_name: "W-SOON", focus_start: soon,
+            figures: { counted: 2, done: 1, in_progress: 1, behind: 0, ready: false },
+          },
+          {
+            ...base, well_name: "W-FAR", focus_start: far,
+            figures: { counted: 2, done: 0, in_progress: 1, behind: 1, ready: false },
+          },
+          {
+            ...base, well_name: "W-DONE", focus_start: null, // completed: nothing left
+            figures: { counted: 2, done: 2, in_progress: 0, behind: 0, ready: true },
+          },
+        ],
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/?lens=logistics&horizon=12"]}>
+        <TeamReadinessGrid projectId={PID} teamCode="logistics" />
+      </MemoryRouter>,
+    );
+    const wells = await screen.findByRole("region", { name: "Wells" });
+    // Arriving from the Logistics tile: its 12-month window.
+    expect(within(wells).getByText("W-SOON")).toBeInTheDocument();
+    expect(within(wells).queryByText("W-FAR")).not.toBeInTheDocument();
+    expect(within(wells).queryByText("W-DONE")).not.toBeInTheDocument();
+    const summary = screen.getByTestId("readiness-summary");
+    expect(summary).toHaveTextContent("50%complete");
+    expect(summary).toHaveTextContent("100%on track");
+    expect(summary).toHaveTextContent("1 well · next 12 months");
+
+    // All: the far well joins; the completed one never does.
+    await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "0");
+    await waitFor(() => expect(within(wells).getByText("W-FAR")).toBeInTheDocument());
+    expect(within(wells).queryByText("W-DONE")).not.toBeInTheDocument();
+    expect(summary).toHaveTextContent("25%complete");
+    expect(summary).toHaveTextContent("1behind");
+    expect(summary).toHaveTextContent("2 wells · all");
+  });
+
   it("explains an empty team", async () => {
     serveTeam(teamData({ checks: [], project_rows: [], well_rows: [] }));
-    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />);
+    render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });
     expect(await screen.findByText(/No Logistics checks defined yet/)).toBeInTheDocument();
   });
 });

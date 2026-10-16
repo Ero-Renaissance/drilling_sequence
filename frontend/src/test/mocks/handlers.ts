@@ -1,8 +1,36 @@
 import { http, HttpResponse } from "msw";
 import type { Project, User } from "@/types";
 import type { Activity, ImportResult } from "@/api/activities";
-import type { CheckCode, CheckStatus, ProjectReadiness, ReadinessCatalog } from "@/api/readiness";
+import type {
+  CheckCode,
+  CheckStatus,
+  ProjectReadiness,
+  ReadinessCatalog,
+  RowFigures,
+} from "@/api/readiness";
 import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
+import { STATUS_SEVERITY } from "@/components/readiness/check-meta";
+
+/** Gates saved through the mock PUT, per field project — cleared after each test
+ *  (setup.ts) so tests don't leak into each other. */
+export const savedGates = new Map<string, Record<string, CheckStatus>>();
+
+/** A date inside every readiness window (the mock rows' focus_start). */
+export const SOON = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+
+/** The server's per-row rollup (spec §3.7), for fixtures. */
+export function mockRowFigures(statuses: CheckStatus[]): RowFigures {
+  const sev = statuses.map((s) => STATUS_SEVERITY[s] ?? "in_progress");
+  const counted = sev.filter((x) => x !== "not_counted");
+  const done = counted.filter((x) => x === "done").length;
+  return {
+    counted: counted.length,
+    done,
+    in_progress: counted.filter((x) => x === "in_progress").length,
+    behind: counted.filter((x) => x === "blocked").length,
+    ready: counted.length > 0 && done === counted.length,
+  };
+}
 import type { AuditEntry } from "@/api/audit";
 import type { Viewer } from "@/api/viewers";
 import type { Revision, RevisionDetail } from "@/api/revisions";
@@ -205,19 +233,32 @@ export const handlers = [
           { status: "On Track" as CheckStatus, notes: null, updated_at: null },
         ]),
       ) as Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }>;
+    // A stand-in for the server: saved gates show on the next read, and each row
+    // carries its rollup (spec §3.7) and a focus_start inside every window.
+    const withSaved = (wp: string, checks: ReturnType<typeof makeChecks>) => {
+      for (const [code, status] of Object.entries(savedGates.get(wp) ?? {})) {
+        checks[code] = { status, notes: null, updated_at: null };
+      }
+      return checks;
+    };
+    const row = (well_project: string, activity_count: number, checks: ReturnType<typeof makeChecks>) => {
+      const statuses = Object.values(withSaved(well_project, checks)).map((c) => c.status);
+      return {
+        well_project,
+        activity_count,
+        checks,
+        focus_start: SOON,
+        figures: mockRowFigures(statuses),
+      };
+    };
 
     // One entry per distinct FIELD PROJECT (well_project).
     const rows: ProjectReadiness[] = [
-      {
-        well_project: "Bonga Phase 3",
-        activity_count: 3,
-        checks: { ...makeChecks(), BUD: { status: "Completed", notes: null, updated_at: null } },
-      },
-      {
-        well_project: "Egina North",
-        activity_count: 2,
-        checks: makeChecks(),
-      },
+      row("Bonga Phase 3", 3, {
+        ...makeChecks(),
+        BUD: { status: "Completed", notes: null, updated_at: null },
+      }),
+      row("Egina North", 2, makeChecks()),
     ];
     return HttpResponse.json(rows);
   }),
@@ -230,6 +271,10 @@ export const handlers = [
         status: CheckStatus;
         notes: string | null;
       };
+      savedGates.set(body.well_project, {
+        ...(savedGates.get(body.well_project) ?? {}),
+        [String(params.checkCode)]: body.status,
+      });
       return HttpResponse.json({
         well_project: body.well_project,
         check_code: params.checkCode,

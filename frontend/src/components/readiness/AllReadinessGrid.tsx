@@ -17,6 +17,7 @@ import { useAuthStore } from "@/store/auth";
 import { teamValuesFor } from "@/lib/readiness-lens";
 import { summariseTeam, summaryLine, type TeamCheckDetail } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
+import { inWindow } from "@/lib/readiness-window";
 import { ReadinessDot } from "./ReadinessDot";
 import {
   PROJECTS_TEAM,
@@ -28,6 +29,7 @@ import {
 } from "./catalog";
 import { STATUS_ICON_COLOR } from "./check-meta";
 import { checkIcon } from "./icon-registry";
+import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
 
 interface WellRow {
   key: string;
@@ -92,14 +94,17 @@ export function AllReadinessGrid({
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPageIndex(0), [search]);
+  const [months, setMonths] = useReadinessWindow();
+  useEffect(() => setPageIndex(0), [search, months]);
 
-  // One row per well activity (project + well + activity type); opt-outs carry
-  // no readiness from any team.
+  // One row per well activity (project + well + activity type) with readiness
+  // work left (spec §3.7): opt-outs carry no readiness from any team, and
+  // completed work has nothing left to be ready for. A row's date is its earliest
+  // unfinished start — what the page's window filters on.
   const rows = useMemo<WellRow[]>(() => {
     const byKey = new Map<string, WellRow>();
     for (const a of activities ?? []) {
-      if (!a.well_name || a.readiness_required === false) continue;
+      if (!a.well_name || a.readiness_required === false || a.completed_at) continue;
       const key = `${a.well_project ?? ""}\u0001${a.well_name}\u0001${a.activity_type}`;
       const cur = byKey.get(key);
       if (!cur || a.start_date < cur.start_date) {
@@ -118,10 +123,11 @@ export function AllReadinessGrid({
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(
     (r) =>
-      !q ||
-      r.well_name.toLowerCase().includes(q) ||
-      r.well_project.toLowerCase().includes(q) ||
-      r.activity_type.toLowerCase().includes(q),
+      inWindow(r.start_date, months) &&
+      (!q ||
+        r.well_name.toLowerCase().includes(q) ||
+        r.well_project.toLowerCase().includes(q) ||
+        r.activity_type.toLowerCase().includes(q)),
   );
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -184,6 +190,7 @@ export function AllReadinessGrid({
           changes.
         </p>
         <div className="ml-auto flex items-center gap-2">
+          <ReadinessWindowSelect value={months} onChange={setMonths} allLabel="All wells" />
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -198,7 +205,13 @@ export function AllReadinessGrid({
 
       {filtered.length === 0 ? (
         <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-          {q ? <>No wells match &ldquo;{search}&rdquo;.</> : "No wells in this campaign yet."}
+          {q ? (
+            <>No wells match &ldquo;{search}&rdquo;.</>
+          ) : months ? (
+            `No wells have readiness-required work starting in the next ${months} months.`
+          ) : (
+            "No wells with readiness work left in this campaign."
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
