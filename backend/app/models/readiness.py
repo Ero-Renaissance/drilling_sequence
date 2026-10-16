@@ -43,7 +43,9 @@ from app.database import Base
 SEVERITIES: Final = ("done", "in_progress", "blocked", "not_counted")
 
 # status_set -> its statuses (in picker order) with their severity, plus the value
-# an unset entry reads as.
+# an unset entry reads as. Every default is ON TRACK (in_progress): an unset check
+# means nobody has reported a problem — how planners work (spec §3.3, §3.7).
+# Status names are unique across sets, so a status alone fixes its severity.
 STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
     "standard": {
         "statuses": {
@@ -55,12 +57,15 @@ STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
         "default": "On Track",
     },
     # Nominated Equipment (decided 2026-10-13): is the equipment available?
+    # "Pending" (2026-10-16) is the on-track default, so equipment nobody has
+    # nominated yet doesn't count as behind.
     "availability": {
         "statuses": {
+            "Pending": "in_progress",
             "Available": "done",
             "Not available": "blocked",
         },
-        "default": "Not available",
+        "default": "Pending",
     },
 }
 

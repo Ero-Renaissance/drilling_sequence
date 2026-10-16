@@ -24,6 +24,7 @@ export function worstCheck(
     Behind: 3,
     "Not available": 3,
     "On Track": 2,
+    Pending: 2,
     Completed: 1,
     Available: 1,
     "N/A": 0,

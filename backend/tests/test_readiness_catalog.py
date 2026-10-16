@@ -372,3 +372,22 @@ def test_frontend_status_severities_mirror_the_backend_status_sets() -> None:
     }
     backend = {s: sev for spec in STATUS_SETS.values() for s, sev in spec["statuses"].items()}
     assert frontend == backend
+
+
+@pytest.mark.skipif(not FRONTEND_SRC.exists(), reason="frontend sources not present")
+def test_frontend_status_sets_mirror_the_backend() -> None:
+    """Same statuses per set and the same default (what an unset check reads)."""
+    meta = (FRONTEND_SRC / "components" / "readiness" / "check-meta.ts").read_text()
+    sets = dict(
+        (name, (re.findall(r'"([^"]+)"', statuses), default))
+        for name, statuses, default in re.findall(
+            r'(\w+): \{ statuses: \[([^\]]*)\], default: "([^"]+)" \}', meta
+        )
+    )
+    backend = {
+        name: (list(spec["statuses"]), spec["default"]) for name, spec in STATUS_SETS.items()
+    }
+    assert set(sets) == set(backend)
+    for name, (statuses, default) in sets.items():
+        assert sorted(statuses) == sorted(backend[name][0]), name
+        assert default == backend[name][1], name

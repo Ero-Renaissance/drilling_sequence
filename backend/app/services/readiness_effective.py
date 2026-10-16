@@ -53,12 +53,6 @@ class EntryIndex:
         return list(self.tags.get(entry.id, [])) if entry is not None else []
 
 
-def severity(status_set: str, status: str) -> str:
-    """The shared severity of a status (done / in_progress / blocked /
-    not_counted); an unknown status counts as in progress."""
-    return STATUS_SETS.get(status_set, {}).get("statuses", {}).get(status, "in_progress")
-
-
 async def load_index(
     db: AsyncSession, project_id: uuid.UUID, codes: list[str]
 ) -> EntryIndex:

@@ -20,6 +20,7 @@ export const STATUS_ICON_COLOR: Record<CheckStatus, string> = {
   Behind: "text-red-500",
   "N/A": "text-zinc-300 dark:text-zinc-600 line-through",
   Available: "text-emerald-500",
+  Pending: "text-amber-500",
   "Not available": "text-red-500",
 };
 
@@ -34,6 +35,7 @@ export const STATUS_DOT: Record<CheckStatus, string> = {
   Behind: "bg-red-500",
   "N/A": "bg-white ring-1 ring-zinc-300 dark:bg-zinc-100 dark:ring-zinc-400",
   Available: "bg-emerald-500",
+  Pending: "bg-amber-500",
   "Not available": "bg-red-500",
 };
 
@@ -47,6 +49,7 @@ export const STATUS_LABEL: Record<CheckStatus, string> = {
   Behind: "Behind",
   "N/A": "N/A",
   Available: "Available",
+  Pending: "Pending",
   "Not available": "Not available",
 };
 
@@ -58,7 +61,8 @@ export const STATUS_LABEL: Record<CheckStatus, string> = {
  */
 export const STATUS_SETS: Record<string, { statuses: CheckStatus[]; default: CheckStatus }> = {
   standard: { statuses: ["On Track", "Behind", "Completed", "N/A"], default: "On Track" },
-  availability: { statuses: ["Available", "Not available"], default: "Not available" },
+  // Every default is on track: an unset check means no reported problem (§3.7).
+  availability: { statuses: ["Pending", "Available", "Not available"], default: "Pending" },
 };
 
 export const STATUS_SEVERITY: Record<CheckStatus, Severity> = {
@@ -67,6 +71,7 @@ export const STATUS_SEVERITY: Record<CheckStatus, Severity> = {
   Behind: "blocked",
   "N/A": "not_counted",
   Available: "done",
+  Pending: "in_progress",
   "Not available": "blocked",
 };
 

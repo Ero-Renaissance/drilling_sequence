@@ -342,9 +342,13 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
           return !!end && a.end_date > end;
         }
         case "not-ready":
+          // Mirrors the Overview warning (spec §3.7): project gates only, and an
+          // activity with no field project carries none — never "not ready".
           return (
+            a.readiness_required !== false &&
+            !!a.well_project &&
             isNearTerm(a.start_date) &&
-            !checksReady(a.well_project ? readinessByProject.get(a.well_project) : undefined)
+            !checksReady(readinessByProject.get(a.well_project))
           );
         default:
           return true;

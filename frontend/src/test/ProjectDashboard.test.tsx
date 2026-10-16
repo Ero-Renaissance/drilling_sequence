@@ -17,7 +17,7 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
       by_activity_type: { "Oil Development": 5, "Gas Development": 3 },
     },
     readiness: {
-      focus_count: 4, overall_pct: 62, behind_cells: 1, ready: 2,
+      focus_count: 4, overall_pct: 62, on_track_pct: 89, behind_cells: 1, ready: 2, ready_of: 4,
       by_gate: [
         { code: "BUD", completed: 2, on_track: 2, behind: 0, na: 0 },
         { code: "FID", completed: 0, on_track: 3, behind: 1, na: 0 },
@@ -61,6 +61,8 @@ describe("ProjectDashboard", () => {
     expect(screen.getByText("Completed YTD")).toBeInTheDocument();
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     expect(screen.getByText("62%")).toBeInTheDocument();
+    // The three readiness figures (spec §3.7): Complete headline, then the rest.
+    expect(screen.getByText("complete · 89% on track · 1 behind · 2/4 ready")).toBeInTheDocument();
     // The Approval tile is retired — plan state lives in the header chip and
     // the lock banner, not the KPI row.
     expect(screen.queryByText("Approval")).not.toBeInTheDocument();
@@ -177,8 +179,10 @@ describe("ProjectDashboard", () => {
             unit: "wells",
             focus_count: 4,
             overall_pct: 25,
-            blocked_cells: 3,
+            on_track_pct: 70,
+            behind_cells: 3,
             ready: 1,
+            ready_of: 4,
           },
         ],
       }),
@@ -187,7 +191,8 @@ describe("ProjectDashboard", () => {
     const tile = (await screen.findByText(/Logistics readiness/i)).closest("a")!;
     expect(tile).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics");
     expect(tile).toHaveTextContent("25%");
-    expect(tile).toHaveTextContent("1/4 wells ready · 3 blocked");
+    expect(tile).toHaveTextContent("complete · 70% on track · 3 behind · 1/4 wells ready");
+    expect(tile.getAttribute("title")).toMatch(/Completed or On Track \(nothing behind\)/);
   });
 
   it("breakdown panel is open by default and collapses/expands from its header", async () => {

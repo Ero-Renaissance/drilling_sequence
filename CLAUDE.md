@@ -178,6 +178,17 @@ logic against these active business rules:
   status set, scope and lock behaviour are fixed at creation (only label, icon and
   order are editable); `projects` checks must lock with the plan, and a check that
   locks with the plan applies at project level only.
+- **Readiness rollups have ONE definition** (spec §3.7,
+  `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,
+  never a local formula. Readiness = what is DONE: headline **Complete** = done ÷
+  counted, with **On track** ((done + in progress) ÷ counted) and **Behind**
+  (blocked cells) beside it. Roll up by shared SEVERITY, never status text; N/A
+  isn't counted. An unset check reads its default and every default is on track
+  (On Track; `Pending` for equipment). Ready = ≥1 counted cell, all done. Each
+  target (field project / well) counts once; opt-outs, completed work, no field
+  project (project checks) and no well name (well checks) carry nothing. Nothing
+  counted → `None` ("—", never 0%); percentages round half up. The "starting soon,
+  not ready" warning reads the Project gates only.
 <!-- END OF BUSINESS CONSTRAINTS -->
 
 # DEPENDENCY & SUPPLY-CHAIN GOVERNANCE

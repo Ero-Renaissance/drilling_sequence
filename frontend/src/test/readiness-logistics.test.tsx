@@ -28,6 +28,7 @@ import { FrozenCatalogProvider } from "@/components/readiness/catalog";
 import {
   STATUS_SEVERITY,
   STATUS_SETS,
+  defaultStatusOf,
   legendStatuses,
   statusesOf,
 } from "@/components/readiness/check-meta";
@@ -94,14 +95,23 @@ beforeEach(() => {
 });
 
 describe("status sets", () => {
-  it("availability reads like done / blocked and is the NEQ picker's choice", () => {
-    expect(STATUS_SETS.availability.statuses).toEqual(["Available", "Not available"]);
-    expect([STATUS_SEVERITY.Available, STATUS_SEVERITY["Not available"]]).toEqual(["done", "blocked"]);
-    expect(statusesOf("availability")).toEqual(["Available", "Not available"]);
+  it("availability reads like done / on track / blocked and is the NEQ picker's choice", () => {
+    expect(STATUS_SETS.availability.statuses).toEqual(["Pending", "Available", "Not available"]);
+    expect(
+      [STATUS_SEVERITY.Pending, STATUS_SEVERITY.Available, STATUS_SEVERITY["Not available"]],
+    ).toEqual(["in_progress", "done", "blocked"]);
+    expect(statusesOf("availability")).toEqual(["Pending", "Available", "Not available"]);
     expect(statusesOf("unknown")).toEqual(STATUS_SETS.standard.statuses);
     expect(legendStatuses([{ status_set: "standard" }, { status_set: "availability" }])).toEqual([
-      "On Track", "Behind", "Completed", "N/A", "Available", "Not available",
+      "On Track", "Behind", "Completed", "N/A", "Pending", "Available", "Not available",
     ]);
+  });
+
+  it("every default is on track — an unset check means no reported problem", () => {
+    for (const set of Object.values(STATUS_SETS)) {
+      expect(STATUS_SEVERITY[set.default]).toBe("in_progress");
+    }
+    expect(defaultStatusOf("availability")).toBe("Pending");
   });
 
   it("ranks Not available as the worst, like Behind", () => {
@@ -110,7 +120,7 @@ describe("status sets", () => {
     ).toEqual({ code: "NEQ", status: "Not available" });
   });
 
-  it("an availability check's dot offers Available / Not available", async () => {
+  it("an availability check's dot offers Pending / Available / Not available", async () => {
     render(
       <FrozenCatalogProvider checks={[NEQ]}>
         <ReadinessDot code="NEQ" status="Not available" onChange={vi.fn()} />
@@ -118,7 +128,7 @@ describe("status sets", () => {
     );
     await userEvent.click(screen.getByTitle("Nominated Equipment: Not available"));
     const items = await screen.findAllByRole("menuitem");
-    expect(items.map((i) => i.textContent)).toEqual(["Available", "Not available"]);
+    expect(items.map((i) => i.textContent)).toEqual(["Pending", "Available", "Not available"]);
   });
 });
 

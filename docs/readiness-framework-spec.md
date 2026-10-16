@@ -103,9 +103,8 @@ severity, so rollups (dashboard %, worst-status dot, summary lens) stay generic 
 **An unset entry reads its status set's default, and every default is on track**
 — that is how planners work: nobody has reported a problem (confirmed
 2026-10-16, §3.7). `standard` → **On Track**; `availability` → **Pending** (added
-2026-10-16, and also a choice in the picker). Until §9 phase 5 ships, the code
-still defaults `availability` to **Not available**; revisions submitted before
-the change keep the value they stored.
+2026-10-16, and also a choice in the picker). Revisions submitted before the
+change keep the value they stored (Not available for unset equipment).
 
 ### 3.4 Logistics checks (seed)
 
@@ -165,7 +164,8 @@ well-specific entry.
 
 ### 3.7 Rollups — one definition of readiness for every view
 
-**Agreed 2026-10-16 · not yet implemented (§9, phase 5).** Until now each view
+**Agreed 2026-10-16 · phase 5 step 1 implemented (§9): the backend rollup, the
+Overview and last-approved tiles and the compare %.** Until now each view
 rolled readiness up its own way: the Readiness tab's bar, the Overview tile, the
 last-approved tile and the revision compare % used four formulas and two meanings
 of "ready", so the same seven icons could read 50% on one screen and 75% on
@@ -571,7 +571,7 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **2. Teams and grants** — ✅ **shipped 2026-10-13** | `user_team_grants` (035), `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
 | **3. Well scope + lenses** — ✅ **shipped 2026-10-13** | Well-keyed entries, team lens API + grid (field-project and well rows), lens selector on the Readiness page, chart and sequence print with per-user default (§8.1, §8.4), rename carry-over (§7.1), shared-key warning in the grid, operational lock behaviour. **Moved forward from Phase 4:** project → well inheritance with override + "Reset to project" (§3.6) — admins could already create two-level checks in Phase 2, so the well grid needed it. **Deferred to Phase 4:** the lens on the *revision* print (needs `readiness_at_submission`), the All view, dashboard team tiles; the data-grid strip stays on project gates. | Lens picker appears once a second team exists; planners can print "project gates only". |
 | **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
-| **5. Rollups (§3.7)** — agreed 2026-10-16, not started | Three steps: **(1)** one backend rollup service; **Pending** in the equipment status set as its default (backend, picker, legend); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; unset equipment reads amber Pending instead of red Not available. |
+| **5. Rollups (§3.7)** — agreed 2026-10-16; step 1 done 2026-10-16 (`app/services/readiness_rollup.py`) | Three steps: **(1)** one backend rollup service; **Pending** in the equipment status set as its default (backend, picker, legend); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; unset equipment reads amber Pending instead of red Not available. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee

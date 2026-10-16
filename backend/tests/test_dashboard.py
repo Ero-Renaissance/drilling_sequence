@@ -196,12 +196,13 @@ async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
         json={"well_project": "Field Project A", "status": "Completed"},
     )
     assert r.status_code == 200, r.text
-    # BUD is the only stored gate and it's Completed → the PROJECT is 100% ready
-    # (readiness is per field project; the focus KPIs count projects once).
+    # BUD is the only stored gate; the six unset gates read On Track (spec §3.7),
+    # so the PROJECT is 1 of 7 complete, all on track, and not ready.
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
-    assert d["readiness"]["overall_pct"] == 100
-    assert d["readiness"]["ready"] == 1
-    assert d["watchlist"]["near_term_not_ready"] == 0
+    assert d["readiness"]["overall_pct"] == 14
+    assert d["readiness"]["on_track_pct"] == 100
+    assert (d["readiness"]["ready"], d["readiness"]["ready_of"]) == (0, 1)
+    assert d["watchlist"]["near_term_not_ready"] == 1
 
     # Phase-2 breakdowns: 7 gates; BUD Completed, unset gates read as On Track.
     by_gate = {g["code"]: g for g in d["readiness"]["by_gate"]}
