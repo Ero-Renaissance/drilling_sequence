@@ -96,16 +96,16 @@ severity, so rollups (dashboard %, worst-status dot, summary lens) stay generic 
 | Severity | `standard` | `availability` | Colour |
 |---|---|---|---|
 | `done` | Completed | Available | green |
-| `in_progress` | On Track | — | amber |
-| `not_set` | Not set (no entry) | Not set (no entry) | grey |
+| `in_progress` | On Track | Pending | amber |
 | `blocked` | Behind | Not available | red |
 | `not_counted` | N/A | — | muted, struck through |
 
-**An unset entry reads Not set** in every status set (agreed 2026-10-16, §3.7):
-counted, but neither complete, on track nor behind. Until §9 phase 5 ships, the
-code still applies the original defaults — `standard` → **On Track**,
-`availability` → **Not available** — and revisions submitted before the change
-keep the value they stored.
+**An unset entry reads its status set's default, and every default is on track**
+— that is how planners work: nobody has reported a problem (confirmed
+2026-10-16, §3.7). `standard` → **On Track**; `availability` → **Pending** (added
+2026-10-16, and also a choice in the picker). Until §9 phase 5 ships, the code
+still defaults `availability` to **Not available**; revisions submitted before
+the change keep the value they stored.
 
 ### 3.4 Logistics checks (seed)
 
@@ -132,8 +132,9 @@ proposed ones before Phase 4 ships.
 - Assignable to a **project** or a **well**. Equipment on a project is **inherited**
   by each of its wells — shown read-only, labelled "from project". A well's
   effective equipment = project tags ∪ its own tags.
-- Its status is **Available / Not available**, set per entry (not derived from the
-  tags), and inherits like every other logistics status (§3.6).
+- Its status is **Available / Pending / Not available** (Pending, the default,
+  added 2026-10-16), set per entry (not derived from the tags), and inherits like
+  every other logistics status (§3.6).
 
 Seed list (21 types; code immutable, label and category editable):
 
@@ -155,7 +156,7 @@ Seed list (21 types; code immutable, label and category editable):
 |---|---|
 | **Status** | The well's own entry if set; otherwise the **project's** entry, shown greyed "from project". Setting a well status is an **override**; "Reset to project" removes it. |
 | **Tags** (NEQ) | Project tags ∪ the well's own tags (project tags read-only on the well). |
-| **Neither set** | **Not set** (§3.3, §3.7). |
+| **Neither set** | The status set's default — On Track, or Pending for equipment (§3.3). |
 
 So logistics can set PO once for a whole field project and override only the one
 well that differs. Rollups, KPIs, chart dots and prints all use the **effective**
@@ -176,37 +177,26 @@ beside the headline, never counted as ready.
 **Cells.** A *cell* is one check for one *target*: a field project (project-level
 checks) or a well — field project + well + activity type (well-level checks). Its
 value is the effective status of §3.6: the well's own entry, else the field
-project's, else **Not set**. Every rollup reads the cell's **severity** (§3.3),
-never the status text:
+project's, else the status set's default. Every rollup reads the cell's
+**severity** (§3.3), never the status text:
 
 | Severity | Statuses | Counted | Complete | On track | Behind |
 |---|---|---|---|---|---|
 | `done` | Completed · Available | yes | yes | yes | — |
-| `in_progress` | On Track | yes | — | yes | — |
-| `not_set` | Not set (no entry) | yes | — | — | — |
+| `in_progress` | On Track · Pending | yes | — | yes | — |
 | `blocked` | Behind · Not available | yes | — | — | yes |
 | `not_counted` | N/A | — | — | — | — |
 
-**Not set** is what a cell reads when nobody has set it, in every status set. It
-is never stored and is not a choice in the picker. It counts toward the total but
-is not complete, on track or behind — so a target nobody has looked at reads 0%,
-not "on track".
+**Unset means on track.** A cell nobody has set reads its default — On Track, or
+Pending for equipment — because that is how planners work: no reported problem
+is no problem. It counts toward the total as on track, never as done, so an
+untouched target reads 0% complete · 100% on track. (A separate "Not set" state
+was considered and rejected on 2026-10-16.)
 
-**Clear** removes a cell's own entry (its status, notes and tags), so the cell
-shows what it would without it: the field project's value for a well that
-inherits (the existing "Reset to project", now a special case of Clear), else
-**Not set**. It is for a value set by mistake — not the same as N/A, which says
-the check doesn't apply and leaves the totals.
-- It sits at the foot of the status picker, apart from the statuses, and is
-  disabled when the cell has no entry of its own. Its label says what follows:
-  "Reset to project" when the well will inherit, "Clear" otherwise.
-- Clearing a field project's value that wells inherit changes those wells too;
-  the confirmation names how many wells follow it.
-- Same authorization as setting a value (`assert_can_edit_check`, BOLA target
-  check); a governed check is refused with **423** while the plan is locked.
-- Audited: `readiness_cleared` (old value → Not set) when the cell goes to Not
-  set; `readiness_reset`, as today, when a well goes back to its project's value.
-  Clearing a cell with no entry of its own changes nothing and writes no event.
+**No Clear action.** Since an unset cell already reads On Track, a status set by
+mistake is fixed by picking the right one. A well that overrides its field
+project keeps **Reset to project** (§3.6) — the one case where removing a value
+changes what the cell shows.
 
 **The three figures** — shown together, in this order, wherever readiness is
 summarised:
@@ -228,8 +218,8 @@ over the targets that have a counted cell.
 
 **Worst status.** Where one icon stands for several cells — a narrow chart bar, an
 All-lens team badge, a folded column of the All grid, the marker on a project's
-other bars — it takes the highest severity: `blocked` > `not_set` >
-`in_progress` > `done` > `not_counted`, ties to catalog order. Colours follow
+other bars — it takes the highest severity: `blocked` > `in_progress` > `done` >
+`not_counted`, ties to catalog order. Colours follow
 §3.3. The marker on a project's other bars appears whenever that severity is
 `blocked` (Behind *or* Not available).
 
@@ -238,9 +228,9 @@ other bars — it takes the highest severity: `blocked` > `not_set` >
 | Gates | Complete | On track | Behind | Ready | Icon |
 |---|---|---|---|---|---|
 | 3 Completed, 2 On Track, 1 Behind, 1 N/A | 3/6 = 50% | 5/6 = 83% | 1 | no | red |
-| 3 Completed, 2 Not set, 1 Behind, 1 N/A | 3/6 = 50% | 3/6 = 50% | 1 | no | red |
+| 3 Completed, 1 Behind, 1 N/A, 2 never set | 3/6 = 50% | 5/6 = 83% | 1 | no | red |
 | 6 Completed, 1 N/A | 6/6 = 100% | 100% | 0 | yes | green |
-| Nothing set | 0/7 = 0% | 0% | 0 | no | grey |
+| Nothing set (all read On Track) | 0/7 = 0% | 7/7 = 100% | 0 | no | amber |
 | All 7 N/A | — | — | 0 | Nothing applies | muted |
 
 **What counts.**
@@ -276,16 +266,14 @@ the window (All: no date limit).
   including search, and says what it covers: "12 field projects · next 12 months".
 
 **"Starting soon, not ready."** The Overview warning counts activities starting
-within 90 days whose **Project gates** are not ready (Not set is not ready). Team
+within 90 days whose **Project gates** are not ready (an unset gate reads On Track,
+so it is not ready). Team
 readiness is reported by the team tiles, not by this warning.
 
 **Snapshots and revisions.**
-- New snapshots record **Not set** for unset checks, in `readiness` and in
-  `readiness_at_submission`, and record no gates for an activity with no field
-  project.
-- Older revisions keep what they stored (On Track / Not available for unset
-  entries) and are read as stored, so comparing a new revision with an older one
-  can show a one-time "On Track → Not set" for gates nobody ever set.
+- New snapshots record no gates for an activity with no field project.
+- Older revisions are read as stored — an unset equipment check recorded before
+  Pending existed reads Not available there.
 - The last-approved tile and the revision compare % apply this section to the
   snapshot, with the revision's frozen catalog — each field project once (the
   compare % no longer weights a project by its number of activities). Snapshots
@@ -382,9 +370,7 @@ Writes default to deny.
 |---|---|---|
 | GET | `/api/readiness/catalog` | Any user — teams, active checks, status sets (with severity), tag lists |
 | GET | `/api/projects/{id}/readiness?lens={team\|all}` | Any user — project rows and/or well rows for that lens, with effective (inherited) values marked; `lens` allow-listed against active teams + `all` |
-| PUT | `/api/projects/{id}/readiness/{check_code}` | Check's editors (§5.2) |
-| POST | `/api/projects/{id}/readiness/{check_code}/clear` | Check's editors (§5.2) — Clear (§3.7); target in the body like the PUT. Supersedes `…/reset`, which stays as an alias until the frontend moves over |
-| POST/PATCH | `/api/admin/readiness/checks[/{code}]` | Admin |
+| PUT | `/api/projects/{id}/readiness/{check_code}` | Check's editors (§5.2) || POST/PATCH | `/api/admin/readiness/checks[/{code}]` | Admin |
 | POST | `/api/admin/readiness/checks/{code}/retire` | Admin |
 | POST/PATCH | `/api/admin/readiness/tags[/{list}/{code}]` (+ retire) | Admin |
 | PUT | `/api/admin/users/{id}/teams` | Admin |
@@ -435,10 +421,7 @@ Catalog and grant endpoints require `is_admin`.
 - **Entry changes** — today `updated_by` keeps only the **last** editor. With
   global grants spanning every campaign, each entry change also writes an audit
   event (`readiness_updated`, old → new status and tags, `project_id` set), so the
-  full history is visible in the campaign audit feed. Append-only, as always.
-- **Clearing an entry** (§3.7) writes `readiness_cleared` (old → Not set), or
-  `readiness_reset` when a well goes back to its project's value.
-- Logs carry ids only (no names or emails), per the logging rules.
+  full history is visible in the campaign audit feed. Append-only, as always.- Logs carry ids only (no names or emails), per the logging rules.
 
 ## 6. Snapshot, diff and history
 
@@ -588,7 +571,7 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **2. Teams and grants** — ✅ **shipped 2026-10-13** | `user_team_grants` (035), `assert_can_edit_check`, Admin page team grants + catalog management, audit events (§5.3), entry-change audit. | Admin page only. |
 | **3. Well scope + lenses** — ✅ **shipped 2026-10-13** | Well-keyed entries, team lens API + grid (field-project and well rows), lens selector on the Readiness page, chart and sequence print with per-user default (§8.1, §8.4), rename carry-over (§7.1), shared-key warning in the grid, operational lock behaviour. **Moved forward from Phase 4:** project → well inheritance with override + "Reset to project" (§3.6) — admins could already create two-level checks in Phase 2, so the well grid needed it. **Deferred to Phase 4:** the lens on the *revision* print (needs `readiness_at_submission`), the All view, dashboard team tiles; the data-grid strip stays on project gates. | Lens picker appears once a second team exists; planners can print "project gates only". |
 | **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
-| **5. Rollups (§3.7)** — agreed 2026-10-16, not started | Three steps: **(1)** one backend rollup service; **Not set** (API, legend, colours); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden, the **Clear** action (endpoint, picker, audit, denial tests). **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; untouched checks show grey "Not set". |
+| **5. Rollups (§3.7)** — agreed 2026-10-16, not started | Three steps: **(1)** one backend rollup service; **Pending** in the equipment status set as its default (backend, picker, legend); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; unset equipment reads amber Pending instead of red Not available. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
@@ -645,9 +628,11 @@ Updated **in the same commit as the code that changes them**, not before:
 18. **Readiness = what is done (2026-10-16):** the headline is **Complete** (done ÷
     counted); **On track** (Completed or On Track) and **Behind** are shown beside
     it; one definition in every view (§3.7).
-19. **Not set (2026-10-16):** an unset check reads Not set in every status set —
-    counted, but not complete, on track or behind — replacing the On Track /
-    Not available defaults.
+19. **Unset means on track (2026-10-16):** a check nobody has set reads its
+    default, and every default is on track — On Track, or the new **Pending** for
+    equipment (replacing the Not available default). Counted, never done. A
+    separate "Not set" state was considered and rejected: planners treat unset as
+    on track.
 20. **Opted-out field projects are hidden (2026-10-16)** from the Project gates
     grid and from every figure.
 21. **"Starting soon, not ready" uses the Project gates only (2026-10-16).**
@@ -656,16 +641,16 @@ Updated **in the same commit as the code that changes them**, not before:
 23. **Governed checks belong to the Projects team only (2026-10-16).**
 24. **Completed work drops out (2026-10-16):** a field project or well whose
     activities are all completed leaves the Readiness tab and every figure.
-25. **Clear (2026-10-16):** editors can remove a value they set; the cell then shows
-    its project's value or Not set (§3.7). Audited.
-26. **Display details (2026-10-16):** Not set ranks between Behind and On Track for
-    the worst-status colour; percentages round half up, identically on backend and
-    frontend.
+25. **No Clear action (2026-10-16):** with unset reading On Track, a wrong status
+    is fixed by picking the right one; wells keep "Reset to project".
+26. **Rounding (2026-10-16):** percentages round half up, identically on backend
+    and frontend.
 
 ## 12. Open questions
 
 1. **Well-gate list** — names and status set for each (location preparation,
    permits, …). Left blank; added via the catalog, no code change needed.
+
 ## 13. Future ideas (not decided)
 
 - Terrain defaults (auto N/A, terrain-sorted equipment list).
