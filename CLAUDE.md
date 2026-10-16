@@ -116,6 +116,13 @@ logic against these active business rules:
   frozen-by-approved). The campaign lock state is exposed on `GET /projects/{id}`
   as `lock {locked, reason: "pending"|"approved"}` and drives the UI banner +
   disabled affordances. Do NOT restore unlock-on-approve.
+- **Plan writes are serialized per campaign:** every endpoint that writes a
+  campaign's activities (create/edit/complete/delete, import, project wells
+  add/edit) or freezes them into a revision calls
+  `app/core/locks.py::lock_campaign_writes` right after its role check and BEFORE
+  reading anything it decides on (lock state, versions, names, membership).
+  Note `select(...).with_for_update()` renders NO lock on SQL Server — don't rely
+  on it there.
 - **Separation of duties:** the revision's `created_by` user may **not** sign,
   sign-off review, reject, or request-changes it — even as a designated
   reviewer/approver or admin (integrity rule, no admin bypass). They may only
