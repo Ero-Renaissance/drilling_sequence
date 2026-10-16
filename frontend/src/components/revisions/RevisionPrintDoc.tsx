@@ -106,6 +106,15 @@ export interface PrintRow {
   completed_at?: string | null;
 }
 
+/** Whether a row prints readiness at all (spec §3.7): not opted out, and it has
+ *  gates — an activity with no field project carries none (its snapshot block is
+ *  empty). Legacy rows with per-activity gates still print theirs. */
+function hasReadiness(r: PrintRow): boolean {
+  return (
+    r.readiness_required !== false && !!r.readiness && Object.keys(r.readiness).length > 0
+  );
+}
+
 /** The row's readiness-strip group: its explicit key, else its field project. */
 function anchorKey(r: PrintRow): string | null {
   return r.readiness_key !== undefined ? r.readiness_key : r.well_project;
@@ -264,7 +273,7 @@ function StaticGantt({
           for (const a of acts) {
             const key = anchorKey(a);
             if (
-              a.readiness_required === false ||
+              !hasReadiness(a) ||
               !key ||
               !pg.keys.includes(rowLabel(a.location, printResource(a) ?? a.activity_type)) ||
               a.e.getTime() <= winStart ||
@@ -509,7 +518,7 @@ function StaticGantt({
                                       above). Scaled to the bar width (capped) and centred so
                                       the 7 gates never spill into a neighbour. Legacy rows
                                       with no well_project keep the old per-bar strip. */}
-                                  {a.readiness_required !== false &&
+                                  {hasReadiness(a) &&
                                     (!anchorKey(a) ||
                                       readinessAnchors.get(anchorKey(a)!) === a.id) && (
                                       <span
@@ -798,7 +807,7 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
                   )}
                 </td>
                 <td className="px-1.5 py-1">
-                  {r.readiness_required !== false && <ReadinessIcons readiness={r.readiness} />}
+                  {hasReadiness(r) && <ReadinessIcons readiness={r.readiness} />}
                 </td>
               </tr>
             ))}

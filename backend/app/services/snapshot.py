@@ -51,9 +51,13 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             return {}
         values: dict[str, dict] = {}
         for c in operational:
-            if c.applies_well and a.well_name:
+            # Spec §3.7: well-level checks — two-level ones included — need a well
+            # name; project-only checks need a field project. As the live lens.
+            if c.applies_well:
+                if not a.well_name:
+                    continue
                 v = well_value(index, c, (a.well_project or "", a.well_name, a.activity_type))
-            elif c.applies_project and a.well_project:
+            elif a.well_project:
                 v = project_value(index, c, a.well_project)
             else:
                 continue
@@ -162,12 +166,17 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # Lets the diff tell a finished activity (dropped on clone) apart
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
-            "readiness": {
-                c.code: readiness_by_project.get(a.well_project or "", {}).get(
-                    c.code, default_status(c.status_set)
-                )
-                for c in governed
-            },
+            # No field project → no project gates (spec §3.7): an empty block.
+            "readiness": (
+                {
+                    c.code: readiness_by_project.get(a.well_project, {}).get(
+                        c.code, default_status(c.status_set)
+                    )
+                    for c in governed
+                }
+                if a.well_project
+                else {}
+            ),
             "resource_planned": resource_planned(a),
             **contract_fields(a),
             # Only once live checks exist, so snapshots without them are unchanged.

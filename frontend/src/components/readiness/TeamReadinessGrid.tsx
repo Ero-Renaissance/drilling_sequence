@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Lock, RefreshCw } from "lucide-react";
 import {
   getTeamReadiness,
@@ -16,11 +16,14 @@ import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { cn, formatDate } from "@/lib/utils";
+import { inWindow } from "@/lib/readiness-window";
 import { ReadinessDot } from "./ReadinessDot";
 import { TagCheckCell } from "./TagCheckCell";
 import { FrozenCatalogProvider } from "./catalog";
 import { STATUS_DOT, defaultStatusOf, legendStatuses } from "./check-meta";
 import { checkIcon } from "./icon-registry";
+import { ReadinessSummary } from "./ReadinessSummary";
+import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
 
 
 function wellKey(r: TeamWellRow): string {
@@ -51,6 +54,12 @@ function CheckHeader({ check }: { check: CatalogCheck }) {
  *   "Reset to project" drops the well's value. Project-only checks are shown
  *   read-only on wells — they're set on the field-project row.
  * The API decides who may write; the grid only mirrors it (team grant or admin).
+ *
+ * Rows and the summary follow spec §3.7: only targets with readiness-required
+ * work left, starting within the page's window (shared `?horizon=`), are listed —
+ * completed or opted-out ones drop out — and the summary adds up the server's
+ * per-row figures of exactly the targets shown (wells, or field projects for a
+ * team with only project-level checks), as the team's Overview tile does.
  */
 export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; teamCode: string }) {
   const user = useAuthStore((s) => s.user);
@@ -61,23 +70,31 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   const [search, setSearch] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  const [months, setMonths] = useReadinessWindow();
 
+  // Only the newest load may apply its data — a slow response from before a
+  // later write can't overwrite the rows (and the summary) that write reloaded.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      setData(await getTeamReadiness(projectId, teamCode));
+      const next = await getTeamReadiness(projectId, teamCode);
+      if (seq === loadSeq.current) setData(next);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      if (seq === loadSeq.current) {
+        setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [projectId, teamCode]);
 
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPageIndex(0), [search, teamCode]);
+  useEffect(() => setPageIndex(0), [search, teamCode, months]);
 
   const canEdit =
     !!user &&
@@ -110,16 +127,20 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
     () =>
       (data?.well_rows ?? []).filter(
         (r) =>
-          !q ||
-          r.well_name.toLowerCase().includes(q) ||
-          r.well_project.toLowerCase().includes(q) ||
-          r.activity_type.toLowerCase().includes(q),
+          inWindow(r, months) &&
+          (!q ||
+            r.well_name.toLowerCase().includes(q) ||
+            r.well_project.toLowerCase().includes(q) ||
+            r.activity_type.toLowerCase().includes(q)),
       ),
-    [data, q],
+    [data, q, months],
   );
   const projects = useMemo(
-    () => (data?.project_rows ?? []).filter((r) => !q || r.well_project.toLowerCase().includes(q)),
-    [data, q],
+    () =>
+      (data?.project_rows ?? []).filter(
+        (r) => inWindow(r, months) && (!q || r.well_project.toLowerCase().includes(q)),
+      ),
+    [data, q, months],
   );
   const pageCount = Math.max(1, Math.ceil(wells.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -170,6 +191,11 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
             })}
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <ReadinessWindowSelect
+              value={months}
+              onChange={setMonths}
+              allLabel={hasWellChecks ? "All wells" : "All field projects"}
+            />
             <SearchInput
               value={search}
               onChange={setSearch}
@@ -195,11 +221,23 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
           </div>
         ) : (
           <>
+            {/* The three figures over exactly the targets shown (spec §3.7). */}
+            <ReadinessSummary
+              rows={(hasWellChecks ? wells : projects).map((r) => r.figures)}
+              unit={hasWellChecks ? ["well", "wells"] : ["field project", "field projects"]}
+              windowMonths={months}
+            />
             {projectChecks.length > 0 && (
               <section aria-label="Field projects" className="space-y-2">
                 <h3 className="text-sm font-semibold">Field projects</h3>
                 {projects.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No field projects match.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {q
+                      ? "No field projects match."
+                      : months
+                        ? `No field projects have readiness-required work starting in the next ${months} months.`
+                        : "No field projects have readiness work left."}
+                  </p>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
                     <table className="w-full min-w-[640px] border-collapse text-sm">
@@ -279,7 +317,13 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                 <h3 className="text-sm font-semibold">Wells</h3>
                 {wells.length === 0 ? (
                   <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-                    {q ? <>No wells match &ldquo;{search}&rdquo;.</> : "No wells in this campaign yet."}
+                    {q ? (
+                      <>No wells match &ldquo;{search}&rdquo;.</>
+                    ) : months ? (
+                      `No wells have readiness-required work starting in the next ${months} months.`
+                    ) : (
+                      "No wells with readiness work left in this campaign."
+                    )}
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">

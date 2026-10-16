@@ -5,6 +5,7 @@
  * without a canvas. The drawing stays in renderItem; only the decisions live here.
  */
 import type { CheckCode, CheckStatus } from "@/api/readiness";
+import { STATUS_SEVERITY } from "@/components/readiness/check-meta";
 
 /**
  * Reduce the readiness gates to the single most-concerning one, for a bar too
@@ -24,6 +25,7 @@ export function worstCheck(
     Behind: 3,
     "Not available": 3,
     "On Track": 2,
+    Pending: 2,
     Completed: 1,
     Available: 1,
     "N/A": 0,
@@ -37,6 +39,20 @@ export function worstCheck(
     }
   }
   return winner;
+}
+
+/**
+ * The marker a project's OTHER pending bars carry (its earliest bar has the full
+ * strip): its worst check, shown only while that check is BLOCKED — Behind, or
+ * Not available for equipment (spec §3.7: severity, never status text). Silence
+ * means nothing is behind. Null when there is nothing to flag.
+ */
+export function siblingMarker(
+  checks: Record<string, { status: CheckStatus }> | null | undefined,
+  order?: readonly CheckCode[],
+): { code: CheckCode; status: CheckStatus } | null {
+  const worst = worstCheck(checks, order);
+  return worst && STATUS_SEVERITY[worst.status] === "blocked" ? worst : null;
 }
 
 /**

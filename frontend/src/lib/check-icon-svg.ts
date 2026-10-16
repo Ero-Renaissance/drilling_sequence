@@ -125,6 +125,7 @@ export const STATUS_STROKE: Record<CheckStatus, string> = {
   Behind: "#ef4444", // red-500
   "N/A": "#d4d4d8", // zinc-300
   Available: "#10b981", // emerald-500 — severity "done"
+  Pending: "#f59e0b", // amber-500 — severity "in_progress"
   "Not available": "#ef4444", // red-500 — severity "blocked"
 };
 

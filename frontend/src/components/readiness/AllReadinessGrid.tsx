@@ -17,6 +17,7 @@ import { useAuthStore } from "@/store/auth";
 import { teamValuesFor } from "@/lib/readiness-lens";
 import { summariseTeam, summaryLine, type TeamCheckDetail } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
+import { focusStartOf, inWindow } from "@/lib/readiness-window";
 import { ReadinessDot } from "./ReadinessDot";
 import {
   PROJECTS_TEAM,
@@ -28,6 +29,7 @@ import {
 } from "./catalog";
 import { STATUS_ICON_COLOR } from "./check-meta";
 import { checkIcon } from "./icon-registry";
+import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
 
 interface WellRow {
   key: string;
@@ -92,36 +94,46 @@ export function AllReadinessGrid({
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPageIndex(0), [search]);
+  const [months, setMonths] = useReadinessWindow();
+  useEffect(() => setPageIndex(0), [search, months]);
 
-  // One row per well activity (project + well + activity type); opt-outs carry
-  // no readiness from any team.
+  // One row per well activity (project + well + activity type) with readiness
+  // work left (spec §3.7): opt-outs carry no readiness from any team, and
+  // completed work has nothing left to be ready for. A row's date is its focus
+  // start (`focusStartOf`, the backend's rule) — what the page's window uses.
   const rows = useMemo<WellRow[]>(() => {
-    const byKey = new Map<string, WellRow>();
+    const byKey = new Map<string, { row: Omit<WellRow, "start_date">; acts: Activity[] }>();
     for (const a of activities ?? []) {
-      if (!a.well_name || a.readiness_required === false) continue;
+      if (!a.well_name) continue;
       const key = `${a.well_project ?? ""}\u0001${a.well_name}\u0001${a.activity_type}`;
-      const cur = byKey.get(key);
-      if (!cur || a.start_date < cur.start_date) {
-        byKey.set(key, {
+      const group = byKey.get(key) ?? {
+        row: {
           key,
           well_project: a.well_project ?? "",
           well_name: a.well_name,
           activity_type: a.activity_type,
-          start_date: a.start_date,
-        });
-      }
+        },
+        acts: [],
+      };
+      group.acts.push(a);
+      byKey.set(key, group);
     }
-    return [...byKey.values()].sort((x, y) => x.start_date.localeCompare(y.start_date));
+    const out: WellRow[] = [];
+    for (const { row, acts } of byKey.values()) {
+      const start = focusStartOf(acts);
+      if (start) out.push({ ...row, start_date: start });
+    }
+    return out.sort((x, y) => x.start_date.localeCompare(y.start_date));
   }, [activities]);
 
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(
     (r) =>
-      !q ||
-      r.well_name.toLowerCase().includes(q) ||
-      r.well_project.toLowerCase().includes(q) ||
-      r.activity_type.toLowerCase().includes(q),
+      inWindow({ focus_start: r.start_date }, months) &&
+      (!q ||
+        r.well_name.toLowerCase().includes(q) ||
+        r.well_project.toLowerCase().includes(q) ||
+        r.activity_type.toLowerCase().includes(q)),
   );
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -184,6 +196,7 @@ export function AllReadinessGrid({
           changes.
         </p>
         <div className="ml-auto flex items-center gap-2">
+          <ReadinessWindowSelect value={months} onChange={setMonths} allLabel="All wells" />
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -198,7 +211,13 @@ export function AllReadinessGrid({
 
       {filtered.length === 0 ? (
         <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-          {q ? <>No wells match &ldquo;{search}&rdquo;.</> : "No wells in this campaign yet."}
+          {q ? (
+            <>No wells match &ldquo;{search}&rdquo;.</>
+          ) : months ? (
+            `No wells have readiness-required work starting in the next ${months} months.`
+          ) : (
+            "No wells with readiness work left in this campaign."
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">

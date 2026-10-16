@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom";
 import { server } from "./mocks/server";
+import { savedGates } from "./mocks/handlers";
 
 // jsdom doesn't implement matchMedia; the theme store calls it at creation time.
 if (!window.matchMedia) {
@@ -32,5 +33,8 @@ Element.prototype.setPointerCapture ??= () => {};
 Element.prototype.releasePointerCapture ??= () => {};
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  savedGates.clear();
+});
 afterAll(() => server.close());

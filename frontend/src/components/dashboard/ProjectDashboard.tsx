@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
+import { READINESS_FIGURES_HINT, readinessSubline } from "@/lib/readiness-figures";
+import { HORIZON_DAYS } from "@/lib/readiness-window";
+import { PROJECTS_TEAM } from "@/components/readiness/catalog";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
 
@@ -23,6 +26,7 @@ function Tile({
   sub,
   tone = "neutral",
   to,
+  hint,
 }: {
   label: string;
   value: string;
@@ -30,6 +34,8 @@ function Tile({
   tone?: Tone;
   /** Destination tab — every tile deep-links to the page that acts on it. */
   to?: string;
+  /** Hover text explaining the figures. */
+  hint?: string;
 }) {
   const body = (
     <>
@@ -40,12 +46,16 @@ function Tile({
   );
   if (to) {
     return (
-      <Link to={to} className={TILE_LINK_CLASS}>
+      <Link to={to} className={TILE_LINK_CLASS} title={hint}>
         {body}
       </Link>
     );
   }
-  return <div className={TILE_CLASS}>{body}</div>;
+  return (
+    <div className={TILE_CLASS} title={hint}>
+      {body}
+    </div>
+  );
 }
 
 /** Fleet demand over the plan window as a 2×2: kind (rigs / HWUs) ×
@@ -206,6 +216,14 @@ const HORIZON_OPTIONS = [
   { value: 0, label: "All duration" },
 ] as const;
 
+/** A readiness tile's door: the Readiness tab on that tile's lens and window, so
+ *  the tab lists exactly what the tile counted (spec §3.7). */
+function readinessLink(base: string, lens: string, months: number): string {
+  const params = new URLSearchParams({ lens });
+  if (months in HORIZON_DAYS) params.set("horizon", String(months));
+  return `${base}/readiness?${params.toString()}`;
+}
+
 function horizonSuffix(months: number): string {
   return months === 0 ? "all duration" : `next ${months} months`;
 }
@@ -312,12 +330,11 @@ export function ProjectDashboard({
           sub={`${activities.completed_this_quarter} this quarter`}
         />
         <Tile
-          to={`${base}/readiness${
-            horizon === 6 || horizon === 12 || horizon === 24 ? `?horizon=${horizon}` : ""
-          }`}
+          to={readinessLink(base, PROJECTS_TEAM, horizon)}
           label={`Readiness · ${horizonSuffix(horizon)}`}
           value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
-          sub={`${readiness.ready}/${readiness.focus_count} ready · ${readiness.behind_cells} behind`}
+          sub={readinessSubline({ ...readiness, behind: readiness.behind_cells })}
+          hint={READINESS_FIGURES_HINT}
           tone={readinessTone(readiness.overall_pct)}
         />
         <FleetTile rigs={rigs} to={`${base}/fleet`} />
@@ -336,10 +353,11 @@ export function ProjectDashboard({
           {(data.team_readiness ?? []).map((t) => (
             <Tile
               key={t.team_code}
-              to={`${base}/readiness?lens=${encodeURIComponent(t.team_code)}`}
+              to={readinessLink(base, t.team_code, horizon)}
               label={`${t.name} readiness · ${horizonSuffix(horizon)}`}
               value={t.overall_pct === null ? "—" : `${t.overall_pct}%`}
-              sub={`${t.ready}/${t.focus_count} ${t.unit} ready · ${t.blocked_cells} blocked`}
+              sub={readinessSubline({ ...t, behind: t.behind_cells }, t.unit)}
+              hint={READINESS_FIGURES_HINT}
               tone={readinessTone(t.overall_pct)}
             />
           ))}

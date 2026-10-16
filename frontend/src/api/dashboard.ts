@@ -24,9 +24,15 @@ export interface TeamReadinessStats {
    *  with only project-level checks. */
   unit: "wells" | "projects";
   focus_count: number;
+  /** Complete (the headline): done ÷ counted — spec §3.7. */
   overall_pct: number | null;
-  blocked_cells: number;
+  /** (done + on track) ÷ counted. */
+  on_track_pct: number | null;
+  /** Blocked cells (Behind, Not available). */
+  behind_cells: number;
   ready: number;
+  /** Wells/projects with at least one counted check. */
+  ready_of: number;
 }
 
 export interface DashboardResponse {
@@ -41,11 +47,17 @@ export interface DashboardResponse {
     by_plan_type: Record<string, number>;
     by_activity_type: Record<string, number>;
   };
+  /** The Project gates tile — the rollup of spec §3.7 (computed server-side). */
   readiness: {
     focus_count: number;
+    /** Complete (the headline): done ÷ counted. */
     overall_pct: number | null;
+    /** (done + on track) ÷ counted. */
+    on_track_pct: number | null;
     behind_cells: number;
     ready: number;
+    /** Field projects with at least one counted gate. */
+    ready_of: number;
     by_gate: GateBreakdown[];
   };
   rigs: {

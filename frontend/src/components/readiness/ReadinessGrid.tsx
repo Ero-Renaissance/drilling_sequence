@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, Lock } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { inWindow } from "@/lib/readiness-window";
 import { checksReady } from "@/lib/watchlist";
 import {
   type ProjectReadiness,
@@ -18,26 +19,10 @@ import { ReadinessDot } from "./ReadinessDot";
 import { statusOf, useProjectGates } from "./catalog";
 import { STATUS_DOT } from "./check-meta";
 import { checkIcon } from "./icon-registry";
+import { ReadinessSummary } from "./ReadinessSummary";
+import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
-
-// Focus-window day counts — identical to the dashboard's HORIZON_DAYS so the
-// page's "next N months" matches the Overview readiness KPI's window exactly
-// (6mo≈183d, 12mo=365d, 24mo=730d), rather than drifting on calendar months.
-const HORIZON_DAYS: Record<number, number> = { 6: 183, 12: 365, 24: 730 };
-
-/** True when a field project falls inside the N-month focus window: it has
- *  pending readiness work (`focus_start` set) that starts on/before today + N.
- *  Mirrors the backend focus filter the readiness KPI uses. */
-function inHorizon(focusStart: string | null | undefined, months: number): boolean {
-  if (!focusStart) return false;
-  const days = HORIZON_DAYS[months];
-  if (!days) return true;
-  const cutoff = new Date();
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() + days);
-  return new Date(`${focusStart}T00:00:00`).getTime() <= cutoff.getTime();
-}
 
 // ── Legend ───────────────────────────────────────────────────────────────────
 
@@ -90,68 +75,6 @@ function Legend() {
   );
 }
 
-// ── Progress summary bar ──────────────────────────────────────────────────────
-
-function ProgressBar({ rows }: { rows: ProjectReadiness[] }) {
-  const gates = useProjectGates();
-  let total = 0,
-    completed = 0,
-    onTrack = 0,
-    behind = 0,
-    na = 0;
-  for (const row of rows) {
-    for (const { code } of gates) {
-      total++;
-      const s = statusOf(row.checks, code);
-      if (s === "Completed") completed++;
-      else if (s === "On Track") onTrack++;
-      else if (s === "Behind") behind++;
-      else if (s === "N/A") na++;
-    }
-  }
-  const effective = total - na;
-  const pct = effective > 0 ? Math.round((completed / effective) * 100) : 0;
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-border/70 bg-card px-4 py-3 shadow-soft-sm">
-      <div className="min-w-[200px] flex-1">
-        <div className="mb-1.5 flex items-center justify-between text-xs">
-          <span className="font-medium text-muted-foreground">Overall Readiness</span>
-          <span className="font-semibold tabular-nums text-foreground">{pct}%</span>
-        </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
-      <div className="flex gap-5 text-xs">
-        <Stat label="Completed" value={completed} dot={STATUS_DOT["Completed"]} />
-        <Stat label="On Track" value={onTrack} dot={STATUS_DOT["On Track"]} />
-        <Stat label="Behind" value={behind} dot={STATUS_DOT["Behind"]} />
-        {na > 0 && <Stat label="N/A" value={na} dot={STATUS_DOT["N/A"]} />}
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className={cn("h-2.5 w-2.5 rounded-full", dot)} />
-      <div>
-        <div className="text-sm font-semibold leading-none tabular-nums text-foreground">
-          {value}
-        </div>
-        <div className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-          {label}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface ReadinessGridProps {
@@ -169,15 +92,25 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Rows come from the server (with their figures). A response may only replace
+  // them if it is the newest load AND no edit is still being saved — otherwise a
+  // slow or early response (served before an edit committed) would overwrite
+  // that edit. Each edit reloads once its save settles, so the last load wins.
+  const loadSeq = useRef(0);
+  const pendingEdits = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      setRows(await listReadiness(projectId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      const data = await listReadiness(projectId);
+      if (seq === loadSeq.current && pendingEdits.current === 0) setRows(data);
+    } catch (err: unknown) {
+      if (seq === loadSeq.current) {
+        setError(err instanceof Error ? err.message : "Failed to load readiness data");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [projectId]);
 
@@ -206,9 +139,10 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       );
 
       setSaving(key);
+      pendingEdits.current += 1;
       try {
         await upsertCheck(projectId, wellProject, code, next);
-      } catch (err) {
+      } catch (err: unknown) {
         if (previous) {
           setRows((prev) =>
             prev.map((r) =>
@@ -223,43 +157,41 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         }
         toast.error(err instanceof Error ? err.message : `Failed to save ${code} status.`);
       } finally {
-        setSaving(null);
+        pendingEdits.current -= 1;
+        setSaving((current) => (current === key ? null : current));
       }
+      // The row's figures (and the summary) are the server's — refresh them,
+      // after a failed save too, so the grid shows what the server holds.
+      await load();
     },
-    [projectId, rows],
+    [projectId, rows, load],
   );
 
   const q = search.trim().toLowerCase();
-  // Drill-through filters, composed with the text search:
-  //  • ?focus=not-ready → only field projects that aren't yet ready.
-  //  • ?horizon=6|12|24 → only projects whose earliest not-done, readiness-
-  //    required activity starts within N months (focus_start), matching the
-  //    Overview readiness KPI's window so the page shows exactly what it counted.
+  // Which field projects the page covers (spec §3.7):
+  //  • the window (?horizon=6|12|24, else All) — a project is in scope when it
+  //    has readiness-required work that isn't completed (focus_start) starting
+  //    within it. Completed or opted-out projects have none, so they drop out
+  //    under every window — exactly the set the Overview tile counts;
+  //  • ?focus=not-ready → only those that aren't ready (server-decided);
+  //  • the text search.
+  // The summary adds up exactly the rows that pass, across every page.
+  const [horizon, setHorizon] = useReadinessWindow();
   const notReadyFocus = searchParams.get("focus") === "not-ready";
-  const horizonParam = searchParams.get("horizon");
-  const horizon =
-    horizonParam === "6" || horizonParam === "12" || horizonParam === "24"
-      ? Number(horizonParam)
-      : 0; // 0 = all field projects (no window)
-  const filteredRows = rows.filter((r) => {
+  const scopedRows = rows.filter((r) => inWindow(r, horizon));
+  const filteredRows = scopedRows.filter((r) => {
     if (q && !r.well_project.toLowerCase().includes(q)) return false;
-    if (notReadyFocus && checksReady(r.checks)) return false;
-    if (horizon !== 0 && !inHorizon(r.focus_start, horizon)) return false;
+    // Ready is the server's call; checksReady only covers a row without figures.
+    if (notReadyFocus && (r.figures ? r.figures.ready : checksReady(r.checks))) return false;
     return true;
   });
-  const filtering = Boolean(q) || notReadyFocus || horizon !== 0;
+  const filtering = Boolean(q) || notReadyFocus;
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visibleRows = filteredRows.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
 
   function clearFocus() {
     searchParams.delete("focus");
-    setSearchParams(searchParams, { replace: true });
-  }
-
-  function setHorizon(next: number) {
-    if (next === 0) searchParams.delete("horizon");
-    else searchParams.set("horizon", String(next));
     setSearchParams(searchParams, { replace: true });
   }
 
@@ -325,20 +257,11 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         )}
 
         <div className="ml-auto flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="whitespace-nowrap">Window</span>
-            <select
-              aria-label="Readiness time window"
-              value={String(horizon)}
-              onChange={(e) => setHorizon(Number(e.target.value))}
-              className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
-            >
-              <option value="0">All field projects</option>
-              <option value="6">Next 6 months</option>
-              <option value="12">Next 12 months</option>
-              <option value="24">Next 24 months</option>
-            </select>
-          </label>
+          <ReadinessWindowSelect
+            value={horizon}
+            onChange={setHorizon}
+            allLabel="All field projects"
+          />
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -348,8 +271,8 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           />
           <span className="text-xs tabular-nums text-muted-foreground">
             {filtering
-              ? `${filteredRows.length} of ${rows.length}`
-              : `${rows.length} ${rows.length === 1 ? "project" : "projects"}`}
+              ? `${filteredRows.length} of ${scopedRows.length}`
+              : `${scopedRows.length} ${scopedRows.length === 1 ? "project" : "projects"}`}
           </span>
         </div>
       </div>
@@ -366,8 +289,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       {/* Legend (always visible above the matrix) */}
       <Legend />
 
-      {/* Progress summary */}
-      {rows.length > 0 && <ProgressBar rows={rows} />}
+      {/* The three figures over exactly the rows shown (spec §3.7) */}
+      {scopedRows.length > 0 && (
+        <ReadinessSummary
+          rows={filteredRows.map((r) => r.figures)}
+          unit={["field project", "field projects"]}
+          windowMonths={horizon}
+        />
+      )}
 
       {/* Matrix table */}
       {loading && rows.length === 0 ? (
@@ -385,10 +314,14 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       ) : filteredRows.length === 0 ? (
         <div className="flex h-48 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
           <p className="text-sm">
-            {q ? (
+            {scopedRows.length === 0 ? (
+              horizon !== 0 ? (
+                `No field projects have readiness-required work starting in the next ${horizon} months.`
+              ) : (
+                "No field projects have readiness work left — their activities are completed or opted out."
+              )
+            ) : q ? (
               <>No field projects match &ldquo;{search}&rdquo;.</>
-            ) : horizon !== 0 ? (
-              `No field projects have readiness-required work starting in the next ${horizon} months.`
             ) : (
               "No field projects match the current filter."
             )}
@@ -431,12 +364,8 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
             </thead>
             <tbody>
               {visibleRows.map((row, i) => {
-                const completed = gates.filter(
-                  (g) => statusOf(row.checks, g.code) === "Completed",
-                ).length;
-                const na = gates.filter((g) => statusOf(row.checks, g.code) === "N/A").length;
-                const effective = gates.length - na;
-                const rowPct = effective > 0 ? Math.round((completed / effective) * 100) : 100;
+                // The row's figures are the server's rollup (spec §3.7).
+                const f = row.figures;
 
                 return (
                   <tr
@@ -454,14 +383,25 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                       </div>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <span
-                        className={cn(
-                          "text-xs font-semibold tabular-nums",
-                          rowPct === 100 ? "text-emerald-500" : "text-muted-foreground",
-                        )}
-                      >
-                        {completed}/{effective}
-                      </span>
+                      {!f ? (
+                        <span className="text-xs text-muted-foreground/60">—</span>
+                      ) : f.counted > 0 ? (
+                        <span
+                          className={cn(
+                            "text-xs font-semibold tabular-nums",
+                            f.ready ? "text-emerald-500" : "text-muted-foreground",
+                          )}
+                        >
+                          {f.done}/{f.counted}
+                        </span>
+                      ) : (
+                        <span
+                          className="text-xs text-muted-foreground/60"
+                          title="Every gate is N/A — nothing applies"
+                        >
+                          —
+                        </span>
+                      )}
                     </td>
                     {gates.map(({ code }) => {
                       const key = `${row.well_project}:${code}`;

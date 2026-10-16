@@ -7,6 +7,12 @@ moved/renamed activity reads as "modified", not add+remove.
 """
 from datetime import date
 
+from app.services.readiness_rollup import (
+    per_activity_readiness,
+    rollup,
+    snapshot_gate_targets,
+)
+
 # Scalar activity fields compared field-for-field, with human labels.
 _SCALAR_FIELDS: list[tuple[str, str]] = [
     ("activity_type", "Activity type"),
@@ -57,31 +63,38 @@ def _norm(value) -> str | None:
 
 
 def _readiness_pct(snapshot: list[dict]) -> int | None:
-    """Completed / applicable (non-N/A) readiness cells across the snapshot, as a %."""
-    applicable = completed = 0
-    for act in snapshot:
-        for status in (act.get("readiness") or {}).values():
-            if status == "N/A":
-                continue
-            applicable += 1
-            if status == "Completed":
-                completed += 1
-    return round(100 * completed / applicable) if applicable else None
+    """The plan's project-gate COMPLETE % (spec §3.7): done / counted gates, each
+    field project with live (readiness-required, not completed) work counted once
+    — not once per activity. None when nothing counts."""
+    return rollup(snapshot_gate_targets(snapshot)).complete_pct
+
+
+def _gates(activity: dict, per_activity: bool) -> dict:
+    """An activity's governed gates. In a per-field-project snapshot one with no
+    field project carries none (spec §3.7) — those snapshots stored defaults for
+    it, so ignore them rather than report "On Track → (none)" against a newer one.
+    A per-activity snapshot (``per_activity_readiness``) recorded real gates on
+    every activity, and they are kept."""
+    if not per_activity and not activity.get("well_project"):
+        return {}
+    return activity.get("readiness") or {}
 
 
 def _is_done(activity: dict) -> bool:
     return bool(_norm(activity.get("completed_at")))
 
 
-def _field_changes(base: dict, target: dict) -> list[dict]:
+def _field_changes(
+    base: dict, target: dict, base_per_activity: bool = False, target_per_activity: bool = False
+) -> list[dict]:
     changes: list[dict] = []
     for key, label in _SCALAR_FIELDS:
         old, new = _norm(base.get(key)), _norm(target.get(key))
         if old != new:
             changes.append({"field": label, "old": old, "new": new})
 
-    base_readiness = base.get("readiness") or {}
-    target_readiness = target.get("readiness") or {}
+    base_readiness = _gates(base, base_per_activity)
+    target_readiness = _gates(target, target_per_activity)
     for code in sorted(set(base_readiness) | set(target_readiness)):
         old, new = _norm(base_readiness.get(code)), _norm(target_readiness.get(code))
         if old != new:
@@ -231,12 +244,15 @@ def diff_snapshots(
     side, `target` the newer one. `match_by` selects how rows are paired —
     "id" for revision history, "lineage" for cross-project (Q1 vs Q2)."""
     matched, added_acts, removed_acts = _match_pairs(base, target, match_by)
+    # How each side recorded its gates (per activity before 2026-07-16).
+    base_per_activity = per_activity_readiness(base)
+    target_per_activity = per_activity_readiness(target)
 
     activities: list[dict] = []
     added = removed = modified = unchanged = 0
 
     for base_act, act in matched:
-        changes = _field_changes(base_act, act)
+        changes = _field_changes(base_act, act, base_per_activity, target_per_activity)
         if changes:
             modified += 1
             activities.append(

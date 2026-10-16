@@ -239,6 +239,9 @@ async def test_grants_show_on_me_and_the_admin_user_list(
         ({"status_set": "freeform"}, 422),
         ({"applies_project": False, "applies_well": False}, 422),
         ({"locks_with_plan": True}, 422),  # governed + well scope
+        # Governed at project level, but not a Projects-team check (spec §3.7):
+        # only project gates lock with the plan.
+        ({"locks_with_plan": True, "applies_well": False}, 422),
         ({"label": "   "}, 422),
         ({"label": "x" * 65}, 422),
         ({"tag_list": "nope"}, 422),  # tag lists are a code-defined allow-list

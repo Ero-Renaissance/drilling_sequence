@@ -53,15 +53,11 @@ class EntryIndex:
         return list(self.tags.get(entry.id, [])) if entry is not None else []
 
 
-def severity(status_set: str, status: str) -> str:
-    """The shared severity of a status (done / in_progress / blocked /
-    not_counted); an unknown status counts as in progress."""
-    return STATUS_SETS.get(status_set, {}).get("statuses", {}).get(status, "in_progress")
-
-
 async def load_index(
-    db: AsyncSession, project_id: uuid.UUID, codes: list[str]
+    db: AsyncSession, project_id: uuid.UUID, codes: list[str], *, with_tags: bool = True
 ) -> EntryIndex:
+    """The campaign's entries for ``codes``; ``with_tags=False`` skips the tag
+    queries for callers that only read statuses (the rollups)."""
     entries = (
         await db.execute(
             select(ReadinessEntry).where(
@@ -71,7 +67,7 @@ async def load_index(
         )
     ).scalars().all()
     tags: dict[uuid.UUID, list[str]] = {}
-    if entries:
+    if entries and with_tags:
         order = {
             code: i
             for i, code in enumerate(

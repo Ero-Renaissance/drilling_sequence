@@ -35,7 +35,13 @@ export interface LastApprovedKPIs {
   activities_total: number;
   schedule_start: string | null;
   schedule_end: string | null;
+  /** Project gates over the next 12 months, by the rollup of spec §3.7:
+   *  Complete (done ÷ counted), On track, Behind, ready of. */
   readiness_pct: number | null;
+  readiness_on_track_pct: number | null;
+  readiness_behind: number;
+  readiness_ready: number;
+  readiness_ready_of: number;
   readiness_focus_count: number;
   /** Fleet split (mirrors the campaign dashboard). Snapshots approved before
    *  the planned flag was captured report everything under rigs/hwus_in_use. */

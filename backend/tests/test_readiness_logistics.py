@@ -9,6 +9,8 @@ SQL Server; on the SQLite test schema they're created here through the admin API
 """
 import importlib.util
 import json
+import uuid
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.activity import Activity
 from app.models.audit import AuditLog
 from app.models.readiness import ICON_KEYS, STATUS_SETS
 from app.models.user import User
@@ -156,13 +159,16 @@ def test_migration_seeds_the_confirmed_logistics_checks_and_equipment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_neq_uses_available_not_available(client: AsyncClient, db: AsyncSession) -> None:
+async def test_neq_uses_the_availability_status_set(client: AsyncClient, db: AsyncSession) -> None:
     await _seed_logistics(client, db)
     pid = await _campaign(client)
     neq = _well_row(await _lens(client, pid), "W-1")["checks"]["NEQ"]
-    assert neq["status"] == "Not available"  # the availability default
+    # Unset reads the on-track default (spec §3.7), not "Not available".
+    assert (neq["status"], neq["source"]) == ("Pending", "default")
     assert (await _put(client, pid, "NEQ", PROJECT, "Completed")).status_code == 422
     assert (await _put(client, pid, "NEQ", PROJECT, "Available")).status_code == 200
+    assert (await _put(client, pid, "NEQ", PROJECT, "Pending")).status_code == 200
+    assert (await _put(client, pid, "NEQ", PROJECT, "Not available")).status_code == 200
     # Standard checks don't accept availability statuses.
     assert (await _put(client, pid, "PO", PROJECT, "Available")).status_code == 422
 
@@ -298,6 +304,36 @@ async def test_live_checks_are_recorded_at_submission(client: AsyncClient, db: A
     assert gate_codes_of(detail["readiness_catalog"]) == ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
 
 
+@pytest.mark.asyncio
+async def test_no_well_name_records_no_well_level_checks(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Spec §3.7: well-level checks — two-level ones included — need a well name,
+    in the snapshot as in the live lens (which shows no strip for such a bar)."""
+    await _seed_logistics(client, db)
+    pid = await _campaign(client)
+    await _put(client, pid, "PO", PROJECT, "Completed")
+    # No well name only arrives through import (the form requires one).
+    db.add(
+        Activity(
+            project_id=uuid.UUID(pid),
+            activity_type="Contracting",
+            start_date=date(2026, 12, 1),
+            end_date=date(2026, 12, 20),
+            well_project="Bonga Phase 3",
+            well_name=None,
+        )
+    )
+    await db.commit()
+    rev = await client.post(f"/api/projects/{pid}/revisions", json={})
+    assert rev.status_code in (200, 201), rev.text
+    detail = (await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")).json()
+    rows = json.loads(detail["snapshot_json"])
+    contracting = next(a for a in rows if a["activity_type"] == "Contracting")
+    assert contracting["readiness_at_submission"] == {}  # every logistics check is two-level
+    assert list(contracting["readiness"]) == ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+
+
 # ── Dashboard team tiles ────────────────────────────────────────────────────
 
 
@@ -315,10 +351,44 @@ async def test_dashboard_has_a_logistics_tile(client: AsyncClient, db: AsyncSess
     tile = next(t for t in dash["team_readiness"] if t["team_code"] == "logistics")
     assert tile["unit"] == "wells"
     assert tile["focus_count"] == 2  # W-OPT opted out
-    assert tile["ready"] == 1
+    assert (tile["ready"], tile["ready_of"]) == (1, 2)
     assert tile["overall_pct"] == 50  # 7 done of 14 counted
-    # W-2: PO behind + NEQ "Not available" by default.
-    assert tile["blocked_cells"] == 2
+    # W-2: PO behind; its unset checks read On Track / Pending (on track).
+    assert tile["behind_cells"] == 1
+    assert tile["on_track_pct"] == 93  # 13 of 14
+
+
+@pytest.mark.asyncio
+async def test_logistics_tab_adds_up_to_its_tile(client: AsyncClient, db: AsyncSession) -> None:
+    """The Logistics tab, adding up the server's per-well figures for the wells
+    it shows, reads exactly what the Logistics tile reads (spec §3.7)."""
+    from app.services.readiness_rollup import pct
+
+    await _seed_logistics(client, db)
+    pid = await _campaign(client)
+    await _put(client, pid, "PO", PROJECT, "Completed")  # inherited by both wells
+    await _put(client, pid, "NEQ", _well("W-1"), "Not available")
+
+    lens = await _lens(client, pid)
+    # Field-project rows carry the window signal too.
+    assert lens["project_rows"][0]["focus_start"] is not None
+    figs = [r["figures"] for r in lens["well_rows"] if r["focus_start"]]
+    w1 = _well_row(lens, "W-1")["figures"]
+    assert (w1["done"], w1["in_progress"], w1["behind"]) == (1, 5, 1)  # unset NEQ elsewhere = Pending
+
+    tile = next(
+        t
+        for t in (await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=0")).json()[
+            "team_readiness"
+        ]
+        if t["team_code"] == "logistics"
+    )
+    counted = sum(f["counted"] for f in figs)
+    done = sum(f["done"] for f in figs)
+    assert (len(figs), pct(done, counted), sum(f["behind"] for f in figs)) == (
+        tile["focus_count"], tile["overall_pct"], tile["behind_cells"],
+    )
+    assert pct(done + sum(f["in_progress"] for f in figs), counted) == tile["on_track_pct"]
 
 
 # ── Admin: equipment types ──────────────────────────────────────────────────
