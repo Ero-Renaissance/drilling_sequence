@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   READINESS_FIGURES_HINT,
   pct,
+  readinessScope,
   readinessSubline,
   sumFigures,
 } from "@/lib/readiness-figures";
@@ -12,19 +13,19 @@ import { checksReady } from "@/lib/watchlist";
 // figures and decides "ready" for drill-throughs the same way the backend does.
 
 describe("readiness figures", () => {
-  it("words the spec's worked example", () => {
-    expect(readinessSubline({ on_track_pct: 83, behind: 1, ready: 0, ready_of: 1 })).toBe(
-      "complete · 83% on track · 1 behind · 0/1 ready",
-    );
-    expect(readinessSubline({ on_track_pct: 70, behind: 3, ready: 1, ready_of: 4 }, "wells")).toBe(
-      "complete · 70% on track · 3 behind · 1/4 wells ready",
-    );
+  it("words the spec's worked example: the two figures under Complete", () => {
+    expect(readinessSubline({ on_track_pct: 83, behind: 1 })).toBe("83% on track · 1 behind");
   });
 
   it("says nothing counts rather than 0%", () => {
-    expect(readinessSubline({ on_track_pct: null, behind: 0, ready: 0, ready_of: 0 })).toBe(
-      "Nothing to count",
-    );
+    expect(readinessSubline({ on_track_pct: null, behind: 0 })).toBe("Nothing to count");
+  });
+
+  it("names what a card counts", () => {
+    expect(readinessScope(1, "projects")).toBe("1 field project");
+    expect(readinessScope(4, "projects")).toBe("4 field projects");
+    expect(readinessScope(1, "wells")).toBe("1 well");
+    expect(readinessScope(9, "wells")).toBe("9 wells");
   });
 
   it("explains On track in the hover text", () => {

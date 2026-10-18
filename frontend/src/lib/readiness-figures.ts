@@ -15,9 +15,6 @@ export interface ReadinessFigures {
   /** (done + on track) ÷ counted; null when nothing counts. */
   on_track_pct: number | null;
   behind: number;
-  ready: number;
-  /** Targets with at least one counted check (all-N/A ones are left out). */
-  ready_of: number;
 }
 
 /** `part / whole` as a whole-number %, rounded HALF UP in integer arithmetic —
@@ -38,6 +35,10 @@ export interface SummedFigures extends ReadinessFigures {
   in_progress: number;
   /** Not-counted (N/A) cells. */
   na: number;
+  /** Rows with ≥1 counted check, every one done. */
+  ready: number;
+  /** Rows with at least one counted check (all-N/A ones are left out). */
+  ready_of: number;
 }
 
 /** Add up the server's per-row figures of the rows shown. */
@@ -73,10 +74,15 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
   };
 }
 
-/** The line under the headline Complete %: "complete · 83% on track · 1 behind
- *  · 4/6 ready" (`unit` names what is ready, e.g. "wells"). */
-export function readinessSubline(f: ReadinessFigures, unit?: string): string {
+/** The line under a card's headline Complete %: the other two of the three
+ *  figures — "83% on track · 1 behind". */
+export function readinessSubline(f: ReadinessFigures): string {
   if (f.on_track_pct === null) return "Nothing to count";
-  const what = unit ? `${unit} ready` : "ready";
-  return `complete · ${f.on_track_pct}% on track · ${f.behind} behind · ${f.ready}/${f.ready_of} ${what}`;
+  return `${f.on_track_pct}% on track · ${f.behind} behind`;
+}
+
+/** What a card counts — "1 field project", "9 wells" — so its % reads clearly. */
+export function readinessScope(count: number, unit: "projects" | "wells"): string {
+  const noun = unit === "wells" ? "well" : "field project";
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
