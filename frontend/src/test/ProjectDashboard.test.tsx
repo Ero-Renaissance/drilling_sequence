@@ -39,12 +39,22 @@ function makeData(overrides: Partial<DashboardResponse> = {}): DashboardResponse
   };
 }
 
-function renderDash() {
+function renderDash(entry = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <ProjectDashboard projectId="p1" />
     </MemoryRouter>,
   );
+}
+
+const LOGISTICS_TILE = {
+  team_code: "logistics", name: "Logistics", icon_key: "truck", unit: "wells" as const,
+  focus_count: 4, overall_pct: 25, on_track_pct: 70, behind_cells: 3, ready: 1, ready_of: 4,
+};
+
+/** A readiness card by its label (the card, not just its main link). */
+function card(label: RegExp): HTMLElement {
+  return screen.getByRole("link", { name: label }).closest("[data-testid='readiness-card']")!;
 }
 
 describe("ProjectDashboard", () => {
@@ -62,7 +72,7 @@ describe("ProjectDashboard", () => {
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     // The Project gates card: the three figures (spec §3.7) and what it counts —
     // no ready count on the card (that lives on the Readiness tab).
-    const gates = screen.getByRole("link", { name: /Project gates/ });
+    const gates = card(/Project gates/);
     expect(gates).toHaveTextContent("62%complete");
     expect(gates).toHaveTextContent("89% on track · 1 behind");
     expect(gates).toHaveTextContent("4 field projects");
@@ -174,27 +184,11 @@ describe("ProjectDashboard", () => {
   });
 
   it("shows a readiness tile per team, linking to that team's view", async () => {
-    vi.mocked(fetchDashboard).mockResolvedValue(
-      makeData({
-        team_readiness: [
-          {
-            team_code: "logistics",
-            name: "Logistics",
-            icon_key: "truck",
-            unit: "wells",
-            focus_count: 4,
-            overall_pct: 25,
-            on_track_pct: 70,
-            behind_cells: 3,
-            ready: 1,
-            ready_of: 4,
-          },
-        ],
-      }),
-    );
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
     renderDash();
-    const tile = await screen.findByRole("link", { name: /Logistics/ });
-    expect(tile).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&horizon=12");
+    const link = await screen.findByRole("link", { name: /Logistics/ });
+    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&horizon=12");
+    const tile = card(/Logistics/);
     // Reads exactly like the Project gates card: no "wells ready" count.
     expect(tile).toHaveTextContent("25%complete");
     expect(tile).toHaveTextContent("70% on track · 3 behind");
@@ -204,21 +198,14 @@ describe("ProjectDashboard", () => {
   });
 
   it("groups the readiness cards under one window picked in the group header", async () => {
-    vi.mocked(fetchDashboard).mockResolvedValue(
-      makeData({
-        team_readiness: [
-          {
-            team_code: "logistics", name: "Logistics", icon_key: "truck", unit: "wells",
-            focus_count: 4, overall_pct: 25, on_track_pct: 70, behind_cells: 3, ready: 1, ready_of: 4,
-          },
-        ],
-      }),
-    );
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
     renderDash();
     const group = await screen.findByRole("region", { name: "Readiness" });
     // Project gates first, then each team — side by side in one group…
     expect(
-      within(group).getAllByRole("link").map((a) => a.getAttribute("href")),
+      within(group)
+        .getAllByTestId("readiness-card")
+        .map((c) => c.querySelector("a")!.getAttribute("href")),
     ).toEqual([
       "/projects/p1/readiness?lens=projects&horizon=12",
       "/projects/p1/readiness?lens=logistics&horizon=12",
@@ -228,6 +215,65 @@ describe("ProjectDashboard", () => {
     expect(within(group).getByLabelText("Readiness horizon")).toBeInTheDocument();
     // The operations row no longer carries a readiness card.
     expect(screen.getAllByRole("link", { name: /Project gates/ })).toHaveLength(1);
+  });
+
+  it("'N behind' on a card opens the Readiness tab on just the behind items", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
+    renderDash();
+    await screen.findByRole("region", { name: "Readiness" });
+    expect(within(card(/Logistics/)).getByRole("link", { name: "3 behind" })).toHaveAttribute(
+      "href",
+      "/projects/p1/readiness?lens=logistics&horizon=12&focus=behind",
+    );
+    expect(within(card(/Project gates/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
+      "href",
+      "/projects/p1/readiness?lens=projects&horizon=12&focus=behind",
+    );
+  });
+
+  it("'0 behind' is plain text — nothing to open", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(
+      makeData({ team_readiness: [{ ...LOGISTICS_TILE, behind_cells: 0 }] }),
+    );
+    renderDash();
+    await screen.findByRole("region", { name: "Readiness" });
+    const logistics = card(/Logistics/);
+    expect(logistics).toHaveTextContent("70% on track · 0 behind");
+    expect(within(logistics).getAllByRole("link")).toHaveLength(1); // just the card's own
+  });
+
+  it("focuses on one team: hides the others, says so, and remembers it", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
+    renderDash();
+    const group = await screen.findByRole("region", { name: "Readiness" });
+    // Opens on every team.
+    expect(within(group).getAllByTestId("readiness-card")).toHaveLength(2);
+    expect(screen.queryByTestId("readiness-focus-note")).not.toBeInTheDocument();
+
+    fireEvent.change(within(group).getByLabelText("Readiness teams shown"), {
+      target: { value: "logistics" },
+    });
+    expect(within(group).getAllByTestId("readiness-card")).toHaveLength(1);
+    expect(card(/Logistics/)).toBeInTheDocument();
+    expect(screen.getByTestId("readiness-focus-note")).toHaveTextContent(
+      "Focused on Logistics · 1 other team hidden · Show all",
+    );
+    // The by-gate card is the Project gates' — hidden while focused elsewhere.
+    expect(screen.queryByText(/Readiness by gate/i)).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("ds.overview-readiness-focus")).toBe("logistics");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(within(group).getAllByTestId("readiness-card")).toHaveLength(2);
+    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+  });
+
+  it("a ?lens= link opens the Overview focused on that team", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
+    renderDash("/?lens=projects");
+    const group = await screen.findByRole("region", { name: "Readiness" });
+    expect(within(group).getAllByTestId("readiness-card")).toHaveLength(1);
+    expect(card(/Project gates/)).toBeInTheDocument();
+    expect(screen.getByTestId("readiness-focus-note")).toHaveTextContent("Focused on Project gates");
   });
 
   it("breakdown panel is open by default and collapses/expands from its header", async () => {
