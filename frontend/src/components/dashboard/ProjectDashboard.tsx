@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
-import { READINESS_FIGURES_HINT, readinessSubline } from "@/lib/readiness-figures";
+import { READINESS_FIGURES_HINT, readinessScope, readinessSubline } from "@/lib/readiness-figures";
 import { HORIZON_DAYS } from "@/lib/readiness-window";
 import { PROJECTS_TEAM } from "@/components/readiness/catalog";
 
@@ -23,14 +23,20 @@ const TILE_LINK_CLASS = `${TILE_CLASS} block transition-colors hover:border-prim
 function Tile({
   label,
   value,
+  valueNote,
   sub,
+  foot,
   tone = "neutral",
   to,
   hint,
 }: {
   label: string;
   value: string;
+  /** Small word after the value naming it, e.g. "complete". */
+  valueNote?: string;
   sub?: string;
+  /** A second, quieter line — e.g. what the tile counts ("9 wells"). */
+  foot?: string;
   tone?: Tone;
   /** Destination tab — every tile deep-links to the page that acts on it. */
   to?: string;
@@ -40,8 +46,14 @@ function Tile({
   const body = (
     <>
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${TONE[tone]}`}>{value}</p>
+      <p className={`mt-1 text-2xl font-semibold ${TONE[tone]}`}>
+        {value}
+        {valueNote ? (
+          <span className="ml-1.5 text-xs font-normal text-muted-foreground">{valueNote}</span>
+        ) : null}
+      </p>
       {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+      {foot ? <p className="mt-0.5 text-[11px] text-muted-foreground/80">{foot}</p> : null}
     </>
   );
   if (to) {
@@ -321,21 +333,13 @@ export function ProjectDashboard({
 
   return (
     <div className="space-y-6">
-      {/* Hero tiles */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* Hero tiles — the plan's operations */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Tile
           to={`${base}/data`}
           label="Completed YTD"
           value={String(activities.completed_ytd)}
           sub={`${activities.completed_this_quarter} this quarter`}
-        />
-        <Tile
-          to={readinessLink(base, PROJECTS_TEAM, horizon)}
-          label={`Readiness · ${horizonSuffix(horizon)}`}
-          value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
-          sub={readinessSubline({ ...readiness, behind: readiness.behind_cells })}
-          hint={READINESS_FIGURES_HINT}
-          tone={readinessTone(readiness.overall_pct)}
         />
         <FleetTile rigs={rigs} to={`${base}/fleet`} />
         <Tile
@@ -347,22 +351,53 @@ export function ProjectDashboard({
         />
       </div>
 
-      {/* One tile per readiness team (Wells, Logistics…), same focus window. */}
-      {(data.team_readiness ?? []).length > 0 && (
+      {/* Readiness — one card per team (Project gates first), side by side over
+          ONE window, picked here. Each card reads the same three figures
+          (spec §3.7): Complete, then on track and behind, and what it counts. */}
+      <section aria-label="Readiness" className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Readiness · {horizonSuffix(horizon)}
+          </h2>
+          <select
+            aria-label="Readiness horizon"
+            value={String(horizon)}
+            onChange={(e) => updateHorizon(Number(e.target.value))}
+            className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+          >
+            {HORIZON_OPTIONS.map((h) => (
+              <option key={h.value} value={String(h.value)}>
+                {h.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Tile
+            to={readinessLink(base, PROJECTS_TEAM, horizon)}
+            label="Project gates"
+            value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
+            valueNote={readiness.overall_pct === null ? undefined : "complete"}
+            sub={readinessSubline({ ...readiness, behind: readiness.behind_cells })}
+            foot={readinessScope(readiness.focus_count, "projects")}
+            hint={READINESS_FIGURES_HINT}
+            tone={readinessTone(readiness.overall_pct)}
+          />
           {(data.team_readiness ?? []).map((t) => (
             <Tile
               key={t.team_code}
               to={readinessLink(base, t.team_code, horizon)}
-              label={`${t.name} readiness · ${horizonSuffix(horizon)}`}
+              label={t.name}
               value={t.overall_pct === null ? "—" : `${t.overall_pct}%`}
-              sub={readinessSubline({ ...t, behind: t.behind_cells }, t.unit)}
+              valueNote={t.overall_pct === null ? undefined : "complete"}
+              sub={readinessSubline({ ...t, behind: t.behind_cells })}
+              foot={readinessScope(t.focus_count, t.unit)}
               hint={READINESS_FIGURES_HINT}
               tone={readinessTone(t.overall_pct)}
             />
           ))}
         </div>
-      )}
+      </section>
 
       {afterTiles}
 
@@ -389,23 +424,8 @@ export function ProjectDashboard({
             id="dashboard-breakdown"
             className="grid grid-cols-1 gap-3 border-t border-border/60 p-3 lg:grid-cols-2"
           >
-            <BreakdownCard
-              title={`Readiness by gate · ${horizonSuffix(horizon)}`}
-              action={
-                <select
-                  aria-label="Readiness horizon"
-                  value={String(horizon)}
-                  onChange={(e) => updateHorizon(Number(e.target.value))}
-                  className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-                >
-                  {HORIZON_OPTIONS.map((h) => (
-                    <option key={h.value} value={String(h.value)}>
-                      {h.label}
-                    </option>
-                  ))}
-                </select>
-              }
-            >
+            {/* Follows the Readiness group's window (picked in its header). */}
+            <BreakdownCard title={`Readiness by gate · ${horizonSuffix(horizon)}`}>
               {readiness.by_gate.length ? (
                 <div className="space-y-1.5">
                   {readiness.by_gate.map((g) => (

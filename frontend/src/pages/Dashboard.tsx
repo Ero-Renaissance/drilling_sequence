@@ -116,11 +116,9 @@ function ApprovedKpis({ d }: { d: LastApprovedDashboard }) {
           description={
             k.readiness_pct === null
               ? "Approved plan · next 12 months"
-              : `${readinessSubline({
+              : `complete · ${readinessSubline({
                   on_track_pct: k.readiness_on_track_pct,
                   behind: k.readiness_behind,
-                  ready: k.readiness_ready,
-                  ready_of: k.readiness_ready_of,
                 })} · next 12 months`
           }
           hint={READINESS_FIGURES_HINT}

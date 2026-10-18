@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -60,9 +60,13 @@ describe("ProjectDashboard", () => {
     expect(await screen.findByText("Fleet status")).toBeInTheDocument();
     expect(screen.getByText("Completed YTD")).toBeInTheDocument();
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
-    expect(screen.getByText("62%")).toBeInTheDocument();
-    // The three readiness figures (spec §3.7): Complete headline, then the rest.
-    expect(screen.getByText("complete · 89% on track · 1 behind · 2/4 ready")).toBeInTheDocument();
+    // The Project gates card: the three figures (spec §3.7) and what it counts —
+    // no ready count on the card (that lives on the Readiness tab).
+    const gates = screen.getByRole("link", { name: /Project gates/ });
+    expect(gates).toHaveTextContent("62%complete");
+    expect(gates).toHaveTextContent("89% on track · 1 behind");
+    expect(gates).toHaveTextContent("4 field projects");
+    expect(gates).not.toHaveTextContent(/ready/);
     // The Approval tile is retired — plan state lives in the header chip and
     // the lock banner, not the KPI row.
     expect(screen.queryByText("Approval")).not.toBeInTheDocument();
@@ -77,7 +81,7 @@ describe("ProjectDashboard", () => {
       screen.getByRole("link", { name: label }).getAttribute("href");
     expect(href(/Completed YTD/)).toBe("/projects/p1/data");
     // The tile opens the tab on its own lens and window (spec §3.7).
-    expect(href(/Readiness ·/)).toBe("/projects/p1/readiness?lens=projects&horizon=12");
+    expect(href(/Project gates/)).toBe("/projects/p1/readiness?lens=projects&horizon=12");
     expect(href(/Fleet status/)).toBe("/projects/p1/fleet");
     expect(href(/Contracts at risk/)).toBe("/projects/p1/fleet?focus=contracts");
   });
@@ -119,7 +123,7 @@ describe("ProjectDashboard", () => {
     renderDash();
     await screen.findByText("Fleet status");
     const readinessHref = () =>
-      screen.getByRole("link", { name: /Readiness ·/ }).getAttribute("href");
+      screen.getByRole("link", { name: /Project gates/ }).getAttribute("href");
     expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
     expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
     // The tile deep-links into the readiness page pre-filtered to its window.
@@ -189,11 +193,41 @@ describe("ProjectDashboard", () => {
       }),
     );
     renderDash();
-    const tile = (await screen.findByText(/Logistics readiness/i)).closest("a")!;
+    const tile = await screen.findByRole("link", { name: /Logistics/ });
     expect(tile).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&horizon=12");
-    expect(tile).toHaveTextContent("25%");
-    expect(tile).toHaveTextContent("complete · 70% on track · 3 behind · 1/4 wells ready");
+    // Reads exactly like the Project gates card: no "wells ready" count.
+    expect(tile).toHaveTextContent("25%complete");
+    expect(tile).toHaveTextContent("70% on track · 3 behind");
+    expect(tile).toHaveTextContent("4 wells");
+    expect(tile).not.toHaveTextContent(/ready/);
     expect(tile.getAttribute("title")).toMatch(/Completed or On Track \(nothing behind\)/);
+  });
+
+  it("groups the readiness cards under one window picked in the group header", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue(
+      makeData({
+        team_readiness: [
+          {
+            team_code: "logistics", name: "Logistics", icon_key: "truck", unit: "wells",
+            focus_count: 4, overall_pct: 25, on_track_pct: 70, behind_cells: 3, ready: 1, ready_of: 4,
+          },
+        ],
+      }),
+    );
+    renderDash();
+    const group = await screen.findByRole("region", { name: "Readiness" });
+    // Project gates first, then each team — side by side in one group…
+    expect(
+      within(group).getAllByRole("link").map((a) => a.getAttribute("href")),
+    ).toEqual([
+      "/projects/p1/readiness?lens=projects&horizon=12",
+      "/projects/p1/readiness?lens=logistics&horizon=12",
+    ]);
+    // …with the window stated once, and its picker, in the group header.
+    expect(within(group).getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
+    expect(within(group).getByLabelText("Readiness horizon")).toBeInTheDocument();
+    // The operations row no longer carries a readiness card.
+    expect(screen.getAllByRole("link", { name: /Project gates/ })).toHaveLength(1);
   });
 
   it("breakdown panel is open by default and collapses/expands from its header", async () => {
