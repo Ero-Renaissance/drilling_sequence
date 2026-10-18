@@ -11,6 +11,16 @@ import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
 import type { ReadinessMap } from "@/lib/chart-utils";
 import { DrillChart } from "@/components/chart/DrillChart";
+import {
+  ALL_LENS,
+  PROJECTS_TEAM,
+  ReadinessLensProvider,
+  lensLabel,
+  useProjectGates,
+  useReadinessLens,
+  useReadinessTeams,
+} from "@/components/readiness/catalog";
+import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChangeNotesPanel } from "@/components/revisions/ChangeNotesPanel";
 import { Button } from "@/components/ui/button";
@@ -29,6 +39,18 @@ export function Presentation() {
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(undefined);
   const [contractsByHwu, setContractsByHwu] = useState<Map<string, HwuContract> | undefined>(undefined);
   const [notes, setNotes] = useState<ChangeNote[]>([]);
+  // The team view (Project gates · Logistics · … · All): the link's ?lens=, else
+  // the user's own. A view, not a permission — every team stays readable.
+  const teams = useReadinessTeams();
+  const projectGates = useProjectGates();
+  const [savedLens] = useReadinessLens();
+  const urlLens = searchParams.get("lens");
+  const lens =
+    urlLens &&
+    (teams.some((t) => t.code === urlLens) || (urlLens === ALL_LENS && teams.length > 1))
+      ? urlLens
+      : savedLens;
+  const [lensReadiness, setLensReadiness] = useState<LensReadiness | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -56,6 +78,26 @@ export function Presentation() {
     load();
   }, [load]);
 
+  // A team lens loads that team's readiness; the project gates come with `load`.
+  useEffect(() => {
+    if (!projectId || lens === PROJECTS_TEAM) {
+      setLensReadiness(null);
+      return;
+    }
+    let active = true;
+    loadLensReadiness(projectId, lens, { activities, teams, projectGates })
+      .then((data) => active && setLensReadiness(data))
+      .catch(() => active && setLensReadiness(null)); // best-effort, like the gates
+    return () => {
+      active = false;
+    };
+  }, [projectId, lens, activities, teams, projectGates]);
+
+  const lensName =
+    lens === ALL_LENS
+      ? "All teams"
+      : lensLabel(teams.find((t) => t.code === lens) ?? { code: lens, name: lens });
+
   if (!projectId) return null;
 
   return (
@@ -74,34 +116,40 @@ export function Presentation() {
             <h1 className="truncate text-xl font-semibold tracking-tight">
               {project?.name ?? "Drilling Sequence"}
             </h1>
-            <p className="text-xs text-muted-foreground">Rig Sequence — presentation</p>
+            <p className="text-xs text-muted-foreground">
+              Rig Sequence — presentation ·{" "}
+              <span data-testid="presentation-lens">Readiness: {lensName}</span>
+            </p>
           </div>
         </header>
 
         {activities.length > 0 ? (
           <ErrorBoundary label="chart">
-            <DrillChart
-              stickyScale
-              activities={activities}
-              readinessMap={readinessMap}
-              contractsByRig={contractsByRig}
-              contractsByHwu={contractsByHwu}
-              enableFilters
-              legendPosition="right"
-              initialProjects={searchParams.getAll("projects")}
-              initialLocations={searchParams.getAll("locations")}
-              initialActivityTypes={searchParams.getAll("activities")}
-              legendExtra={
-                <section className="space-y-2">
-                  <h2 className="text-sm font-semibold text-foreground">Change notes</h2>
-                  <ChangeNotesPanel
-                    notes={notes}
-                    layout="list"
-                    emptyText="No change notes recorded for this sequence."
-                  />
-                </section>
-              }
-            />
+            <ReadinessLensProvider lens={lens}>
+              <DrillChart
+                stickyScale
+                activities={activities}
+                readinessMap={lens === PROJECTS_TEAM ? readinessMap : lensReadiness?.map}
+                readinessKeyOf={lens === PROJECTS_TEAM ? undefined : lensReadiness?.keyOf}
+                contractsByRig={contractsByRig}
+                contractsByHwu={contractsByHwu}
+                enableFilters
+                legendPosition="right"
+                initialProjects={searchParams.getAll("projects")}
+                initialLocations={searchParams.getAll("locations")}
+                initialActivityTypes={searchParams.getAll("activities")}
+                legendExtra={
+                  <section className="space-y-2">
+                    <h2 className="text-sm font-semibold text-foreground">Change notes</h2>
+                    <ChangeNotesPanel
+                      notes={notes}
+                      layout="list"
+                      emptyText="No change notes recorded for this sequence."
+                    />
+                  </section>
+                }
+              />
+            </ReadinessLensProvider>
           </ErrorBoundary>
         ) : (
           <p className="text-sm text-muted-foreground">No activities to present.</p>

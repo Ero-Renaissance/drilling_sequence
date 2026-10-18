@@ -339,6 +339,31 @@ describe("TeamReadinessGrid", () => {
     expect(summary).toHaveTextContent("2 wells · all");
   });
 
+  it("?focus=behind shows only the wells with a check behind", async () => {
+    const base = teamData().well_rows[0];
+    serveTeam(
+      teamData({
+        well_rows: [
+          { ...base, well_name: "W-OK", figures: { counted: 2, done: 2, in_progress: 0, behind: 0, ready: true } },
+          { ...base, well_name: "W-LATE", figures: { counted: 2, done: 1, in_progress: 0, behind: 1, ready: false } },
+        ],
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/?lens=logistics&focus=behind"]}>
+        <TeamReadinessGrid projectId={PID} teamCode="logistics" />
+      </MemoryRouter>,
+    );
+    const wells = await screen.findByRole("region", { name: "Wells" });
+    expect(within(wells).getByText("W-LATE")).toBeInTheDocument();
+    expect(within(wells).queryByText("W-OK")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing only wells with a check behind")).toBeInTheDocument();
+    expect(screen.getByTestId("readiness-summary")).toHaveTextContent("1 well · all");
+
+    await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
+    await waitFor(() => expect(within(wells).getByText("W-OK")).toBeInTheDocument());
+  });
+
   it("explains an empty team", async () => {
     serveTeam(teamData({ checks: [], project_rows: [], well_rows: [] }));
     render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });

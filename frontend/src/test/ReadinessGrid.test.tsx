@@ -337,6 +337,16 @@ describe("ReadinessGrid", () => {
     expect(summary).toHaveTextContent("1 field project · all");
   });
 
+  it("?focus=behind (an Overview card's 'N behind') keeps only projects with a gate behind", async () => {
+    useWindowFixture();
+    renderAt("/?focus=behind");
+    await waitFor(() => screen.getByText("Far Field"));
+    expect(screen.queryByText("Near Field")).not.toBeInTheDocument();
+    expect(screen.getByText(/field\s+projects with a gate behind/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
+    await waitFor(() => screen.getByText("Near Field"));
+  });
+
   it("?focus=not-ready keeps the field projects the server says aren't ready", async () => {
     useWindowFixture();
     renderAt("/?focus=not-ready");

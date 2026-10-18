@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
-import { READINESS_FIGURES_HINT, readinessScope, readinessSubline } from "@/lib/readiness-figures";
+import { READINESS_FIGURES_HINT, readinessScope } from "@/lib/readiness-figures";
 import { HORIZON_DAYS } from "@/lib/readiness-window";
-import { PROJECTS_TEAM } from "@/components/readiness/catalog";
+import { ALL_LENS, PROJECTS_TEAM } from "@/components/readiness/catalog";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
 
@@ -23,51 +23,32 @@ const TILE_LINK_CLASS = `${TILE_CLASS} block transition-colors hover:border-prim
 function Tile({
   label,
   value,
-  valueNote,
   sub,
-  foot,
   tone = "neutral",
   to,
-  hint,
 }: {
   label: string;
   value: string;
-  /** Small word after the value naming it, e.g. "complete". */
-  valueNote?: string;
   sub?: string;
-  /** A second, quieter line — e.g. what the tile counts ("9 wells"). */
-  foot?: string;
   tone?: Tone;
   /** Destination tab — every tile deep-links to the page that acts on it. */
   to?: string;
-  /** Hover text explaining the figures. */
-  hint?: string;
 }) {
   const body = (
     <>
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${TONE[tone]}`}>
-        {value}
-        {valueNote ? (
-          <span className="ml-1.5 text-xs font-normal text-muted-foreground">{valueNote}</span>
-        ) : null}
-      </p>
+      <p className={`mt-1 text-2xl font-semibold ${TONE[tone]}`}>{value}</p>
       {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
-      {foot ? <p className="mt-0.5 text-[11px] text-muted-foreground/80">{foot}</p> : null}
     </>
   );
   if (to) {
     return (
-      <Link to={to} className={TILE_LINK_CLASS} title={hint}>
+      <Link to={to} className={TILE_LINK_CLASS}>
         {body}
       </Link>
     );
   }
-  return (
-    <div className={TILE_CLASS} title={hint}>
-      {body}
-    </div>
-  );
+  return <div className={TILE_CLASS}>{body}</div>;
 }
 
 /** Fleet demand over the plan window as a 2×2: kind (rigs / HWUs) ×
@@ -109,6 +90,71 @@ function FleetTile({ rigs, to }: { rigs: DashboardResponse["rigs"]; to: string }
         </div>
       </div>
     </Link>
+  );
+}
+
+/** One readiness card: the Complete %, then "on track · behind", then what it
+ *  counts (spec §3.7). The whole card opens the Readiness tab on its lens and
+ *  window; "N behind" is its own door, straight to the behind items. */
+function ReadinessCard({
+  label,
+  completePct,
+  onTrackPct,
+  behind,
+  scope,
+  to,
+  behindTo,
+}: {
+  label: string;
+  completePct: number | null;
+  onTrackPct: number | null;
+  behind: number;
+  scope: string;
+  to: string;
+  behindTo: string;
+}) {
+  const tone = readinessTone(completePct);
+  return (
+    <div
+      data-testid="readiness-card"
+      title={READINESS_FIGURES_HINT}
+      className={`relative ${TILE_CLASS} transition-colors focus-within:ring-2 focus-within:ring-primary/50 hover:border-primary/50 hover:bg-muted/30`}
+    >
+      {/* Stretched link: the whole card is the door; the "behind" link sits above it. */}
+      <Link
+        to={to}
+        className="block after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none"
+      >
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className={`mt-1 text-2xl font-semibold ${TONE[tone]}`}>
+          {completePct === null ? "—" : `${completePct}%`}
+          {completePct !== null && (
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">complete</span>
+          )}
+        </p>
+      </Link>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {onTrackPct === null ? (
+          "Nothing to count"
+        ) : (
+          <>
+            {onTrackPct}% on track ·{" "}
+            {behind > 0 ? (
+              <Link
+                to={behindTo}
+                className="relative z-10 font-medium text-destructive underline-offset-2 hover:underline"
+                title="Show only the items behind"
+              >
+                {behind} behind
+              </Link>
+            ) : (
+              "0 behind"
+            )}
+          </>
+        )}
+      </p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/80">{scope}</p>
+    </div>
   );
 }
 
@@ -230,11 +276,14 @@ const HORIZON_OPTIONS = [
 
 /** A readiness tile's door: the Readiness tab on that tile's lens and window, so
  *  the tab lists exactly what the tile counted (spec §3.7). */
-function readinessLink(base: string, lens: string, months: number): string {
+function readinessLink(base: string, lens: string, months: number, focus?: "behind"): string {
   const params = new URLSearchParams({ lens });
   if (months in HORIZON_DAYS) params.set("horizon", String(months));
+  if (focus) params.set("focus", focus);
   return `${base}/readiness?${params.toString()}`;
 }
+
+const FOCUS_KEY = "ds.overview-readiness-focus";
 
 function horizonSuffix(months: number): string {
   return months === 0 ? "all duration" : `next ${months} months`;
@@ -294,6 +343,36 @@ export function ProjectDashboard({
     }
   }
 
+  // Team focus — which readiness cards the Overview shows: "all" (the default:
+  // the campaign's full picture) or one team, e.g. to present Logistics alone.
+  // A personal view, never a permission: remembered per browser and carried in
+  // ?lens= so a focused link can be bookmarked or shared.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [savedFocus, setSavedFocus] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem(FOCUS_KEY) ?? ALL_LENS;
+    } catch {
+      return ALL_LENS;
+    }
+  });
+  function updateFocus(next: string) {
+    setSavedFocus(next);
+    try {
+      window.localStorage.setItem(FOCUS_KEY, next);
+    } catch {
+      // storage unavailable — the in-session choice still applies
+    }
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === ALL_LENS) params.delete("lens");
+        else params.set("lens", next);
+        return params;
+      },
+      { replace: true },
+    );
+  }
+
   // Breakdown panel collapse — same pattern as the "Rigs & well spuds" section:
   // open by default, in-session only.
   const [breakdownOpen, setBreakdownOpen] = useState(true);
@@ -320,6 +399,31 @@ export function ProjectDashboard({
   const base = `/projects/${projectId}`;
 
   const contractsAtRisk = contracts.expired + contracts.critical + contracts.soon;
+
+  // The readiness cards, Project gates first, then each team.
+  const cards = [
+    {
+      code: PROJECTS_TEAM,
+      label: "Project gates",
+      completePct: readiness.overall_pct,
+      onTrackPct: readiness.on_track_pct,
+      behind: readiness.behind_cells,
+      scope: readinessScope(readiness.focus_count, "projects"),
+    },
+    ...(data.team_readiness ?? []).map((t) => ({
+      code: t.team_code,
+      label: t.name,
+      completePct: t.overall_pct,
+      onTrackPct: t.on_track_pct,
+      behind: t.behind_cells,
+      scope: readinessScope(t.focus_count, t.unit),
+    })),
+  ];
+  const urlFocus = searchParams.get("lens");
+  const isCard = (code: string | null) => cards.some((c) => c.code === code);
+  const focus = isCard(urlFocus) ? urlFocus! : isCard(savedFocus) ? savedFocus : ALL_LENS;
+  const shownCards = focus === ALL_LENS ? cards : cards.filter((c) => c.code === focus);
+  const hiddenCount = cards.length - shownCards.length;
 
   // Breakdown data. (Plan firmness and rig idle gaps were retired from this
   // page 2026-07 — plan type reads off the grid/chart, idle gaps off the
@@ -355,45 +459,66 @@ export function ProjectDashboard({
           ONE window, picked here. Each card reads the same three figures
           (spec §3.7): Complete, then on track and behind, and what it counts. */}
       <section aria-label="Readiness" className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Readiness · {horizonSuffix(horizon)}
           </h2>
-          <select
-            aria-label="Readiness horizon"
-            value={String(horizon)}
-            onChange={(e) => updateHorizon(Number(e.target.value))}
-            className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-          >
-            {HORIZON_OPTIONS.map((h) => (
-              <option key={h.value} value={String(h.value)}>
-                {h.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            {cards.length > 1 && (
+              <select
+                aria-label="Readiness teams shown"
+                value={focus}
+                onChange={(e) => updateFocus(e.target.value)}
+                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+              >
+                <option value={ALL_LENS}>All teams</option>
+                {cards.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              aria-label="Readiness horizon"
+              value={String(horizon)}
+              onChange={(e) => updateHorizon(Number(e.target.value))}
+              className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+            >
+              {HORIZON_OPTIONS.map((h) => (
+                <option key={h.value} value={String(h.value)}>
+                  {h.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        {/* Say so when other teams are hidden — a focused screen must not pass
+            for the whole picture. */}
+        {hiddenCount > 0 && (
+          <p className="text-xs text-muted-foreground" data-testid="readiness-focus-note">
+            Focused on {shownCards[0].label} · {hiddenCount} other{" "}
+            {hiddenCount === 1 ? "team" : "teams"} hidden ·{" "}
+            <button
+              type="button"
+              onClick={() => updateFocus(ALL_LENS)}
+              className="font-medium text-primary hover:underline"
+            >
+              Show all
+            </button>
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Tile
-            to={readinessLink(base, PROJECTS_TEAM, horizon)}
-            label="Project gates"
-            value={readiness.overall_pct === null ? "—" : `${readiness.overall_pct}%`}
-            valueNote={readiness.overall_pct === null ? undefined : "complete"}
-            sub={readinessSubline({ ...readiness, behind: readiness.behind_cells })}
-            foot={readinessScope(readiness.focus_count, "projects")}
-            hint={READINESS_FIGURES_HINT}
-            tone={readinessTone(readiness.overall_pct)}
-          />
-          {(data.team_readiness ?? []).map((t) => (
-            <Tile
-              key={t.team_code}
-              to={readinessLink(base, t.team_code, horizon)}
-              label={t.name}
-              value={t.overall_pct === null ? "—" : `${t.overall_pct}%`}
-              valueNote={t.overall_pct === null ? undefined : "complete"}
-              sub={readinessSubline({ ...t, behind: t.behind_cells })}
-              foot={readinessScope(t.focus_count, t.unit)}
-              hint={READINESS_FIGURES_HINT}
-              tone={readinessTone(t.overall_pct)}
+          {shownCards.map((c) => (
+            <ReadinessCard
+              key={c.code}
+              label={c.label}
+              completePct={c.completePct}
+              onTrackPct={c.onTrackPct}
+              behind={c.behind}
+              scope={c.scope}
+              to={readinessLink(base, c.code, horizon)}
+              behindTo={readinessLink(base, c.code, horizon, "behind")}
             />
           ))}
         </div>
@@ -424,23 +549,26 @@ export function ProjectDashboard({
             id="dashboard-breakdown"
             className="grid grid-cols-1 gap-3 border-t border-border/60 p-3 lg:grid-cols-2"
           >
-            {/* Follows the Readiness group's window (picked in its header). */}
-            <BreakdownCard title={`Readiness by gate · ${horizonSuffix(horizon)}`}>
-              {readiness.by_gate.length ? (
-                <div className="space-y-1.5">
-                  {readiness.by_gate.map((g) => (
-                    <GateRow key={g.code} gate={g} />
-                  ))}
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
-                    <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
-                    <span><span style={{ color: GATE_COLORS.on_track }}>●</span> On track</span>
-                    <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
+            {/* Follows the Readiness group's window (picked in its header); a
+                Project gates card, so a focus on another team hides it. */}
+            {(focus === ALL_LENS || focus === PROJECTS_TEAM) && (
+              <BreakdownCard title={`Readiness by gate · ${horizonSuffix(horizon)}`}>
+                {readiness.by_gate.length ? (
+                  <div className="space-y-1.5">
+                    {readiness.by_gate.map((g) => (
+                      <GateRow key={g.code} gate={g} />
+                    ))}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
+                      <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
+                      <span><span style={{ color: GATE_COLORS.on_track }}>●</span> On track</span>
+                      <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No data yet.</p>
-              )}
-            </BreakdownCard>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No data yet.</p>
+                )}
+              </BreakdownCard>
+            )}
 
             <BreakdownCard
               title={`Activity-type mix · ${horizonSuffix(mixHorizon)}`}

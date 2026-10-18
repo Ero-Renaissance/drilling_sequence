@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, Lock, RefreshCw } from "lucide-react";
 import {
   getTeamReadiness,
@@ -71,6 +72,19 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [months, setMonths] = useReadinessWindow();
+  // ?focus=behind — only the targets with a check behind (an Overview card's
+  // "N behind" opens this); cleared from the banner.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const behindFocus = searchParams.get("focus") === "behind";
+  const clearFocus = () =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.delete("focus");
+        return params;
+      },
+      { replace: true },
+    );
 
   // Only the newest load may apply its data — a slow response from before a
   // later write can't overwrite the rows (and the summary) that write reloaded.
@@ -94,7 +108,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPageIndex(0), [search, teamCode, months]);
+  useEffect(() => setPageIndex(0), [search, teamCode, months, behindFocus]);
 
   const canEdit =
     !!user &&
@@ -128,19 +142,23 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
       (data?.well_rows ?? []).filter(
         (r) =>
           inWindow(r, months) &&
+          (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
           (!q ||
             r.well_name.toLowerCase().includes(q) ||
             r.well_project.toLowerCase().includes(q) ||
             r.activity_type.toLowerCase().includes(q)),
       ),
-    [data, q, months],
+    [data, q, months, behindFocus],
   );
   const projects = useMemo(
     () =>
       (data?.project_rows ?? []).filter(
-        (r) => inWindow(r, months) && (!q || r.well_project.toLowerCase().includes(q)),
+        (r) =>
+          inWindow(r, months) &&
+          (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
+          (!q || r.well_project.toLowerCase().includes(q)),
       ),
-    [data, q, months],
+    [data, q, months, behindFocus],
   );
   const pageCount = Math.max(1, Math.ceil(wells.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -208,6 +226,21 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
           </div>
         </div>
 
+        {behindFocus && (
+          <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+            <span>
+              Showing only {hasWellChecks ? "wells" : "field projects"} with a check behind
+            </span>
+            <button
+              type="button"
+              onClick={clearFocus}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Clear filter
+            </button>
+          </div>
+        )}
+
         {!canEdit && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="h-3.5 w-3.5" />
@@ -234,7 +267,9 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                   <p className="text-xs text-muted-foreground">
                     {q
                       ? "No field projects match."
-                      : months
+                      : behindFocus
+                        ? "No field projects with a check behind."
+                        : months
                         ? `No field projects have readiness-required work starting in the next ${months} months.`
                         : "No field projects have readiness work left."}
                   </p>
@@ -319,6 +354,8 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                   <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
                     {q ? (
                       <>No wells match &ldquo;{search}&rdquo;.</>
+                    ) : behindFocus ? (
+                      "No wells with a check behind."
                     ) : months ? (
                       `No wells have readiness-required work starting in the next ${months} months.`
                     ) : (

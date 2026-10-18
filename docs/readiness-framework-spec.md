@@ -496,6 +496,14 @@ the choice is remembered per user (`ds.readiness-lens`) and carried in `?lens=`.
   first by team order). This is a **convenience, not a restriction** — reads are
   org-wide, so anyone can switch to any lens.
 - New teams (Supply Chain) appear as a new lens automatically, from the catalog.
+- **Overview and Presentation (2026-10-18).** The Overview's Readiness group (one
+  card per team, one window) has a team picker too — "All teams" by default, so
+  the campaign's full picture is what opens; a focused Overview says so ("Focused
+  on Logistics · 1 other team hidden · Show all") and is remembered per browser
+  and carried in `?lens=`. The Presentation page follows the chart's lens (its
+  link carries `?lens=`) and names it ("Readiness: Logistics"). A card's
+  "N behind" opens the Readiness tab with `?focus=behind`: only the field
+  projects / wells with a check behind.
 
 ### 8.2 Readiness page
 

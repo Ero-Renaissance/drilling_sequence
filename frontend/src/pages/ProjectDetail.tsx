@@ -380,8 +380,10 @@ function ResourceConflictBanner({ conflicts }: { conflicts: ResourceConflict[] }
 function presentTo(
   projectId: string,
   filters: { projects: string[]; locations: string[]; activities: string[] },
+  lens: string,
 ): string {
-  const params = new URLSearchParams();
+  // The chart's team view travels too, so the room sees what the presenter chose.
+  const params = new URLSearchParams({ lens });
   filters.projects.forEach((p) => params.append("projects", p));
   filters.locations.forEach((l) => params.append("locations", l));
   filters.activities.forEach((t) => params.append("activities", t));
@@ -570,7 +572,7 @@ export function ChartTab() {
         </Button>
         {projectId && (
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
-            <NavLink to={presentTo(projectId, chartFilters)}>
+            <NavLink to={presentTo(projectId, chartFilters, lens)}>
               <MonitorPlay className="h-4 w-4" />
               <span className="ml-1.5">Present</span>
             </NavLink>

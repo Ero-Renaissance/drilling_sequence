@@ -174,18 +174,22 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
   //    within it. Completed or opted-out projects have none, so they drop out
   //    under every window — exactly the set the Overview tile counts;
   //  • ?focus=not-ready → only those that aren't ready (server-decided);
+  //  • ?focus=behind → only those with a gate behind (an Overview card's
+  //    "N behind" opens this);
   //  • the text search.
   // The summary adds up exactly the rows that pass, across every page.
   const [horizon, setHorizon] = useReadinessWindow();
   const notReadyFocus = searchParams.get("focus") === "not-ready";
+  const behindFocus = searchParams.get("focus") === "behind";
   const scopedRows = rows.filter((r) => inWindow(r, horizon));
   const filteredRows = scopedRows.filter((r) => {
     if (q && !r.well_project.toLowerCase().includes(q)) return false;
     // Ready is the server's call; checksReady only covers a row without figures.
     if (notReadyFocus && (r.figures ? r.figures.ready : checksReady(r.checks))) return false;
+    if (behindFocus && !(r.figures && r.figures.behind > 0)) return false;
     return true;
   });
-  const filtering = Boolean(q) || notReadyFocus;
+  const filtering = Boolean(q) || notReadyFocus || behindFocus;
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visibleRows = filteredRows.slice(safeIndex * pageSize, safeIndex * pageSize + pageSize);
@@ -206,6 +210,21 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
           <span>
             <span className="font-semibold">{filteredRows.length}</span> shown — field
             projects that are not yet ready
+          </span>
+          <button
+            type="button"
+            onClick={clearFocus}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
+      {behindFocus && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+          <span>
+            <span className="font-semibold">{filteredRows.length}</span> shown — field
+            projects with a gate behind
           </span>
           <button
             type="button"
