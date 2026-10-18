@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 vi.mock("@/api/dashboard", () => ({ fetchDashboard: vi.fn() }));
 
@@ -51,6 +51,11 @@ const LOGISTICS_TILE = {
   team_code: "logistics", name: "Logistics", icon_key: "truck", unit: "wells" as const,
   focus_count: 4, overall_pct: 25, on_track_pct: 70, behind_cells: 3, ready: 1, ready_of: 4,
 };
+
+/** Shows the router's current query string — what a shared link would carry. */
+function SearchProbe() {
+  return <span data-testid="search">{useLocation().search}</span>;
+}
 
 /** A readiness card by its label (the card, not just its main link). */
 function card(label: RegExp): HTMLElement {
@@ -265,6 +270,38 @@ describe("ProjectDashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     expect(within(group).getAllByTestId("readiness-card")).toHaveLength(2);
     expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+  });
+
+  it("an all-teams link opens on every team, even with a saved single-team focus", async () => {
+    window.localStorage.setItem("ds.overview-readiness-focus", "logistics");
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
+    renderDash("/?lens=all");
+    const group = await screen.findByRole("region", { name: "Readiness" });
+    expect(within(group).getAllByTestId("readiness-card")).toHaveLength(2);
+    expect(screen.queryByTestId("readiness-focus-note")).not.toBeInTheDocument();
+  });
+
+  it("'Show all' puts lens=all in the link, so sharing it opens on every team", async () => {
+    window.localStorage.setItem("ds.overview-readiness-focus", "logistics");
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
+    const first = render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ProjectDashboard projectId="p1" />
+        <SearchProbe />
+      </MemoryRouter>,
+    );
+    // The saved focus applies without a link…
+    await screen.findByTestId("readiness-focus-note");
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    // …and "Show all" is written into the link, not just removed from it.
+    expect(screen.getByTestId("search")).toHaveTextContent("?lens=all");
+    first.unmount();
+
+    // A recipient whose own saved focus is Logistics opens that link: all teams.
+    window.localStorage.setItem("ds.overview-readiness-focus", "logistics");
+    renderDash("/?lens=all");
+    const group = await screen.findByRole("region", { name: "Readiness" });
+    expect(within(group).getAllByTestId("readiness-card")).toHaveLength(2);
   });
 
   it("a ?lens= link opens the Overview focused on that team", async () => {

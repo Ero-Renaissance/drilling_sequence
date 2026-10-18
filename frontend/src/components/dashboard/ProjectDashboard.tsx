@@ -362,11 +362,12 @@ export function ProjectDashboard({
     } catch {
       // storage unavailable — the in-session choice still applies
     }
+    // Keep "all" in the URL too: a shared all-teams link must open on all teams,
+    // not fall back to the recipient's own saved focus.
     setSearchParams(
       (prev) => {
         const params = new URLSearchParams(prev);
-        if (next === ALL_LENS) params.delete("lens");
-        else params.set("lens", next);
+        params.set("lens", next);
         return params;
       },
       { replace: true },
@@ -419,9 +420,11 @@ export function ProjectDashboard({
       scope: readinessScope(t.focus_count, t.unit),
     })),
   ];
+  // The link's ?lens= wins (all teams included), then the saved focus, then All.
   const urlFocus = searchParams.get("lens");
-  const isCard = (code: string | null) => cards.some((c) => c.code === code);
-  const focus = isCard(urlFocus) ? urlFocus! : isCard(savedFocus) ? savedFocus : ALL_LENS;
+  const isFocus = (code: string | null) =>
+    code === ALL_LENS || cards.some((c) => c.code === code);
+  const focus = isFocus(urlFocus) ? urlFocus! : isFocus(savedFocus) ? savedFocus : ALL_LENS;
   const shownCards = focus === ALL_LENS ? cards : cards.filter((c) => c.code === focus);
   const hiddenCount = cards.length - shownCards.length;
 
