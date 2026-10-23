@@ -8,7 +8,7 @@ this doc.
 
 ---
 
-## 1. The two kinds of role
+## 1. The two kinds of role (and the readiness team grant)
 
 ### Global: `admin`
 A single boolean on the user (`User.is_admin`). It is **per-user and global**, not
@@ -31,6 +31,20 @@ planner | reviewer | approver | viewer
 The user who **creates** a project is added as `planner` (`projects.py:92`); a clone's
 creator likewise becomes `planner` (`projects.py:150`).
 
+### Global: readiness team grants (`UserTeamGrant`)
+Not a role: one `user_team_grants` row per user per readiness team (unique
+`(user_id, team_code)`). An admin grants and revokes them on the **Admin** page
+(`PUT /api/admin/users/{id}/teams`), each audited (`team_grant_granted` /
+`team_grant_revoked`); they are **never auto-granted**. Only an active,
+grant-edited team can be granted (otherwise `422`) — the built-in `projects` team
+(the Project gates) belongs to campaign planners and is never granted.
+
+A grant is **global**: it covers every campaign, without project membership. It lets
+the user write **one team's readiness checks** (Wells, Logistics, …) — their statuses
+and which of them apply to a field project or well (the tick list) — and confers
+**nothing else**: no schedule edits, no Project gates, no submit/sign/approve.
+`assert_can_edit_check` (§2) is the only place it is checked.
+
 ---
 
 ## 2. The three authorization helpers
@@ -44,6 +58,7 @@ is deny.
 | `assert_member(pid, user, db, allowed_roles={ProjectRole.planner})` | global admin, **or** a member whose role is `planner` | all writes / mutations |
 | `assert_can_view(pid, user, db)` | global admin, **or** a designated signer (approver/reviewer) by email, **or** any member | view revision **diffs** / Compare |
 | `assert_can_sign(pid, user, db)` | global admin, **or** a designated **approver** (by email, `kind="approver"`) | sign / approve / decline a revision |
+| `assert_can_edit_check(pid, *, team_code, editor_source, user, db)` | global admin; for the planner-edited `projects` team, as `assert_member(…, allowed_roles={planner})`; for a grant-edited team, a holder of **that team's** grant (§1) — else `403 "Insufficient role for this action"` | every readiness write: status PUT, Reset to project, and the applicability (tick list) PUT |
 
 `assert_can_view` is deliberately **broader than membership**: a designated signer is
 matched by **lowercased email** and may not be a `ProjectMember` at all, yet must be able
@@ -72,7 +87,8 @@ right-hand columns for who may sign.
 | **Sign off review** / request review-changes (review stage) | ❌ | ❌ | ❌ | ❌ | ✅ | ✅¹ | ❌ |
 | **Sign** / reject / request-changes (approval stage) | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅¹ |
 | Edit activities (create/update/delete/import) | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
-| Edit readiness checks | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Edit the Project gates (status, incl. N/A) | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
+| Edit a team's readiness checks — Wells, Logistics, … (status + which apply) | ❌ | ❌ | ❌ | ❌ | ✅ | — | — |
 | Edit rig contracts | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
 | Submit a revision (+ pick the route) | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
 | Discard a revision | ❌ | ❌ | ❌ | ✅ | ✅ | — | — |
@@ -84,14 +100,22 @@ right-hand columns for who may sign.
 reviewer can request changes (bounce back) but **cannot** terminally reject — that stays
 with approvers.
 
+**Team readiness checks** are written by a holder of that team's grant (§1) in any
+campaign, plus admins — no role grants them, and a Wells grantee can't write a
+Logistics check. Every readiness write also takes the campaign write lock
+(`lock_campaign_writes`) after the authorization check. While the plan is locked
+(pending or approved) a Project-gate status write is refused with `423`; team checks
+and their ticks never are.
+
 > **Signing is not a role capability.** The `reviewer`/`approver`/`planner` columns are
 > all ❌ for both sign rows: a *role* never grants signing. Only a global admin, a
 > **designated reviewer** (review stage), or a **designated approver** (approval stage) —
 > each matched by email (`ProjectApprover.kind`) — may sign, independent of project
 > membership.
 
-So the per-project roles really gate two things: `planner` (the only writer + route
-picker) and everyone else (read-only). The `reviewer`/`approver` *roles* grant nothing
+So the per-project roles really gate two things: `planner` (the only writer of the plan
+and the Project gates + route picker) and everyone else (read-only; team readiness is
+the team grants' business, §1). The `reviewer`/`approver` *roles* grant nothing
 beyond read access; the **email matrices** carry all sign-off authority. See
 `docs/review-approval-workflow-spec.md` for the full two-stage state machine.
 
@@ -176,8 +200,11 @@ This is an **integrity** rule: admin bypasses *access* checks, but not this one.
 
 Every governance action — submit (`submitted_for_review` / `submitted_for_approval`),
 `review_signed`, `review_completed`, `review_changes_requested`, sign, approve, reject,
-request-changes, discard, reviewer/approver add/remove, `review_policy_changed`, and
-project create/clone — emits an append-only event via
+request-changes, discard, reviewer/approver add/remove, `review_policy_changed`,
+project create/clone, readiness team grant/revoke (`team_grant_granted` /
+`team_grant_revoked`), readiness catalog changes, readiness status changes
+(`readiness_updated`) and applicability changes (`readiness_applicability_changed`)
+— emits an append-only event via
 `app/services/audit.py::governance_event`. The audit log is **read-only**: there is no
 update/delete endpoint for it.
 

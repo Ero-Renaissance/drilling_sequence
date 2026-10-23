@@ -42,8 +42,13 @@ viewer on another.
 | Role | Can do |
 |---|---|
 | **Viewer / Reviewer / Approver (member roles)** | Read everything: the schedule, readiness, history. These roles control editing/visibility only — none of them, on their own, lets you sign. |
-| **Planner** | The schedule owner: create/edit activities, manage readiness and contracts, designate reviewers/approvers, set the review policy, submit for approval, clone the project. |
+| **Planner** | The schedule owner: create/edit activities, set the Project gates and contracts, designate reviewers/approvers, set the review policy, submit for approval, clone the project. |
 | **Admin** (global) | Application-wide administration; can act across all projects. Managed on the **Admin** page. |
+
+**Readiness team grants** are separate from the roles above. An admin can give you
+the grant for one readiness team (e.g. **Wells** or **Logistics**) on the **Admin**
+page; it lets you update that team's readiness checks in **every** campaign, and
+nothing else — no schedule edits, no Project gates, no signing.
 
 **Who actually signs** is set separately, by **email**, on the project's **Approvals**
 settings — independent of the roles above (signers may even be people outside the
@@ -89,6 +94,8 @@ Things to look for:
   the *same rig* whose dates overlap. A rig can only be in one place at a time, so
   this is physically impossible and must be fixed (see §8).
 - **Small icons under a bar** — the readiness checks for that activity, at a glance.
+  The lens picker chooses which team's icons you see (see §7); a Wells or
+  Logistics check that doesn't apply to the activity has no icon.
 - **A small alarm-clock next to a rig name** — that rig's contract is expiring; the
   colour shows how urgent (green = healthy → red = expired).
 - **Focus year buttons** (above the chart: `All 2026 2027 …`) — click a year to zoom
@@ -135,9 +142,10 @@ example rows — fill it in and upload it.
 | `Comment` | free text. |
 
 Tips:
-- **Readiness isn't set here.** Set each activity's readiness checks
-  (FDP/LLI/LOC/FE/FID/EIA/BUD/CON) on the **Readiness** tab — that's what shows
-  on the chart. The importer only creates activities.
+- **Readiness isn't set here.** Set readiness — the Project gates
+  (FDP/LLI/LOC/FE/FID/EIA/BUD) and the Wells and Logistics checks — on the
+  **Readiness** tab (see §7); that's what shows on the chart. The importer only
+  creates activities.
 - **Rig contracts aren't set here either.** A rig has one contract per project — set
   its **start and end dates** (and status) on the **Contracts** tab, which drives the
   contract-expiry indicators on the chart.
@@ -157,10 +165,34 @@ the project for the next quarter.
 
 ## 7. Readiness checks
 
-On the **Readiness** tab, each activity has a set of gates. Set each to a status:
-**Not Started, In Progress, Completed, Behind, or N/A**.
+Readiness checks belong to **teams**. A **lens** picker — on the Readiness tab, the
+chart and the prints — chooses whose checks you see: **Project gates**,
+**Logistics**, any other team an admin has added (e.g. **Wells**), or **All**. It
+opens on your own team, but anyone can switch to any lens.
 
-The checks (oil & gas specific):
+| Team | Who sets it | Set per | Frozen when the plan is submitted? |
+|---|---|---|---|
+| **Project gates** | The campaign's planners | Field project (shared by its wells) | **Yes** — and it stays frozen once approved |
+| **Logistics** | Holders of the Logistics team grant | Field project; a well can override it | No — always editable |
+| **Wells** (and future teams) | Holders of that team's grant | Well (or as an admin sets it up) | No — always editable |
+
+Admins can update any team's checks.
+
+### Statuses
+
+Every check shows one of:
+- **On Track** (amber) — the default: nobody has reported a problem.
+- **Completed** (green) — done.
+- **Behind** (red) — something is holding it up.
+- **N/A** (grey) — **Project gates only**: the gate doesn't apply to that field
+  project. It isn't counted.
+
+Readiness is summarised in three figures, e.g. **"50% complete · 83% on track · 1
+behind"**: *complete* counts only what's Completed, *on track* adds what's On
+Track, and *behind* is the number of checks marked Behind. Where nothing counts, the
+figures read "—".
+
+### The Project gates
 
 | Code | Meaning |
 |---|---|
@@ -171,9 +203,46 @@ The checks (oil & gas specific):
 | **FID** | Final Investment Decision |
 | **EIA** | Environmental Assessment |
 | **BUD** | Budget |
-| **CON** | Contract |
 
-These statuses also show as the little icons under each bar on the chart, so anyone
+The old **CON** (Contract) gate has been retired: a rig's contract shows as the
+alarm clock next to the rig name on the chart instead.
+
+### Logistics checks
+
+| Code | Meaning |
+|---|---|
+| **L-BUD** | Budget Availability |
+| **CTR** | Contract Availability |
+| **FFP** | Assurance / FFP Inspection |
+| **CTS** | Community Trust and Support |
+| **PO** | Purchase Order |
+| **NAV** | Naval Clearance |
+
+A Logistics status set on a field project applies to all its wells (shown greyed
+"from project") until a well sets its own; **Reset to project** puts the well back.
+Nominated Equipment (NEQ) has been withdrawn; past revisions still show it as
+recorded.
+
+### Checks that apply (Wells, Logistics and other teams)
+
+Not every check matters everywhere — Naval Clearance means nothing for a land well.
+In the Wells and Logistics grids, each field-project and well row has a **Checks…**
+button (an activity's Readiness panel has one per team too). It lists the team's
+checks, **all ticked by default**: untick the ones that don't apply and **Save**.
+
+- An unticked check has **no icon** on the chart or in prints, shows **"—"** in the
+  grid ("Not applicable"), and isn't counted in any figure.
+- Its status is kept: tick it again and it comes back as it was. To change its
+  status, tick it first.
+- A well follows its field project's ticks ("from project") until you make a
+  different choice on the well ("set on this well"); **Follow project** undoes it.
+- Ticks stay editable at any time, even while the plan is locked. No reason is
+  asked for an untick.
+
+The Project gates have no tick list: a gate that doesn't apply is set to **N/A**,
+as before.
+
+The statuses also show as the little icons under each bar on the chart, so anyone
 can see at a glance what's holding an activity back.
 
 ---
@@ -213,7 +282,7 @@ This is how a plan becomes "official."
         ▼
  APPROVAL stage — each approver signs
         │
-        ├─ all designated approvers signed (and there's ≥1)  ──►  APPROVED ✅
+        ├─ all designated approvers signed (and there's ≥1)  ──►  APPROVED ✅ (plan stays locked)
         ├─ an approver Rejects (with a reason)               ──►  REJECTED ⛔ (final)
         └─ an approver Requests changes (with a reason)      ──►  sent back for edits ✏️
 ```
@@ -227,19 +296,26 @@ This is how a plan becomes "official."
 
 Key rules to know:
 - **Submitting locks the plan.** While a revision is open (in review *or* awaiting
-  approval), the activities/readiness/contracts are frozen so signers see a stable
-  snapshot. (Editing a locked item is refused.)
+  approval), the activities, the Project gates and the contracts are frozen so
+  signers see a stable snapshot. (Editing a locked item is refused.) Wells and
+  Logistics readiness — statuses and ticks — stay editable: the revision records
+  them "as at submission" for reference.
+- **Approval keeps the plan locked.** The approved version is the official record,
+  so the live plan can't drift from it. To change an approved plan, a planner clicks
+  **Revise Plan** on the lock banner; the changes then go through approval again.
 - **All designated reviewers must sign** for a revision to leave the review stage;
   **all designated approvers** must sign (and there must be ≥1) for it to be approved.
 - **Reviewers can bounce, not kill.** A reviewer can **Request changes** but cannot
   reject — the final **Reject** belongs to approvers.
 - **You can't sign off your own plan** (separation of duties). If you submitted it,
   someone else must review/approve it; you can only discard it.
-- **Both "decline" outcomes need a reason** (1–2000 characters); either way the plan
-  unlocks so the planner can revise and resubmit.
+- **Both "decline" outcomes need a reason** (1–2000 characters); either way (or if
+  the revision is discarded) the plan unlocks so the planner can revise and
+  resubmit.
 - **Everything is logged.** Submit, review sign-off, sign, approve, reject, discard,
-  reviewer/approver add/remove, review-policy changes, project create/clone — all
-  captured on the **Activity Log**.
+  Revise Plan, reviewer/approver add/remove, review-policy changes, project
+  create/clone, readiness changes (statuses and which checks apply) — all captured
+  on the **Activity Log**.
 
 You'll be notified (by email, if configured) when a plan needs your **review** or your
 **signature**. Open the project → **Approvals** → review the changes → sign off / request
@@ -283,7 +359,10 @@ You then adjust the clone and run it through the approval workflow again.
 - **Plan type** — `Firm` (committed), `Option` (possible), `Out of Plan` (not in the
   baseline).
 - **Risk** — `Low`, `Medium`, `High`.
-- **Readiness statuses** — `Not Started`, `In Progress`, `Completed`, `Behind`, `N/A`.
+- **Readiness statuses** — `On Track` (the default), `Completed`, `Behind`; the
+  Project gates also use `N/A`.
+- **Not applicable** — a Wells or Logistics check unticked for a field project or
+  well (§7): no icon, not counted.
 
 ---
 
@@ -299,9 +378,11 @@ outline on the chart). Resolve the overlap, then resubmit.
 designated approver**, and **all** of them must sign. With zero approvers it stays
 pending on purpose.
 
-**Why can't I edit the plan right now?** It's probably **locked** because a revision
-is pending approval. It unlocks once the revision is approved, rejected, or sent
-back.
+**Why can't I edit the plan right now?** It's **locked** because a revision is
+pending, or because the plan has been approved. A pending revision unlocks the plan
+when it's rejected, sent back, or discarded. An approved plan **stays locked** until
+a planner clicks **Revise Plan**. Wells and Logistics readiness stay editable either
+way.
 
 **A bar looks "off" / has a red border.** That red border means a rig double-booking
 — it's the app warning you, not a display glitch.
