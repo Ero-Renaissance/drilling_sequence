@@ -7,7 +7,6 @@ import {
   type CatalogCheck,
   type CatalogTeam,
   type CheckState,
-  type CheckStatus,
   type TeamReadiness,
 } from "@/api/readiness";
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,7 @@ import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
 import { useAuthStore } from "@/store/auth";
 import { teamValuesFor } from "@/lib/readiness-lens";
-import { summariseTeam, summaryLine, type TeamCheckDetail } from "@/lib/team-summary";
+import { summariseTeam, summaryLine, teamDetails } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
 import { focusStartOf, inWindow } from "@/lib/readiness-window";
 import { ReadinessDot } from "./ReadinessDot";
@@ -27,7 +26,7 @@ import {
   useReadinessTeams,
   type Lens,
 } from "./catalog";
-import { STATUS_ICON_COLOR } from "./check-meta";
+import { NOTHING_APPLIES, NOT_APPLICABLE, STATUS_ICON_COLOR, applies } from "./check-meta";
 import { checkIcon } from "./icon-registry";
 import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
 
@@ -39,14 +38,19 @@ interface WellRow {
   start_date: string;
 }
 
-type Values = Record<string, CheckState & { source?: string; inherited_tags?: string[] }>;
+// Project-gate cells (no `applies`) or a team's cells (with `applies`).
+type Values = Record<string, CheckState & { source?: string; applies?: boolean }>;
 
 /**
  * Every team at once — the "All" view of the Readiness page. One row per well
  * activity; one column group per team. A group collapses to a single column
  * showing that team's WORST status, so the full picture stays readable; only the
  * user's own team starts expanded. Read-only: a group header opens that team's
- * view, where changes are made.
+ * view, where changes are made (including which checks apply).
+ *
+ * A team check that doesn't apply to a well (spec §3.8) shows a muted "—" in
+ * its column; a folded team is the worst of the checks that apply, "—" when
+ * none does. The Project gates read as they always have, N/A drawn grey.
  */
 export function AllReadinessGrid({
   projectId,
@@ -325,7 +329,7 @@ export function AllReadinessGrid({
                               key={c.code}
                               className={cn("px-1 py-2 text-center", i === 0 && "border-l border-border/60")}
                             >
-                              {state ? (
+                              {state && applies(state, c) ? (
                                 <div className="flex justify-center">
                                   <ReadinessDot
                                     code={c.code}
@@ -334,7 +338,13 @@ export function AllReadinessGrid({
                                   />
                                 </div>
                               ) : (
-                                <span className="text-xs text-muted-foreground/50">—</span>
+                                // Unticked keeps its status underneath — never shown here.
+                                <span
+                                  className="text-xs text-muted-foreground/50"
+                                  title={state ? `${c.label}: ${NOT_APPLICABLE}` : undefined}
+                                >
+                                  —
+                                </span>
                               )}
                             </td>
                           );
@@ -364,8 +374,9 @@ export function AllReadinessGrid({
   );
 }
 
-/** A folded team: its icon, coloured by the worst of its checks on this well;
- *  its hover text is the same summary the chart's All tooltip gives. */
+/** A folded team: its icon, coloured by the worst of its checks that apply on
+ *  this well ("—" when none does); its hover text is the same summary the
+ *  chart's All tooltip gives. */
 function TeamWorst({
   team,
   checks,
@@ -375,21 +386,17 @@ function TeamWorst({
   checks: CatalogCheck[];
   values: Values | undefined;
 }) {
-  const details: TeamCheckDetail[] = checks
-    .filter((c) => values?.[c.code])
-    .map((c) => {
-      const v = values![c.code];
-      return {
-        code: c.code,
-        label: c.label,
-        status: v.status as CheckStatus,
-        ...(c.tag_list
-          ? { tags: [...new Set([...(v.inherited_tags ?? []), ...(v.tags ?? [])])] }
-          : {}),
-      };
-    });
+  const details = teamDetails(checks, values);
   const summary = summariseTeam(details);
-  if (!summary) return <span className="text-xs text-muted-foreground/50">—</span>;
+  if (!summary) {
+    // No cell here at all, or none of the team's checks applies: no badge.
+    const label = details.length > 0 ? `${lensLabel(team)}: ${NOTHING_APPLIES}` : undefined;
+    return (
+      <span className="text-xs text-muted-foreground/50" title={label}>
+        —
+      </span>
+    );
+  }
   const worst = summary.worst;
   const Icon = checkIcon(team.icon_key);
   const label = `${lensLabel(team)}: ${summaryLine(summary)}`;

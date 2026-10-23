@@ -16,7 +16,7 @@ from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
-from app.models.readiness import ReadinessEntry, ReadinessEntryTag
+from app.models.readiness import ReadinessApplicability, ReadinessEntry
 from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -34,6 +34,7 @@ from app.schemas.project import (
     ProjectUpdate,
 )
 from app.services.audit import ENTITY_PROJECT, governance_event
+from app.services.readiness_catalog import withdrawn_check_codes
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -163,7 +164,8 @@ async def clone_project(
     db: DB,
 ) -> ProjectResponse:
     """Create a new project from an existing one — copies activities, their
-    readiness checks, and the required-approver list. Revision/signature history
+    readiness values (statuses and which checks apply), and the required-approver
+    list. Revision/signature history
     is NOT copied; the clone starts a fresh approval cycle. Activity dates are
     kept as-is. The current user becomes the Planner of the clone. Restricted to a
     Planner on the source project (which, via assert_member, also requires the
@@ -240,42 +242,57 @@ async def clone_project(
 
     # Carry the readiness entries over. Keyed by names (field project [+ well +
     # activity type]), not activity ids, so no id remap is needed — the clone keeps
-    # the same projects and wells, so their statuses come with them.
+    # the same projects and wells, so their statuses come with them. Withdrawn
+    # checks (NEQ, spec §4.4) are skipped, so dead data stops travelling into
+    # every new campaign; a check that is merely retired — and may be restored —
+    # is still copied. Their tags aren't copied either: only a check with a tag
+    # list ever carried tags, and every such check is withdrawn (spec §6).
+    withdrawn = await withdrawn_check_codes(db)
     source_gates = (
         await db.execute(
             select(ReadinessEntry).where(ReadinessEntry.project_id == project_id)
         )
     ).scalars().all()
-    cloned_entry_by_source: dict[uuid.UUID, ReadinessEntry] = {}
     for gate in source_gates:
-        cloned_entry = ReadinessEntry(
-            project_id=clone.id,
-            check_code=gate.check_code,
-            scope=gate.scope,
-            well_project=gate.well_project,
-            well_name=gate.well_name,
-            activity_type=gate.activity_type,
-            status=gate.status,
-            notes=gate.notes,
-            updated_by=current_user.id,
+        if gate.check_code in withdrawn:
+            continue
+        db.add(
+            ReadinessEntry(
+                project_id=clone.id,
+                check_code=gate.check_code,
+                scope=gate.scope,
+                well_project=gate.well_project,
+                well_name=gate.well_name,
+                activity_type=gate.activity_type,
+                status=gate.status,
+                notes=gate.notes,
+                updated_by=current_user.id,
+            )
         )
-        db.add(cloned_entry)
-        cloned_entry_by_source[gate.id] = cloned_entry
-    # ...and their tags (e.g. nominated equipment), re-linked to the new entries.
-    if cloned_entry_by_source:
-        await db.flush()
-        for entry_id, item_code in (
-            await db.execute(
-                select(ReadinessEntryTag.entry_id, ReadinessEntryTag.item_code).where(
-                    ReadinessEntryTag.entry_id.in_(list(cloned_entry_by_source))
-                )
+    # ...and which checks apply where (phase 6, spec §3.8), keyed the same way —
+    # so a check a team unticked stays unticked next quarter.
+    source_choices = (
+        await db.execute(
+            select(ReadinessApplicability).where(
+                ReadinessApplicability.project_id == project_id
             )
-        ).all():
-            db.add(
-                ReadinessEntryTag(
-                    entry_id=cloned_entry_by_source[entry_id].id, item_code=item_code
-                )
+        )
+    ).scalars().all()
+    for choice in source_choices:
+        if choice.check_code in withdrawn:
+            continue
+        db.add(
+            ReadinessApplicability(
+                project_id=clone.id,
+                check_code=choice.check_code,
+                scope=choice.scope,
+                well_project=choice.well_project,
+                well_name=choice.well_name,
+                activity_type=choice.activity_type,
+                applies=choice.applies,
+                updated_by=current_user.id,
             )
+        )
 
     # Carry the rig contracts over so the new quarter starts from the same contract
     # state — otherwise the clone has no contracts, the expiry markers read as unset,

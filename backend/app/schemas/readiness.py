@@ -1,9 +1,17 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StrictBool,
+    StringConstraints,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
-from app.models.readiness import ICON_KEYS, STATUS_SETS, TAG_LISTS
+from app.models.readiness import ICON_KEYS, STATUS_SETS, is_history_only, is_withdrawn
 
 # Check codes and statuses are no longer fixed enums here: codes come from the
 # admin-curated catalog and statuses from each check's code-defined status set
@@ -14,15 +22,32 @@ Severity = Literal["done", "in_progress", "blocked", "not_counted"]
 
 
 class CheckState(BaseModel):
+    """One cell's status. The Project gates' shape (``GET /readiness``): a gate
+    that doesn't apply simply reads N/A (decision 31). ``tags`` left with
+    Nominated Equipment (phase 6, spec §3.5)."""
+
     status: str
     notes: str | None = None
     updated_at: datetime | None = None
-    # Tag codes on this entry (checks with a tag list, e.g. Nominated Equipment).
-    tags: list[str] = []
+
+
+# Where a cell's status — or its tick — comes from.
+CellSource = Literal["well", "project", "default"]
+
+
+class TeamCheckState(CheckState):
+    """A cell of a team's rows (phase 6, spec §5.1 "Cells"). ``status`` is the
+    status underneath — what re-ticking brings back; ``applies`` is whether the
+    check applies to the target at all (§3.8), and ``applies_source`` where that
+    comes from: the well's own choice, its field project's, or the default
+    (applies). A check that locks with the plan (a Project gate) always reads
+    ``applies=True`` from ``"default"`` — it uses N/A instead."""
+
+    applies: bool = True
+    applies_source: CellSource = "default"
 
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=256)]
-TagCode = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9-]{1,15}$")]
 
 
 class WellTarget(BaseModel):
@@ -56,13 +81,16 @@ class WellTarget(BaseModel):
 
 
 class CheckUpsert(WellTarget):
-    # Validated against the check's status set in the router (422 otherwise).
+    # extra="forbid": an unknown field — ``tags`` included, since Nominated
+    # Equipment is withdrawn (spec §5.1) — is a 422, never silently ignored.
+    model_config = {"extra": "forbid"}
+
+    # Validated against the check's pickable statuses in the router (422
+    # otherwise): its status set, minus N/A for a check that doesn't lock with
+    # the plan (spec §3.3).
     status: Status
     # Bounded to the String(512) column so an over-long note is a 422, not a DB error.
     notes: Annotated[str, StringConstraints(max_length=512)] | None = None
-    # Only for checks with a tag list: the entry's OWN tags, each an active item of
-    # that list (router-validated). None = leave unchanged; [] = clear.
-    tags: list[TagCode] | None = Field(default=None, max_length=50)
 
 
 class CheckUpsertResponse(BaseModel):
@@ -74,9 +102,38 @@ class CheckUpsertResponse(BaseModel):
     status: str
     notes: str | None
     updated_at: datetime
-    tags: list[str] = []
 
     model_config = {"from_attributes": True}
+
+
+# Bounded like the String(16) code column; the router validates each code
+# against the catalog (an active check of the team — an allow-list).
+ApplicabilityCode = Annotated[str, StringConstraints(min_length=1, max_length=16)]
+
+
+class ApplicabilityUpdate(WellTarget):
+    """Which of a team's checks apply to one target (phase 6, spec §3.8, §5.1)
+    — the body of ``PUT /readiness/teams/{team}/applicability``. Names travel in
+    the body, as for the status PUT (DS-001).
+
+    ``applies`` lists 1–50 codes; only those change, so a client with a stale
+    catalog can't untick a check it doesn't know about:
+    - field project: ``true`` applies (deletes its row), ``false`` doesn't;
+      ``null`` is refused — a field project has nothing to follow;
+    - well: ``true`` / ``false`` are the well's own choice (stored only while it
+      differs from its field project's); ``null`` is Follow project.
+    StrictBool: "false" or 0 is a 422, never coerced into a choice.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    applies: dict[ApplicabilityCode, StrictBool | None] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def _follow_needs_a_well(self) -> "ApplicabilityUpdate":
+        if self.scope == "project" and any(v is None for v in self.applies.values()):
+            raise ValueError("A field project has no field project to follow; use true or false")
+        return self
 
 
 class RowFigures(BaseModel):
@@ -84,11 +141,11 @@ class RowFigures(BaseModel):
     The grid adds the counts of the rows it shows and divides — it never decides
     which cells count; the server does."""
 
-    counted: int  # cells that count (not N/A)
+    counted: int  # cells that count (not N/A, and the check applies)
     done: int
     in_progress: int  # on track
     behind: int  # blocked (Behind, Not available)
-    na: int = 0  # not counted (N/A)
+    na: int = 0  # not counted (N/A, or a team check that doesn't apply)
     ready: bool  # ≥1 counted cell and every counted cell done
 
 
@@ -101,8 +158,9 @@ class ProjectReadiness(BaseModel):
     # Count of activities in the campaign that carry this project (context for the
     # grid: "Bonga Phase 3 · 4 activities").
     activity_count: int = 0
-    # Frozen while a revision is awaiting approval (the readiness PUT 423s) — lets
-    # the grid disable the controls up front, matching the campaign plan lock.
+    # Frozen while the plan is locked by a revision, pending or approved (the
+    # gates' status PUT 423s) — lets the grid disable the controls up front,
+    # matching the campaign plan lock.
     locked: bool = False
     # Earliest start date of a not-done, readiness-required activity under this
     # field project. Lets the readiness page apply the same focus window the
@@ -142,20 +200,10 @@ class CatalogCheck(BaseModel):
     icon_key: str
     locks_with_plan: bool
     sort_order: int
-    # "" = none; else the controlled tag list the check carries ("equipment").
+    # "" = none; else the controlled tag list the check carried ("equipment").
+    # History only since phase 6 (spec §3.5): kept so frozen catalogs read as
+    # recorded; no new check may carry one.
     tag_list: str = ""
-
-    model_config = {"from_attributes": True}
-
-
-class TagItem(BaseModel):
-    """One item of a controlled tag list (e.g. an equipment type)."""
-
-    tag_list: str
-    code: str
-    label: str
-    category: str
-    sort_order: int
 
     model_config = {"from_attributes": True}
 
@@ -168,34 +216,46 @@ class StatusOption(BaseModel):
 class StatusSet(BaseModel):
     statuses: list[StatusOption]
     default: str
+    # Kept only so past revisions render (``availability``, spec §3.3): refused
+    # for a new check, so the admin form doesn't offer it.
+    history_only: bool = False
+
+
+def status_sets_payload() -> dict[str, StatusSet]:
+    """The code-defined status sets as both catalogs serve them."""
+    return {
+        name: StatusSet(
+            statuses=[StatusOption(status=s, severity=sev) for s, sev in spec["statuses"].items()],
+            default=spec["default"],
+            history_only=is_history_only(name),
+        )
+        for name, spec in STATUS_SETS.items()
+    }
 
 
 class ReadinessCatalog(BaseModel):
     teams: list[CatalogTeam]
     checks: list[CatalogCheck]
     status_sets: dict[str, StatusSet]
-    # Active items of every tag list (for the Nominated Equipment picker).
-    tag_items: list[TagItem] = []
 
 
 # ── Team lens (GET /readiness/teams/{team_code}) ────────────────────────────
 
 
-class EffectiveCheckState(CheckState):
-    """A check's value as a well sees it: its own entry ("well"), else the field
-    project's ("project" — inherited, for checks that apply at both levels or
-    only at project level), else the status set's default ("default")."""
+class EffectiveCheckState(TeamCheckState):
+    """A check's value as a well sees it. ``source`` is where the STATUS comes
+    from: its own entry ("well"), else the field project's ("project" —
+    inherited, for checks enabled at project level, and only while the check
+    applies to the field project), else the status set's default ("default").
+    Whether it applies inherits separately (``applies_source``, spec §3.8)."""
 
-    source: Literal["well", "project", "default"]
-    # The field project's tags this well inherits (two-level checks with a tag
-    # list); the well's effective tags are inherited_tags ∪ tags.
-    inherited_tags: list[str] = []
+    source: CellSource
 
 
 class TeamProjectRow(BaseModel):
     well_project: str
     activity_count: int
-    checks: dict[str, CheckState]  # the team's project-level checks only
+    checks: dict[str, TeamCheckState]  # the team's project-level checks only
     # Earliest start of a not-done, readiness-required activity under this field
     # project (None: nothing left to be ready for) — the window filter's signal.
     focus_start: date | None = None
@@ -216,8 +276,10 @@ class TeamWellRow(BaseModel):
     # readiness work) — the same focus signal the project gates page uses.
     focus_start: date | None = None
     focus_in_days: int | None = None  # days from the server's today to focus_start
-    checks: dict[str, EffectiveCheckState]  # every team check, effective value
-    figures: RowFigures | None = None  # over every team check, effective values
+    # Every team check the well carries, at its effective value — a project-only
+    # check is absent on a well with no field project (spec §3.7, §7.12).
+    checks: dict[str, EffectiveCheckState]
+    figures: RowFigures | None = None  # over those cells; one that doesn't apply isn't counted
 
 
 class TeamReadiness(BaseModel):
@@ -227,6 +289,15 @@ class TeamReadiness(BaseModel):
     well_rows: list[TeamWellRow]
     # The plan lock — only checks that lock with the plan are frozen by it.
     locked: bool
+
+
+class ApplicabilityResult(BaseModel):
+    """What an applicability write changed, built exactly as the team read builds
+    its rows: for a field project, its row plus every well row under it (they
+    follow it); for a well, its row. The picker redraws from it."""
+
+    project_rows: list[TeamProjectRow]
+    well_rows: list[TeamWellRow]
 
 
 # ── Admin: catalog management + team grants ─────────────────────────────────
@@ -285,16 +356,18 @@ class CheckCreate(BaseModel):
     icon_key: str
     locks_with_plan: bool
     sort_order: SortOrder = 100
-    # "" or a code-defined tag list (TAG_LISTS).
+    # Tag lists are history only since phase 6 (Nominated Equipment withdrawn,
+    # spec §3.5, §4.4): only "" (none) is accepted. Kept as a field so an old
+    # client sending "" still works and one sending a list gets a clear 422.
     tag_list: str = ""
 
     _icon = field_validator("icon_key")(_check_icon_key)
 
     @field_validator("tag_list")
     @classmethod
-    def _known_tag_list(cls, value: str) -> str:
-        if value and value not in TAG_LISTS:
-            raise ValueError("Unknown tag list")
+    def _no_tag_list(cls, value: str) -> str:
+        if value:
+            raise ValueError("Tag lists are history only; a new check can't carry one")
         return value
 
     @field_validator("status_set")
@@ -302,6 +375,9 @@ class CheckCreate(BaseModel):
     def _known_status_set(cls, value: str) -> str:
         if value not in STATUS_SETS:
             raise ValueError("Unknown status set")
+        # A history-only set (availability) would create a withdrawn check.
+        if is_history_only(value):
+            raise ValueError("That status set is history only; a new check can't use it")
         return value
 
     @model_validator(mode="after")
@@ -311,7 +387,7 @@ class CheckCreate(BaseModel):
         # Governed checks are frozen into the snapshot's field-project readiness
         # block — they exist only at field-project level (spec §3.2).
         if self.locks_with_plan and (self.applies_well or not self.applies_project):
-            raise ValueError("A check that locks with the plan applies at project level only")
+            raise ValueError("A check that locks with the plan is set at project level only")
         return self
 
 
@@ -338,57 +414,25 @@ class AdminCatalogTeam(CatalogTeam):
 class AdminCatalogCheck(CatalogCheck):
     retired_at: datetime | None
 
-
-class AdminTagItem(TagItem):
-    retired_at: datetime | None
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def withdrawn(self) -> bool:
+        """Retired for good (spec §4.4) — a history-only status set or a tag list;
+        today ``NEQ``. Restore is refused (409), so the Admin page hides it. The
+        rule in code (``is_withdrawn``), never a column."""
+        return is_withdrawn(self)
 
 
 class AdminReadinessCatalog(BaseModel):
-    """Everything, including inactive teams, retired checks and retired tag
-    items, plus the code-defined allow-lists the admin forms pick from."""
+    """Everything, including inactive teams and retired checks, plus the
+    code-defined allow-lists the admin forms pick from (a ``history_only``
+    status set is listed, never offered for a new check). Tag lists and their
+    items left with Nominated Equipment (phase 6)."""
 
     teams: list[AdminCatalogTeam]
     checks: list[AdminCatalogCheck]
     status_sets: dict[str, StatusSet]
     icon_keys: list[str]
-    tag_lists: list[str] = []
-    tag_items: list[AdminTagItem] = []
-
-
-Category = Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)]
-
-
-class TagItemCreate(BaseModel):
-    model_config = {"extra": "forbid"}
-
-    tag_list: str
-    code: TagCode
-    label: Label
-    category: Category = ""
-    sort_order: SortOrder = 100
-
-    @field_validator("tag_list")
-    @classmethod
-    def _known_tag_list(cls, value: str) -> str:
-        if value not in TAG_LISTS:
-            raise ValueError("Unknown tag list")
-        return value
-
-
-class TagItemUpdate(BaseModel):
-    """Only label, category and order are editable — the code is fixed."""
-
-    model_config = {"extra": "forbid"}
-
-    label: Label | None = None
-    category: Category | None = None
-    sort_order: SortOrder | None = None
-
-    @model_validator(mode="after")
-    def _at_least_one(self) -> "TagItemUpdate":
-        if all(v is None for v in (self.label, self.category, self.sort_order)):
-            raise ValueError("Provide at least one field to change")
-        return self
 
 
 class TeamGrantsUpdate(BaseModel):

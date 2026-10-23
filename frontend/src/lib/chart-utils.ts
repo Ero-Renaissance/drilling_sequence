@@ -14,13 +14,17 @@ import { terrainRank } from "./gantt-rows";
  */
 export type ReadinessMap = Map<string, Record<CheckCode, ChartCheckState>>;
 
-/** One check's value on a bar. `tags` / `inherited_tags` carry a tag list's
- *  items (e.g. nominated equipment: the well's own and its project's). */
+/** One check's value on a bar — a cell (spec §5.1). Under a team lens it is the
+ *  team row's cell as served: `applies: false` keeps the status underneath, and
+ *  every consumer drops it via `applies()` before it rolls up or draws, keeping
+ *  it only for the live tooltip's "Not applicable" list. Under the All lens it
+ *  is one team's badge: `applies: false` when none of the team's checks applies
+ *  here (no badge; the tooltip reads "Nothing applies"). */
 export interface ChartCheckState {
   status: CheckStatus;
-  tags?: string[];
-  inherited_tags?: string[];
-  /** All lens only: the team's checks behind this summary badge. */
+  applies?: boolean;
+  /** All lens only: the team's checks behind this badge, each marked with
+   *  `applies` — the ones that don't apply are never summarised. */
   details?: TeamCheckDetail[];
 }
 

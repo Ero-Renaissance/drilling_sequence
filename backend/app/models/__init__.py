@@ -21,6 +21,7 @@ from app.models.project import (
     ReviewPolicy,
 )
 from app.models.readiness import (
+    ReadinessApplicability,
     ReadinessCheck,
     ReadinessEntry,
     ReadinessEntryTag,
@@ -45,6 +46,7 @@ __all__ = [
     "ProjectMember",
     "ProjectRole",
     "ProjectStatus",
+    "ReadinessApplicability",
     "ReadinessCheck",
     "ReadinessEntry",
     "ReadinessEntryTag",

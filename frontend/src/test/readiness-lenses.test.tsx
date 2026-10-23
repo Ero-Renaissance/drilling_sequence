@@ -62,7 +62,14 @@ function check(over: Partial<CatalogCheck>): CatalogCheck {
 const LBUD = check({ code: "L-BUD", label: "Budget Availability" });
 const CTS = check({ code: "CTS", label: "Community Trust", applies_well: false, sort_order: 20 });
 
-const st = (status: CheckStatus) => ({ status, notes: null, updated_at: null });
+// A team cell as served since phase 6: every check here applies by default.
+const st = (status: CheckStatus) => ({
+  status,
+  notes: null,
+  updated_at: null,
+  applies: true,
+  applies_source: "default" as const,
+});
 
 function teamData(over: Partial<TeamReadiness> = {}): TeamReadiness {
   return {
@@ -288,9 +295,17 @@ describe("TeamReadinessGrid", () => {
     render(<TeamReadinessGrid projectId={PID} teamCode="logistics" />, { wrapper: MemoryRouter });
     expect(await screen.findByText(/View only — updating Logistics readiness needs/)).toBeInTheDocument();
     const wells = screen.getByRole("region", { name: "Wells" });
-    for (const button of within(wells).getAllByRole("button")) {
+    // Every status dot is disabled; only Checks… opens — to read the ticks.
+    const buttons = within(wells).getAllByRole("button");
+    const pickers = buttons.filter((b) => /^Checks…/.test(b.textContent ?? ""));
+    expect(pickers).toHaveLength(2);
+    for (const button of buttons.filter((b) => !pickers.includes(b))) {
       expect(button).toBeDisabled();
     }
+    await userEvent.click(pickers[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
+    for (const box of within(dialog).getAllByRole("checkbox")) expect(box).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
   it("lists wells with work left in the window and sums exactly those (spec §3.7)", async () => {

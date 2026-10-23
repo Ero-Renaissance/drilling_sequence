@@ -245,6 +245,11 @@ async def test_grants_show_on_me_and_the_admin_user_list(
         ({"label": "   "}, 422),
         ({"label": "x" * 65}, 422),
         ({"tag_list": "nope"}, 422),  # tag lists are a code-defined allow-list
+        # Phase 6 (spec §4.4): a history-only status set or any tag list would
+        # create a withdrawn check.
+        ({"status_set": "availability"}, 422),
+        ({"tag_list": "equipment"}, 422),
+        ({"tag_list": ""}, 201),  # "" = none: still accepted
     ],
 )
 async def test_create_check_validation(
@@ -257,6 +262,21 @@ async def test_create_check_validation(
     )
     resp = await client.post("/api/admin/readiness/checks", json={**LOGISTICS_CHECK, **override})
     assert resp.status_code == expected, resp.text
+
+
+@pytest.mark.asyncio
+async def test_a_governed_check_is_set_at_project_level_only(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The admin catalog's wording matches the status PUT's (spec §5.1)."""
+    await _make_admin(client, db)
+    body = {**LOGISTICS_CHECK, "code": "PRW", "team_code": "projects", "locks_with_plan": True}
+    resp = await client.post("/api/admin/readiness/checks", json=body)
+    assert resp.status_code == 422
+    assert any(
+        "A check that locks with the plan is set at project level only" in e["msg"]
+        for e in resp.json()["detail"]
+    )
 
 
 @pytest.mark.asyncio
@@ -326,6 +346,8 @@ async def test_retire_and_restore_through_the_api(client: AsyncClient, db: Async
     # Still listed for admins (retired), and restorable.
     admin_codes = {c["code"]: c for c in (await client.get("/api/admin/readiness/catalog")).json()["checks"]}
     assert admin_codes["EIA"]["retired_at"] is not None
+    # Merely retired, not withdrawn (spec §4.4): Restore stays offered.
+    assert admin_codes["EIA"]["withdrawn"] is False
     assert (await client.post("/api/admin/readiness/checks/EIA/restore")).json()["retired_at"] is None
     assert (await _put(client, pid, "EIA")).status_code == 200
 

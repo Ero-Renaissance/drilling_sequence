@@ -8,12 +8,16 @@ from app.models.activity import Activity
 from app.models.project import Project
 from app.models.revision import Revision
 
+# "Pending or approved": approval keeps the plan locked (the approved snapshot is
+# the record) until a planner reopens it with Revise Plan — so neither message
+# may say "awaiting approval", which is wrong once the revision is approved.
 _ACTIVITY_LOCKED_DETAIL = (
-    "This activity is part of a revision awaiting approval and cannot be modified."
+    "This activity is locked by a revision (pending or approved) and cannot be modified."
 )
 _PROJECT_LOCKED_DETAIL = (
-    "This project has a revision awaiting approval; its plan is locked. "
-    "Resolve the revision before making this change."
+    "This campaign's plan is locked by a revision (pending or approved). "
+    "Resolve the revision, or reopen an approved plan with Revise Plan, "
+    "before making this change."
 )
 _SIGNERS_FROZEN_DETAIL = (
     "A revision is in review or awaiting approval; the reviewer/approver lists "
@@ -45,13 +49,14 @@ async def lock_campaign_writes(project_id: uuid.UUID, db: AsyncSession) -> None:
 
 
 def ensure_activity_unlocked(activity: Activity) -> None:
-    """Block mutations to an activity frozen by a revision awaiting approval.
+    """Block mutations to an activity locked by a revision (pending or approved).
 
     The lock (`locked_by_revision_id`) is set when a revision is created and
-    cleared on approve / decline / discard. Enforcing it server-side — not only in
-    the UI — keeps the plan under review from changing out from under the
-    approvers who are signing it. Applies to activity edits, completion, deletion,
-    and readiness-check updates.
+    cleared on decline / request-changes / discard, or when a planner reopens an
+    approved plan (Revise Plan) — approval keeps it. Enforcing it server-side —
+    not only in the UI — keeps the plan under review from changing out from under
+    the approvers who are signing it, and the approved plan from drifting from
+    its snapshot. Applies to activity edits, completion and deletion.
     """
     if activity.locked_by_revision_id is not None:
         raise HTTPException(
@@ -60,12 +65,13 @@ def ensure_activity_unlocked(activity: Activity) -> None:
 
 
 async def assert_project_not_locked(project_id: uuid.UUID, db: AsyncSession) -> None:
-    """Block project-wide plan changes while any activity is frozen by a revision
-    awaiting approval.
+    """Block campaign-wide plan changes while any activity is locked by a
+    revision (pending or approved).
 
     Used by operations that aren't tied to a single activity but still alter the
-    plan under review — bulk CSV import and rig-contract edits (the contract is
-    captured in the snapshot via its expiry).
+    plan under review or approved — bulk CSV import, rig/HWU contract edits (the
+    contract is captured in the snapshot via its expiry) and status writes to
+    readiness checks that lock with the plan (the Project gates).
     """
     result = await db.execute(
         select(Activity.id)

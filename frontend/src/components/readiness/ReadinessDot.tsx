@@ -9,16 +9,18 @@ import {
 import { cn } from "@/lib/utils";
 import type { CheckCode, CheckStatus } from "@/api/readiness";
 import { useCheckDef } from "./catalog";
-import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL, statusesOf } from "./check-meta";
+import { STATUS_DOT, STATUS_ICON_COLOR, STATUS_LABEL, pickableStatuses } from "./check-meta";
 import { checkIcon } from "./icon-registry";
 
 export { STATUS_DOT, STATUS_ICON_COLOR };
 
-// The pickable statuses come from the check's status set (statusesOf): the
-// standard set keeps N/A selectable so a planner can mark a single gate "not
-// applicable" even when the activity still requires readiness — an N/A gate is
-// excluded from the rollups — and availability checks offer Available / Not
-// available.
+// The menu offers the check's PICKABLE statuses (spec §3.3): its status set's,
+// minus N/A unless the check locks with the plan. So the Project gates keep N/A
+// — a planner marks a gate that doesn't apply, and an N/A gate is left out of
+// the rollups — while every other team's check offers On Track, Completed and
+// Behind only: "doesn't apply" is that team's tick list (Checks…, §3.8).
+// Team views pass `statuses` from the definition they rendered from; the
+// default reads the catalog in context, which is right for the gates.
 
 interface BaseProps {
   code: CheckCode;
@@ -39,6 +41,10 @@ type ReadinessDotProps = BaseProps &
         /** When set, the picker offers "Reset to project" (drop this well's own
          *  value so it follows its field project again). */
         onReset?: () => void;
+        /** The menu's statuses — `pickableStatuses` of the definition the view
+         *  rendered from (never `checkDefOf`'s unknown-code fallback, which
+         *  reads as a gate). Defaults to the catalog in context's. */
+        statuses?: readonly CheckStatus[];
       }
     | {
         /** Display only — no interaction. Used for frozen snapshots. */
@@ -130,9 +136,10 @@ export function ReadinessDot(props: ReadinessDotProps) {
   // locked for approval), render a bare disabled button and DON'T mount the
   // dropdown: `disabled` on a Radix DropdownMenuTrigger child does not reliably
   // stop the menu from opening, so the only safe lock is to not mount it at all.
-  const { onChange, onReset } = props as {
+  const { onChange, onReset, statuses } = props as {
     onChange: (s: CheckStatus) => void;
     onReset?: () => void;
+    statuses?: readonly CheckStatus[];
   };
 
   if (disabled) {
@@ -156,7 +163,7 @@ export function ReadinessDot(props: ReadinessDotProps) {
           {meta.label}
         </div>
         <div className="my-1 h-px bg-border" />
-        {statusesOf(meta.status_set).map((s) => {
+        {(statuses ?? pickableStatuses(meta)).map((s) => {
           const selected = s === status;
           return (
             <DropdownMenuItem

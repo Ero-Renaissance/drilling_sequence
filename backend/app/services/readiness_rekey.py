@@ -5,10 +5,15 @@ field project + well + activity type for well-level ones — so editing those na
 on an activity would otherwise strand its values under the old name.
 
 Rule, per check: when an edit changes a key and NO other activity in the campaign
-still carries the old key, the old key's entries move to the new key — unless the
-new key already has an entry for that check, which wins (the old one stays
+still carries the old key, the old key's values move to the new key — unless the
+new key already has a value for that check, which wins (the old one stays
 orphaned, logged; never a silent merge). When other activities still use the old
 key, nothing moves: those activities still own it.
+
+Phase 6 (spec §4.4): a check's value at a key is a PAIR — its status entry and
+its applicability row (whether it applies there). They move together: if the new
+key already has either one for that check, neither moves. The audit event names
+any choice that moved ("NAV: does not apply").
 """
 import logging
 import uuid
@@ -17,7 +22,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
-from app.models.readiness import ReadinessEntry
+from app.models.readiness import ReadinessApplicability, ReadinessEntry
 from app.services.audit import ENTITY_READINESS, governance_event
 
 logger = logging.getLogger(__name__)
@@ -56,6 +61,20 @@ async def _others_use(
     return (await db.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
+# The two halves of a check's value at a key: its status and whether it applies.
+_PAIR = (ReadinessEntry, ReadinessApplicability)
+
+
+def _at(model, project_id: uuid.UUID, scope: str, key: WellKey):  # type: ignore[no-untyped-def]
+    return (
+        model.project_id == project_id,
+        model.scope == scope,
+        model.well_project == key[0],
+        model.well_name == key[1],
+        model.activity_type == key[2],
+    )
+
+
 async def _move(
     db: AsyncSession,
     project_id: uuid.UUID,
@@ -63,31 +82,45 @@ async def _move(
     old: WellKey,
     new: WellKey,
 ) -> tuple[list[str], list[str]]:
-    """Re-key ``scope`` entries from ``old`` to ``new`` per check. Returns
-    (moved codes, codes left behind because the new key already had one)."""
-
-    def at(key: WellKey):  # type: ignore[no-untyped-def]
-        return (
-            ReadinessEntry.project_id == project_id,
-            ReadinessEntry.scope == scope,
-            ReadinessEntry.well_project == key[0],
-            ReadinessEntry.well_name == key[1],
-            ReadinessEntry.activity_type == key[2],
+    """Re-key ``scope`` values from ``old`` to ``new``, per check: the status
+    entry and the applicability row move as a pair, and neither moves when the
+    new key already has either one for that check. Returns (what moved — each
+    code, naming any applicability choice that moved with it, e.g.
+    "NAV: does not apply"; the codes left behind because the new key had one)."""
+    at_old: dict[str, list[ReadinessEntry | ReadinessApplicability]] = {}
+    choices: dict[str, bool] = {}
+    for model in _PAIR:
+        for value in (
+            await db.execute(select(model).where(*_at(model, project_id, scope, old)))
+        ).scalars():
+            at_old.setdefault(value.check_code, []).append(value)
+            if isinstance(value, ReadinessApplicability):
+                choices[value.check_code] = bool(value.applies)
+    if not at_old:
+        return [], []
+    # Either half at the new key keeps the whole pair where it is.
+    taken: set[str] = set()
+    for model in _PAIR:
+        taken.update(
+            (
+                await db.execute(
+                    select(model.check_code).where(*_at(model, project_id, scope, new))
+                )
+            ).scalars()
         )
 
-    old_entries = (await db.execute(select(ReadinessEntry).where(*at(old)))).scalars().all()
-    if not old_entries:
-        return [], []
-    taken = set(
-        (await db.execute(select(ReadinessEntry.check_code).where(*at(new)))).scalars().all()
-    )
-    moved, kept = [], []
-    for entry in old_entries:
-        if entry.check_code in taken:
-            kept.append(entry.check_code)
+    moved: list[str] = []
+    kept: list[str] = []
+    for code in sorted(at_old):
+        if code in taken:
+            kept.append(code)
             continue
-        entry.well_project, entry.well_name, entry.activity_type = new
-        moved.append(entry.check_code)
+        for value in at_old[code]:
+            value.well_project, value.well_name, value.activity_type = new
+        if code in choices:
+            moved.append(f"{code}: {'applies' if choices[code] else 'does not apply'}")
+        else:
+            moved.append(code)
     return moved, kept
 
 

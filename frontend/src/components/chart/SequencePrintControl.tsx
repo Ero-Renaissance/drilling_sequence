@@ -5,7 +5,6 @@ import { ChevronDown, Printer } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import type { Activity } from "@/api/activities";
 import type { RigContract } from "@/api/contracts";
-import type { CheckStatus } from "@/api/readiness";
 import type { Project } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,12 +23,14 @@ import { WorkingCopyPrintDoc, type PrintRow } from "@/components/revisions/Revis
 import { PRINT_CLAIM_EVENT, printDocCss } from "@/lib/print-css";
 import { readinessPageCss, readinessPaperSize, type PrintYears } from "@/lib/print-gantt";
 import { rigLaneKey } from "@/lib/resource-identity";
-import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
+import { loadLensReadiness, printedReadiness, type LensReadiness } from "@/lib/readiness-lens";
 import {
   ALL_LENS,
   PROJECTS_TEAM,
   ReadinessLensProvider,
+  lensChecksOf,
   lensLabel,
+  useCatalogChecks,
   useProjectGates,
   useReadinessTeams,
   type Lens,
@@ -58,7 +59,13 @@ export function SequencePrintControl({
   // gates, the Wells / Logistics teams their own. Follows the chart's lens.
   const teams = useReadinessTeams();
   const projectGates = useProjectGates();
+  const catalogChecks = useCatalogChecks();
   const [printLens, setPrintLens] = useState<Lens>(lens);
+  // The print lens's checks — what decides which of a row's cells print.
+  const printChecks = useMemo(
+    () => lensChecksOf(catalogChecks, printLens, teams),
+    [catalogChecks, printLens, teams],
+  );
   useEffect(() => setPrintLens(lens), [lens]);
   const [lensData, setLensData] = useState<LensReadiness | null>(null);
   const [years, setYearsState] = useState<PrintYears>(() => {
@@ -158,12 +165,13 @@ export function SequencePrintControl({
     () =>
       activities.map((a) => {
         const key = lensData?.keyOf(a) ?? null;
-        const gates = key !== null ? lensData?.map.get(key) : undefined;
-        const readiness = gates
-          ? Object.fromEntries(
-              Object.entries(gates).map(([code, v]) => [code, v.status as CheckStatus]),
-            )
-          : undefined;
+        // Only the cells that apply print (spec §8.4): never the status kept
+        // under an unticked team check.
+        const readiness = printedReadiness(
+          key !== null ? lensData?.map.get(key) : undefined,
+          printChecks,
+          printLens === ALL_LENS,
+        );
         const contract =
           a.rig_name && rigContractsByLane
             ? rigContractsByLane.get(rigLaneKey(a.location, a.rig_name))
@@ -185,14 +193,14 @@ export function SequencePrintControl({
           // well-level lens) prints no strip; the project-gates lens keeps the
           // existing per-project behaviour (no explicit key).
           readiness_required:
-            printLens !== PROJECTS_TEAM && !gates ? false : a.readiness_required,
+            printLens !== PROJECTS_TEAM && !readiness ? false : a.readiness_required,
           readiness_key: printLens === PROJECTS_TEAM ? undefined : key,
           rig_contract_status: null,
           rig_contract_end: contract?.contract_end ?? null,
           completed_at: a.completed_at,
         };
       }),
-    [activities, lensData, printLens, rigContractsByLane],
+    [activities, lensData, printLens, printChecks, rigContractsByLane],
   );
 
   return (

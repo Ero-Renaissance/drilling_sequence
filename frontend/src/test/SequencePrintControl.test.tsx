@@ -8,10 +8,18 @@ vi.mock("@/lib/auth", () => ({
   loginRequest: {},
 }));
 
+import { http, HttpResponse } from "msw";
 import { SequencePrintControl } from "@/components/chart/SequencePrintControl";
 import { PRINT_CLAIM_EVENT } from "@/lib/print-css";
 import type { Activity } from "@/api/activities";
+import type { CatalogCheck, CatalogTeam, CheckStatus } from "@/api/readiness";
+import {
+  BUILTIN_PROJECT_GATES,
+  BUILTIN_TEAMS,
+  ReadinessCatalogProvider,
+} from "@/components/readiness/catalog";
 import { mockProject } from "./mocks/handlers";
+import { server } from "./mocks/server";
 
 let seq = 0;
 function act(over: Partial<Activity>): Activity {
@@ -119,5 +127,63 @@ describe("SequencePrintControl", () => {
     await waitFor(() => {
       expect(document.body.querySelector(":scope > .ds-print-doc")).toBeNull();
     });
+  });
+
+  it("a team lens prints only the checks that apply — the key lists no N/A (spec §8.4)", async () => {
+    const LOGISTICS: CatalogTeam = {
+      code: "logistics", name: "Logistics", editor_source: "team_grant", icon_key: "truck", sort_order: 20,
+    };
+    const check = (code: string, sort_order: number): CatalogCheck => ({
+      code, label: code, team_code: "logistics", applies_project: true, applies_well: true,
+      status_set: "standard", icon_key: "receipt", locks_with_plan: false, sort_order,
+    });
+    const checks = [check("L-BUD", 10), check("NAV", 20), check("PO", 30)];
+    const cell = (status: CheckStatus, applies: boolean) => ({
+      status, notes: null, updated_at: null, applies, applies_source: "project", source: "project",
+    });
+    server.use(
+      http.get("/api/readiness/catalog", () =>
+        HttpResponse.json({ teams: [...BUILTIN_TEAMS, LOGISTICS], checks: [...BUILTIN_PROJECT_GATES, ...checks], status_sets: {} }),
+      ),
+      http.get("/api/projects/:projectId/readiness/teams/:team", () =>
+        HttpResponse.json({
+          team: LOGISTICS, checks, locked: false, project_rows: [],
+          well_rows: [{
+            well_project: "Proj A", well_name: "W-1", activity_type: "Oil Development", activity_count: 1,
+            location: "LAND", start_date: "2026-01-01", focus_start: "2026-01-01",
+            // NAV was unticked: Behind underneath, never printed.
+            checks: { "L-BUD": cell("Completed", true), NAV: cell("Behind", false), PO: cell("On Track", true) },
+          }],
+        }),
+      ),
+    );
+    render(
+      <ReadinessCatalogProvider>
+        <SequencePrintControl projectId={mockProject.id} activities={[act({})]} lens="logistics" />
+      </ReadinessCatalogProvider>,
+    );
+    await userEvent.click(screen.getByTestId("sequence-print"));
+    await userEvent.click(await screen.findByText("Sequence with Readiness Icons"));
+    // The lens choices appear once the live catalog (with Logistics) has loaded.
+    await screen.findByText("All teams (one badge each)");
+    await userEvent.click(await screen.findByText("Print working copy"));
+    await waitFor(() => {
+      expect(document.body.querySelector(":scope > .ds-print-doc")).not.toBeNull();
+    });
+    const bundle = document.body.querySelector<HTMLElement>(":scope > .ds-print-doc")!;
+    expect(bundle.textContent).toContain("Readiness: Logistics — live status");
+    const strip = bundle.querySelector<HTMLElement>('[data-testid="gantt-readiness-strip"]')!;
+    // Two of the lens's three checks applied — packed left in a three-column strip.
+    expect(strip.querySelectorAll("svg")).toHaveLength(2);
+    expect(strip.querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe(
+      "repeat(3, minmax(0, 1fr))",
+    );
+    expect(strip.querySelector(".text-red-500")).toBeNull(); // NAV's Behind never prints
+    const key = [...bundle.querySelectorAll("span")].find(
+      (el) => el.textContent === "Status" && el.className.includes("w-16"),
+    )!.parentElement!;
+    expect(key.textContent).toBe("StatusOn TrackBehindCompleted");
+
+    window.dispatchEvent(new Event("afterprint"));
   });
 });
