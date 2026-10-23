@@ -220,6 +220,7 @@ export const handlers = [
             { status: "N/A", severity: "not_counted" },
           ],
           default: "On Track",
+          history_only: false,
         },
       },
     };

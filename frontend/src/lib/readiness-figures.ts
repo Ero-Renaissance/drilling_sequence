@@ -6,10 +6,28 @@
  */
 import type { RowFigures } from "@/api/readiness";
 
-/** Hover text for every place that shows the figures. */
+/** Hover text for every place that shows the figures — worded for the Project
+ *  gates, whose not-counted cells are N/A. */
 export const READINESS_FIGURES_HINT =
   "Complete = done ÷ counted · On track = Completed or On Track (nothing behind) · " +
   "N/A isn't counted · an unset check reads On Track";
+
+/** The same hint for a team's checks (Wells, Logistics…), whose not-counted
+ *  cells are the checks that don't apply (spec §3.8, §8.7). */
+export const TEAM_READINESS_FIGURES_HINT =
+  "Complete = done ÷ counted · On track = Completed or On Track (nothing behind) · " +
+  "a check that doesn't apply isn't counted · an unset check reads On Track";
+
+/** The figures hint for a view of the Project gates, or of a team's checks. */
+export function readinessFiguresHint(projectGates: boolean): string {
+  return projectGates ? READINESS_FIGURES_HINT : TEAM_READINESS_FIGURES_HINT;
+}
+
+/** What a summary calls its not-counted count: "N/A" for the Project gates,
+ *  "not applicable" for a team's checks (spec §8.7). */
+export function notCountedLabel(projectGates: boolean): string {
+  return projectGates ? "N/A" : "not applicable";
+}
 
 export interface ReadinessFigures {
   /** (done + on track) ÷ counted; null when nothing counts. */
@@ -33,11 +51,11 @@ export interface SummedFigures extends ReadinessFigures {
   counted: number;
   done: number;
   in_progress: number;
-  /** Not-counted (N/A) cells. */
+  /** Not-counted cells (N/A gates, or team checks that don't apply). */
   na: number;
   /** Rows with ≥1 counted check, every one done. */
   ready: number;
-  /** Rows with at least one counted check (all-N/A ones are left out). */
+  /** Rows with at least one counted check ("Nothing applies" ones are left out). */
   ready_of: number;
 }
 

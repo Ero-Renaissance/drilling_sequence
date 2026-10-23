@@ -144,6 +144,11 @@ jobs:
       - name: Models match the migrated schema (alembic check)
         run: alembic check
       # -p no:skipping: here these tests must run, so a broken DATABASE_URL fails
-      # the job instead of quietly skipping the module.
-      - name: SQL Server concurrency tests
-        run: python -m pytest -q -p no:skipping tests/test_concurrency_mssql.py
+      # the job instead of quietly skipping the module. After the concurrency
+      # tests, migration 038's data steps round-trip (downgrade to 037, seed,
+      # upgrade, downgrade, back to head) on this throwaway database.
+      - name: SQL Server concurrency + migration tests
+        run: >-
+          python -m pytest -q -p no:skipping
+          tests/test_concurrency_mssql.py
+          tests/test_migration_038_mssql.py

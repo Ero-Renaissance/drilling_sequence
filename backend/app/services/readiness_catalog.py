@@ -1,8 +1,15 @@
 """Reading the readiness catalog (docs/readiness-framework-spec.md §3–4).
 
 Everything that used to iterate the hard-coded ``CHECK_CODES`` asks this module
-which checks apply instead, so a check added or retired by an admin flows to the
-grid, snapshot and dashboard without a code change.
+which checks are in use instead, so a check added or retired by an admin flows to
+the grid, snapshot and dashboard without a code change.
+
+A WITHDRAWN check (phase 6, spec §4.4 — a history-only status set or a tag list;
+today ``NEQ``) behaves as retired everywhere: it is never active, whatever its
+``retired_at`` says. Migration 038 retires it; the rule holds even where it
+hasn't run (the SQLite suite, or a check an admin could have created since 036).
+The rule itself lives with the status sets (``app.models.readiness.is_withdrawn``),
+as does the one for the statuses a person may pick (``pickable_statuses``).
 """
 import json
 import logging
@@ -16,8 +23,8 @@ from app.models.readiness import (
     PROJECTS_TEAM,
     STATUS_SETS,
     ReadinessCheck,
-    ReadinessTagItem,
     ReadinessTeam,
+    is_withdrawn,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +51,9 @@ async def active_checks(
     project_scope: bool | None = None,
     governed: bool | None = None,
 ) -> list[ReadinessCheck]:
-    """Non-retired checks in display order, optionally narrowed."""
+    """Checks in use — neither retired nor withdrawn — in display order,
+    optionally narrowed. ``governed=False`` gives the checks that have a tick list
+    (spec §3.8): every check that doesn't lock with the plan."""
     stmt = select(ReadinessCheck).where(ReadinessCheck.retired_at.is_(None))
     if team_code is not None:
         stmt = stmt.where(ReadinessCheck.team_code == team_code)
@@ -53,7 +62,20 @@ async def active_checks(
     if governed is not None:
         stmt = stmt.where(ReadinessCheck.locks_with_plan == governed)
     stmt = stmt.order_by(ReadinessCheck.sort_order, ReadinessCheck.code)
-    return list((await db.execute(stmt)).scalars().all())
+    # Withdrawn is a rule in code, not a column — applied here, after the query.
+    return [c for c in (await db.execute(stmt)).scalars().all() if not is_withdrawn(c)]
+
+
+async def withdrawn_check_codes(db: AsyncSession) -> set[str]:
+    """Codes of every withdrawn check, retired or not (spec §4.4). A clone skips
+    their entries, tags and applicability rows, so dead data stops travelling
+    into every new campaign; a check that is merely retired is still copied."""
+    rows = (
+        await db.execute(
+            select(ReadinessCheck.code, ReadinessCheck.status_set, ReadinessCheck.tag_list)
+        )
+    ).all()
+    return {r.code for r in rows if is_withdrawn(r)}
 
 
 async def project_gate_checks(db: AsyncSession) -> list[ReadinessCheck]:
@@ -72,18 +94,6 @@ async def active_teams(db: AsyncSession) -> list[ReadinessTeam]:
         # Bare boolean column: "= 1" on SQL Server (.is_(True) → "IS 1", invalid).
         .where(ReadinessTeam.is_active)
         .order_by(ReadinessTeam.sort_order, ReadinessTeam.code)
-    )
-    return list((await db.execute(stmt)).scalars().all())
-
-
-async def active_tag_items(
-    db: AsyncSession, tag_list: str | None = None
-) -> list[ReadinessTagItem]:
-    stmt = select(ReadinessTagItem).where(ReadinessTagItem.retired_at.is_(None))
-    if tag_list is not None:
-        stmt = stmt.where(ReadinessTagItem.tag_list == tag_list)
-    stmt = stmt.order_by(
-        ReadinessTagItem.tag_list, ReadinessTagItem.sort_order, ReadinessTagItem.code
     )
     return list((await db.execute(stmt)).scalars().all())
 

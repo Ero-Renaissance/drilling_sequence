@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
-import { READINESS_FIGURES_HINT, readinessScope } from "@/lib/readiness-figures";
+import { readinessFiguresHint, readinessScope } from "@/lib/readiness-figures";
 import { HORIZON_DAYS } from "@/lib/readiness-window";
 import { ALL_LENS, PROJECTS_TEAM } from "@/components/readiness/catalog";
 
@@ -104,6 +104,7 @@ function ReadinessCard({
   scope,
   to,
   behindTo,
+  projectGates,
 }: {
   label: string;
   completePct: number | null;
@@ -112,12 +113,15 @@ function ReadinessCard({
   scope: string;
   to: string;
   behindTo: string;
+  /** The Project gates card (its not-counted cells are N/A), or a team's (its
+   *  are the checks that don't apply) — the hover hint says which. */
+  projectGates: boolean;
 }) {
   const tone = readinessTone(completePct);
   return (
     <div
       data-testid="readiness-card"
-      title={READINESS_FIGURES_HINT}
+      title={readinessFiguresHint(projectGates)}
       className={`relative ${TILE_CLASS} transition-colors focus-within:ring-2 focus-within:ring-primary/50 hover:border-primary/50 hover:bg-muted/30`}
     >
       {/* Stretched link: the whole card is the door; the "behind" link sits above it. */}
@@ -522,6 +526,7 @@ export function ProjectDashboard({
               scope={c.scope}
               to={readinessLink(base, c.code, horizon)}
               behindTo={readinessLink(base, c.code, horizon, "behind")}
+              projectGates={c.code === PROJECTS_TEAM}
             />
           ))}
         </div>

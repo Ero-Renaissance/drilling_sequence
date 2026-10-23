@@ -8,7 +8,7 @@
  */
 import { Fragment } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
-import { ALL_LENS, useLens, useLensChecks } from "@/components/readiness/catalog";
+import { ALL_LENS, PROJECTS_TEAM, useLens, useLensChecks } from "@/components/readiness/catalog";
 import {
   STATUS_DOT,
   STATUS_ICON_COLOR,
@@ -96,8 +96,9 @@ export interface PrintRow {
   /** Which rows share one readiness strip (the strip prints once per key per
    *  page). Defaults to the field project; a well-level lens keys by well. */
   readiness_key?: string | null;
-  /** Live (team) checks as they stood at submission — revision snapshots only. */
-  readiness_at_submission?: Record<string, { status: CheckStatus; source?: string; tags?: string[] }>;
+  /** Live (team) checks as they stood at submission — revision snapshots only.
+   *  A team check that didn't apply is recorded as N/A (spec §6). */
+  readiness_at_submission?: Record<string, { status: CheckStatus; source?: string }>;
   rig_contract_status?: string | null;
   rig_contract_end?: string | null;
   /** Set when the activity is finished — renders grey (same slate as the
@@ -597,7 +598,7 @@ function StaticGantt({
             <ActivityLegend rows={rows} showOrderKey={!showReadiness} />
             {showReadiness && (
               <div className="mt-2">
-                <ReadinessKey />
+                <ReadinessKey rows={rows} />
               </div>
             )}
           </div>
@@ -684,7 +685,27 @@ function ActivityLegend({ rows, showOrderKey = false }: { rows: PrintRow[]; show
   );
 }
 
-function ReadinessKey() {
+/**
+ * The statuses a print's legend lists (spec §8.4): what the lens's icons can
+ * show — `legendStatuses`, where only checks that lock with the plan bring N/A,
+ * so the Project gates' key and the All lens's (its Project gates badge can be
+ * grey) list N/A and a team lens's doesn't — plus any other status these rows
+ * actually draw: a revision's history (e.g. Nominated Equipment's Available /
+ * Pending / Not available) keys its own icons.
+ */
+function printLegendStatuses(
+  gates: Parameters<typeof legendStatuses>[0],
+  rows: readonly PrintRow[],
+): CheckStatus[] {
+  const listed = legendStatuses(gates);
+  const drawn = rows.flatMap((r) => (hasReadiness(r) ? Object.values(r.readiness ?? {}) : []));
+  const extra = drawn.filter(
+    (s) => Object.prototype.hasOwnProperty.call(STATUS_DOT, s) && !listed.includes(s),
+  );
+  return [...listed, ...new Set(extra)];
+}
+
+function ReadinessKey({ rows }: { rows: readonly PrintRow[] }) {
   // The lens's checks from the catalog in context — a revision print pins its
   // frozen catalog; a working copy can print one team's lens.
   const gates = useLensChecks();
@@ -707,7 +728,7 @@ function ReadinessKey() {
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-        {legendStatuses(gates).map((s) => (
+        {printLegendStatuses(gates, rows).map((s) => (
           <span key={s} className="inline-flex items-center gap-1">
             <span className={cn("inline-block h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
             {STATUS_LABEL[s]}
@@ -729,13 +750,19 @@ function ReadinessIcons({
   fill?: boolean;
 }) {
   const gates = useLensChecks();
+  // The Project gates print every gate, as before (N/A grey). Any other lens
+  // prints only what the row carries — the checks that applied, packed left
+  // (spec §8.4); the strip keeps the lens's column count so a lone icon doesn't
+  // grow.
+  const projectGates = useLens() === PROJECTS_TEAM;
+  const drawn = projectGates ? gates : gates.filter(({ code }) => readiness?.[code] !== undefined);
   if (fill) {
     return (
       <span
         className="grid w-full gap-px"
         style={{ gridTemplateColumns: `repeat(${gates.length}, minmax(0, 1fr))` }}
       >
-        {gates.map(({ code, icon_key }) => {
+        {drawn.map(({ code, icon_key }) => {
           const Icon = checkIcon(icon_key);
           const st = (readiness?.[code] ?? "Not Started") as CheckStatus;
           return <Icon key={code} className={cn("h-auto w-full", STATUS_ICON_COLOR[st])} />;
@@ -745,7 +772,7 @@ function ReadinessIcons({
   }
   return (
     <span className="inline-flex gap-0.5">
-      {gates.map(({ code, icon_key }) => {
+      {drawn.map(({ code, icon_key }) => {
         const Icon = checkIcon(icon_key);
         const st = (readiness?.[code] ?? "Not Started") as CheckStatus;
         return <Icon key={code} className={cn("h-3 w-3", STATUS_ICON_COLOR[st])} />;
@@ -776,7 +803,7 @@ function ScheduleTable({ rows, index }: { rows: PrintRow[]; index: Map<string, n
           <thead>
             <tr>
               <td colSpan={11} className="pb-2 pt-1">
-                <ReadinessKey />
+                <ReadinessKey rows={rows} />
               </td>
             </tr>
             <tr className="bg-muted/40 text-left text-[8px] uppercase tracking-wider text-muted-foreground">

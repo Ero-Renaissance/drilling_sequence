@@ -1,5 +1,5 @@
 import type { AdminUser } from "@/types";
-import type { CatalogCheck, CatalogTeam, ReadinessCatalog, TagItem } from "./readiness";
+import type { CatalogCheck, CatalogTeam, ReadinessCatalog } from "./readiness";
 import { api } from "./client";
 
 export interface AdminCatalogTeam extends CatalogTeam {
@@ -8,35 +8,20 @@ export interface AdminCatalogTeam extends CatalogTeam {
 
 export interface AdminCatalogCheck extends CatalogCheck {
   retired_at: string | null;
-}
-
-export interface AdminTagItem extends TagItem {
-  retired_at: string | null;
+  /** Retired for good (a history-only status set or a tag list — `NEQ`, spec
+   *  §4.4): it can't be restored (409), so the Admin page hides Restore. */
+  withdrawn: boolean;
 }
 
 /** The full catalog (incl. inactive teams and retired checks) plus the
- *  code-defined allow-lists the admin forms pick from. */
+ *  code-defined allow-lists the admin forms pick from. A status set marked
+ *  `history_only` is listed but never offered for a new check. */
 export interface AdminReadinessCatalog {
   teams: AdminCatalogTeam[];
   checks: AdminCatalogCheck[];
   status_sets: ReadinessCatalog["status_sets"];
   icon_keys: string[];
-  /** Code-defined tag lists a check may carry (e.g. "equipment"). */
-  tag_lists?: string[];
-  /** Every item of every tag list, retired included. */
-  tag_items?: AdminTagItem[];
 }
-
-export interface TagItemCreate {
-  tag_list: string;
-  code: string;
-  label: string;
-  category?: string;
-  sort_order?: number;
-}
-
-/** Only label, category and order are editable — the code is fixed. */
-export type TagItemUpdate = Partial<Pick<AdminTagItem, "label" | "category" | "sort_order">>;
 
 export interface TeamCreate {
   code: string;
@@ -57,8 +42,6 @@ export interface CheckCreate {
   icon_key: string;
   locks_with_plan: boolean;
   sort_order?: number;
-  /** "" or a code-defined tag list. */
-  tag_list?: string;
 }
 
 /** Only label, icon and order are editable — the rest is fixed at creation. */
@@ -86,21 +69,4 @@ export const adminApi = {
     api.post<AdminCatalogCheck>(`/api/admin/readiness/checks/${encodeURIComponent(code)}/retire`, {}),
   restoreCheck: (code: string) =>
     api.post<AdminCatalogCheck>(`/api/admin/readiness/checks/${encodeURIComponent(code)}/restore`, {}),
-
-  createTag: (body: TagItemCreate) => api.post<AdminTagItem>("/api/admin/readiness/tags", body),
-  updateTag: (tagList: string, code: string, body: TagItemUpdate) =>
-    api.patch<AdminTagItem>(
-      `/api/admin/readiness/tags/${encodeURIComponent(tagList)}/${encodeURIComponent(code)}`,
-      body,
-    ),
-  retireTag: (tagList: string, code: string) =>
-    api.post<AdminTagItem>(
-      `/api/admin/readiness/tags/${encodeURIComponent(tagList)}/${encodeURIComponent(code)}/retire`,
-      {},
-    ),
-  restoreTag: (tagList: string, code: string) =>
-    api.post<AdminTagItem>(
-      `/api/admin/readiness/tags/${encodeURIComponent(tagList)}/${encodeURIComponent(code)}/restore`,
-      {},
-    ),
 };

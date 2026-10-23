@@ -12,7 +12,6 @@ import {
   type CatalogCheck,
   type CatalogTeam,
   type CheckStatus,
-  type TagItem,
 } from "@/api/readiness";
 import { logger } from "@/lib/logger";
 import { useAuthStore } from "@/store/auth";
@@ -57,7 +56,6 @@ export const BUILTIN_TEAMS: readonly CatalogTeam[] = [
 
 const CatalogContext = createContext<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
 const TeamsContext = createContext<readonly CatalogTeam[]>(BUILTIN_TEAMS);
-const TagItemsContext = createContext<readonly TagItem[]>([]);
 // Re-fetch the live catalog (after an admin edits it). A no-op outside the provider.
 const RefreshContext = createContext<() => void>(() => undefined);
 
@@ -66,7 +64,6 @@ const RefreshContext = createContext<() => void>(() => undefined);
 export function ReadinessCatalogProvider({ children }: { children: ReactNode }) {
   const [checks, setChecks] = useState<readonly CatalogCheck[]>(BUILTIN_PROJECT_GATES);
   const [teams, setTeams] = useState<readonly CatalogTeam[]>(BUILTIN_TEAMS);
-  const [tagItems, setTagItems] = useState<readonly TagItem[]>([]);
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
   useEffect(() => {
@@ -76,7 +73,6 @@ export function ReadinessCatalogProvider({ children }: { children: ReactNode }) 
         if (!active) return;
         setChecks(catalog.checks);
         setTeams(catalog.teams);
-        setTagItems(catalog.tag_items ?? []);
       })
       .catch((err: unknown) => {
         logger.warn("Readiness catalog unavailable; using the built-in gates", {
@@ -90,12 +86,17 @@ export function ReadinessCatalogProvider({ children }: { children: ReactNode }) 
   return (
     <RefreshContext.Provider value={refresh}>
       <TeamsContext.Provider value={teams}>
-        <TagItemsContext.Provider value={tagItems}>
-          <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
-        </TagItemsContext.Provider>
+        <CatalogContext.Provider value={checks}>{children}</CatalogContext.Provider>
       </TeamsContext.Provider>
     </RefreshContext.Provider>
   );
+}
+
+/** Every active check of the catalog in context (live, or a revision's frozen
+ *  one) — for code that needs a lens's checks outside that lens's provider
+ *  (`lensChecksOf`), e.g. a print choosing its own lens. */
+export function useCatalogChecks(): readonly CatalogCheck[] {
+  return useContext(CatalogContext);
 }
 
 /** Call after changing the catalog so every view picks up the new definitions. */
@@ -174,7 +175,11 @@ export function lensLabel(team: Pick<CatalogTeam, "code" | "name">): string {
 }
 
 /** The "All" lens shows one summary badge per team: a synthetic check per team
- *  (code = team code, the team's icon) whose status is the team's worst. */
+ *  (code = team code, the team's icon) whose status is the team's worst. The
+ *  Project gates badge locks with the plan like the gates it stands for, so it
+ *  stays drawn — grey — when every gate is N/A, and the legends derived from the
+ *  lens's checks list N/A; another team's badge follows `applies()`: no badge
+ *  where none of its checks applies (spec §3.7, §8.4). */
 export function teamSummaryCheck(team: CatalogTeam): CatalogCheck {
   return {
     code: team.code,
@@ -184,7 +189,7 @@ export function teamSummaryCheck(team: CatalogTeam): CatalogCheck {
     applies_well: true,
     status_set: "standard",
     icon_key: team.icon_key,
-    locks_with_plan: false,
+    locks_with_plan: team.code === PROJECTS_TEAM,
     sort_order: team.sort_order,
   };
 }
@@ -258,18 +263,4 @@ export function useReadinessLens(): [Lens, (lens: Lens) => void] {
     }
   }, []);
   return [lens, setLens];
-}
-
-/** Active items of one tag list (e.g. the equipment types), in display order. */
-export function useTagItems(tagList: string | undefined): TagItem[] {
-  const items = useContext(TagItemsContext);
-  return useMemo(
-    () =>
-      tagList
-        ? items
-            .filter((t) => t.tag_list === tagList)
-            .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
-        : [],
-    [items, tagList],
-  );
 }

@@ -73,6 +73,22 @@ describe("adding up the rows shown", () => {
     });
     expect(sumFigures([]).complete_pct).toBeNull();
   });
+
+  it("a team's unticked checks reach the sum only as not applicable (spec §3.7, §3.8)", () => {
+    // Two Logistics wells as served: one with NAV unticked (Behind underneath —
+    // the server already left it out), one where nothing applies.
+    const f = sumFigures([
+      { counted: 2, done: 1, in_progress: 1, behind: 0, na: 1, ready: false },
+      { counted: 0, done: 0, in_progress: 0, behind: 0, na: 3, ready: false },
+    ]);
+    expect(f).toMatchObject({
+      targets: 2, counted: 2, behind: 0, na: 4, complete_pct: 50, on_track_pct: 100, ready: 0, ready_of: 1,
+    });
+    // Nothing applies anywhere → nothing to count: "—", never 0%.
+    expect(sumFigures([{ counted: 0, done: 0, in_progress: 0, behind: 0, na: 6, ready: false }])).toMatchObject({
+      complete_pct: null, on_track_pct: null, ready_of: 0,
+    });
+  });
 });
 
 describe("the window", () => {

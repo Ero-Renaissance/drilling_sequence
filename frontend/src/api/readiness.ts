@@ -13,7 +13,8 @@ export type CheckStatus =
   | "Completed"
   | "Behind"
   | "N/A"
-  // "availability" status set (e.g. Nominated Equipment)
+  // "availability" status set — history only since phase 6 (Nominated
+  // Equipment withdrawn, spec §3.5): past revisions still render it.
   | "Available"
   | "Pending"
   | "Not available";
@@ -39,33 +40,31 @@ export interface CatalogCheck {
   icon_key: string;
   locks_with_plan: boolean;
   sort_order: number;
-  /** "" = none; else the controlled tag list it carries ("equipment"). Optional
-   *  for definitions frozen before tag lists existed. */
+  /** "" = none; else the tag list it carried ("equipment"). Tag lists are history
+   *  only since phase 6 (spec §3.5): kept so frozen catalogs read as recorded,
+   *  never set on a new check. Optional for definitions frozen before them. */
   tag_list?: string;
 }
 
-/** One item of a controlled tag list — e.g. an equipment type. */
-export interface TagItem {
-  tag_list: string;
-  code: string;
-  label: string;
-  category: string;
-  sort_order: number;
+/** One code-defined status set, as the catalog serves it. */
+export interface StatusSet {
+  statuses: { status: string; severity: Severity }[];
+  default: string;
+  /** Kept only so past revisions render (`availability`, spec §3.3) — refused
+   *  for a new check, so the admin form doesn't offer it. */
+  history_only: boolean;
 }
 
 export interface ReadinessCatalog {
   teams: CatalogTeam[];
   checks: CatalogCheck[];
-  status_sets: Record<string, { statuses: { status: string; severity: Severity }[]; default: string }>;
-  tag_items?: TagItem[];
+  status_sets: Record<string, StatusSet>;
 }
 
 export interface CheckState {
   status: CheckStatus;
   notes: string | null;
   updated_at: string | null;
-  /** The entry's own tags (checks with a tag list). */
-  tags?: string[];
 }
 
 /**
@@ -79,14 +78,14 @@ export interface CheckState {
  *  target. Grids add the counts of the rows they show; they never decide which
  *  cells count. */
 export interface RowFigures {
-  /** Cells that count (N/A doesn't). */
+  /** Cells that count (N/A, or a team check that doesn't apply, doesn't). */
   counted: number;
   done: number;
   /** On track (On Track, Pending). */
   in_progress: number;
   /** Behind or Not available. */
   behind: number;
-  /** Not counted (N/A). */
+  /** Not counted (N/A, or a team check that doesn't apply). */
   na?: number;
   /** At least one counted cell, and every counted cell done. */
   ready: boolean;
@@ -160,16 +159,30 @@ export async function upsertCheck(
  *  (inherited), or the status set's default. */
 export type CheckSource = "well" | "project" | "default";
 
-export interface EffectiveCheckState extends CheckState {
+/**
+ * One cell of a team's rows (phase 6, spec §5.1 "Cells"). `status` is the status
+ * underneath, which re-ticking brings back; `applies` says whether the check
+ * applies to this target at all (§3.8). A check that locks with the plan — a
+ * Project gate — always reads `applies: true` from `"default"`: it uses N/A.
+ * Whether a cell is SHOWN is decided by `applies()` in check-meta, never here.
+ */
+export interface TeamCheckState extends CheckState {
+  applies: boolean;
+  /** Where the tick comes from: the well's own choice ("set on this well"), its
+   *  field project's, or the default (applies). */
+  applies_source: CheckSource;
+}
+
+/** A well's cell: `source` says where the STATUS comes from (`applies_source`
+ *  says where the tick does — the two inherit separately, §3.8). */
+export interface EffectiveCheckState extends TeamCheckState {
   source: CheckSource;
-  /** The field project's tags a well inherits; effective = inherited ∪ own. */
-  inherited_tags?: string[];
 }
 
 export interface TeamProjectRow {
   well_project: string;
   activity_count: number;
-  checks: Record<CheckCode, CheckState>;
+  checks: Record<CheckCode, TeamCheckState>;
   /** Earliest start of not-done, readiness-required work (null: nothing left). */
   focus_start?: string | null;
   /** Days from the server's today to `focus_start`. */
@@ -219,25 +232,20 @@ export async function getTeamReadiness(projectId: string, teamCode: string): Pro
   return resp.json();
 }
 
-/** Set one check for a field project or a well. `tags` (checks with a tag list)
- *  replaces the entry's own tags; omit it to leave them unchanged. */
+/** Set one check for a field project or a well. A team check never takes N/A
+ *  (422 — untick it instead), and a team check that doesn't apply to the target
+ *  takes no status (409 — tick it first); spec §5.1. */
 export async function setReadiness(
   projectId: string,
   checkCode: CheckCode,
   target: ReadinessTarget,
   status: CheckStatus,
   notes?: string | null,
-  tags?: string[],
 ): Promise<void> {
   const resp = await fetch(`/api/projects/${projectId}/readiness/${encodeURIComponent(checkCode)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({
-      ...target,
-      status,
-      notes: notes ?? null,
-      ...(tags !== undefined ? { tags } : {}),
-    }),
+    body: JSON.stringify({ ...target, status, notes: notes ?? null }),
   });
   if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }
@@ -257,4 +265,58 @@ export async function resetWellReadiness(
     },
   );
   if (!resp.ok) await throwApiError(resp, `Failed to reset ${checkCode}`);
+}
+
+// ── Checks that apply (phase 6, spec §3.8) ──────────────────────────────────
+
+/**
+ * Which of a team's checks apply to one target — the body of the applicability
+ * PUT. Only the listed codes change (1–50), so a client with a stale catalog
+ * can't untick a check it doesn't know about.
+ * - Field project: `true` applies (the default), `false` doesn't. No `null`: a
+ *   field project has nothing to follow (422).
+ * - Well: `true` / `false` are the well's own choice — stored only while it
+ *   differs from its field project's; `null` is **Follow project**.
+ * Names travel in the BODY, never the URL path (ticket DS-001).
+ */
+export type ApplicabilityUpdate =
+  | { scope: "project"; well_project: string; applies: Record<CheckCode, boolean> }
+  | {
+      scope: "well";
+      /** "" = a well with no field project. */
+      well_project: string;
+      well_name: string;
+      activity_type: string;
+      applies: Record<CheckCode, boolean | null>;
+    };
+
+/** The target's new rows, built exactly as the team read builds them: a field
+ *  project's row plus every well row under it (they follow it), or the one well
+ *  row. The picker redraws from it; other open views refetch. */
+export interface ApplicabilityResult {
+  project_rows: TeamProjectRow[];
+  well_rows: TeamWellRow[];
+}
+
+/**
+ * Tick or untick a team's checks for one target, in one all-or-nothing request.
+ * Not for the Projects team: the Project gates use N/A (422). Who may write is
+ * who may write the check — the team's grantees and admins (403 otherwise); a
+ * tick is never frozen with the plan, so there is no 423.
+ */
+export async function setApplicability(
+  projectId: string,
+  teamCode: string,
+  body: ApplicabilityUpdate,
+): Promise<ApplicabilityResult> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/readiness/teams/${encodeURIComponent(teamCode)}/applicability`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!resp.ok) await throwApiError(resp, "Failed to update which checks apply");
+  return resp.json();
 }

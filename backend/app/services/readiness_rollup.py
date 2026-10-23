@@ -7,13 +7,16 @@ module, never a local formula:
   project + well + activity type). Its value is the effective status (§3.6); an
   unset cell reads its status set's default, and every default is on track.
 - Cells roll up by their shared severity, never by status text: N/A is not
-  counted; **Complete** = done ÷ counted (the headline); **On track** =
-  (done + in progress) ÷ counted; **Behind** = blocked cells.
+  counted, and neither is a team check that doesn't apply (unticked, §3.8 — the
+  live cells read it as N/A); **Complete** = done ÷ counted (the headline);
+  **On track** = (done + in progress) ÷ counted; **Behind** = blocked cells.
 - A target is *ready* when it has ≥1 counted cell and every counted cell is done.
-  A target whose cells are all N/A is left out of the ready count.
+  A target where nothing counts ("Nothing applies") is left out of the ready
+  count.
 - Each target counts once, however many activities share it. Opted-out and
   completed activities carry nothing; project-level checks need a field project,
-  well-level checks a well name.
+  well-level checks a well name, and a project-only check carries nothing on a
+  well with no field project.
 - Nothing counted → ``None`` (shown "—", never 0%). Percentages round half up.
 """
 import uuid
@@ -26,7 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.readiness import STATUS_SETS, ReadinessCheck
-from app.services.readiness_effective import load_index, project_value, well_value
+from app.services.readiness_effective import (
+    cell_status,
+    load_index,
+    project_value,
+    well_cells,
+)
 
 # Status → shared severity. Status names are unique across the status sets, so a
 # status alone fixes its severity — which lets frozen snapshots (status text only)
@@ -70,11 +78,11 @@ class Figures:
     """The rollup of a set of targets."""
 
     targets: int = 0  # targets in scope
-    counted: int = 0  # cells that count (not N/A)
+    counted: int = 0  # cells that count (not N/A, and the check applies)
     done: int = 0
     in_progress: int = 0
     behind: int = 0  # blocked cells
-    na: int = 0  # not-counted cells (N/A)
+    na: int = 0  # not-counted cells (N/A, or a team check that doesn't apply)
     ready: int = 0  # targets with ≥1 counted cell, every counted cell done
     ready_of: int = 0  # targets with ≥1 counted cell
     by_check: dict[str, dict[str, int]] = field(default_factory=dict)
@@ -180,18 +188,18 @@ async def live_cells(
     unit: Literal["projects", "wells"] | None = None,
 ) -> tuple[str, dict[tuple[str, ...], dict[str, str]]]:
     """One team's targets among ``activities`` (already narrowed by ``in_scope``)
-    with every check's effective status.
+    with every check's effective status — N/A for a check that doesn't apply to
+    the target (``cell_status``), so it isn't counted.
 
     Returns ``(unit, {target key: cells})``. A team with well-level checks counts
     WELLS, keyed (field project or "", well, activity type) — project-level values
-    reach them by inheritance. The Project gates and a team with only
+    and ticks reach them by inheritance. The Project gates and a team with only
     project-level checks count FIELD PROJECTS, keyed (field project,). ``unit``
     forces one (the Project gates are always counted per field project). An
     activity without a well name has no well target; one without a field project
-    has no field-project target."""
+    has no field-project target, and its well carries no project-only check."""
     activities = list(activities)
-    # Statuses only — tags never reach a figure, so skip loading them.
-    index = await load_index(db, project_id, [c.code for c in checks], with_tags=False)
+    index = await load_index(db, project_id, [c.code for c in checks])
     if unit is None:
         unit = "wells" if any(c.applies_well for c in checks) else "projects"
     if unit == "wells":
@@ -203,11 +211,13 @@ async def live_cells(
             }
         )
         return "wells", {
-            key: {c.code: well_value(index, c, key).status for c in checks} for key in wells
+            key: {code: cell_status(v) for code, v in well_cells(index, checks, key).items()}
+            for key in wells
         }
     projects = sorted({a.well_project for a in activities if a.well_project})
     return "projects", {
-        (wp,): {c.code: project_value(index, c, wp).status for c in checks} for wp in projects
+        (wp,): {c.code: cell_status(project_value(index, c, wp)) for c in checks}
+        for wp in projects
     }
 
 

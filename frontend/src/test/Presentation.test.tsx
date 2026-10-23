@@ -43,7 +43,6 @@ function serve() {
         teams: [...BUILTIN_TEAMS, LOGISTICS],
         checks: [...BUILTIN_PROJECT_GATES, PO],
         status_sets: {},
-        tag_items: [],
       }),
     ),
     http.get("/api/projects/:projectId/hwu-contracts", () => HttpResponse.json([])),
@@ -57,7 +56,12 @@ function serve() {
           {
             well_project: "Bonga Phase 3", well_name: "Well-1", activity_type: "Oil Development",
             activity_count: 1, location: "LAND", start_date: "2026-01-01", focus_start: "2026-01-01",
-            checks: { PO: { status: "Behind", notes: null, updated_at: null, source: "well" } },
+            checks: {
+              PO: {
+                status: "Behind", notes: null, updated_at: null, source: "well",
+                applies: true, applies_source: "default",
+              },
+            },
           },
         ],
         locked: false,

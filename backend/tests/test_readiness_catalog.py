@@ -376,21 +376,31 @@ def test_frontend_status_severities_mirror_the_backend_status_sets() -> None:
 
 @pytest.mark.skipif(not FRONTEND_SRC.exists(), reason="frontend sources not present")
 def test_frontend_status_sets_mirror_the_backend() -> None:
-    """Same statuses per set and the same default (what an unset check reads)."""
+    """Same statuses per set, the same default (what an unset check reads) and the
+    same ``history_only`` flag (phase 6: a set kept only for past revisions)."""
     meta = (FRONTEND_SRC / "components" / "readiness" / "check-meta.ts").read_text()
-    sets = dict(
-        (name, (re.findall(r'"([^"]+)"', statuses), default))
-        for name, statuses, default in re.findall(
-            r'(\w+): \{ statuses: \[([^\]]*)\], default: "([^"]+)" \}', meta
-        )
+    literal = re.search(r"export const STATUS_SETS\b.*?= \{(.*?)\n\};", meta, re.S)
+    assert literal, "STATUS_SETS literal not found in check-meta.ts"
+    entries = re.findall(
+        r'(\w+): \{\s*statuses: \[([^\]]*)\],\s*default: "([^"]+)",?'
+        r"(?:\s*history_only: (true|false),?)?\s*\}",
+        literal.group(1),
     )
+    sets = {
+        name: (re.findall(r'"([^"]+)"', statuses), default, flag == "true")
+        for name, statuses, default, flag in entries
+    }
     backend = {
-        name: (list(spec["statuses"]), spec["default"]) for name, spec in STATUS_SETS.items()
+        name: (list(spec["statuses"]), spec["default"], spec.get("history_only", False))
+        for name, spec in STATUS_SETS.items()
     }
     assert set(sets) == set(backend)
-    for name, (statuses, default) in sets.items():
+    for name, (statuses, default, history_only) in sets.items():
         assert sorted(statuses) == sorted(backend[name][0]), name
         assert default == backend[name][1], name
+        assert history_only == backend[name][2], name
+    # The flag is what retires a set for new checks — pin where it sits today.
+    assert [name for name, (_, _, flag) in sets.items() if flag] == ["availability"]
 
 
 @pytest.mark.skipif(not FRONTEND_SRC.exists(), reason="frontend sources not present")

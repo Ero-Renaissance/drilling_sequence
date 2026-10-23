@@ -119,14 +119,17 @@ describe("catalog providers", () => {
 });
 
 describe("worstCheck order", () => {
+  const gateDef = (code: string) => BUILTIN_PROJECT_GATES.find((g) => g.code === code)!;
+
   it("breaks ties by the catalog order it is given", () => {
     const checks = { FDP: { status: "Behind" as const }, BUD: { status: "Behind" as const } };
-    expect(worstCheck(checks, ["BUD", "FDP"])?.code).toBe("BUD");
-    expect(worstCheck(checks, ["FDP", "BUD"])?.code).toBe("FDP");
+    const [FDP, BUD] = [gateDef("FDP"), gateDef("BUD")];
+    expect(worstCheck(checks, [BUD, FDP])?.code).toBe("BUD");
+    expect(worstCheck(checks, [FDP, BUD])?.code).toBe("FDP");
   });
 
   it("ignores codes outside the given order (e.g. a retired check's stale value)", () => {
     const checks = { FDP: { status: "Completed" as const }, OLD: { status: "Behind" as const } };
-    expect(worstCheck(checks, ["FDP"])).toEqual({ code: "FDP", status: "Completed" });
+    expect(worstCheck(checks, [gateDef("FDP")])).toEqual({ code: "FDP", status: "Completed" });
   });
 });

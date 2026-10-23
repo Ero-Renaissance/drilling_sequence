@@ -6,9 +6,14 @@ values live in ``readiness_entries``, keyed by NAMES (campaign + field project
 [+ well + activity type]), never by ``Activity.id``: a CSV re-import in replace
 mode recreates every activity with a new id, and readiness must survive that.
 
+Whether a check APPLIES to a target (phase 6, spec §3.8) is stored apart from
+its status, in ``readiness_applicability``, under the same name key. Only checks
+that don't lock with the plan get a row: the Project gates keep N/A instead.
+
 What stays code-defined (a reviewed code change, not admin data):
 - ``STATUS_SETS`` — the statuses a check may take and their shared severity, so
-  rollups (dashboard %, worst-status dot) stay generic across teams.
+  rollups (dashboard %, worst-status dot) stay generic across teams. A set marked
+  ``history_only`` is kept only so past revisions render.
 - ``ICON_KEYS`` — the owned icon registry admins pick from. Admins can never
   upload SVG: the icons are embedded in the HTML/PDF export.
 - ``SCOPES`` / ``EDITOR_SOURCES``.
@@ -21,7 +26,7 @@ Codes are immutable and never reused, even after retirement.
 """
 import uuid
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 from sqlalchemy import (
     Boolean,
@@ -46,6 +51,8 @@ SEVERITIES: Final = ("done", "in_progress", "blocked", "not_counted")
 # an unset entry reads as. Every default is ON TRACK (in_progress): an unset check
 # means nobody has reported a problem — how planners work (spec §3.3, §3.7).
 # Status names are unique across sets, so a status alone fixes its severity.
+# "history_only" (phase 6): kept so revisions that recorded it still render, but
+# refused for new checks. Mirrored in frontend check-meta.ts (parity-tested).
 STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
     "standard": {
         "statuses": {
@@ -58,7 +65,8 @@ STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
     },
     # Nominated Equipment (decided 2026-10-13): is the equipment available?
     # "Pending" (2026-10-16) is the on-track default, so equipment nobody has
-    # nominated yet doesn't count as behind.
+    # nominated yet doesn't count as behind. History only since phase 6: NEQ is
+    # withdrawn (spec §3.5), and no new check may use this set.
     "availability": {
         "statuses": {
             "Pending": "in_progress",
@@ -66,12 +74,51 @@ STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
             "Not available": "blocked",
         },
         "default": "Pending",
+        "history_only": True,
     },
 }
 
+# The status a Project gate is set to when it doesn't apply. Other teams' checks
+# never pick it since phase 6: they untick the check instead (spec §3.3, §3.8).
+NA_STATUS: Final = "N/A"
+
 # Controlled multi-select lists a check may carry (its items are admin-managed
 # rows in readiness_tag_items). "equipment" = the nominated equipment types.
+# History only since phase 6: a check with a tag list is withdrawn (spec §4.4).
 TAG_LISTS: Final = ("equipment",)
+
+
+class CheckDefinition(Protocol):
+    """What the rules below read from a check (a ``ReadinessCheck`` row, or a
+    schema built from one)."""
+
+    status_set: str
+    tag_list: str
+    locks_with_plan: bool
+
+
+def is_history_only(status_set: str) -> bool:
+    """True for a status set kept only so past revisions render (spec §3.3)."""
+    return bool(STATUS_SETS.get(status_set, {}).get("history_only", False))
+
+
+def is_withdrawn(check: CheckDefinition) -> bool:
+    """A WITHDRAWN check (spec §4.4) — today ``NEQ``: its status set is history
+    only, or it carries a tag list. A rule in code, not a column. It is retired
+    (migration 038) and can't be restored, re-created or written."""
+    return is_history_only(check.status_set) or check.tag_list != ""
+
+
+def pickable_statuses(check: CheckDefinition) -> list[str]:
+    """The statuses a person may pick for this check, in picker order (spec
+    §3.3): its set's statuses, minus N/A when the check doesn't lock with the
+    plan — those teams untick a check that doesn't apply instead (§3.8). Nothing
+    is pickable on a history-only (or unknown) set."""
+    spec = STATUS_SETS.get(check.status_set)
+    if spec is None or spec.get("history_only", False):
+        return []
+    return [s for s in spec["statuses"] if check.locks_with_plan or s != NA_STATUS]
+
 
 # Owned icon registry keys — mirrored by the frontend registry.
 ICON_KEYS: Final = (
@@ -237,7 +284,65 @@ class ReadinessEntry(Base):
     )
 
 
+class ReadinessApplicability(Base):
+    """A team's choice that one check does or doesn't apply to one target in one
+    campaign (phase 6, spec §3.8, §4.4). Stored apart from the status, so
+    unticking keeps the status underneath and re-ticking brings it back.
+
+    Only for checks that DON'T lock with the plan: the Project gates never get a
+    row — a gate that doesn't apply is set to N/A instead (decision 31).
+
+    - ``scope="project"``: a row exists only for "doesn't apply" (``applies``
+      False); ticking deletes it. Its wells follow it.
+    - ``scope="well"``: the well's OWN choice (either value), written only where it
+      differed from its field project at that moment, and kept until Follow
+      project (or a write of the field project's current choice) removes it.
+    - No row: the check applies (field project), or the well follows its field
+      project (well).
+
+    Keyed exactly like ``ReadinessEntry`` (names, "" sentinels), so it survives a
+    CSV replace and follows renames as a pair with the status entry.
+    """
+
+    __tablename__ = "readiness_applicability"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "check_code",
+            "scope",
+            "well_project",
+            "well_name",
+            "activity_type",
+            name="uq_readiness_applicability",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # The CAMPAIGN (code: Project) this choice belongs to.
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    check_code: Mapped[str] = mapped_column(
+        ForeignKey("readiness_checks.code"), nullable=False
+    )
+    scope: Mapped[str] = mapped_column(String(8), nullable=False, default="project")
+    well_project: Mapped[str] = mapped_column(String(256), nullable=False)
+    well_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    activity_type: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    # False = doesn't apply. True (wells only) = the well's own choice to apply.
+    applies: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 # ── Tag lists (Nominated Equipment) ─────────────────────────────────────────
+# Dormant since phase 6 (spec §3.5, §4.1): NEQ is withdrawn and no endpoint
+# reads or writes these tables. The models stay because the tables do (history),
+# and the SQL Server CI job's ``alembic check`` compares the two.
 
 
 class ReadinessTagItem(Base):

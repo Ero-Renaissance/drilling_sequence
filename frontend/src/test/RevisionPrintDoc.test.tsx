@@ -3,6 +3,12 @@ import { describe, it, expect } from "vitest";
 
 import { RevisionPrintDoc, type PrintRow } from "@/components/revisions/RevisionPrintDoc";
 import type { RevisionDetail } from "@/api/revisions";
+import type { CatalogCheck } from "@/api/readiness";
+import {
+  BUILTIN_PROJECT_GATES,
+  FrozenCatalogProvider,
+  ReadinessLensProvider,
+} from "@/components/readiness/catalog";
 
 // A revision shell — only the handful of fields the print doc reads on the
 // readiness path need to be present; the rest is cast away for the test.
@@ -267,6 +273,106 @@ describe("RevisionPrintDoc — page-local readiness anchors", () => {
     ]);
     const strips = screen.getAllByTestId("gantt-readiness-strip");
     expect(strips).toHaveLength(1);
+  });
+});
+
+// ── Team lenses print only the checks that applied (phase 6, spec §8.4) ──────
+
+describe("RevisionPrintDoc — team-lens strips", () => {
+  const teamCheck = (code: string, sort_order: number): CatalogCheck => ({
+    code, label: code, team_code: "logistics", applies_project: true, applies_well: true,
+    status_set: "standard", icon_key: "receipt", locks_with_plan: false, sort_order,
+  });
+  const frozen = [...BUILTIN_PROJECT_GATES, teamCheck("PO", 10), teamCheck("NAV", 20), teamCheck("CTR", 30)];
+
+  function renderLens(lens: string, readiness: PrintRow["readiness"]) {
+    return render(
+      <FrozenCatalogProvider checks={frozen}>
+        <ReadinessLensProvider lens={lens}>
+          <RevisionPrintDoc
+            revision={revision}
+            project={null}
+            rows={[{ ...projRow("w1", "Bonga Phase 3", "2033-01-05", "2033-02-20"), readiness }]}
+            chart="readiness"
+            includeSchedule={false}
+            signatures="wetink"
+          />
+        </ReadinessLensProvider>
+      </FrozenCatalogProvider>,
+    );
+  }
+
+  it("packs the checks that applied to the left, sized by the lens's check count", () => {
+    // PO and CTR didn't apply (the snapshot rows already dropped them).
+    renderLens("logistics", { NAV: "Behind" });
+    const strip = screen.getByTestId("gantt-readiness-strip");
+    expect(strip.querySelectorAll("svg")).toHaveLength(1);
+    const grid = strip.querySelector<HTMLElement>(".grid")!;
+    expect(grid.style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
+  });
+
+  it("the Project gates still print every gate, N/A included", () => {
+    renderLens("projects", { FDP: "N/A", LLI: "N/A" });
+    const strip = screen.getByTestId("gantt-readiness-strip");
+    expect(strip.querySelectorAll("svg")).toHaveLength(BUILTIN_PROJECT_GATES.length);
+  });
+});
+
+// ── The readiness key lists the statuses its icons can show (spec §8.4) ──────
+
+describe("RevisionPrintDoc — readiness key", () => {
+  const teamCheck = (code: string, over: Partial<CatalogCheck> = {}): CatalogCheck => ({
+    code, label: code, team_code: "logistics", applies_project: true, applies_well: true,
+    status_set: "standard", icon_key: "receipt", locks_with_plan: false, sort_order: 10, ...over,
+  });
+  // Nominated Equipment as a pre-phase-6 revision froze it (history only).
+  const NEQ = teamCheck("NEQ", {
+    status_set: "availability", icon_key: "forklift", tag_list: "equipment", sort_order: 30,
+  });
+
+  function statusKey(lens: string, frozen: CatalogCheck[], readiness: PrintRow["readiness"]): string {
+    render(
+      <FrozenCatalogProvider checks={frozen}>
+        <ReadinessLensProvider lens={lens}>
+          <RevisionPrintDoc
+            revision={revision}
+            project={null}
+            rows={[{ ...projRow("w1", "Bonga Phase 3", "2033-01-05", "2033-02-20"), readiness }]}
+            chart="readiness"
+            includeSchedule={false}
+            signatures="wetink"
+          />
+        </ReadinessLensProvider>
+      </FrozenCatalogProvider>,
+    );
+    const label = Array.from(document.querySelectorAll("span")).find(
+      (s) => s.textContent === "Status" && s.className.includes("w-16"),
+    )!;
+    return label.parentElement!.textContent ?? "";
+  }
+
+  it("a team lens keys no N/A", () => {
+    expect(statusKey("logistics", [...BUILTIN_PROJECT_GATES, teamCheck("PO")], { PO: "Behind" })).toBe(
+      "StatusOn TrackBehindCompleted",
+    );
+  });
+
+  it("the Project gates and All keep N/A", () => {
+    const frozen = [...BUILTIN_PROJECT_GATES, teamCheck("PO")];
+    expect(statusKey("projects", frozen, { FDP: "N/A" })).toBe("StatusOn TrackBehindCompletedN/A");
+  });
+
+  it("a revision that recorded Nominated Equipment keys its history statuses", () => {
+    expect(
+      statusKey("logistics", [...BUILTIN_PROJECT_GATES, teamCheck("PO"), NEQ], { PO: "Completed", NEQ: "Not available" }),
+    ).toBe("StatusOn TrackBehindCompletedPendingAvailableNot available");
+  });
+
+  it("also keys any other known status the rows draw", () => {
+    // A lens whose frozen catalog lost the definition still keys what it drew.
+    expect(statusKey("projects", [...BUILTIN_PROJECT_GATES], { FDP: "Completed", LLI: "Pending" })).toBe(
+      "StatusOn TrackBehindCompletedN/APending",
+    );
   });
 });
 

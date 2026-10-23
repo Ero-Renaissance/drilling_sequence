@@ -226,7 +226,11 @@ function CheckDialog({
   onSaved: (message: string) => void;
 }) {
   const isProjectGate = team.code === PROJECTS_TEAM;
-  const statusSets = Object.keys(catalog.status_sets);
+  // A history-only set (`availability`, Nominated Equipment's — withdrawn, spec
+  // §3.5) is kept so past revisions render; a new check can't use it (422).
+  const statusSets = Object.keys(catalog.status_sets).filter(
+    (name) => !catalog.status_sets[name]?.history_only,
+  );
   const [code, setCode] = useState(check?.code ?? "");
   const [label, setLabel] = useState(check?.label ?? "");
   const [icon, setIcon] = useState(check?.icon_key ?? catalog.icon_keys[0] ?? "");
@@ -235,7 +239,6 @@ function CheckDialog({
   const [appliesWell, setAppliesWell] = useState(check?.applies_well ?? !isProjectGate);
   const [statusSet, setStatusSet] = useState(check?.status_set ?? statusSets[0] ?? "standard");
   const [locks, setLocks] = useState(check?.locks_with_plan ?? isProjectGate);
-  const [tagList, setTagList] = useState(check?.tag_list ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -285,7 +288,6 @@ function CheckDialog({
           icon_key: icon,
           locks_with_plan: effLocks,
           sort_order: sortOrder,
-          tag_list: tagList,
         });
         onSaved(`Check ${code} added to ${team.name}`);
       }
@@ -348,10 +350,10 @@ function CheckDialog({
               <dd>{statusSetLabel(catalog, check.status_set)}</dd>
               <dt className="text-muted-foreground">Plan lock</dt>
               <dd>{check.locks_with_plan ? "Locks with the plan" : "Stays editable after approval"}</dd>
-              {check.tag_list && (
+              {check.withdrawn && (
                 <>
-                  <dt className="text-muted-foreground">Tags</dt>
-                  <dd>{check.tag_list}</dd>
+                  <dt className="text-muted-foreground">Withdrawn</dt>
+                  <dd>Retired for good — kept only so past revisions render as recorded</dd>
                 </>
               )}
             </dl>
@@ -397,24 +399,6 @@ function CheckDialog({
                   ))}
                 </select>
               </div>
-              {(catalog.tag_lists ?? []).length > 0 && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="check-tag-list">Tags</Label>
-                  <select
-                    id="check-tag-list"
-                    value={tagList}
-                    onChange={(e) => setTagList(e.target.value)}
-                    className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-                  >
-                    <option value="">None</option>
-                    {(catalog.tag_lists ?? []).map((list) => (
-                      <option key={list} value={list}>
-                        {list === "equipment" ? "Equipment types" : list}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -634,6 +618,8 @@ export function ReadinessCatalogAdmin({
                         {checks.map((check) => {
                           const Icon = checkIcon(check.icon_key);
                           const retired = check.retired_at !== null;
+                          // Withdrawn (spec §4.4): retired for good — no Restore (409).
+                          const withdrawn = !!check.withdrawn;
                           const key = `check:${check.code}`;
                           return (
                             <tr
@@ -645,10 +631,20 @@ export function ReadinessCatalogAdmin({
                                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                                   <code className="text-xs font-semibold">{check.code}</code>
                                   <span className="text-foreground">{check.label}</span>
-                                  {retired && (
-                                    <Badge variant="outline" className="text-[10px]">
-                                      Retired
+                                  {withdrawn ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px]"
+                                      title="Retired for good — it can't be restored or re-created; past revisions still show it"
+                                    >
+                                      Withdrawn
                                     </Badge>
+                                  ) : (
+                                    retired && (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        Retired
+                                      </Badge>
+                                    )
                                   )}
                                 </div>
                               </td>
@@ -670,33 +666,35 @@ export function ReadinessCatalogAdmin({
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={busy === key}
-                                    title={
-                                      retired
-                                        ? "Show and allow updates to this check again"
-                                        : "Hide this check everywhere; its saved values are kept"
-                                    }
-                                    onClick={() =>
-                                      run(
-                                        key,
-                                        () =>
-                                          retired
-                                            ? adminApi.restoreCheck(check.code)
-                                            : adminApi.retireCheck(check.code),
-                                        `${check.code} ${retired ? "restored" : "retired"}`,
-                                      )
-                                    }
-                                  >
-                                    {retired ? (
-                                      <ArchiveRestore className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <Archive className="h-3.5 w-3.5" />
-                                    )}
-                                    {retired ? "Restore" : "Retire"}
-                                  </Button>
+                                  {!withdrawn && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={busy === key}
+                                      title={
+                                        retired
+                                          ? "Show and allow updates to this check again"
+                                          : "Hide this check everywhere; its saved values are kept"
+                                      }
+                                      onClick={() =>
+                                        run(
+                                          key,
+                                          () =>
+                                            retired
+                                              ? adminApi.restoreCheck(check.code)
+                                              : adminApi.retireCheck(check.code),
+                                          `${check.code} ${retired ? "restored" : "retired"}`,
+                                        )
+                                      }
+                                    >
+                                      {retired ? (
+                                        <ArchiveRestore className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <Archive className="h-3.5 w-3.5" />
+                                      )}
+                                      {retired ? "Restore" : "Retire"}
+                                    </Button>
+                                  )}
                                 </div>
                               </td>
                             </tr>

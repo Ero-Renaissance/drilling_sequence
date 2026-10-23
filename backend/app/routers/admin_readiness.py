@@ -12,6 +12,10 @@ Catalog rules enforced here (the schemas bound and shape the input):
 - The built-in "projects" team (the field-project gates, edited by planners)
   can't be deactivated, and its checks must lock with the plan.
 - New teams are always grant-edited; only the built-in team is planner-edited.
+- A WITHDRAWN check (phase 6, spec §4.4 — a history-only status set or a tag
+  list; today ``NEQ``) can't be restored (409) or re-created (its code stays
+  taken; the schema refuses both for a new check). Tag lists are history only,
+  so their endpoints are gone (Nominated Equipment withdrawn, spec §3.5).
 """
 
 import logging
@@ -28,29 +32,23 @@ from app.database import get_db
 from app.models.readiness import (
     ICON_KEYS,
     PROJECTS_TEAM,
-    STATUS_SETS,
-    TAG_LISTS,
     ReadinessCheck,
-    ReadinessTagItem,
     ReadinessTeam,
     UserTeamGrant,
+    is_withdrawn,
 )
 from app.models.user import User
 from app.schemas.readiness import (
     AdminCatalogCheck,
     AdminCatalogTeam,
     AdminReadinessCatalog,
-    AdminTagItem,
     CheckCreate,
     CheckUpdate,
-    StatusOption,
-    StatusSet,
-    TagItemCreate,
-    TagItemUpdate,
     TeamCreate,
     TeamGrantsResponse,
     TeamGrantsUpdate,
     TeamUpdate,
+    status_sets_payload,
 )
 from app.services.audit import ENTITY_READINESS_CATALOG, ENTITY_USER, governance_event
 
@@ -132,32 +130,14 @@ async def get_admin_catalog(_admin: CurrentAdmin, db: DB) -> AdminReadinessCatal
         .scalars()
         .all()
     )
+    # Every check, withdrawn ones included (flagged ``withdrawn``: no Restore);
+    # history-only status sets are listed but flagged, so the form doesn't offer
+    # them for a new check.
     return AdminReadinessCatalog(
         teams=[AdminCatalogTeam.model_validate(t, from_attributes=True) for t in teams],
         checks=[AdminCatalogCheck.model_validate(c, from_attributes=True) for c in checks],
-        status_sets={
-            name: StatusSet(
-                statuses=[
-                    StatusOption(status=s, severity=sev) for s, sev in spec["statuses"].items()
-                ],
-                default=spec["default"],
-            )
-            for name, spec in STATUS_SETS.items()
-        },
+        status_sets=status_sets_payload(),
         icon_keys=list(ICON_KEYS),
-        tag_lists=list(TAG_LISTS),
-        tag_items=[
-            AdminTagItem.model_validate(t, from_attributes=True)
-            for t in (
-                await db.execute(
-                    select(ReadinessTagItem).order_by(
-                        ReadinessTagItem.tag_list,
-                        ReadinessTagItem.sort_order,
-                        ReadinessTagItem.code,
-                    )
-                )
-            ).scalars()
-        ],
     )
 
 
@@ -329,6 +309,14 @@ async def _set_retired(
     check_code: str, retire: bool, admin: User, db: AsyncSession
 ) -> AdminCatalogCheck:
     check = await _check_or_404(check_code, db)
+    # A withdrawn check is retired for good (spec §4.4): restoring it would bring
+    # back a status set or tag list no screen offers any more. Its code was
+    # already taken, so it can't be re-created either.
+    if not retire and is_withdrawn(check):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This check was withdrawn and can't be restored",
+        )
     if (check.retired_at is not None) != retire:
         check.retired_at = datetime.now(timezone.utc) if retire else None
         action = "readiness_check_retired" if retire else "readiness_check_restored"
@@ -352,111 +340,6 @@ async def retire_check(check_code: str, admin: CurrentAdmin, db: DB) -> AdminCat
 @router.post("/readiness/checks/{check_code}/restore", response_model=AdminCatalogCheck)
 async def restore_check(check_code: str, admin: CurrentAdmin, db: DB) -> AdminCatalogCheck:
     return await _set_retired(check_code, False, admin, db)
-
-
-# ── Tag lists (e.g. nominated equipment types) ──────────────────────────────
-
-
-async def _tag_or_404(tag_list: str, code: str, db: AsyncSession) -> ReadinessTagItem:
-    item = (
-        await db.execute(
-            select(ReadinessTagItem).where(
-                ReadinessTagItem.tag_list == tag_list, ReadinessTagItem.code == code
-            )
-        )
-    ).scalar_one_or_none()
-    if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
-    return item
-
-
-@router.post("/readiness/tags", response_model=AdminTagItem, status_code=status.HTTP_201_CREATED)
-async def create_tag(payload: TagItemCreate, admin: CurrentAdmin, db: DB) -> AdminTagItem:
-    """Add an item to a tag list. Codes are immutable and never reused."""
-    taken = (
-        await db.execute(
-            select(ReadinessTagItem.id).where(
-                ReadinessTagItem.tag_list == payload.tag_list,
-                ReadinessTagItem.code == payload.code,
-            )
-        )
-    ).scalar_one_or_none()
-    if taken is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="That tag code is already in use"
-        )
-    item = ReadinessTagItem(
-        tag_list=payload.tag_list,
-        code=payload.code,
-        label=payload.label,
-        category=payload.category,
-        sort_order=payload.sort_order,
-    )
-    db.add(item)
-    await db.flush()
-    db.add(
-        _audit(
-            admin,
-            item.id,
-            "readiness_tag_created",
-            f"Created {item.tag_list} tag {item.code} ({item.label})",
-        )
-    )
-    await db.commit()
-    await db.refresh(item)
-    logger.info("readiness_tag_created actor_id=%s tag=%s", admin.id, item.code)
-    return AdminTagItem.model_validate(item, from_attributes=True)
-
-
-@router.patch("/readiness/tags/{tag_list}/{code}", response_model=AdminTagItem)
-async def update_tag(
-    tag_list: str, code: str, payload: TagItemUpdate, admin: CurrentAdmin, db: DB
-) -> AdminTagItem:
-    item = await _tag_or_404(tag_list, code, db)
-    changes = _changes(
-        item,
-        {"label": payload.label, "category": payload.category, "sort_order": payload.sort_order},
-    )
-    if changes:
-        db.add(
-            _audit(
-                admin,
-                item.id,
-                "readiness_tag_updated",
-                f"Updated {item.tag_list} tag {item.code}: " + "; ".join(changes),
-            )
-        )
-        await db.commit()
-        await db.refresh(item)
-        logger.info("readiness_tag_updated actor_id=%s tag=%s", admin.id, item.code)
-    return AdminTagItem.model_validate(item, from_attributes=True)
-
-
-async def _set_tag_retired(
-    tag_list: str, code: str, retire: bool, admin: User, db: AsyncSession
-) -> AdminTagItem:
-    item = await _tag_or_404(tag_list, code, db)
-    if (item.retired_at is not None) != retire:
-        item.retired_at = datetime.now(timezone.utc) if retire else None
-        action = "readiness_tag_retired" if retire else "readiness_tag_restored"
-        verb = "Retired" if retire else "Restored"
-        # Retiring keeps the tag on entries that already carry it; it just can't
-        # be newly added.
-        db.add(_audit(admin, item.id, action, f"{verb} {item.tag_list} tag {item.code}"))
-        await db.commit()
-        await db.refresh(item)
-        logger.info("%s actor_id=%s tag=%s", action, admin.id, item.code)
-    return AdminTagItem.model_validate(item, from_attributes=True)
-
-
-@router.post("/readiness/tags/{tag_list}/{code}/retire", response_model=AdminTagItem)
-async def retire_tag(tag_list: str, code: str, admin: CurrentAdmin, db: DB) -> AdminTagItem:
-    return await _set_tag_retired(tag_list, code, True, admin, db)
-
-
-@router.post("/readiness/tags/{tag_list}/{code}/restore", response_model=AdminTagItem)
-async def restore_tag(tag_list: str, code: str, admin: CurrentAdmin, db: DB) -> AdminTagItem:
-    return await _set_tag_retired(tag_list, code, False, admin, db)
 
 
 # ── Team grants ─────────────────────────────────────────────────────────────

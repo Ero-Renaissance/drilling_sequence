@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Lock, Pencil, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Lock, Pencil, RefreshCw } from "lucide-react";
 import type { Activity } from "@/api/activities";
 import {
   getTeamReadiness,
@@ -8,10 +8,12 @@ import {
   setReadiness,
   type CatalogCheck,
   type CatalogTeam,
+  type CheckSource,
   type CheckState,
   type CheckStatus,
-  type EffectiveCheckState,
   type ProjectReadiness,
+  type ReadinessTarget,
+  type TeamCheckState,
   type TeamReadiness,
 } from "@/api/readiness";
 import { Button } from "@/components/ui/button";
@@ -27,17 +29,27 @@ import {
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { formatDate } from "@/lib/utils";
+import { ApplicabilityPicker } from "./ApplicabilityPicker";
 import { ReadinessDot } from "./ReadinessDot";
-import { TagCheckCell } from "./TagCheckCell";
 import { PROJECTS_TEAM, lensLabel, useProjectGates, useReadinessTeams } from "./catalog";
-import { defaultStatusOf } from "./check-meta";
+import {
+  NOTHING_APPLIES,
+  NOT_APPLICABLE,
+  applies,
+  defaultStatusOf,
+  pickableStatuses,
+} from "./check-meta";
 import { checkIcon } from "./icon-registry";
+
+/** A cell as this panel holds it: a Project gate's (status only) or a team's
+ *  (with `applies`, and `source` on a well). */
+type Cell = CheckState & { applies?: boolean; applies_source?: CheckSource; source?: CheckSource };
 
 interface TeamView {
   team: CatalogTeam;
   checks: CatalogCheck[];
-  well?: Record<string, EffectiveCheckState>;
-  project?: Record<string, CheckState>;
+  well?: Record<string, Cell>;
+  project?: Record<string, Cell>;
 }
 
 /**
@@ -50,6 +62,12 @@ interface TeamView {
  * Two columns make inheritance visible: "This well" (faded while it follows the
  * project; "Reset to project" drops an override) and "Field project" (applies to
  * every well in it). Project gates freeze with the plan; team checks stay live.
+ *
+ * Checks that apply (spec §3.8, §8.7): each team section other than the
+ * Project gates has a **Checks…** control — it edits this well for a team with
+ * well-level checks (project-level ticks read-only), else the field project.
+ * The checks that don't apply here are listed under a folded "Not applicable
+ * (N)". The Project gates section is unchanged: N/A stays in their menus.
  */
 export function ActivityReadinessPanel({
   projectId,
@@ -182,6 +200,25 @@ export function ActivityReadinessPanel({
               const editable = canEdit(team);
               const showWell = !!wellKey && checks.some((c) => c.applies_well);
               const showProject = !!wp && checks.some((c) => c.applies_project);
+              const gates = team.code === PROJECTS_TEAM;
+              // What Checks… edits: this well for a team with well-level checks,
+              // else the field project; nothing without either.
+              const tickTarget: ReadinessTarget | null = gates
+                ? null
+                : showWell && wellKey
+                  ? { scope: "well", ...wellKey }
+                  : showProject
+                    ? { scope: "project", well_project: wp }
+                    : null;
+              // The cells that say whether a check applies to THIS activity.
+              const decider = tickTarget?.scope === "well" ? well : project;
+              const notApplicable = gates
+                ? []
+                : checks.filter((c) => {
+                    const cell = decider?.[c.code];
+                    return cell !== undefined && !applies(cell, c);
+                  });
+              const shown = checks.filter((c) => !notApplicable.includes(c));
               return (
                 <CollapsibleSection
                   key={team.code}
@@ -189,6 +226,28 @@ export function ActivityReadinessPanel({
                   icon={checkIcon(team.icon_key)}
                   defaultOpen={focusTeam === null || focusTeam === team.code}
                   count={editable ? "You can edit" : "View only"}
+                  actions={
+                    tickTarget && (
+                      <ApplicabilityPicker
+                        projectId={projectId}
+                        team={team}
+                        checks={checks}
+                        target={tickTarget}
+                        targetLabel={
+                          tickTarget.scope === "well"
+                            ? `${tickTarget.well_name} · ${wp || "No field project"} · ${tickTarget.activity_type}`
+                            : `${wp} (field project)`
+                        }
+                        cells={(tickTarget.scope === "well" ? well : project) as Record<string, TeamCheckState> | undefined}
+                        projectCells={project as Record<string, TeamCheckState> | undefined}
+                        canEdit={editable}
+                        onSaved={async () => {
+                          await load();
+                          onChanged?.();
+                        }}
+                      />
+                    )
+                  }
                 >
                   {checks.length === 0 ? (
                     <p className="px-4 py-3 text-xs text-muted-foreground">No checks defined yet.</p>
@@ -197,6 +256,10 @@ export function ActivityReadinessPanel({
                       {wp
                         ? "These checks are set per well — this activity has no well name."
                         : "Set a Project for this well to track these checks."}
+                    </p>
+                  ) : shown.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-muted-foreground">
+                      {NOTHING_APPLIES} — none of the {team.name} checks applies here.
                     </p>
                   ) : (
                     <table className="w-full text-sm">
@@ -210,9 +273,12 @@ export function ActivityReadinessPanel({
                         </tr>
                       </thead>
                       <tbody>
-                        {checks.map((c) => {
+                        {shown.map((c) => {
                           const Icon = checkIcon(c.icon_key);
                           const frozen = locked && c.locks_with_plan;
+                          // Team views offer the check's pickable statuses — never
+                          // N/A (untick it instead); the Project gates keep N/A.
+                          const statuses = pickableStatuses(c);
                           return (
                             <tr key={c.code} className="border-t border-border/40">
                               <td className="px-4 py-1.5">
@@ -233,12 +299,20 @@ export function ActivityReadinessPanel({
                                     <CheckCell
                                       check={c}
                                       state={well?.[c.code]}
-                                      targetLabel={`${wellKey.well_name} (this well)`}
+                                      statuses={statuses}
                                       disabled={!editable || frozen || saving === `w:${c.code}`}
-                                      inherited={well?.[c.code]?.source !== "well" && c.applies_project}
-                                      onSave={(status, tags) =>
+                                      inherited={
+                                        // Faded only while it reads the field project's
+                                        // status — a well ticked under an unticked
+                                        // project reads the default (§3.8).
+                                        well?.[c.code]?.source !== "well" &&
+                                        c.applies_project &&
+                                        !!wp &&
+                                        project?.[c.code]?.applies !== false
+                                      }
+                                      onSave={(status) =>
                                         write(`w:${c.code}`, () =>
-                                          setReadiness(projectId, c.code, { scope: "well", ...wellKey }, status, null, tags),
+                                          setReadiness(projectId, c.code, { scope: "well", ...wellKey }, status),
                                         )
                                       }
                                       onReset={
@@ -257,23 +331,21 @@ export function ActivityReadinessPanel({
                               )}
                               {showProject && (
                                 <td className="px-2 py-1.5 text-center">
-                                  {c.applies_project && wp ? (
+                                  {c.applies_project && wp && !gates && project?.[c.code] && !applies(project[c.code], c) ? (
+                                    // This well applies, its field project doesn't.
+                                    <span className="text-xs text-muted-foreground/50" title={NOT_APPLICABLE}>
+                                      —
+                                    </span>
+                                  ) : c.applies_project && wp ? (
                                     <CheckCell
                                       check={c}
                                       state={project?.[c.code]}
-                                      targetLabel={`${wp} (field project)`}
+                                      statuses={statuses}
                                       disabled={!editable || frozen || saving === `p:${c.code}`}
                                       inherited={false}
-                                      onSave={(status, tags) =>
+                                      onSave={(status) =>
                                         write(`p:${c.code}`, () =>
-                                          setReadiness(
-                                            projectId,
-                                            c.code,
-                                            { scope: "project", well_project: wp },
-                                            status,
-                                            null,
-                                            tags,
-                                          ),
+                                          setReadiness(projectId, c.code, { scope: "project", well_project: wp }, status),
                                         )
                                       }
                                     />
@@ -287,6 +359,13 @@ export function ActivityReadinessPanel({
                         })}
                       </tbody>
                     </table>
+                  )}
+                  {notApplicable.length > 0 && (
+                    <NotApplicableList
+                      checks={notApplicable}
+                      cells={decider}
+                      inheritsFromProject={tickTarget?.scope === "well" && !!wp}
+                    />
                   )}
                   {!editable && checks.length > 0 && (
                     <p className="flex items-center gap-1.5 px-4 pb-3 text-xs text-muted-foreground">
@@ -320,42 +399,77 @@ export function ActivityReadinessPanel({
   );
 }
 
-/** One check's value cell: the tag picker for checks with a tag list, else a dot. */
+/** The team checks that don't apply to this activity, folded away (spec §8.7):
+ *  listed muted, with where the choice was made when the well inherits. */
+function NotApplicableList({
+  checks,
+  cells,
+  inheritsFromProject,
+}: {
+  checks: CatalogCheck[];
+  cells: Record<string, Cell> | undefined;
+  inheritsFromProject: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-border/40 px-4 py-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="-mx-1 inline-flex items-center gap-1 rounded px-1 text-xs font-medium text-muted-foreground hover:bg-accent/40"
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {NOT_APPLICABLE} ({checks.length})
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-1" aria-label={NOT_APPLICABLE}>
+          {checks.map((c) => {
+            const Icon = checkIcon(c.icon_key);
+            const own = cells?.[c.code]?.applies_source === "well";
+            const where =
+              inheritsFromProject && c.applies_project && c.applies_well
+                ? own
+                  ? "set on this well"
+                  : "from project"
+                : inheritsFromProject && !c.applies_well
+                  ? "set on the field project"
+                  : null;
+            return (
+              <li key={c.code} className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Icon className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                <span className="font-mono font-semibold">{c.code}</span>
+                <span className="truncate">{c.label}</span>
+                {where && <span className="ml-auto shrink-0 text-[11px] opacity-80">{where}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** One check's value cell: its status dot. */
 function CheckCell({
   check,
   state,
-  targetLabel,
+  statuses,
   disabled,
   inherited,
   onSave,
   onReset,
 }: {
   check: CatalogCheck;
-  state: (CheckState & { inherited_tags?: string[] }) | undefined;
-  targetLabel: string;
+  state: CheckState | undefined;
+  /** The menu — `pickableStatuses` of the definition this section rendered from. */
+  statuses: readonly CheckStatus[];
   disabled: boolean;
   inherited: boolean;
-  onSave: (status: CheckStatus, tags?: string[]) => Promise<void>;
+  onSave: (status: CheckStatus) => Promise<void>;
   onReset?: () => Promise<void>;
 }) {
   const status = state?.status ?? defaultStatusOf(check.status_set);
-  if (check.tag_list) {
-    return (
-      <div className="flex justify-center">
-        <TagCheckCell
-          check={check}
-          targetLabel={targetLabel}
-          status={status}
-          tags={state?.tags ?? []}
-          inheritedTags={state?.inherited_tags ?? []}
-          inherited={inherited}
-          disabled={disabled}
-          onSave={onSave}
-          onReset={onReset}
-        />
-      </div>
-    );
-  }
   return (
     <div className="flex justify-center">
       {disabled ? (
@@ -365,6 +479,7 @@ function CheckCell({
           code={check.code}
           status={status}
           inherited={inherited}
+          statuses={statuses}
           onChange={(next) => onSave(next)}
           onReset={onReset}
         />

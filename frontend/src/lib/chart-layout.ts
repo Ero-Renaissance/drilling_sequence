@@ -4,20 +4,27 @@
  * bar gets, whether a project tag fits, which gate is "worst" — is unit-tested
  * without a canvas. The drawing stays in renderItem; only the decisions live here.
  */
-import type { CheckCode, CheckStatus } from "@/api/readiness";
-import { STATUS_SEVERITY } from "@/components/readiness/check-meta";
+import type { CatalogCheck, CheckCode, CheckStatus } from "@/api/readiness";
+import { STATUS_SEVERITY, applies, type ReadinessCell } from "@/components/readiness/check-meta";
+
+/** A strip's checks, in catalog order — the lens's definitions (or, under the
+ *  All lens, one synthetic check per team). Whether each locks with the plan
+ *  decides how its cells read (`applies()`). */
+export type StripCheck = Pick<CatalogCheck, "code" | "locks_with_plan">;
+
+type Cells = Record<string, ReadinessCell> | null | undefined;
 
 /**
- * Reduce the readiness gates to the single most-concerning one, for a bar too
+ * Reduce a bar's readiness to the single most-concerning check, for a bar too
  * small to show the full strip. Severity (high → low): Behind > On Track >
- * Completed > N/A. Returns the worst gate's code + status, or null.
- *
- * `order` is the catalog's gate order (ties go to the earliest gate); it
- * defaults to the order of `checks`' keys.
+ * Completed > N/A. Cells that don't apply (spec §5.1) are dropped first, so a
+ * bar where nothing applies gives null — no icon — while all-N/A Project gates
+ * still give N/A (the grey icon). Ties go to the earliest check of `checks`
+ * (catalog order). Returns the worst check's code + status, or null.
  */
 export function worstCheck(
-  checks: Record<string, { status: CheckStatus }> | null | undefined,
-  order?: readonly CheckCode[],
+  checks: Cells,
+  defs: readonly StripCheck[],
 ): { code: CheckCode; status: CheckStatus } | null {
   if (!checks) return null;
   // By shared severity: blocked > in progress > done > not counted.
@@ -31,11 +38,12 @@ export function worstCheck(
     "N/A": 0,
   };
   let winner: { code: CheckCode; status: CheckStatus } | null = null;
-  for (const code of order ?? Object.keys(checks)) {
-    const s = checks[code]?.status as CheckStatus | undefined;
-    if (!s) continue;
+  for (const def of defs) {
+    const cell = checks[def.code];
+    if (!cell || !applies(cell, def)) continue;
+    const s = cell.status;
     if (!winner || rank[s] > rank[winner.status]) {
-      winner = { code, status: s };
+      winner = { code: def.code, status: s };
     }
   }
   return winner;
@@ -43,30 +51,38 @@ export function worstCheck(
 
 /**
  * The marker a project's OTHER pending bars carry (its earliest bar has the full
- * strip): its worst check, shown only while that check is BLOCKED — Behind, or
- * Not available for equipment (spec §3.7: severity, never status text). Silence
- * means nothing is behind. Null when there is nothing to flag.
+ * strip): its worst check that applies, shown only while that check is BLOCKED —
+ * Behind, or Not available in a revision's history (spec §3.7: severity, never
+ * status text). Silence means nothing is behind. Null when there is nothing to
+ * flag.
  */
 export function siblingMarker(
-  checks: Record<string, { status: CheckStatus }> | null | undefined,
-  order?: readonly CheckCode[],
+  checks: Cells,
+  defs: readonly StripCheck[],
 ): { code: CheckCode; status: CheckStatus } | null {
-  const worst = worstCheck(checks, order);
+  const worst = worstCheck(checks, defs);
   return worst && STATUS_SEVERITY[worst.status] === "blocked" ? worst : null;
 }
 
 /**
- * The icons one bar's strip draws, in strip order. A lens draws every one of its
- * checks (an unset gate shows its default). The "All" lens's icons are teams, so
- * a team with no readiness for this activity — e.g. Project gates on a well
- * without a field project — gets no badge, matching the tooltip.
+ * The icons one bar's strip draws, in strip order — packed left, since the
+ * caller places them by index; an icon is told by its shape, not its position
+ * (spec §8.3).
+ * - Project gates: every gate, N/A ones grey; an unset gate shows its default.
+ * - A team lens: only the checks that apply to the bar's target (`applies()` —
+ *   an unticked or omitted cell isn't drawn), so a bar where nothing applies
+ *   draws no strip.
+ * - All: one badge per team that has readiness here and is drawn — no badge for
+ *   a team where nothing applies (a grey Project gates badge stays).
  */
 export function barStripCodes(
-  stripCodes: readonly CheckCode[],
-  checks: Record<string, unknown>,
+  defs: readonly StripCheck[],
+  checks: Record<string, ReadinessCell>,
   allLens: boolean,
-): readonly CheckCode[] {
-  return allLens ? stripCodes.filter((c) => checks[c] !== undefined) : stripCodes;
+): CheckCode[] {
+  return defs
+    .filter((d) => (!allLens || checks[d.code] !== undefined) && applies(checks[d.code], d))
+    .map((d) => d.code);
 }
 
 /** Which readiness-strip layout a bar of `barWidth` px receives. */

@@ -41,7 +41,7 @@ function catalog(withLogistics: boolean): AdminReadinessCatalog {
         ? [{ code: "logistics", name: "Logistics", editor_source: "team_grant" as const, icon_key: "banknote", sort_order: 20, is_active: true }]
         : []),
     ],
-    checks: BUILTIN_PROJECT_GATES.map((c) => ({ ...c, retired_at: null })),
+    checks: BUILTIN_PROJECT_GATES.map((c) => ({ ...c, retired_at: null, withdrawn: false })),
     status_sets: {
       standard: {
         statuses: [
@@ -51,6 +51,7 @@ function catalog(withLogistics: boolean): AdminReadinessCatalog {
           { status: "N/A", severity: "not_counted" },
         ],
         default: "On Track",
+        history_only: false,
       },
     },
     icon_keys: ["land-plot", "banknote"],

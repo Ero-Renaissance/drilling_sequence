@@ -253,9 +253,13 @@ async def test_well_inherits_the_project_value_until_it_overrides(
     }
     assert _row(lens, "W-1")["checks"]["L-BUD"]["source"] == "project"
 
-    # A later project change doesn't rewrite the override.
-    await _put(client, pid, "L-BUD", {"well_project": "Bonga Phase 3"}, "N/A")
-    assert _row(await _lens(client, pid, "logistics"), "W-2")["checks"]["L-BUD"]["status"] == "Behind"
+    # A later project change doesn't rewrite the override. (Not N/A: a team check
+    # that doesn't apply is unticked instead since phase 6, spec §3.8.)
+    r = await _put(client, pid, "L-BUD", {"well_project": "Bonga Phase 3"}, "On Track")
+    assert r.status_code == 200, r.text
+    lens = await _lens(client, pid, "logistics")
+    assert _row(lens, "W-1")["checks"]["L-BUD"]["status"] == "On Track"
+    assert _row(lens, "W-2")["checks"]["L-BUD"]["status"] == "Behind"
 
 
 @pytest.mark.asyncio

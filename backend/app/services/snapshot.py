@@ -20,7 +20,12 @@ from app.services.readiness_catalog import (
     default_status,
     governed_project_checks,
 )
-from app.services.readiness_effective import load_index, project_value, well_value
+from app.services.readiness_effective import (
+    cell_status,
+    load_index,
+    project_value,
+    well_value,
+)
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -43,6 +48,7 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     governed = await governed_project_checks(db)
     # Live (operational) checks — Wells, Logistics… — are recorded too, as they
     # stood at submission, for the revision print; they never lock or diff.
+    # Withdrawn checks (NEQ) are not active, so new snapshots don't carry them.
     operational = [c for c in await active_checks(db) if not c.locks_with_plan]
     index = await load_index(db, project_id, [c.code for c in operational])
 
@@ -61,10 +67,10 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
                 v = project_value(index, c, a.well_project)
             else:
                 continue
-            item: dict = {"status": v.status, "source": v.source}
-            if c.tag_list:
-                item["tags"] = v.all_tags
-            values[c.code] = item
+            # Phase 6 (spec §6): a check that doesn't apply is recorded as "N/A" —
+            # every revision reads an N/A team check as one that didn't apply (no
+            # icon, not counted). No tags: Nominated Equipment is withdrawn.
+            values[c.code] = {"status": cell_status(v), "source": v.source}
         return values
     gates_result = await db.execute(
         select(ReadinessEntry).where(

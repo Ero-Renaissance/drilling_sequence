@@ -36,6 +36,7 @@ function catalog(): AdminReadinessCatalog {
       ...BUILTIN_PROJECT_GATES.map((c) => ({
         ...c,
         retired_at: c.code === "EIA" ? "2026-10-13T00:00:00Z" : null,
+        withdrawn: false,
       })),
     ],
     status_sets: {
@@ -47,6 +48,7 @@ function catalog(): AdminReadinessCatalog {
           { status: "N/A", severity: "not_counted" },
         ],
         default: "On Track",
+        history_only: false,
       },
     },
     icon_keys: ["land-plot", "banknote", "map-pin"],
@@ -125,7 +127,6 @@ describe("ReadinessCatalogAdmin", () => {
         icon_key: "banknote",
         locks_with_plan: false,
         sort_order: 10,
-        tag_list: "",
       }),
     );
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -146,6 +147,49 @@ describe("ReadinessCatalogAdmin", () => {
     fireEvent.change(within(dialog).getByLabelText("Code"), { target: { value: "CON" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /add check/i }));
     expect(await within(dialog).findByText(/already in use or reserved/)).toBeInTheDocument();
+  });
+
+  // ── Phase 6: Nominated Equipment withdrawn (spec §3.5, §4.4, §8.7) ─────────
+
+  function withHistory(): AdminReadinessCatalog {
+    const c = catalog();
+    c.checks.push({
+      code: "NEQ", label: "Nominated Equipment", team_code: "logistics", applies_project: true,
+      applies_well: true, status_set: "availability", icon_key: "banknote", locks_with_plan: false,
+      sort_order: 30, tag_list: "equipment", retired_at: "2026-10-23T00:00:00Z", withdrawn: true,
+    });
+    c.status_sets.availability = {
+      statuses: [
+        { status: "Pending", severity: "in_progress" },
+        { status: "Available", severity: "done" },
+        { status: "Not available", severity: "blocked" },
+      ],
+      default: "Pending",
+      history_only: true,
+    };
+    return c;
+  }
+
+  it("a withdrawn check is marked, and can't be restored", () => {
+    render(<ReadinessCatalogAdmin catalog={withHistory()} loading={false} onChanged={vi.fn()} />);
+    const neq = within(section("Logistics")).getByText("Nominated Equipment").closest("tr")!;
+    expect(within(neq).getByText("Withdrawn")).toBeInTheDocument();
+    expect(within(neq).queryByRole("button", { name: /restore/i })).not.toBeInTheDocument();
+    // A merely retired check still offers Restore.
+    const eia = screen.getByText("Env. Assessment").closest("tr")!;
+    expect(within(eia).getByRole("button", { name: /restore/i })).toBeInTheDocument();
+  });
+
+  it("offers only status sets a new check may use — never a history-only one", async () => {
+    render(<ReadinessCatalogAdmin catalog={withHistory()} loading={false} onChanged={vi.fn()} />);
+    fireEvent.click(within(section("Logistics")).getByRole("button", { name: /add check/i }));
+    const dialog = await screen.findByRole("dialog");
+    const select = within(dialog).getByLabelText("Statuses");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "On Track / Completed / Behind / N/A",
+    ]);
+    // No tag-list select any more.
+    expect(within(dialog).queryByLabelText("Tags")).not.toBeInTheDocument();
   });
 
   it("deactivates a grant-edited team", async () => {
