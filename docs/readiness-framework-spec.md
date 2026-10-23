@@ -1155,7 +1155,7 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **3. Well scope + lenses** — ✅ **shipped 2026-10-13** | Well-keyed entries, team lens API + grid (field-project and well rows), lens selector on the Readiness page, chart and sequence print with per-user default (§8.1, §8.4), rename carry-over (§7.1), shared-key warning in the grid, operational lock behaviour. **Moved forward from Phase 4:** project → well inheritance with override + "Reset to project" (§3.6) — admins could already create two-level checks in Phase 2, so the well grid needed it. **Deferred to Phase 4:** the lens on the *revision* print (needs `readiness_at_submission`), the All view, dashboard team tiles; the data-grid strip stays on project gates. | Lens picker appears once a second team exists; planners can print "project gates only". |
 | **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
 | **5. Rollups (§3.7)** — ✅ **shipped 2026-10-16** (`app/services/readiness_rollup.py`) | Three steps: **(1)** one backend rollup service; **Pending** in the equipment status set as its default (backend, picker, legend); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; unset equipment reads amber Pending instead of red Not available. |
-| **6. Checks that apply (§3.8)** — agreed 2026-10-23, not built | **Backend:** `readiness_applicability` + migration 038 (N/A → unticks, `NEQ` retired, audited, tested on SQL Server); effective values, rollup, snapshot, re-key and clone read it; the team rows return `applies` per cell; the applicability endpoint (§5.1, not the Projects team); the status PUT refuses N/A on team checks (422) and a status on a team check that doesn't apply (409); every readiness write takes the campaign write lock; `NEQ` withdrawn (restore and create refused), `availability` and tag lists history only, tag endpoints removed; project-only checks carry nothing on wells with no field project. **Frontend:** the picker (§8.7) in the Wells and Logistics grids and the panel; team-check status menus without N/A; team lenses, prints, tooltips and team badges draw only what applies; equipment UI removed. **Project gates unchanged** (decision 31). **One branch and one PR:** the API change (no `tags`; no N/A on team checks) needs both stacks together. PRs are rebase-merged, so the commit that refuses N/A on team checks and drops `tags` must also remove them from the frontend (or merge this PR with squash). | Wells and Logistics tick which checks apply; N/A leaves their menus; their unticked checks leave the chart and prints; Logistics drops to six checks and its figures move. The Project gates look and work as before. |
+| **6. Checks that apply (§3.8)** — built on branch feature/readiness-checks-that-apply (PR pending) | **Backend:** `readiness_applicability` + migration 038 (N/A → unticks, `NEQ` retired, audited, tested on SQL Server); effective values, rollup, snapshot, re-key and clone read it; the team rows return `applies` per cell; the applicability endpoint (§5.1, not the Projects team); the status PUT refuses N/A on team checks (422) and a status on a team check that doesn't apply (409); every readiness write takes the campaign write lock; `NEQ` withdrawn (restore and create refused), `availability` and tag lists history only, tag endpoints removed; project-only checks carry nothing on wells with no field project. **Frontend:** the picker (§8.7) in the Wells and Logistics grids and the panel; team-check status menus without N/A; team lenses, prints, tooltips and team badges draw only what applies; equipment UI removed. **Project gates unchanged** (decision 31). **One branch and one PR:** the API change (no `tags`; no N/A on team checks) needs both stacks together. PRs are rebase-merged, so the commit that refuses N/A on team checks and drops `tags` must also remove them from the frontend (or merge this PR with squash). | Wells and Logistics tick which checks apply; N/A leaves their menus; their unticked checks leave the chart and prints; Logistics drops to six checks and its figures move. The Project gates look and work as before. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
@@ -1203,8 +1203,9 @@ Phase 6 adds:
   - a status PUT, or Reset to project, on a ticked well under an unticked field
     project audits the default (On Track) as the old value, not the project's
     hidden status;
-  - the team rows report `applies`, `GET /readiness` keeps its shape, and the
-    frontend's `cellSeverity` agrees with the server's `figures` (parity test);
+  - the team rows report `applies`, `GET /readiness` keeps its shape; unticked
+    cells are left out of the server's `figures` and of the frontend's team
+    summaries and badges (each pinned on its own side);
   - migration 038 leaves the Project gates' N/A entries untouched;
   - re-key moves a status and its tick together, and moves neither when the new
     key has either;
@@ -1357,10 +1358,18 @@ Updated **in the same commit as the code that changes them**, not before:
 1. **Well-gate list** — names and status set for each (location preparation,
    permits, …). Left blank; added via the catalog, no code change needed.
 2. **Known risk, outside phase 6:** SQL Server compares names case-insensitively
-   by default, so a case-only field-project rename can strand that project's
-   readiness. The re-key sees the old name as still in use, while the Python
-   lookups match exact case. That affects statuses today and applicability rows
-   after phase 6. It needs its own fix and an MSSQL test.
+   by default.
+   - **Writes are covered by phase 6.** The status PUT, Reset to project and the
+     tick write find the target's own row with the database's comparison, so
+     "Bonga Phase 3" and "BONGA PHASE 3" no longer collide on the unique key
+     (`tests/test_readiness_ci_collation.py` simulates the collation).
+   - **Still open:**
+     - reads still group by exact case, so such names show as two rows that the
+       database treats as one target;
+     - a case-only field-project rename can strand that project's readiness: the
+       re-key sees the old name as still in use.
+
+     Both need their own fix and a real SQL Server test.
 
 ## 13. Future ideas (not decided)
 

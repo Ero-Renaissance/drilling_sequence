@@ -37,6 +37,7 @@ drilling_sequence/
 │   ├─ rig-optimization-spec.md          # Optimizer feature spec (+ engines).
 │   ├─ rig-registry-spec.md              # Fleet registry / planned slots.
 │   ├─ project-dashboard-spec.md         # Overview KPI definitions.
+│   ├─ readiness-framework-spec.md       # Readiness catalog, teams, tick list (§12a).
 │   └─ mssql-migration.md    # DB decision + Postgres→MSSQL notes.
 ├─ backend/
 │   ├─ app/
@@ -46,15 +47,16 @@ drilling_sequence/
 │   │   ├─ core/
 │   │   │   ├─ auth.py       # Proxy-header (Windows Auth) identity; get_current_user; dev bypass.
 │   │   │   ├─ rbac.py       # assert_member / assert_can_sign / assert_can_review
-│   │   │   │                # / assert_can_plan — USE THESE.
-│   │   │   ├─ locks.py      # Plan-lock helpers (HTTP 423).
+│   │   │   │                # / assert_can_plan / assert_can_edit_check — USE THESE.
+│   │   │   ├─ locks.py      # Plan-lock helpers (HTTP 423) + lock_campaign_writes.
 │   │   │   └─ logging_config.py  # Structured logging + request correlation.
 │   │   ├─ models/           # SQLAlchemy ORM models (the schema).
 │   │   ├─ schemas/          # Pydantic v2 request/response models (validation).
 │   │   ├─ routers/          # API endpoints, one module per resource.
 │   │   └─ services/         # Domain logic: audit, conflicts, snapshot,
 │   │                        # revision_diff, email, data_processor, dashboard,
-│   │                        # readiness, registry, integrity, spreadsheet,
+│   │                        # readiness(_catalog/_effective/_rollup/_rekey),
+│   │                        # registry, integrity, spreadsheet,
 │   │                        # activity_types, rig_optimizer(+_milp).
 │   ├─ alembic/              # Migrations (versions/) + env.py.
 │   ├─ tests/                # pytest suite (runs on in-memory SQLite).
@@ -161,8 +163,9 @@ return a Pydantic response model.
    - A **global admin bypasses** per-project checks — preserve that bypass.
    - Default deny. Scope every object lookup to the caller's allowed projects (no BOLA).
 2. **Validate all input server-side** with Pydantic v2 schemas: strict types,
-   enums/allow-lists (roles, plan types, readiness codes), explicit bounds (decision
-   reasons 1–2000 chars). Never trust a value because the frontend also checks it.
+   enums/allow-lists (roles, plan types; readiness codes against the ACTIVE catalog),
+   explicit bounds (decision reasons 1–2000 chars). Never trust a value because the
+   frontend also checks it.
 3. **No raw SQL.** ORM / Core `select()` with bound params only. No f-string SQL, no
    `text()` with interpolation.
 4. **Emit governance audit events** for anything governance-relevant
@@ -181,8 +184,11 @@ return a Pydantic response model.
   dates). Enforced server-side to hard-block submitting an impossible plan (HTTP 409).
 - `snapshot.py` / `revision_diff.py` — a revision freezes the plan as `snapshot_json`
   (a JSON **array** of activity dicts — keep it an array); diffs compare snapshots.
-- `locks.py` — while a revision is pending approval, activities/readiness/contracts
-  are locked (HTTP 423).
+- `locks.py` — while a revision is pending **or approved** (approval keeps the plan
+  locked until a planner uses Revise Plan), activities, contracts and the Project
+  gates are locked (HTTP 423); team readiness checks and their ticks stay editable.
+  `lock_campaign_writes` serializes every plan or readiness write per campaign.
+- `readiness_*.py` — the readiness framework (§12a).
 
 ---
 
@@ -253,13 +259,18 @@ Run all four quality gates (§5) before committing.
 - **Known benign model↔migration inconsistencies** — the deployed DB is wider/looser
   than the model in a few spots. All harmless (every model value fits; no write is
   rejected) and intentionally left as-is — the model lengths were never enforced caps:
-  - `audit_logs.old_value` / `new_value`, `activities.comment`, `readiness_checks.notes`
-    — model `String(512)`, DB `TEXT`.
+  - `audit_logs.old_value` / `new_value`, `activities.comment` — model `String(512)`,
+    DB `TEXT`.
   - `audit_logs.field` — model `String(64)`, DB `VARCHAR(128)`.
-  - `readiness_checks.check_code` — model `String(16)`, DB `VARCHAR(32)`
-    (the column is in a unique constraint but stays bounded, so still indexable).
-  - `readiness_checks.updated_at` — model `NOT NULL`, DB nullable (in practice always
-    populated by its `server_default`).
+  - (The per-activity `readiness_checks` table this list used to cover was dropped by
+    migration 029; 034 reused the name for the readiness **catalog**, §12a.)
+- **Data migrations get their own tests.** Migration 038 (readiness N/A → unticks)
+  is replayed step by step on SQLite by `tests/test_migration_038_sqlite.py`, and
+  round-tripped on SQL Server by `tests/test_migration_038_mssql.py` in the
+  `backend-mssql` CI job — only ever against a **throwaway** database (it refuses
+  one that holds a campaign). No CI job covers PostgreSQL: before a PostgreSQL
+  deploy, run the latter by hand against a throwaway PostgreSQL database, widening
+  its skip guard.
 - **Portability rules (the app must run on MSSQL and SQLite/Postgres):**
   - Timestamp defaults: `sa.func.now()` (dialect-translated), **not**
     `sa.text("now()")`.
@@ -346,9 +357,60 @@ The compressed version:
 - **Concurrency is DB-enforced:** a filtered unique index allows one OPEN
   revision per campaign, and every status transition takes a
   `with_for_update()` row lock — keep both when touching the lifecycle.
-- Readiness codes (FDP/LLI/LOC/FE/FID/EIA/BUD/CON), plan types, and contract
-  semantics are domain enums — validate against the canonical lists, don't accept
-  free-form equivalents.
+- Plan types and contract semantics are domain enums — validate against the
+  canonical lists, don't accept free-form equivalents. Readiness checks are an
+  admin-curated **catalog** (§12a), still validated server-side as an allow-list.
+
+---
+
+## 12a. Readiness framework (don't break these)
+
+Full model: `docs/readiness-framework-spec.md`; binding rules: `CLAUDE.md`.
+Readiness is **not** a hard-coded gate list any more:
+
+- **Catalog** (global, `app/models/readiness.py`, admin-managed on the Admin page via
+  `/api/admin/readiness/*`, every change audited): `readiness_teams` (`projects`,
+  `logistics`, … — `editor_source` `planner` or `team_grant`) and `readiness_checks`
+  (code, label, team, the levels it is enabled at — `applies_project` /
+  `applies_well` — status set, icon key, `locks_with_plan`, `retired_at`). Seeded
+  with the seven Project gates FDP/LLI/LOC/FE/FID/EIA/BUD (034) and the Logistics
+  checks (036). Codes are immutable and never reused (`CON`, retired before the
+  catalog, and the withdrawn `NEQ` stay reserved); checks are retired, never deleted.
+  Status sets (`STATUS_SETS`) and icon keys (`ICON_KEYS`) stay code-defined, mirrored
+  in `frontend/src/components/readiness/check-meta.ts` and the icon registry, and
+  pinned by parity tests.
+- **Values** (per campaign) are keyed by **names** — campaign + field project
+  [+ well + activity type] — never `Activity.id`, so they survive a CSV replace:
+  `readiness_entries` holds statuses, `readiness_applicability` holds which team
+  checks apply (the tick list). A rename moves a check's entry and its tick as a
+  pair (`readiness_rekey.py`); effective well values (inherited from the field
+  project) come from `readiness_effective.py`.
+- **Two kinds of check**, split on `locks_with_plan`:
+  - **Project gates** (the `projects` team, campaign planners): On Track /
+    Completed / Behind / **N/A** (grey icon). Governed — refused with 423 while the
+    plan is locked (pending or approved); stored in the snapshot's `readiness` block
+    and diffed.
+  - **Team checks** (Logistics, Wells, …; global team grants): On Track / Completed
+    / Behind only (N/A → 422). A per-target tick list
+    (`PUT /api/projects/{id}/readiness/teams/{team}/applicability`) says which
+    apply; an unticked check has no icon and isn't counted. Operational — never 423;
+    recorded "as at submission" in `readiness_at_submission` (an unticked one as
+    N/A), shown but never diffed.
+- **Every readiness write** runs: Pydantic body → resolve the check or team →
+  `assert_can_edit_check` → `lock_campaign_writes` → BOLA (the target must exist in
+  this campaign) → 409 for a status on a check that doesn't apply → 423 for a
+  Project gate on a locked plan → write, audit (`readiness_updated` /
+  `readiness_reset` / `readiness_applicability_changed`), one commit.
+- **One rollup** — `readiness_rollup.py` (Complete / On track / Behind, by
+  severity). Grids add up the server's per-row `figures`; the frontend's
+  `applies()` (`check-meta.ts`) drops cells that don't apply before it draws or
+  summarises. Never add a local formula.
+- **Revisions freeze their check definitions** in `revisions.catalog_json`, so
+  renaming or retiring a check never changes how a past revision renders.
+- **Withdrawn checks:** a check whose status set is history-only (`availability`) or
+  that carries a tag list is withdrawn (`is_withdrawn`) — today Nominated Equipment
+  (`NEQ`), retired by migration 038. It can't be restored or re-created, writes
+  treat it as retired, and a clone skips its data.
 
 ---
 

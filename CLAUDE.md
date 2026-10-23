@@ -85,10 +85,11 @@ logic against these active business rules:
   page, audited `team_grant_granted`/`team_grant_revoked`, never auto-granted): a
   grant lets the user write ONE readiness team's checks (Wells, Logistics…) in
   EVERY campaign and confers nothing else — no schedule edits, no project gates, no
-  signing. Who may write a check is decided only by
-  `app/core/rbac.py::assert_can_edit_check`: admin → allowed; a planner-edited team
-  (the built-in `projects` gates) → `assert_member(planner)`; a grant-edited team →
-  the grant. Only the built-in `projects` team is planner-edited.
+  signing. Who may write a check — its status or whether it applies — is decided
+  only by `app/core/rbac.py::assert_can_edit_check`: admin → allowed; a
+  planner-edited team (the built-in `projects` gates) → `assert_member(planner)`;
+  a grant-edited team → the grant. Only the built-in `projects` team is
+  planner-edited.
 - **Admin is resolved additively at login** (manual `is_admin` flag, additively
   granted from the `admin_emails` allowlist — matched on the user's email or Windows
   username). Never auto-revoke admin from those sources.
@@ -105,8 +106,9 @@ logic against these active business rules:
   (`POST .../activities/project-wells`) and "Edit project" (`PUT` same path —
   all-or-nothing, must list every well of the project, 409 on a stale well or a
   rename onto another project's name), rig/HWU contract upsert/delete,
-  readiness PUT for a **governed** check — `locks_with_plan`, i.e. the project
-  gates; operational checks stay editable) is then refused with **423** via `app/core/locks.py`
+  readiness PUT/reset for a **governed** check — `locks_with_plan`, i.e. the project
+  gates; operational checks and the team tick lists (applicability PUT) stay
+  editable, never 423) is then refused with **423** via `app/core/locks.py`
   (`ensure_activity_unlocked` / `assert_project_not_locked`). **Approval keeps the
   plan LOCKED** — the approved `snapshot_json` is the immutable record, so the live
   plan can't drift from it silently. Reject / request-changes / discard unlock it
@@ -118,9 +120,10 @@ logic against these active business rules:
   disabled affordances. Do NOT restore unlock-on-approve.
 - **Plan writes are serialized per campaign:** every endpoint that writes a
   campaign's activities (create/edit/complete/delete, import, project wells
-  add/edit) or freezes them into a revision calls
-  `app/core/locks.py::lock_campaign_writes` right after its role check and BEFORE
-  reading anything it decides on (lock state, versions, names, membership).
+  add/edit), writes its readiness (status PUT, reset, applicability) or freezes
+  them into a revision calls `app/core/locks.py::lock_campaign_writes` right after
+  its role check (`assert_can_edit_check` for readiness) and BEFORE reading
+  anything it decides on (lock state, versions, names, membership).
   Note `select(...).with_for_update()` renders NO lock on SQL Server — don't rely
   on it there.
 - **Separation of duties:** the revision's `created_by` user may **not** sign,
@@ -145,11 +148,13 @@ logic against these active business rules:
   request-changes/discard, reviewer/approver add/remove, `review_policy_changed`,
   project create/clone, project wells add/edit (`project_wells_added`/
   `project_wells_updated`), readiness team grant/revoke, readiness catalog changes
-  (`readiness_team_*` / `readiness_check_*`) and every real readiness value change
-  (`readiness_updated`, old → new) must emit governance events via
-  `app/services/audit.py::governance_event`. Do not add or change a
-  governance-relevant action without writing its audit entry. The audit log is
-  append-only — never expose update/delete on it.
+  (`readiness_team_*` / `readiness_check_*`), every real readiness value change
+  (`readiness_updated`, old → new) and every real applicability change
+  (`readiness_applicability_changed`, one per changed code) must emit governance
+  events via `app/services/audit.py::governance_event` (migration 038 writes its
+  per-campaign `readiness_applicability_migrated` rows in the same shape, in
+  SQL). Do not add or change a governance-relevant action without writing its
+  audit entry. The audit log is append-only — never expose update/delete on it.
 - **Production must fail closed:** when `ENVIRONMENT=production`, the app refuses
   to start if `dev_mode=True` or if `proxy_user_header` is missing. Never weaken
   this guard or introduce a dev-mode auth bypass that can reach prod.
@@ -164,30 +169,49 @@ logic against these active business rules:
   checks are retired (`retired_at`), never deleted. Status sets (`STATUS_SETS`, each
   status mapped to a shared severity) and icon keys (`ICON_KEYS`, an owned registry
   — never admin-uploaded SVG) remain code-defined allow-lists in
-  `app/models/readiness.py`. Readiness values are keyed by NAMES (campaign + field
-  project [+ well + activity type]), never `Activity.id` (CSV replace recreates
-  ids); a well with no field project uses `""`. Values follow an activity rename
-  (`app/services/readiness_rekey.py`, audited `readiness_rekeyed`) — keep that hook
-  on any new path that edits those names. A check applying at both levels is
-  inherited by each well from its field project until the well overrides it
-  (tags: project ∪ well). An activity with `readiness_required = false` carries NO
-  readiness from ANY team (lens rows, snapshot `readiness_at_submission`, team
-  tiles, chart). Live (non-locking) checks are recorded in the snapshot's
+  `app/models/readiness.py`; the `history_only` `availability` set and tag lists
+  are kept only so past revisions render. A check using either is **withdrawn**
+  (`is_withdrawn` — today `NEQ`, retired by migration 038): it is retired, can't
+  be restored (409) or created (422), every write treats it as retired, and its
+  code stays reserved like `CON`. **N/A is pickable only on the Project gates**
+  (checks that lock with the plan) — drawn as the grey N/A icon and frozen with
+  the plan, as before. Every other team's checks use the **tick list** instead
+  (`readiness_applicability`, `PUT .../readiness/teams/{team}/applicability`;
+  422 for the Projects team or a check that locks with the plan): N/A isn't
+  picked for them (status PUT 422s it), a status or Reset to project on an
+  unticked check 409s, unticking keeps the status underneath, and snapshots
+  record an unticked one as N/A in `readiness_at_submission`. Readiness values
+  are keyed by NAMES (campaign + field project [+ well + activity type]), never
+  `Activity.id` (CSV replace recreates ids); a well with no field project uses
+  `""`. Values follow an activity rename (`app/services/readiness_rekey.py`,
+  audited `readiness_rekeyed`) — a check's status entry and its applicability row
+  move as a PAIR, and neither moves if the new key has either — keep that hook
+  on any new path that edits those names. A check enabled at both levels is
+  inherited by each well from its field project until the well overrides it.
+  Whether a check applies is stored separately from its status and inherits the
+  same way: a well follows its field project's tick until it makes its own
+  choice, and Follow project removes it; a well inherits the project's STATUS
+  only while the check applies to the field project. An activity with
+  `readiness_required = false` carries NO readiness from ANY team (lens rows,
+  snapshot `readiness_at_submission`, team tiles, chart). Live (non-locking) checks are recorded in the snapshot's
   `readiness_at_submission` but never lock or diff; only governed gates
   (`gate_codes_of`) feed the snapshot gate KPIs. Revisions freeze their check definitions (`catalog_json`). A check's team,
   status set, scope and lock behaviour are fixed at creation (only label, icon and
   order are editable); `projects` checks must lock with the plan, ONLY `projects`
   checks may (admin catalog 422s a governed check in any other team), and a check
-  that locks with the plan applies at project level only.
+  that locks with the plan is enabled at project level only.
 - **Readiness rollups have ONE definition** (spec §3.7,
   `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,
   never a local formula; Readiness-tab grids add up the server's per-row
   `figures` of exactly the rows shown, they never decide what counts. Readiness = what is DONE: headline **Complete** = done ÷
   counted, with **On track** ((done + in progress) ÷ counted) and **Behind**
   (blocked cells) beside it. Roll up by shared SEVERITY, never status text; N/A
-  isn't counted. An unset check reads its default and every default is on track
-  (On Track; `Pending` for equipment). Ready = ≥1 counted cell, all done. Each
-  target (field project / well) counts once; opt-outs, completed work, no field
+  isn't counted, and neither is an unticked team check (the frontend drops cells
+  that don't apply with `check-meta.ts::applies()` before it rolls up or draws).
+  A team where nothing applies draws NO icon, while the Project gates keep the
+  grey N/A icon. An unset check reads its default and every default is on track
+  (On Track). Ready = ≥1 counted cell, all done. Each target (field project /
+  well) counts once; opt-outs, completed work, no field
   project (project checks) and no well name (well checks) carry nothing. Nothing
   counted → `None` ("—", never 0%); percentages round half up. The "starting soon,
   not ready" warning reads the Project gates only.
