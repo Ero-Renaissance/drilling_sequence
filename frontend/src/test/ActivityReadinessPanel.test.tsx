@@ -203,7 +203,7 @@ describe("ActivityReadinessPanel — checks that apply", () => {
           // The field project unticked NAV; this well follows it.
           project_rows: [{
             well_project: "Bonga Phase 3", activity_count: 2,
-            checks: { "L-BUD": cell("Completed"), NAV: { ...cell("Behind"), applies: false } },
+            checks: { "L-BUD": cell("Completed"), NAV: { ...cell("Behind"), applies: false, applies_source: "project" } },
           }],
           well_rows: [{
             well_project: "Bonga Phase 3", well_name: "W-1", activity_type: "Oil Development", activity_count: 1,

@@ -178,6 +178,7 @@ def _def(code: str = "NAV", *, project: bool = True, well: bool = True, governed
         applies_project=project,
         applies_well=well,
         locks_with_plan=governed,
+        applies_by_default=True,  # every check before phase 7 starts ticked
     )
 
 

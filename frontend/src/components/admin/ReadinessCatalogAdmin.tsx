@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { Fragment, useId, useState, type FormEvent } from "react";
 import { Archive, ArchiveRestore, ListChecks, Loader2, Pencil, Plus, Power } from "lucide-react";
 import {
   adminApi,
@@ -23,52 +23,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toaster";
 import { PROJECTS_TEAM } from "@/components/readiness/catalog";
 import { checkIcon } from "@/components/readiness/icon-registry";
+import { categoriesOf, groupByCategory } from "@/lib/readiness-categories";
 import { cn } from "@/lib/utils";
+import { IconPicker } from "./IconPicker";
 
 // Mirrors the server's patterns (the API stays the authority).
 const CHECK_CODE_RE = /^[A-Z][A-Z0-9-]{1,7}$/;
 const TEAM_CODE_RE = /^[a-z][a-z0-9-]{1,31}$/;
+// A category is free text, trimmed by the server, at most 64 characters, and
+// never contains ";" (it separates the parts of the check's created audit detail).
+const CATEGORY_MAX = 64;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Request failed";
-}
-
-function IconPicker({
-  keys,
-  value,
-  onChange,
-}: {
-  keys: string[];
-  value: string;
-  onChange: (key: string) => void;
-}) {
-  return (
-    <div role="radiogroup" aria-label="Icon" className="flex flex-wrap gap-1.5">
-      {keys.map((key) => {
-        const Icon = checkIcon(key);
-        const selected = key === value;
-        return (
-          <button
-            key={key}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            aria-label={key}
-            title={key}
-            onClick={() => onChange(key)}
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-md border transition-colors",
-              selected
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:bg-accent/50",
-            )}
-          >
-            <Icon className="h-4 w-4" />
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 function FieldError({ message }: { message: string | null }) {
@@ -204,9 +171,17 @@ function TeamDialog({
 
 // ── Check dialog (create / edit) ────────────────────────────────────────────
 
-function statusSetLabel(catalog: AdminReadinessCatalog, name: string): string {
+/** A status set as an admin reads it: the statuses a person can actually PICK
+ *  for a check using it (spec §3.3, `pickableStatuses`) — N/A only for a check
+ *  that locks with the plan (the Project gates); every other check says "doesn't
+ *  apply" with its tick list instead (phase 6), so its menus never offer N/A. */
+function statusSetLabel(catalog: AdminReadinessCatalog, name: string, locksWithPlan: boolean): string {
   const set = catalog.status_sets[name];
-  return set ? set.statuses.map((s) => s.status).join(" / ") : name;
+  if (!set) return name;
+  return set.statuses
+    .map((s) => s.status)
+    .filter((status) => locksWithPlan || status !== "N/A")
+    .join(" / ");
 }
 
 function CheckDialog({
@@ -239,14 +214,24 @@ function CheckDialog({
   const [appliesWell, setAppliesWell] = useState(check?.applies_well ?? !isProjectGate);
   const [statusSet, setStatusSet] = useState(check?.status_set ?? statusSets[0] ?? "standard");
   const [locks, setLocks] = useState(check?.locks_with_plan ?? isProjectGate);
+  const [category, setCategory] = useState(check?.category ?? "");
+  const [startsUnticked, setStartsUnticked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const categoryListId = useId();
 
   // Project gates live at project level and always lock with the plan; a check
   // that locks with the plan can't apply per well (server rules, mirrored here).
   const effAppliesProject = isProjectGate ? true : appliesProject;
   const effAppliesWell = isProjectGate ? false : appliesWell;
   const effLocks = isProjectGate ? true : locks && !effAppliesWell;
+  // Phase 7 (spec §3.9, §8.8): a category and "starts unticked" are for checks
+  // that DON'T lock with the plan — a Project gate takes neither (the server
+  // refuses both, 422), so the fields hide for one.
+  const locksWithPlan = check ? check.locks_with_plan : effLocks;
+  // Existing categories of this team, so spellings stay one (checks group by
+  // exact text).
+  const suggestions = categoriesOf(catalog.checks.filter((c) => c.team_code === team.code));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -267,6 +252,15 @@ function CheckDialog({
       setError("Order: a whole number from 0 to 10000.");
       return;
     }
+    const cat = category.trim();
+    if (!locksWithPlan && cat.length > CATEGORY_MAX) {
+      setError(`Category: at most ${CATEGORY_MAX} characters.`);
+      return;
+    }
+    if (!locksWithPlan && cat.includes(";")) {
+      setError("Category: can't contain a semicolon (;).");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -275,6 +269,8 @@ function CheckDialog({
           label: label.trim(),
           icon_key: icon,
           sort_order: sortOrder,
+          // Sent only when it changed (an edit is audited); "" clears it.
+          ...(!check.locks_with_plan && cat !== (check.category ?? "") ? { category: cat } : {}),
         });
         onSaved(`Check ${check.code} updated`);
       } else {
@@ -288,6 +284,9 @@ function CheckDialog({
           icon_key: icon,
           locks_with_plan: effLocks,
           sort_order: sortOrder,
+          // Never for a check that locks with the plan (422).
+          ...(!effLocks && cat ? { category: cat } : {}),
+          ...(!effLocks && startsUnticked ? { applies_by_default: false } : {}),
         });
         onSaved(`Check ${code} added to ${team.name}`);
       }
@@ -308,8 +307,10 @@ function CheckDialog({
             </DialogTitle>
             <DialogDescription>
               {check
-                ? "Only the label, icon and order can change. Code, team, scope, statuses and plan lock are fixed once a check exists — retire it and add a new one instead."
-                : "The code, scope, statuses and plan lock can't be changed later, and a code is never reused — even after the check is retired."}
+                ? check.locks_with_plan
+                  ? "Only the label, icon and order can change. Code, team, scope, statuses and plan lock are fixed once a check exists — retire it and add a new one instead."
+                  : "Only the label, icon, order and category can change. Code, team, scope, statuses, plan lock and whether it starts unticked are fixed once a check exists — retire it and add a new one instead."
+                : "The code, scope, statuses, plan lock and whether it starts unticked can't be changed later, and a code is never reused — even after the check is retired."}
             </DialogDescription>
           </DialogHeader>
 
@@ -347,9 +348,19 @@ function CheckDialog({
               <dt className="text-muted-foreground">Applies to</dt>
               <dd>{scopeLabel(check)}</dd>
               <dt className="text-muted-foreground">Statuses</dt>
-              <dd>{statusSetLabel(catalog, check.status_set)}</dd>
+              <dd>{statusSetLabel(catalog, check.status_set, check.locks_with_plan)}</dd>
               <dt className="text-muted-foreground">Plan lock</dt>
               <dd>{check.locks_with_plan ? "Locks with the plan" : "Stays editable after approval"}</dd>
+              {!check.locks_with_plan && (
+                <>
+                  <dt className="text-muted-foreground">Starts</dt>
+                  <dd>
+                    {check.applies_by_default === false
+                      ? "Unticked — applies only where a team ticks it"
+                      : "Ticked — applies everywhere until a team unticks it"}
+                  </dd>
+                </>
+              )}
               {check.withdrawn && (
                 <>
                   <dt className="text-muted-foreground">Withdrawn</dt>
@@ -394,7 +405,7 @@ function CheckDialog({
                 >
                   {statusSets.map((name) => (
                     <option key={name} value={name}>
-                      {statusSetLabel(catalog, name)}
+                      {statusSetLabel(catalog, name, locksWithPlan)}
                     </option>
                   ))}
                 </select>
@@ -419,6 +430,50 @@ function CheckDialog({
                 </span>
               </label>
             </>
+          )}
+
+          {!locksWithPlan && (
+            <div className="space-y-1.5">
+              <Label htmlFor="check-category">Category</Label>
+              <Input
+                id="check-category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="None — e.g. Vessels"
+                maxLength={CATEGORY_MAX}
+                list={suggestions.length > 0 ? categoryListId : undefined}
+                autoComplete="off"
+              />
+              {suggestions.length > 0 && (
+                <datalist id={categoryListId} data-testid="category-suggestions">
+                  {suggestions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Groups the check in its team&apos;s tick list, grids and legend; on the chart and
+                prints a category draws one icon. Leave empty for a core check. It can&apos;t
+                contain a semicolon (;).
+              </p>
+            </div>
+          )}
+          {!check && !locksWithPlan && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-primary"
+                checked={startsUnticked}
+                onChange={(e) => setStartsUnticked(e.target.checked)}
+              />
+              <span>
+                Starts unticked
+                <span className="block text-xs text-muted-foreground">
+                  Applies nowhere until a team ticks it for a field project or well (like the
+                  equipment types). Fixed once the check exists.
+                </span>
+              </span>
+            </label>
           )}
 
           <div className="space-y-1.5">
@@ -544,6 +599,8 @@ export function ReadinessCatalogAdmin({
             const TeamIcon = checkIcon(team.icon_key);
             const checks = catalog.checks.filter((c) => c.team_code === team.code);
             const isProjectGates = team.code === PROJECTS_TEAM;
+            const grouped = groupByCategory(checks);
+            const sections = [{ name: "", items: grouped.core }, ...grouped.categories];
             return (
               <section key={team.code} aria-label={`${team.name} checks`} className="py-2">
                 <div className="flex flex-wrap items-center gap-2 px-4 py-2">
@@ -615,7 +672,25 @@ export function ReadinessCatalogAdmin({
                         </tr>
                       </thead>
                       <tbody>
-                        {checks.map((check) => {
+                        {/* Grouped by category within the team (phase 7): core
+                            checks first, then each category under its name. */}
+                        {sections.map(({ name, items }) => (
+                          <Fragment key={`category:${name}`}>
+                            {name && (
+                              <tr className="border-t border-border/40" data-testid="admin-category">
+                                <th
+                                  colSpan={6}
+                                  scope="rowgroup"
+                                  className="pb-1 pt-2.5 text-left text-[11px] font-semibold text-muted-foreground"
+                                >
+                                  {name}
+                                  <span className="ml-1.5 font-normal">
+                                    {items.length} {items.length === 1 ? "check" : "checks"}
+                                  </span>
+                                </th>
+                              </tr>
+                            )}
+                        {items.map((check) => {
                           const Icon = checkIcon(check.icon_key);
                           const retired = check.retired_at !== null;
                           // Withdrawn (spec §4.4): retired for good — no Restore (409).
@@ -631,6 +706,15 @@ export function ReadinessCatalogAdmin({
                                   <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                                   <code className="text-xs font-semibold">{check.code}</code>
                                   <span className="text-foreground">{check.label}</span>
+                                  {check.applies_by_default === false && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px]"
+                                      title="Applies nowhere until a team ticks it — fixed at creation"
+                                    >
+                                      Starts unticked
+                                    </Badge>
+                                  )}
                                   {withdrawn ? (
                                     <Badge
                                       variant="outline"
@@ -650,7 +734,7 @@ export function ReadinessCatalogAdmin({
                               </td>
                               <td className="py-1.5 pr-3 text-xs">{scopeLabel(check)}</td>
                               <td className="py-1.5 pr-3 text-xs text-muted-foreground">
-                                {statusSetLabel(catalog, check.status_set)}
+                                {statusSetLabel(catalog, check.status_set, check.locks_with_plan)}
                               </td>
                               <td className="py-1.5 pr-3 text-xs">
                                 {check.locks_with_plan ? "Locks" : "Live"}
@@ -700,6 +784,8 @@ export function ReadinessCatalogAdmin({
                             </tr>
                           );
                         })}
+                          </Fragment>
+                        ))}
                       </tbody>
                     </table>
                   </div>

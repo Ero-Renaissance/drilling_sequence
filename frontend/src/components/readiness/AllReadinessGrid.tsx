@@ -14,6 +14,7 @@ import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { SearchInput } from "@/components/ui/search-input";
 import { useAuthStore } from "@/store/auth";
 import { teamValuesFor } from "@/lib/readiness-lens";
+import { lookAlikeCodes } from "@/lib/readiness-categories";
 import { summariseTeam, summaryLine, teamDetails } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
 import { focusStartOf, inWindow } from "@/lib/readiness-window";
@@ -26,7 +27,15 @@ import {
   useReadinessTeams,
   type Lens,
 } from "./catalog";
-import { NOTHING_APPLIES, NOT_APPLICABLE, STATUS_ICON_COLOR, applies } from "./check-meta";
+import {
+  CategoryCellIcon,
+  NotSelectedCell,
+  categoryTitle,
+  columnSpan,
+  gridColumns,
+  type GridColumn,
+} from "./category-columns";
+import { NOTHING_APPLIES, NOT_APPLICABLE, STATUS_ICON_COLOR, applies, notSelected } from "./check-meta";
 import { checkIcon } from "./icon-registry";
 import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
 
@@ -51,6 +60,11 @@ type Values = Record<string, CheckState & { source?: string; applies?: boolean }
  * A team check that doesn't apply to a well (spec §3.8) shows a muted "—" in
  * its column; a folded team is the worst of the checks that apply, "—" when
  * none does. The Project gates read as they always have, N/A drawn grey.
+ *
+ * Phase 7 (spec §8.8): an expanded team shows its core checks as columns and
+ * each category as ONE folded column — the worst of its types that apply,
+ * blank where none does — as the team grids do; a check that is not selected
+ * is blank, never "—". The All grid stays read-only.
  */
 export function AllReadinessGrid({
   projectId,
@@ -143,20 +157,28 @@ export function AllReadinessGrid({
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visible = filtered.slice(safeIndex * pageSize, (safeIndex + 1) * pageSize);
 
-  // Each team's checks (columns) and how a row reads its values.
+  // Each team's checks, its expanded columns (core checks, then one folded
+  // column per category — the Project gates have none) and how a row reads its
+  // values.
   const groups = teams.map((team) => {
     if (team.code === PROJECTS_TEAM) {
+      const checks = projectGates as CatalogCheck[];
       return {
         team,
-        checks: projectGates as CatalogCheck[],
+        checks,
+        columns: gridColumns(checks, null),
+        lookAlikes: new Set<string>(),
         values: (r: WellRow): Values | undefined =>
           r.well_project ? gates.get(r.well_project) : undefined,
       };
     }
     const data = teamData.find((d) => d.team.code === team.code);
+    const checks = data?.checks ?? [];
     return {
       team,
-      checks: data?.checks ?? [],
+      checks,
+      columns: gridColumns(checks, null),
+      lookAlikes: lookAlikeCodes(checks.map((c) => c.code)),
       values: (r: WellRow): Values | undefined =>
         data
           ? (teamValuesFor(data, {
@@ -230,18 +252,18 @@ export function AllReadinessGrid({
               <tr className="border-b border-border/70 bg-muted/30">
                 <th
                   rowSpan={2}
-                  className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  className="whitespace-nowrap px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                 >
                   Well
                 </th>
-                {groups.map(({ team, checks }) => {
+                {groups.map(({ team, checks, columns }) => {
                   const open = expanded.has(team.code) && checks.length > 0;
                   const TeamIcon = checkIcon(team.icon_key);
                   return (
                     <th
                       key={team.code}
-                      colSpan={open ? checks.length : 1}
-                      className="border-l border-border/60 px-2 py-1.5 text-center"
+                      colSpan={open ? columnSpan(columns) : 1}
+                      className="whitespace-nowrap border-l border-border/60 px-2 py-1.5 text-center"
                     >
                       <div className="flex items-center justify-center gap-1">
                         <button
@@ -269,13 +291,13 @@ export function AllReadinessGrid({
                 })}
               </tr>
               <tr className="border-b border-border/70 bg-muted/20">
-                {groups.map(({ team, checks }) => {
+                {groups.map(({ team, checks, columns }) => {
                   const open = expanded.has(team.code) && checks.length > 0;
                   if (!open) {
                     return (
                       <th
                         key={team.code}
-                        className="border-l border-border/60 px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                        className="whitespace-nowrap border-l border-border/60 px-2 py-1 text-[10px] font-medium text-muted-foreground"
                       >
                         Worst
                       </th>
@@ -283,18 +305,22 @@ export function AllReadinessGrid({
                   }
                   return (
                     <Fragment key={team.code}>
-                      {checks.map((c, i) => (
-                        <th
-                          key={c.code}
-                          title={c.label}
-                          className={cn(
-                            "px-1 py-1 text-[10px] font-semibold text-muted-foreground",
-                            i === 0 && "border-l border-border/60",
-                          )}
-                        >
-                          {c.code}
-                        </th>
-                      ))}
+                      {columns.map((col, i) =>
+                        col.kind === "check" ? (
+                          <th
+                            key={col.check.code}
+                            title={col.check.label}
+                            className={cn(
+                              "whitespace-nowrap px-1 py-1 text-[10px] font-semibold text-muted-foreground",
+                              i === 0 && "border-l border-border/60",
+                            )}
+                          >
+                            {col.check.code}
+                          </th>
+                        ) : (
+                          <CategoryHead key={`category:${col.name}`} column={col} first={i === 0} />
+                        ),
+                      )}
                     </Fragment>
                   );
                 })}
@@ -304,13 +330,17 @@ export function AllReadinessGrid({
               {visible.map((row) => (
                 <tr key={row.key} className="border-b border-border/40">
                   <td className="px-3 py-2">
-                    <div className="font-medium">{row.well_name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.well_project || "No field project"} · {row.activity_type} ·{" "}
-                      {formatDate(row.start_date)}
+                    {/* A sensible width, so the sub-line doesn't wrap word by word:
+                        with many columns the table scrolls sideways instead. */}
+                    <div className="min-w-[14rem]">
+                      <div className="font-medium">{row.well_name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.well_project || "No field project"} · {row.activity_type} ·{" "}
+                        {formatDate(row.start_date)}
+                      </div>
                     </div>
                   </td>
-                  {groups.map(({ team, checks, values }) => {
+                  {groups.map(({ team, checks, columns, lookAlikes, values }) => {
                     const v = values(row);
                     const open = expanded.has(team.code) && checks.length > 0;
                     if (!open) {
@@ -322,14 +352,37 @@ export function AllReadinessGrid({
                     }
                     return (
                       <Fragment key={team.code}>
-                        {checks.map((c, i) => {
+                        {columns.map((col, i) => {
+                          if (col.kind === "category") {
+                            // Folded, read-only: the worst of its types that apply.
+                            return (
+                              <td
+                                key={`category:${col.name}`}
+                                className={cn("px-1 py-2 text-center", i === 0 && "border-l border-border/60")}
+                              >
+                                <div className="flex justify-center">
+                                  <CategoryCellIcon
+                                    name={col.name}
+                                    items={col.items}
+                                    iconKey={col.icon_key}
+                                    cells={v}
+                                    lookAlikes={lookAlikes}
+                                  />
+                                </div>
+                              </td>
+                            );
+                          }
+                          const c = col.check;
                           const state = v?.[c.code];
                           return (
                             <td
                               key={c.code}
                               className={cn("px-1 py-2 text-center", i === 0 && "border-l border-border/60")}
                             >
-                              {state && applies(state, c) ? (
+                              {!c.locks_with_plan && notSelected(state) ? (
+                                // Not selected (spec §3.9): blank, never "—".
+                                <NotSelectedCell />
+                              ) : state && applies(state, c) ? (
                                 <div className="flex justify-center">
                                   <ReadinessDot
                                     code={c.code}
@@ -404,5 +457,27 @@ function TeamWorst({
     <span title={label} aria-label={label} className="inline-flex justify-center">
       <Icon className={cn("h-[18px] w-[18px]", STATUS_ICON_COLOR[worst])} strokeWidth={2} />
     </span>
+  );
+}
+
+/** An expanded team's header for one of its categories: the category's icon and
+ *  name; its title names every type. Folded only — the All grid's columns are a
+ *  summary, and the team's own view unfolds it. */
+function CategoryHead({ column, first }: { column: Extract<GridColumn, { kind: "category" }>; first: boolean }) {
+  const Icon = checkIcon(column.icon_key);
+  return (
+    <th
+      title={categoryTitle(column.name, column.items)}
+      data-icon={column.icon_key}
+      className={cn(
+        "whitespace-nowrap px-1 py-1 text-[10px] font-semibold text-muted-foreground",
+        first && "border-l border-border/60",
+      )}
+    >
+      <span className="inline-flex items-center gap-1">
+        <Icon className="h-3 w-3" aria-hidden />
+        {column.name}
+      </span>
+    </th>
   );
 }

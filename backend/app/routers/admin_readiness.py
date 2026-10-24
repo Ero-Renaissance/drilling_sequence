@@ -7,8 +7,13 @@ same transaction (``project_id`` NULL — catalog and grants are global).
 Catalog rules enforced here (the schemas bound and shape the input):
 - Codes are immutable and never reused — a retired check's code stays taken, as
   do reserved retired codes (``CON``). Checks are retired, never deleted.
-- A check's team, status set, scope and lock behaviour are fixed at creation:
-  changing them would reinterpret values already stored and frozen in revisions.
+- A check's team, status set, scope, lock behaviour and "starts unticked"
+  (``applies_by_default``, phase 7) are fixed at creation: changing them would
+  reinterpret values already stored and frozen in revisions, or flip every
+  target with no tick of its own. Only label, icon, order and category are
+  editable.
+- A check that locks with the plan can't start unticked and takes no category
+  (phase 7, spec §3.9): the Project gates have no tick list and keep their icons.
 - The built-in "projects" team (the field-project gates, edited by planners)
   can't be deactivated, and its checks must lock with the plan.
 - New teams are always grant-edited; only the built-in team is planner-edited.
@@ -39,6 +44,7 @@ from app.models.readiness import (
 )
 from app.models.user import User
 from app.schemas.readiness import (
+    GOVERNED_NO_CATEGORY,
     AdminCatalogCheck,
     AdminCatalogTeam,
     AdminReadinessCatalog,
@@ -75,6 +81,11 @@ def _audit(admin: User, entity_id: uuid.UUID, action: str, detail: str, old: str
     )
 
 
+def _shown(value: object) -> object:
+    """A value as an audit line shows it: "" (a cleared category) reads "(none)"."""
+    return "(none)" if value == "" else value
+
+
 def _changes(obj: object, updates: dict[str, object]) -> list[str]:
     """Apply the non-None updates to ``obj``; return "field: old -> new" lines for
     the ones that actually changed."""
@@ -84,7 +95,7 @@ def _changes(obj: object, updates: dict[str, object]) -> list[str]:
             continue
         old = getattr(obj, field)
         if old != new:
-            lines.append(f"{field}: {old} -> {new}")
+            lines.append(f"{field}: {_shown(old)} -> {_shown(new)}")
             setattr(obj, field, new)
     return lines
 
@@ -259,12 +270,20 @@ async def create_check(payload: CheckCreate, admin: CurrentAdmin, db: DB) -> Adm
         locks_with_plan=payload.locks_with_plan,
         tag_list=payload.tag_list,
         sort_order=payload.sort_order,
+        category=payload.category,
+        applies_by_default=payload.applies_by_default,
     )
     db.add(check)
     await db.flush()
     scope = "+".join(
         s for s, on in (("project", check.applies_project), ("well", check.applies_well)) if on
     )
+    # Phase 7 (spec §5.1): "; category <name>" when one is set, then "; starts
+    # unticked" LAST — migration 039's re-upgrade reads that ending to know a
+    # check started unticked once its column is gone. A category can't contain
+    # ';' (schemas/readiness.py ``Category``), so it can't fake that ending.
+    category = f"; category {check.category}" if check.category else ""
+    unticked = "; starts unticked" if not check.applies_by_default else ""
     db.add(
         _audit(
             admin,
@@ -272,7 +291,8 @@ async def create_check(payload: CheckCreate, admin: CurrentAdmin, db: DB) -> Adm
             "readiness_check_created",
             f"Created readiness check {check.code} ({check.label}) for team {team.code}; "
             f"scope {scope}; status set {check.status_set}; "
-            f"{'locks with the plan' if check.locks_with_plan else 'stays live'}",
+            f"{'locks with the plan' if check.locks_with_plan else 'stays live'}"
+            f"{category}{unticked}",
         )
     )
     await db.commit()
@@ -286,9 +306,20 @@ async def update_check(
     check_code: str, payload: CheckUpdate, admin: CurrentAdmin, db: DB
 ) -> AdminCatalogCheck:
     check = await _check_or_404(check_code, db)
+    # The Project gates take no category (spec §3.9): their seven icons, grid and
+    # prints stay as they are. Sending "" (what they have) changes nothing.
+    if payload.category and check.locks_with_plan:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=GOVERNED_NO_CATEGORY
+        )
     changes = _changes(
         check,
-        {"label": payload.label, "icon_key": payload.icon_key, "sort_order": payload.sort_order},
+        {
+            "label": payload.label,
+            "icon_key": payload.icon_key,
+            "sort_order": payload.sort_order,
+            "category": payload.category,
+        },
     )
     if changes:
         db.add(

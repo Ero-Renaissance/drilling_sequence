@@ -30,10 +30,21 @@ import {
   worstCheck,
   iconTier,
   gridCols,
+  isCategoryCode,
   siblingMarker,
+  stripChecksOf,
   tagFits,
+  withCategoryCells,
+  type CategoryCell,
 } from "@/lib/chart-layout";
-import { notApplicableLine, summariseTeam, summaryLine } from "@/lib/team-summary";
+import { codeWithLabel, lookAlikeCodes } from "@/lib/readiness-categories";
+import {
+  categoryLine,
+  notApplicableCodesLine,
+  notApplicableLine,
+  summariseTeam,
+  summaryLine,
+} from "@/lib/team-summary";
 import { terrainRank } from "@/lib/gantt-rows";
 import { rigLaneKey } from "@/lib/resource-identity";
 import {
@@ -43,9 +54,9 @@ import {
 } from "@/lib/check-icon-svg";
 import {
   NOTHING_APPLIES,
-  NOT_APPLICABLE,
   STATUS_LABEL,
   applies,
+  notSelected,
 } from "@/components/readiness/check-meta";
 import {
   daysUntilExpiry,
@@ -550,15 +561,29 @@ export function DrillChart({
   // the whole chart option.
   const projectClickable = !!onProjectClick;
   const option: EChartsOption = useMemo(() => {
-    // The readiness strip's gates (catalog order) and each gate's icon key.
-    const stripCodes = gates.map((g) => g.code);
-    const iconKeyByCode = new Map(gates.map((g) => [g.code, g.icon_key]));
+    // The readiness strip's checks (catalog order) and each one's icon key.
+    // Under a team lens with categories (phase 7, spec §8.8) the strip is its
+    // core checks then ONE synthetic check per category — its first type's
+    // icon, its cell the worst of its types that apply (chart-layout) — so a
+    // seeded Logistics strip draws at most 6 + 6 icons, not 27. The Project
+    // gates and the All lens's badges have no category: unchanged.
+    const stripDefs = stripChecksOf(gates);
+    const hasCategories = stripDefs.some((d) => isCategoryCode(d.code));
+    // A bar's cells with each category's cell added (a no-op without one —
+    // and it recomputes, so cells that already carry them read the same).
+    const withCategories = <C extends ChartCheckState>(cells: Record<string, C>) =>
+      hasCategories ? withCategoryCells(gates, cells) : cells;
+    const stripCodes = stripDefs.map((g) => g.code);
+    const iconKeyByCode = new Map(stripDefs.map((g) => [g.code, g.icon_key]));
     // The All lens's "checks" are teams: name them in the tooltip, not by code.
     const tooltipName = new Map(
-      gates.map((g) => [g.code, lens === ALL_LENS ? g.label : g.code]),
+      stripDefs.map((g) => [g.code, lens === ALL_LENS ? g.label : g.code]),
     );
     const iconKeyOf = (code: CheckCode) => iconKeyByCode.get(code) ?? "";
-    const labelByCode = new Map(gates.map((g) => [g.code, g.label]));
+    const labelByCode = new Map(stripDefs.map((g) => [g.code, g.label]));
+    // Codes a tooltip line words with their label ("PC (Personnel Carrier)",
+    // spec §3.4) — look-alikes among the lens's own checks.
+    const lookAlikes = lookAlikeCodes(gates.map((g) => g.code));
     // A team lens lists each check on its own line (code, name, status);
     // the project gates keep their compact two-column tooltip.
     const detailedTooltip = lens !== PROJECTS_TEAM && lens !== ALL_LENS;
@@ -818,13 +843,14 @@ export function DrillChart({
       //   90–135  → 7 half-size icons (10px) in a single row
       //   45–90   → mini grid (9px icons, 4 + 3 across two rows)
       //   <  45   → single worst-status icon (12px) — identifies the failing check
-      const checks = item?.tooltip?.checks ?? null;
-      const readinessRole = item?.readinessRole ?? (checks ? "anchor" : "none");
+      const rawChecks = item?.tooltip?.checks ?? null;
+      const checks = rawChecks ? withCategories(rawChecks) : null;
+      const readinessRole = item?.readinessRole ?? (rawChecks ? "anchor" : "none");
       const barWidth = Math.max(end[0] - start[0], 1);
       if (checks && readinessRole === "sibling") {
         // Exception marker: this bar's project is flagged elsewhere on the
         // chart (its anchor bar carries the full strip) — repeat only trouble.
-        const worst = siblingMarker(checks, gates);
+        const worst = siblingMarker(checks, stripDefs);
         if (worst) {
           const stripY = barTop + barH + BAR_TO_ICON_GAP;
           const minX = coordSys.x;
@@ -847,7 +873,7 @@ export function DrillChart({
           }
         }
       } else if (checks && readinessRole === "anchor") {
-        const barCodes = barStripCodes(gates, checks, lens === ALL_LENS);
+        const barCodes = barStripCodes(stripDefs, checks, lens === ALL_LENS);
         const stripY = barTop + barH + BAR_TO_ICON_GAP;
         const stripX = start[0];
         const minX = coordSys.x;
@@ -907,7 +933,7 @@ export function DrillChart({
           }
         } else {
           // Single worst-status icon — keeps identity even at the smallest size
-          const worst = worstCheck(checks, gates);
+          const worst = worstCheck(checks, stripDefs);
           if (worst) {
             const ICON = 12;
             const x = stripX + Math.max(0, (barWidth - ICON) / 2);
@@ -1220,18 +1246,36 @@ export function DrillChart({
               </div>`;
           } else if (t.checks) {
             // The Project gates list every gate, N/A included, as always. A team
-            // lens lists the checks that apply to this bar's target, then the
-            // ones that don't, muted; one with no cell here carries nothing.
-            const barChecks = t.checks;
-            const shownCodes = gates
+            // lens lists the core checks that apply to this bar's target, then
+            // one line per category naming its types that apply, worst first
+            // ("Vessels (2): PSV Behind · DSV On Track"), then — muted — the
+            // checks that don't apply because of a row. One with no cell here,
+            // or NOT SELECTED (starts unticked, nothing nominated it — phase 7),
+            // carries nothing and is never listed.
+            const barChecks: Record<string, ChartCheckState | CategoryCell> = withCategories(t.checks);
+            const shownCodes = stripDefs
               .filter((g) => applies(barChecks[g.code], g))
               .map((g) => g.code);
             const naCodes = gates
-              .filter((g) => barChecks[g.code] !== undefined && !applies(barChecks[g.code], g))
-              .map((g) => g.code);
+              .filter((g) => {
+                const cell = barChecks[g.code];
+                return cell !== undefined && !applies(cell, g) && !notSelected(cell);
+              })
+              .map((g) => codeWithLabel(g, lookAlikes));
             const cells = shownCodes.map((code) => {
               const status =
-                (t.checks?.[code]?.status as CheckStatus | undefined) ?? "On Track";
+                (barChecks[code]?.status as CheckStatus | undefined) ?? "On Track";
+              const types = isCategoryCode(code) ? (barChecks[code] as CategoryCell).types : null;
+              if (types) {
+                // A category: one line, its icon in its worst status.
+                const line = categoryLine(labelByCode.get(code) ?? "", types, (ty) =>
+                  codeWithLabel(ty, lookAlikes),
+                );
+                return `<div style="display:flex;align-items:flex-start;gap:6px;font-size:11px" data-category-line="">
+                  <img src="${buildCheckSvgDataUri(iconKeyOf(code), status)}" width="13" height="13" style="display:block;flex-shrink:0;margin-top:1px" alt="" />
+                  <span style="color:${theme.tooltipText};max-width:300px;white-space:normal">${esc(line)}</span>
+                </div>`;
+              }
               // Embed the same Lucide icon used in the on-bar strip + readiness
               // grid, status-coloured. Renders as an HTML <img> via data URI.
               const iconSrc = buildCheckSvgDataUri(iconKeyOf(code), status);
@@ -1255,7 +1299,7 @@ export function DrillChart({
                     ? `<div style="display:grid;grid-template-columns:${detailedTooltip ? "1fr" : "1fr 1fr"};gap:4px 12px">${cells}</div>`
                     : `<div style="font-size:11px;color:${theme.tooltipMuted}">${NOTHING_APPLIES}</div>`
                 }
-                ${notApplicableHtml(naCodes.length ? `${NOT_APPLICABLE}: ${naCodes.join(", ")}` : "", 0)}
+                ${notApplicableHtml(notApplicableCodesLine(naCodes), 0)}
               </div>`;
           }
 

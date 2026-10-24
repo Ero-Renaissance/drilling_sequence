@@ -185,11 +185,53 @@ describe("ReadinessCatalogAdmin", () => {
     fireEvent.click(within(section("Logistics")).getByRole("button", { name: /add check/i }));
     const dialog = await screen.findByRole("dialog");
     const select = within(dialog).getByLabelText("Statuses");
+    // A live team check can't be marked N/A (its tick list says "doesn't
+    // apply"), so its set reads without it.
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "On Track / Completed / Behind / N/A",
+      "On Track / Completed / Behind",
     ]);
     // No tag-list select any more.
     expect(within(dialog).queryByLabelText("Tags")).not.toBeInTheDocument();
+  });
+
+  // ── The Statuses column names what can be picked (spec §3.3, §8.7) ─────────
+
+  it("lists the statuses a person can pick: a Project gate keeps N/A, a team check doesn't", () => {
+    const c = catalog();
+    c.checks.push({
+      code: "L-BUD", label: "Budget Availability", team_code: "logistics", applies_project: true,
+      applies_well: true, status_set: "standard", icon_key: "banknote", locks_with_plan: false,
+      sort_order: 10, retired_at: null, withdrawn: false,
+    });
+    render(<ReadinessCatalogAdmin catalog={c} loading={false} onChanged={vi.fn()} />);
+    const statusesOf = (label: string) =>
+      within(screen.getByText(label).closest("tr")!).getAllByRole("cell")[2].textContent;
+    expect(statusesOf("Field Development Plan")).toBe("On Track / Completed / Behind / N/A");
+    expect(statusesOf("Budget Availability")).toBe("On Track / Completed / Behind");
+  });
+
+  it("the edit dialog and a new Project gate read the same way", async () => {
+    const c = catalog();
+    c.checks.push({
+      code: "L-BUD", label: "Budget Availability", team_code: "logistics", applies_project: true,
+      applies_well: true, status_set: "standard", icon_key: "banknote", locks_with_plan: false,
+      sort_order: 10, retired_at: null, withdrawn: false,
+    });
+    const view = render(<ReadinessCatalogAdmin catalog={c} loading={false} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit L-BUD" }));
+    const edit = await screen.findByRole("dialog");
+    expect(within(edit).getByText("Statuses").nextElementSibling).toHaveTextContent(
+      /^On Track \/ Completed \/ Behind$/,
+    );
+    view.unmount();
+
+    render(<ReadinessCatalogAdmin catalog={c} loading={false} onChanged={vi.fn()} />);
+    fireEvent.click(within(section("Projects")).getByRole("button", { name: /add check/i }));
+    const create = await screen.findByRole("dialog");
+    const select = within(create).getByLabelText("Statuses");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "On Track / Completed / Behind / N/A",
+    ]);
   });
 
   it("deactivates a grant-edited team", async () => {

@@ -24,7 +24,6 @@ from app.models.audit import AuditLog
 from app.models.project import Project
 from app.models.readiness import (
     ReadinessApplicability,
-    ReadinessCheck,
     ReadinessEntry,
     ReadinessEntryTag,
     ReadinessTeam,
@@ -44,7 +43,25 @@ ADMIN_RETIRED_AT = datetime(2000, 1, 1, tzinfo=timezone.utc)
 
 ENTRIES = ReadinessEntry.__table__
 ROWS = ReadinessApplicability.__table__
-CHECKS = ReadinessCheck.__table__
+# readiness_checks as it stands at 037/038 — NOT ReadinessCheck.__table__: the
+# model has migration 039's columns (category, applies_by_default), which don't
+# exist yet where test_migration_038_mssql.py seeds and checks (spec §4.5).
+CHECKS = sa.table(
+    "readiness_checks",
+    sa.column("id", sa.Uuid()),
+    sa.column("code", sa.String(16)),
+    sa.column("label", sa.String(64)),
+    sa.column("team_code", sa.String(32)),
+    sa.column("applies_project", sa.Boolean()),
+    sa.column("applies_well", sa.Boolean()),
+    sa.column("status_set", sa.String(16)),
+    sa.column("icon_key", sa.String(32)),
+    sa.column("locks_with_plan", sa.Boolean()),
+    sa.column("tag_list", sa.String(32)),
+    sa.column("sort_order", sa.Integer()),
+    sa.column("retired_at", sa.DateTime(timezone=True)),
+    sa.column("created_at", sa.DateTime(timezone=True)),
+)
 AUDIT = AuditLog.__table__
 CHECK_EVENTS = ("readiness_check_retired", "readiness_check_restored")
 

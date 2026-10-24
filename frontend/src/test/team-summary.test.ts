@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CatalogCheck, CheckStatus } from "@/api/readiness";
+import type { CatalogCheck, CheckSource, CheckStatus } from "@/api/readiness";
 import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 import {
   notApplicableLine,
@@ -119,5 +119,87 @@ describe("team checks that don't apply (spec §3.8)", () => {
     expect(s.worst).toBe("N/A");
     expect(s.notApplicable).toEqual([]);
     expect(teamLine(details)).toBe("Nothing applies (all N/A)");
+  });
+});
+
+describe("look-alike codes carry their label in the All lens's lines (spec §3.4, phase 7)", () => {
+  const labelled = (code: string, label: string, over: Partial<CatalogCheck> = {}): CatalogCheck => ({
+    ...teamCheck(code),
+    label,
+    ...over,
+  });
+  // CTR/CR, PO/PC and CB/CBG look alike; NAV and PSV look like nothing here.
+  const LOGISTICS = [
+    labelled("CTR", "Contract Availability"),
+    labelled("PO", "Purchase Order"),
+    labelled("NAV", "Naval Clearance"),
+    labelled("PSV", "Platform Support Vessel", { category: "Vessels", applies_by_default: false }),
+    labelled("PC", "Personnel Carrier", { category: "Vessels", applies_by_default: false }),
+    labelled("CBG", "Crane Barge", { category: "Barges", applies_by_default: false }),
+    labelled("CB", "Coaster Bus", { category: "Land transport", applies_by_default: false }),
+    labelled("CR", "Crane", { category: "Lifting", applies_by_default: false }),
+  ];
+  const cell = (status: CheckStatus, applies = true, applies_source: CheckSource = "project") => ({
+    status,
+    applies,
+    applies_source,
+  });
+
+  it("summaryLine and notApplicableLine word them — judged over the team's FULL checks", () => {
+    const details = teamDetails(LOGISTICS, {
+      CTR: cell("On Track", true, "default"),
+      PO: cell("On Track", true, "default"),
+      NAV: cell("Behind", true, "default"),
+      PC: cell("On Track"),
+      CR: cell("Behind"),
+      // Not applicable because of a row.
+      CB: cell("On Track", false, "well"),
+      CBG: cell("On Track", false, "project"),
+      // Not selected: carries nothing, never named — yet PSV still has no
+      // look-alike, and CTR is judged against CR whatever CR's cell is.
+      PSV: cell("On Track", false, "default"),
+    });
+    const s = summariseTeam(details)!;
+    expect(summaryLine(s, 6)).toBe(
+      "0 of 5 done · Behind: NAV, CR (Crane) · On Track: CTR (Contract Availability), PO (Purchase Order), PC (Personnel Carrier)",
+    );
+    expect(notApplicableLine(details)).toBe("Not applicable: CBG (Crane Barge), CB (Coaster Bus)");
+  });
+
+  it("a look-alike whose twin carries nothing here is still worded (the team lens judges the same way)", () => {
+    const details = teamDetails(LOGISTICS, { CTR: cell("Behind", true, "default") });
+    expect(summaryLine(summariseTeam(details)!)).toBe("0 of 1 done · Behind: CTR (Contract Availability)");
+  });
+
+  it("codes that look like nothing keep their bare code — phase 6 lines are unchanged", () => {
+    const checks = [teamCheck("L-BUD"), teamCheck("PO"), teamCheck("NAV"), teamCheck("CTR")];
+    const details = teamDetails(checks, {
+      "L-BUD": { status: "Completed", applies: true },
+      PO: { status: "Behind", applies: true },
+      NAV: { status: "On Track", applies: false },
+      CTR: { status: "On Track", applies: true },
+    });
+    expect(details.some((x) => x.lookAlike)).toBe(false);
+    expect(summaryLine(summariseTeam(details)!)).toBe("1 of 3 done · Behind: PO · On Track: CTR");
+    expect(notApplicableLine(details)).toBe("Not applicable: NAV");
+  });
+
+  it("the Project gates keep bare codes — even two that look alike", () => {
+    const gate = (code: string, label: string): CatalogCheck => ({
+      ...teamCheck(code),
+      label,
+      team_code: "projects",
+      applies_well: false,
+      locks_with_plan: true,
+    });
+    const gates = [...BUILTIN_PROJECT_GATES, gate("FIX", "A gate like FID")];
+    const details = teamDetails(
+      gates,
+      Object.fromEntries(gates.map((g) => [g.code, { status: "Behind" as const }])),
+    );
+    expect(details.some((x) => x.lookAlike)).toBe(false);
+    expect(summaryLine(summariseTeam(details)!, 99)).toBe(
+      `0 of ${gates.length} done · Behind: ${gates.map((g) => g.code).join(", ")}`,
+    );
   });
 });

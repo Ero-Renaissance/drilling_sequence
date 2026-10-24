@@ -6,9 +6,11 @@ tiles), and the revision snapshot's ``readiness_at_submission`` (spec §3.6,
 
 - **Applies?** (phase 6) — only checks that DON'T lock with the plan have a tick
   list; a Project gate always applies (a gate that doesn't apply is set to N/A
-  instead — decision 31). A field project applies unless it has an
-  ``applies = false`` row. A well: its own choice (checks enabled at well level),
-  else its field project's (checks enabled at project level), else applies.
+  instead — decision 31). A field project: its own row, else the CHECK'S
+  DEFAULT (``applies_by_default``, phase 7 — False for a check that starts
+  unticked, such as the equipment checks). A well: its own choice (checks
+  enabled at well level), else its field project's effective choice (checks
+  enabled at project level), else the check's default.
 - **Status** — a field project shows its own entry, else the status set's
   default. A well: its own entry (checks enabled at well level), else its field
   project's entry — but only while the check APPLIES to the field project — else
@@ -18,6 +20,13 @@ tiles), and the revision snapshot's ``readiness_at_submission`` (spec §3.6,
 Unticking keeps the status underneath: ``status`` is reported whatever
 ``applies`` says, so re-ticking brings it back. A rollup reads ``cell_status``:
 the status, or N/A — not counted — for a check that doesn't apply (§3.7).
+
+**Not selected** (phase 7, spec §3.9): a check that starts unticked and reads its
+default — no row on the target, nor on its field project — doesn't apply
+(``applies_source == "default"``), and carries NOTHING: ``not_selected`` is the
+one test, and the team rows' figures, the rollup's live cells and the snapshot's
+``readiness_at_submission`` leave such a cell out entirely (not even as N/A). A
+check that doesn't apply because of a ROW is "not applicable": N/A, as in phase 6.
 
 Readiness opt-out: an activity with ``readiness_required = False`` carries NO
 readiness from any team (decided 2026-10-14) — callers skip it. A project-only
@@ -52,6 +61,8 @@ class CheckLike(Protocol):
     applies_project: bool
     applies_well: bool
     locks_with_plan: bool
+    # Phase 7: False = the check starts unticked (spec §3.9).
+    applies_by_default: bool
 
 
 @dataclass
@@ -61,7 +72,8 @@ class Effective:
     notes: str | None = None
     updated_at: datetime | None = None
     applies: bool = True  # False: the check doesn't apply here (unticked)
-    applies_source: Source = "default"  # where the TICK comes from
+    # Where the TICK comes from; "default" = the check's own default (no row).
+    applies_source: Source = "default"
 
 
 @dataclass
@@ -177,26 +189,37 @@ def _default_status(check: CheckLike) -> str:
 # ── Applies? ────────────────────────────────────────────────────────────────
 
 
+def default_applies(check: CheckLike) -> bool:
+    """What a target with no row of its own — and nothing to follow — reads
+    (spec §3.9): the check's ``applies_by_default``. A check that locks with the
+    plan always applies: it has no tick list (decision 31), and the catalog
+    refuses one that starts unticked. ``None`` (a check not yet flushed) reads
+    as the column's default, True — only an explicit False starts unticked."""
+    return True if check.locks_with_plan else check.applies_by_default is not False
+
+
 def project_applies(index: EntryIndex, check: CheckLike, well_project: str) -> tuple[bool, Source]:
     """Whether ``check`` applies to a field project, and where that comes from:
-    the project's own row ("project"), else it applies ("default"). A check that
-    locks with the plan always applies — the Project gates use N/A, never a row
-    (decision 31) — and so does one not enabled at project level, or a target
-    with no field project: no row can speak for them."""
+    the project's own row ("project"), else the check's default ("default" —
+    ``applies_by_default``, False for a check that starts unticked). A check
+    that locks with the plan always applies — the Project gates use N/A, never a
+    row (decision 31). A check not enabled at project level, or a target with no
+    field project, reads the check's default: no row can speak for them."""
     if check.locks_with_plan or not check.applies_project or not well_project:
-        return True, "default"
+        return default_applies(check), "default"
     row = index.project_applies.get((well_project, check.code))
     if row is None:
-        return True, "default"
+        return default_applies(check), "default"
     return bool(row.applies), "project"
 
 
 def well_applies(index: EntryIndex, check: CheckLike, key: WellKey) -> tuple[bool, Source]:
     """Whether ``check`` applies to a well, and where that comes from: the
     well's own choice ("well", checks enabled at well level), else its field
-    project's ("project", checks enabled at project level), else it applies
-    ("default"). A well's own choice wins even where it matches its field
-    project's — it stays until Follow project removes it (§3.8)."""
+    project's effective choice ("project" for its row, checks enabled at project
+    level), else the check's default ("default"). A well's own choice wins even
+    where it matches its field project's — it stays until Follow project removes
+    it (§3.8)."""
     if check.locks_with_plan:
         return True, "default"
     wp, wn, at = key
@@ -287,8 +310,23 @@ def well_cells(
     return {c.code: well_value(index, c, key) for c in checks if well_has_cell(c, key[0])}
 
 
+def not_selected(value: Effective) -> bool:
+    """A cell that is NOT SELECTED (phase 7, spec §3.7, §3.9): the check doesn't
+    apply, and that comes from the check's own default — a check that starts
+    unticked with no row on the target or on its field project. It carries
+    nothing: callers leave it out of every figure (not even counted as N/A) and
+    out of snapshots. A check that doesn't apply because of a row (``well`` or
+    ``project``) is "not applicable" instead, and reads N/A (``cell_status``).
+
+    The one test, for its three callers: the team rows' ``figures``, both
+    branches of the rollup's live cells, and the snapshot's
+    ``readiness_at_submission``."""
+    return not value.applies and value.applies_source == "default"
+
+
 def cell_status(value: Effective) -> str:
     """The status a ROLLUP reads for a cell (spec §3.7): its effective status, or
     N/A — not counted — when the check doesn't apply, whatever sits underneath.
-    Snapshots record it the same way (§6)."""
+    Snapshots record it the same way (§6). A cell that is ``not_selected`` is
+    left out before this is read."""
     return value.status if value.applies else NA_STATUS

@@ -41,7 +41,16 @@ _DEFINITION_FIELDS = (
     "locks_with_plan",
     "sort_order",
     "tag_list",
+    # Phase 7 (spec §4.5): so a revision print groups by the categories frozen
+    # with it, and knows which checks started unticked.
+    "category",
+    "applies_by_default",
 )
+
+# What a definition field reads as where the source predates it: the built-in
+# gates (``BUILTIN_CHECKS`` keeps migration 034's shape) have no category and
+# start ticked — as every check did before migration 039.
+_DEFINITION_DEFAULTS: dict[str, Any] = {"category": "", "applies_by_default": True}
 
 
 async def active_checks(
@@ -125,8 +134,12 @@ def definition(check: ReadinessCheck) -> dict[str, Any]:
 
 
 def builtin_definitions() -> list[dict[str, Any]]:
-    """The original seven gates — the catalog of pre-catalog revisions."""
-    return [{f: c[f] for f in _DEFINITION_FIELDS} for c in BUILTIN_CHECKS]
+    """The original seven gates — the catalog of pre-catalog revisions. Fields
+    the seed doesn't carry read as their defaults (no category, starts ticked)."""
+    return [
+        {f: c[f] if f in c else _DEFINITION_DEFAULTS[f] for f in _DEFINITION_FIELDS}
+        for c in BUILTIN_CHECKS
+    ]
 
 
 def definitions_from_json(raw: str | None) -> list[dict[str, Any]]:

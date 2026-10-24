@@ -56,8 +56,10 @@ from app.services.readiness_effective import (
     EntryIndex,
     WellKey,
     cell_status,
+    default_applies,
     load_index,
     load_target_index,
+    not_selected,
     project_applies,
     project_value,
     well_applies,
@@ -76,7 +78,8 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
 
 # The 409 for a status write — or Reset to project — on a team check that doesn't
-# apply to the target (spec §5.1, §7.10): tick it first.
+# apply to the target (spec §5.1, §7.10): tick it first. A check that is not
+# selected (phase 7: it starts unticked and nothing ticks it) doesn't apply either.
 _NOT_APPLICABLE_DETAIL = "This check doesn't apply here — tick it first"
 # The Project gates have no tick list (decision 31): a gate that doesn't apply is
 # set to N/A in its status menu instead.
@@ -379,6 +382,14 @@ def _target_label(target: WellTarget) -> str:
 # ── Team rows (the lens read, and the applicability write's response) ───────
 
 
+def _counted_statuses(values: Iterable[Effective]) -> list[str]:
+    """What a row's ``figures`` roll up (spec §3.7): each cell's ``cell_status``
+    (N/A where the check doesn't apply because of a row), with the cells that
+    are NOT SELECTED left out entirely — the same cells the rollup's live cells
+    leave out, so the tab adds up to the tile."""
+    return [cell_status(v) for v in values if not not_selected(v)]
+
+
 def _team_cell(value: Effective) -> TeamCheckState:
     return TeamCheckState(
         status=value.status,
@@ -412,7 +423,10 @@ async def _team_rows(
     write returns rows exactly as the lens read draws them.
 
     Each cell is the effective value of spec §3.6/§3.8 with whether the check
-    applies; a row's ``figures`` don't count a cell that doesn't apply.
+    applies; a row's ``figures`` don't count a cell that doesn't apply. A cell
+    that is NOT SELECTED (phase 7, §3.9 — a check that starts unticked, with no
+    row ticking it here) is still returned, for the tick list, but left out of
+    ``figures`` entirely: not even counted as N/A (``_counted_statuses``).
     """
     index = await load_index(db, project_id, [c.code for c in checks])
     stmt = select(
@@ -447,7 +461,7 @@ async def _team_rows(
                     checks={code: _team_cell(v) for code, v in values.items()},
                     focus_start=focus,
                     focus_in_days=days_until(focus, today),
-                    figures=_row_figures(cell_status(v) for v in values.values()),
+                    figures=_row_figures(_counted_statuses(values.values())),
                 )
             )
 
@@ -478,7 +492,7 @@ async def _team_rows(
                     focus_start=focus,
                     focus_in_days=days_until(focus, today),
                     checks={code: _well_cell(v) for code, v in values.items()},
-                    figures=_row_figures(cell_status(v) for v in values.values()),
+                    figures=_row_figures(_counted_statuses(values.values())),
                 )
             )
         well_rows.sort(key=lambda r: (r.start_date, r.well_project, r.well_name, r.activity_type))
@@ -519,7 +533,8 @@ async def upsert_readiness_check(
 
     A team check (one that doesn't lock with the plan) never takes N/A — it is
     unticked instead (422) — and takes no status where it doesn't apply (409):
-    tick it first (spec §3.8, §7.10)."""
+    tick it first (spec §3.8, §7.10). That includes a check that is not selected
+    there (phase 7, §3.9): equipment is nominated before its status is set."""
     check, editor_source = await _resolve_check(check_code, db)
     await assert_can_edit_check(
         project_id,
@@ -606,7 +621,8 @@ async def reset_well_override(
     """"Reset to project": drop a well's own status for a check enabled at both
     levels, so the well follows its field project again (spec §3.6). Idempotent —
     resetting a well with no override returns what it shows. Refused (409) where
-    the check doesn't apply to the well: tick it first (§7.10)."""
+    the check doesn't apply to the well — not selected included (phase 7): tick
+    it first (§7.10)."""
     check, editor_source = await _resolve_check(check_code, db)
     await assert_can_edit_check(
         project_id,
@@ -664,6 +680,13 @@ def _applies_label(applies: bool) -> str:
     return "applies" if applies else "does not apply"
 
 
+def _default_label(check: ReadinessCheck) -> str:
+    """Audit wording for a target with no row — and nothing to follow — which
+    reads the check's default (spec §5.3, phase 7): "applies", or "not selected"
+    for a check that starts unticked. Never a fixed "applies"."""
+    return "applies" if default_applies(check) else "not selected"
+
+
 @router.put(
     # DS-001: the path carries only the team code; the target's names travel in
     # the body.
@@ -684,10 +707,14 @@ async def set_applicability(
 
     Each listed code is resolved under the campaign write lock against the
     target's CURRENT state (a client never decides from a value it read earlier):
-    - field project: ``true`` deletes its row, ``false`` stores ``applies=false``;
+    - field project: a row is stored only where the choice differs from the
+      check's default (``applies_by_default``, phase 7): the default deletes it,
+      the other value stores it — ``applies=false`` unticks a check that starts
+      ticked, ``applies=true`` nominates one that starts unticked;
     - well: a row is the well's own choice, stored only while it differs from the
-      field project's current choice (otherwise any row is removed); ``null`` —
-      Follow project — removes it whatever the field project says now.
+      field project's current choice — or, with nothing to follow, the check's
+      default (otherwise any row is removed); ``null`` — Follow project — removes
+      it whatever the field project says now.
     A code that changes nothing (neither the effective value nor the well's row)
     writes nothing and no audit event; each one that does writes one
     ``readiness_applicability_changed``. All codes change, or none: every code
@@ -787,33 +814,44 @@ async def _set_project_choice(
     index: EntryIndex,
     user: User,
 ) -> tuple[uuid.UUID, str, str] | None:
-    """A field project's choice: a row exists only for "doesn't apply" — ticking
-    deletes it. Returns (audited entity id, before, after), or None when nothing
-    changes. ``value`` is never None here (the schema refuses Follow project on a
-    field project)."""
+    """A field project's choice (spec §4.4, §5.1): a row exists only where the
+    choice differs from the check's default (``applies_by_default``) —
+    ``applies=false`` for a check that starts ticked, ``applies=true`` for one
+    that starts unticked (phase 7: nominating equipment). Writing the default
+    deletes the row. Returns (audited entity id, before, after), or None when
+    nothing changes. ``value`` is never None here (the schema refuses Follow
+    project on a field project).
+
+    The state with no row reads the check's default — "applies", or "not
+    selected" for a check that starts unticked (§5.3)."""
     want = bool(value)
+    default = default_applies(check)
     row = index.project_applies.get((well_project, check.code))
-    before = bool(row.applies) if row is not None else True
+    before = bool(row.applies) if row is not None else default
     if want == before:
         return None
-    if want:
-        assert row is not None  # it doesn't apply, so a row says so
+    before_label = _applies_label(before) if row is not None else _default_label(check)
+    if want == default and row is not None:
+        # Back to the default deletes the row. It is the only case where a row is
+        # sure to exist: with none, the field project reads the default already
+        # (want == before, returned above).
         await db.delete(row)
-    elif row is None:
+        return row.id, before_label, _default_label(check)
+    if row is None:
         row = ReadinessApplicability(
             id=uuid.uuid4(),
             project_id=project_id,
             check_code=check.code,
             scope="project",
             well_project=well_project,
-            applies=False,
+            applies=want,
             updated_by=user.id,
         )
         db.add(row)
     else:
-        row.applies = False
+        row.applies = want
         row.updated_by = user.id
-    return row.id, _applies_label(before), _applies_label(want)
+    return row.id, before_label, _applies_label(want)
 
 
 async def _set_well_choice(
@@ -832,8 +870,10 @@ async def _set_well_choice(
     changes."""
     wp, wn, at = key
     own = index.well_applies.get((wp, wn, at, check.code))
-    # The field project's current choice — "applies" where there's nothing to
-    # follow (no field project, or a check not enabled at project level).
+    # The field project's current choice — its row, else the check's default
+    # (phase 7: False for a check that starts unticked); the check's default
+    # where there's nothing to follow (no field project, or a check not enabled
+    # at project level).
     follows, _ = project_applies(index, check, wp)
     can_follow = bool(wp) and check.applies_project
     have = None if own is None else bool(own.applies)
@@ -843,7 +883,9 @@ async def _set_well_choice(
 
     def label(choice: bool | None) -> str:
         if choice is None:
-            return "follows field project" if can_follow else "applies"
+            # No row: following the field project, or — with nothing to follow —
+            # the check's default ("applies" or "not selected", spec §5.3).
+            return "follows field project" if can_follow else _default_label(check)
         return _applies_label(choice)
 
     # Only the row goes — the well already matched its field project.
