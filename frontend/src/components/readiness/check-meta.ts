@@ -1,4 +1,4 @@
-import type { CatalogCheck, CheckStatus, Severity } from "@/api/readiness";
+import type { CatalogCheck, CheckSource, CheckStatus, Severity } from "@/api/readiness";
 
 /**
  * How readiness STATUSES are presented. Which checks exist — and each check's
@@ -134,11 +134,36 @@ export function legendStatuses(
   ];
 }
 
-/** A cell as the views hold it. Live team cells carry `applies`; Project-gate
- *  cells and frozen snapshot cells don't. */
+/** A cell as the views hold it. Live team cells carry `applies` and
+ *  `applies_source`; Project-gate cells and frozen snapshot cells don't. */
 export interface ReadinessCell {
   status: CheckStatus;
   applies?: boolean;
+  /** Where a live team cell's tick comes from (phase 7, spec §3.9): with
+   *  `applies: false`, `"default"` means NOT SELECTED (`notSelected`). */
+  applies_source?: CheckSource;
+}
+
+/**
+ * Whether a check that starts unticked reads its default here — NOT SELECTED
+ * (phase 7, spec §3.9, decision 37): no applicability row on the target or on
+ * its field project, so the cell comes back `applies: false` from `"default"`.
+ * It carries nothing: no icon, a blank grid cell (not "—"), no "Not applicable"
+ * entry, no figure; it is named for a target only in its tick list. Every other
+ * cell with `applies: false` doesn't apply because of a row — "Not applicable".
+ * `applies()` is unchanged and rejects both. A missing cell isn't "not
+ * selected": it carries nothing anyway.
+ */
+export function notSelected(cell: ReadinessCell | null | undefined): boolean {
+  return !!cell && cell.applies === false && cell.applies_source === "default";
+}
+
+/** Whether a check applies to a target with no tick of its own (nor one to
+ *  follow): its `applies_by_default` — false for a check that starts unticked
+ *  (phase 7). Optional on the definition: one without it starts ticked, as every
+ *  check did before migration 039. */
+export function appliesByDefault(check: Pick<CatalogCheck, "applies_by_default">): boolean {
+  return check.applies_by_default ?? true;
 }
 
 /**
@@ -154,6 +179,9 @@ export interface ReadinessCell {
  *   that applies always shows Completed, On Track or Behind.
  * - A missing team cell (e.g. a project-only check on a well with no field
  *   project, §7.12) is drawn like one that doesn't apply.
+ * - A NOT SELECTED cell (phase 7, §3.9) reads `applies: false` too, so it is
+ *   rejected here like any unticked cell; `notSelected()` tells the two apart
+ *   for the lists that name "Not applicable" checks.
  */
 export function applies(cell: ReadinessCell | null | undefined, check: CheckRule): boolean {
   if (check.locks_with_plan) return true;

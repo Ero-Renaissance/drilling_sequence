@@ -162,9 +162,10 @@ describe("ActivityReadinessPanel", () => {
     await waitFor(() =>
       expect(within(gates).queryAllByRole("button", { name: /click to change/i })).toHaveLength(0),
     );
-    // …while the live logistics checks are view-only only for lack of the grant.
-    const logistics = screen.getByRole("region", { name: "Logistics" });
-    expect(within(logistics).getByText(/needs the Logistics grant/)).toBeInTheDocument();
+    // …while the live logistics checks are view-only only for lack of the grant
+    // (the Logistics section waits for the live catalog).
+    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    expect(await within(logistics).findByText(/needs the Logistics grant/)).toBeInTheDocument();
   });
 
   it("opens on the chosen team and links back to the activity's details", async () => {
@@ -203,7 +204,7 @@ describe("ActivityReadinessPanel — checks that apply", () => {
           // The field project unticked NAV; this well follows it.
           project_rows: [{
             well_project: "Bonga Phase 3", activity_count: 2,
-            checks: { "L-BUD": cell("Completed"), NAV: { ...cell("Behind"), applies: false } },
+            checks: { "L-BUD": cell("Completed"), NAV: { ...cell("Behind"), applies: false, applies_source: "project" } },
           }],
           well_rows: [{
             well_project: "Bonga Phase 3", well_name: "W-1", activity_type: "Oil Development", activity_count: 1,

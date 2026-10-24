@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Lock, Pencil, RefreshCw } from "lucide-react";
 import type { Activity } from "@/api/activities";
 import {
@@ -29,14 +29,19 @@ import {
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { formatDate } from "@/lib/utils";
+import { categoryCell } from "@/lib/chart-layout";
+import { categoryOf, groupByCategory } from "@/lib/readiness-categories";
+import { categoryPanelLine } from "@/lib/team-summary";
 import { ApplicabilityPicker } from "./ApplicabilityPicker";
 import { ReadinessDot } from "./ReadinessDot";
 import { PROJECTS_TEAM, lensLabel, useProjectGates, useReadinessTeams } from "./catalog";
+import { NotSelectedCell } from "./category-columns";
 import {
   NOTHING_APPLIES,
   NOT_APPLICABLE,
   applies,
   defaultStatusOf,
+  notSelected,
   pickableStatuses,
 } from "./check-meta";
 import { checkIcon } from "./icon-registry";
@@ -68,6 +73,12 @@ interface TeamView {
  * well-level checks (project-level ticks read-only), else the field project.
  * The checks that don't apply here are listed under a folded "Not applicable
  * (N)". The Project gates section is unchanged: N/A stays in their menus.
+ *
+ * Categories (phase 7, spec §8.8): core rows as before, then one sub-section
+ * per category, folded to "Vessels · 2 selected · 1 behind". A check that is
+ * NOT SELECTED here (starts unticked; nothing nominated it, §3.9) is listed
+ * nowhere — not as a row, not under "Not applicable" — and a field project's
+ * not-selected cell is blank, not "—". Only the tick list names it.
  */
 export function ActivityReadinessPanel({
   projectId,
@@ -212,13 +223,125 @@ export function ActivityReadinessPanel({
                     : null;
               // The cells that say whether a check applies to THIS activity.
               const decider = tickTarget?.scope === "well" ? well : project;
+              // Not selected (phase 7): carries nothing, so it is neither a row
+              // nor "Not applicable" — `shown` is every check left, so it must
+              // be dropped from both, or it would come back as an On Track row.
+              const unselected = gates
+                ? []
+                : checks.filter((c) => !c.locks_with_plan && notSelected(decider?.[c.code]));
               const notApplicable = gates
                 ? []
                 : checks.filter((c) => {
                     const cell = decider?.[c.code];
-                    return cell !== undefined && !applies(cell, c);
+                    return cell !== undefined && !applies(cell, c) && !unselected.includes(c);
                   });
-              const shown = checks.filter((c) => !notApplicable.includes(c));
+              // A categorised type with NO cell for this activity carries
+              // nothing here (e.g. a project-only type on a well with no field
+              // project, §7.12): it makes no sub-section and is never counted
+              // "selected". An uncategorised one keeps its "—" row (phase 6).
+              const carried = (c: CatalogCheck) =>
+                gates || !categoryOf(c) || decider?.[c.code] !== undefined;
+              const shown = checks.filter(
+                (c) => !notApplicable.includes(c) && !unselected.includes(c) && carried(c),
+              );
+              // Core rows first, then one folded sub-section per category — each
+              // read by the shared rule (`categoryCell`, as the chart and the
+              // grids' folded cells): its types that apply here, worst first; a
+              // category where none applies has no sub-section.
+              const grouped = groupByCategory(shown);
+              const categories = grouped.categories.flatMap((g) => {
+                const cell = categoryCell(g.items, decider);
+                return cell ? [{ ...g, types: cell.types }] : [];
+              });
+              const columnCount = 1 + (showWell ? 1 : 0) + (showProject ? 1 : 0);
+              const renderRow = (c: CatalogCheck) => {
+                const Icon = checkIcon(c.icon_key);
+                const frozen = locked && c.locks_with_plan;
+                // Team views offer the check's pickable statuses — never
+                // N/A (untick it instead); the Project gates keep N/A.
+                const statuses = pickableStatuses(c);
+                return (
+                  <tr key={c.code} className="border-t border-border/40">
+                    <td className="px-4 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="font-mono text-xs font-semibold">{c.code}</span>
+                        <span className="truncate text-muted-foreground">{c.label}</span>
+                        {frozen && (
+                          <span title="Frozen with the plan while a revision is pending or approved">
+                            <Lock className="h-3 w-3 text-muted-foreground" />
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    {showWell && (
+                      <td className="px-2 py-1.5 text-center">
+                        {c.applies_well && wellKey ? (
+                          <CheckCell
+                            check={c}
+                            state={well?.[c.code]}
+                            statuses={statuses}
+                            disabled={!editable || frozen || saving === `w:${c.code}`}
+                            inherited={
+                              // Faded only while it reads the field project's
+                              // status — a well ticked under an unticked
+                              // project reads the default (§3.8).
+                              well?.[c.code]?.source !== "well" &&
+                              c.applies_project &&
+                              !!wp &&
+                              project?.[c.code]?.applies !== false
+                            }
+                            onSave={(status) =>
+                              write(`w:${c.code}`, () =>
+                                setReadiness(projectId, c.code, { scope: "well", ...wellKey }, status),
+                              )
+                            }
+                            onReset={
+                              c.applies_project && well?.[c.code]?.source === "well"
+                                ? () =>
+                                    write(`w:${c.code}`, () =>
+                                      resetWellReadiness(projectId, c.code, { scope: "well", ...wellKey }),
+                                    )
+                                : undefined
+                            }
+                          />
+                        ) : (
+                          <span className="text-xs text-muted-foreground/50">—</span>
+                        )}
+                      </td>
+                    )}
+                    {showProject && (
+                      <td className="px-2 py-1.5 text-center">
+                        {c.applies_project && wp && !gates && notSelected(project?.[c.code]) ? (
+                          // The field project didn't nominate it (this well did):
+                          // blank — a check that is not selected carries nothing.
+                          <NotSelectedCell />
+                        ) : c.applies_project && wp && !gates && project?.[c.code] && !applies(project[c.code], c) ? (
+                          // This well applies, its field project doesn't.
+                          <span className="text-xs text-muted-foreground/50" title={NOT_APPLICABLE}>
+                            —
+                          </span>
+                        ) : c.applies_project && wp ? (
+                          <CheckCell
+                            check={c}
+                            state={project?.[c.code]}
+                            statuses={statuses}
+                            disabled={!editable || frozen || saving === `p:${c.code}`}
+                            inherited={false}
+                            onSave={(status) =>
+                              write(`p:${c.code}`, () =>
+                                setReadiness(projectId, c.code, { scope: "project", well_project: wp }, status),
+                              )
+                            }
+                          />
+                        ) : (
+                          <span className="text-xs text-muted-foreground/50">—</span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              };
               return (
                 <CollapsibleSection
                   key={team.code}
@@ -272,92 +395,17 @@ export function ActivityReadinessPanel({
                           )}
                         </tr>
                       </thead>
-                      <tbody>
-                        {shown.map((c) => {
-                          const Icon = checkIcon(c.icon_key);
-                          const frozen = locked && c.locks_with_plan;
-                          // Team views offer the check's pickable statuses — never
-                          // N/A (untick it instead); the Project gates keep N/A.
-                          const statuses = pickableStatuses(c);
-                          return (
-                            <tr key={c.code} className="border-t border-border/40">
-                              <td className="px-4 py-1.5">
-                                <div className="flex items-center gap-2">
-                                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                  <span className="font-mono text-xs font-semibold">{c.code}</span>
-                                  <span className="truncate text-muted-foreground">{c.label}</span>
-                                  {frozen && (
-                                    <span title="Frozen with the plan while a revision is pending or approved">
-                                      <Lock className="h-3 w-3 text-muted-foreground" />
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              {showWell && (
-                                <td className="px-2 py-1.5 text-center">
-                                  {c.applies_well && wellKey ? (
-                                    <CheckCell
-                                      check={c}
-                                      state={well?.[c.code]}
-                                      statuses={statuses}
-                                      disabled={!editable || frozen || saving === `w:${c.code}`}
-                                      inherited={
-                                        // Faded only while it reads the field project's
-                                        // status — a well ticked under an unticked
-                                        // project reads the default (§3.8).
-                                        well?.[c.code]?.source !== "well" &&
-                                        c.applies_project &&
-                                        !!wp &&
-                                        project?.[c.code]?.applies !== false
-                                      }
-                                      onSave={(status) =>
-                                        write(`w:${c.code}`, () =>
-                                          setReadiness(projectId, c.code, { scope: "well", ...wellKey }, status),
-                                        )
-                                      }
-                                      onReset={
-                                        c.applies_project && well?.[c.code]?.source === "well"
-                                          ? () =>
-                                              write(`w:${c.code}`, () =>
-                                                resetWellReadiness(projectId, c.code, { scope: "well", ...wellKey }),
-                                              )
-                                          : undefined
-                                      }
-                                    />
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground/50">—</span>
-                                  )}
-                                </td>
-                              )}
-                              {showProject && (
-                                <td className="px-2 py-1.5 text-center">
-                                  {c.applies_project && wp && !gates && project?.[c.code] && !applies(project[c.code], c) ? (
-                                    // This well applies, its field project doesn't.
-                                    <span className="text-xs text-muted-foreground/50" title={NOT_APPLICABLE}>
-                                      —
-                                    </span>
-                                  ) : c.applies_project && wp ? (
-                                    <CheckCell
-                                      check={c}
-                                      state={project?.[c.code]}
-                                      statuses={statuses}
-                                      disabled={!editable || frozen || saving === `p:${c.code}`}
-                                      inherited={false}
-                                      onSave={(status) =>
-                                        write(`p:${c.code}`, () =>
-                                          setReadiness(projectId, c.code, { scope: "project", well_project: wp }, status),
-                                        )
-                                      }
-                                    />
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground/50">—</span>
-                                  )}
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
+                      <tbody>{grouped.core.map((c) => renderRow(c))}</tbody>
+                      {categories.map((g) => (
+                        <CategoryRows
+                          key={g.name}
+                          name={g.name}
+                          line={categoryPanelLine(g.name, g.types)}
+                          columns={columnCount}
+                        >
+                          {g.items.map((c) => renderRow(c))}
+                        </CategoryRows>
+                      ))}
                     </table>
                   )}
                   {notApplicable.length > 0 && (
@@ -396,6 +444,42 @@ export function ActivityReadinessPanel({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** One category's checks in a team section (phase 7, spec §8.8): folded to its
+ *  line — "Vessels · 2 selected · 1 behind" — with its rows below when open.
+ *  Only the types that apply here reach it; one that is not selected never
+ *  does. */
+function CategoryRows({
+  name,
+  line,
+  columns,
+  children,
+}: {
+  name: string;
+  line: string;
+  columns: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <tbody aria-label={name}>
+      <tr className="border-t border-border/40 bg-muted/20">
+        <td colSpan={columns} className="px-4 py-1.5">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+            className="-mx-1 inline-flex items-center gap-1 rounded px-1 text-xs font-medium text-foreground hover:bg-accent/40"
+          >
+            {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {line}
+          </button>
+        </td>
+      </tr>
+      {open && children}
+    </tbody>
   );
 }
 

@@ -95,7 +95,8 @@ Things to look for:
   this is physically impossible and must be fixed (see §8).
 - **Small icons under a bar** — the readiness checks for that activity, at a glance.
   The lens picker chooses which team's icons you see (see §7); a Wells or
-  Logistics check that doesn't apply to the activity has no icon.
+  Logistics check that doesn't apply to the activity has no icon, and nominated
+  equipment shows as one icon per category (e.g. one Vessels icon).
 - **A small alarm-clock next to a rig name** — that rig's contract is expiring; the
   colour shows how urgent (green = healthy → red = expired).
 - **Focus year buttons** (above the chart: `All 2026 2027 …`) — click a year to zoom
@@ -223,15 +224,68 @@ A Logistics status set on a field project applies to all its wells (shown greyed
 Nominated Equipment (NEQ) has been withdrawn; past revisions still show it as
 recorded.
 
+### Equipment (Logistics)
+
+Each equipment type is a Logistics check of its own, grouped by **category**:
+
+| Category | Codes |
+|---|---|
+| **Aviation** | **RW** Rotary Wing Aircraft / Helicopter |
+| **Vessels** | **DSV** Diving Support Vessel · **SEV** Security Escort Vessel · **AHTS** Anchor Handling Tug · **FSIV** Fast Support Intervention Vessel · **PSV** Platform Support Vessel · **LHT** Line Handling Tug · **TB** Tugboat · **PC** Personnel Carrier (a boat) |
+| **Barges** | **JUB** Jack-up Barge · **ENV** Environmental Barge · **HB** Houseboat · **CBG** Crane Barge · **RP** Ramp Barge |
+| **Land transport** | **LBT** Lowbed Truck · **FBT** Flatbed Truck · **CB** Coaster Bus · **ACB** Armoured Coaster Bus · **MB** Minibus |
+| **Lifting** | **CR** Crane |
+| **Permits** | **NNRA** Radioactive Source Permit |
+
+Equipment types **start unticked**: a type nobody has picked is **not selected**
+and shows nowhere — no icon, a blank grid cell, no figure. To **nominate**
+equipment (Logistics grant holders and admins), open **Checks…** on the field
+project's (or the well's) row under the **Logistics** lens, tick the types it
+needs and **Save** (see "Checks that apply" below). From then on a nominated type
+works like any other check: it reads **On Track** until you set it, **Completed**
+once the equipment is secured, and **Behind** if it isn't available. Its wells
+follow the field project's nomination; a well can add a type of its own, or
+untick one it doesn't need. Untick a type on the field project to un-nominate it.
+
+Watch the look-alike codes — **CR** (Crane) vs **CTR**, **PC** (Personnel
+Carrier) vs **PO**, **CB** (Coaster Bus) vs **CBG**. The tick list always shows
+each code with its name, and so does the hover text on grid headers and tooltips.
+
+**Where categories show:**
+- **Logistics grid:** the core checks have a column each, and each category is
+  **one folded column** showing its icon in the worst status of the types that
+  apply (blank if none does; hover it to see which types). Click a category's
+  header to unfold its types, and again to fold them; the grid remembers this in
+  your browser. A folded cell is read-only — unfold the category to change a
+  type. In an unfolded category, a type that isn't selected is blank and one
+  that's unticked shows "—". The field-project / well column stays in place when
+  you scroll sideways.
+- **All grid:** an expanded Logistics group shows the same folded category
+  columns; like the rest of the All grid, it's read-only.
+- **Readiness panel** (one activity): after the core checks, one section per
+  category, e.g. "Vessels · 2 selected · 1 behind"; open it to see each type.
+- **Chart and prints:** one icon per category, in the worst status of its types
+  that apply; hover the bar to see which types (e.g. "Vessels (2): PSV Behind ·
+  DSV On Track"). The legend has one entry per category.
+
 ### Checks that apply (Wells, Logistics and other teams)
 
 Not every check matters everywhere — Naval Clearance means nothing for a land well.
 In the Wells and Logistics grids, each field-project and well row has a **Checks…**
 button (an activity's Readiness panel has one per team too). It lists the team's
-checks, **all ticked by default**: untick the ones that don't apply and **Save**.
+checks, **ticked by default** — except the equipment types, which start unticked:
+untick the ones that don't apply, tick the ones you need, and **Save**.
 
+- **Finding a check:** the team's core checks come first, then one group per
+  category with **n of m selected** and a box that ticks or unticks the whole
+  group. Groups with nothing selected start folded. Type in the search box (code
+  or label) to narrow the list; the footer shows how many are shown and how many
+  changes are unsaved, e.g. "Showing 5 of 27 · 2 unsaved changes".
+- **Save covers everything:** choices in rows that a search hides are kept and
+  saved too. Only the list scrolls, so **Save** stays in view.
 - An unticked check has **no icon** on the chart or in prints, shows **"—"** in the
-  grid ("Not applicable"), and isn't counted in any figure.
+  grid ("Not applicable"), and isn't counted in any figure. An equipment type
+  nobody has picked isn't even listed as "Not applicable": its cell is blank.
 - Its status is kept: tick it again and it comes back as it was. To change its
   status, tick it first.
 - A well follows its field project's ticks ("from project") until you make a
@@ -239,11 +293,31 @@ checks, **all ticked by default**: untick the ones that don't apply and **Save**
 - Ticks stay editable at any time, even while the plan is locked. No reason is
   asked for an untick.
 
-The Project gates have no tick list: a gate that doesn't apply is set to **N/A**,
-as before.
+The Project gates have no tick list and no categories: a gate that doesn't apply
+is set to **N/A**, as before.
 
 The statuses also show as the little icons under each bar on the chart, so anyone
 can see at a glance what's holding an activity back.
+
+### For admins: the readiness catalog
+
+The **Admin** page lists each team's readiness checks, grouped by category; an
+admin adds, edits and retires them there.
+- **Category** (optional, any team except the Project gates): groups the check in
+  its team's tick list, grids, panel and legend, and rolls it into one icon on the
+  chart and prints. Existing categories are suggested as you type; leave it empty
+  for a core check. A category name can't contain a semicolon (;). It can be
+  changed later.
+- **Starts unticked** (new checks only, not for the Project gates): the check
+  applies nowhere until a team ticks it for a field project or well, like the
+  equipment types. It is **fixed once the check exists** — to change it, retire the
+  check and add a new one. Code, team, scope, statuses and plan lock are fixed the
+  same way; only the label, icon, order and category can change.
+- **Icon:** choose from 68 built-in icons, grouped (Sites and planning, Rigs and
+  engineering, Marine, Aviation, Land transport, Lifting, Permits and safety,
+  Documents and finance, People and community, Environment, Comms) with a search
+  box — "ship" finds the ship icons, "marine" the whole Marine group. Icons can't
+  be uploaded. A category's icon is the icon of its first check by order.
 
 ---
 
@@ -363,6 +437,11 @@ You then adjust the clone and run it through the approval workflow again.
   Project gates also use `N/A`.
 - **Not applicable** — a Wells or Logistics check unticked for a field project or
   well (§7): no icon, not counted.
+- **Not selected** — an equipment type (or another check that starts unticked)
+  that nobody has ticked for a field project or well (§7): blank, not counted,
+  not listed.
+- **Nominate** — tick an equipment type in a row's **Checks…** list so it applies
+  there (§7).
 
 ---
 

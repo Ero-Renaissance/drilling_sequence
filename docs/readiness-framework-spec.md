@@ -1,13 +1,17 @@
 # Readiness Framework — Feature Specification
 
 **Status:** phases 1–5 shipped · **Date:** 2026-10-13 · §3.7 Rollups agreed
-2026-10-16 · **§3.8 Checks that apply agreed 2026-10-23** (phase 6, not built)
+2026-10-16 · **§3.8 Checks that apply agreed 2026-10-23** (phase 6, built — PR #24) ·
+**§3.9 Equipment checks agreed 2026-10-24** (phase 7, built — PR pending)
 
 > Passages marked "phase 6" or "since phase 6", and the withdrawal of `NEQ`
 > dated 2026-10-23 (decisions 27–34), describe that proposal. Until it ships,
 > the phase 1–5 behaviour applies: N/A can still be picked for every check, and
 > `NEQ` and its equipment list are live. The Project gates don't change in
-> phase 6.
+> phase 6. Passages marked "phase 7" (decisions 35–41) are built on branch
+> feature/readiness-equipment-checks (PR pending) but not yet shipped; until
+> phase 7 ships, Logistics has its six core checks and every team check
+> starts ticked.
 
 **Owner:** Osahon Ero · **Requested by:** Wells team, Logistics (Supply Chain expected next)
 
@@ -23,7 +27,9 @@ Two new requests break that shape, and more are expected:
    …), in addition to the project-wide gates.
 2. **Logistics** — their own seven checks, including which equipment types are
    nominated for a project or well. (The equipment part was withdrawn on
-   2026-10-23 — §3.5; Logistics will keep six checks once phase 6 ships.)
+   2026-10-23 — §3.5; Logistics will keep six checks once phase 6 ships; phase 7
+   brings the 21 equipment types back as Logistics checks that start unticked,
+   §3.9.)
 3. **Supply Chain** — expected to ask for its own checks soon.
 
 Rather than a bespoke "Well view" and "Logistics view", readiness becomes **one
@@ -91,7 +97,7 @@ survive a re-import — the same reason `project_readiness` is keyed by name tod
 |---|---|---|---|
 | **Projects** | The 7 project gates (existing) | Campaign **planners** (unchanged) | **Governed** — frozen with the plan, as today |
 | **Wells** | Well gates (TBD) | **Wells** team grant | **Operational** — stays live |
-| **Logistics** | 6 logistics checks (§3.4; `NEQ` withdrawn 2026-10-23) | **Logistics** team grant | **Operational** — stays live |
+| **Logistics** | 6 logistics checks (§3.4; `NEQ` withdrawn 2026-10-23); phase 7 adds 21 equipment checks that start unticked (§3.9) | **Logistics** team grant | **Operational** — stays live |
 | **Supply Chain** | Future | Supply Chain grant | Decided when defined |
 
 - **Governed:** part of what approvers sign; writes are refused with **423** while
@@ -120,7 +126,7 @@ severity, so rollups (dashboard %, worst-status dot, summary lens) stay generic 
   "Doesn't apply" is the tick list of §3.8. N/A stays in the `standard` set, so
   N/A values already in history and in snapshots keep their severity, but the
   status PUT refuses it for these checks (422) and their menus and legends don't
-  offer it. Snapshots record an unticked team check as N/A (§6).
+  offer it. Snapshots record an unticked team check as N/A (§6) (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9).
 - **The rule:** a check's pickable statuses are its set's statuses, minus N/A
   when the check doesn't lock with the plan.
 - The `availability` set is **history only** (`"history_only": True` in
@@ -160,7 +166,28 @@ were confirmed on 2026-10-14 (decision 15). `NEQ` was withdrawn on 2026-10-23
 | `PO` | Purchase Order | project + well | standard | — | confirmed |
 | `NAV` | Naval Clearance | project + well | standard | — | confirmed |
 
+**Phase 7 equipment checks** (migration 039, §3.9) — Logistics, project + well,
+`standard`, **start unticked**, plain codes from §3.5's seed list:
+
+| Category | Codes | Icon |
+|---|---|---|
+| Aviation | `RW` | helicopter |
+| Vessels | `DSV` `SEV` `AHTS` `FSIV` `PSV` `LHT` `TB` `PC` | anchor |
+| Barges | `JUB` `ENV` `HB` `CBG` `RP` | container |
+| Land transport | `LBT` `FBT` `CB` `ACB` `MB` | bus |
+| Lifting | `CR` | construction |
+| Permits | `NNRA` | radiation |
+
+Labels are §3.5's names (e.g. "Platform Support Vessel"). Look-alike codes
+(`CR`/`CTR`, `PC`/`PO`, `CB`/`CBG`) always appear next to their labels in the tick
+list and the grid headers' titles. Tooltip lines, which list codes, add the label
+after a look-alike code: "PC (Personnel Carrier) Behind".
+
 ### 3.5 Nominated Equipment — withdrawn 2026-10-23
+
+> **Phase 7 (2026-10-24):** the 21 equipment types return as ordinary Logistics
+> *checks*, one per type, which start unticked (§3.9). `NEQ` and its tag list stay
+> retired and history-only, as below.
 
 **Withdrawn (decision 30; to be built in phase 6).** Nominated Equipment is no longer a
 readiness check, and there is no equipment list: no readiness icon opens a list
@@ -239,7 +266,9 @@ checks) or a well — field project + well + activity type (well-level checks). 
 value is the effective status of §3.6: the well's own entry, else the field
 project's (only while the check applies there — §3.8), else the status set's
 default. A check that **doesn't apply** to the
-target (unticked, §3.8) is `not_counted`, whatever status sits underneath. Every
+target (unticked, §3.8) is `not_counted`, whatever status sits underneath —
+except a check that is **not selected** (phase 7, §3.9), whose cell is left out
+of every figure, not even counted as not applicable. Every
 rollup reads the cell's **severity** (§3.3), never the status text:
 
 | Severity | Statuses | Counted | Complete | On track | Behind |
@@ -304,7 +333,7 @@ also Not available while `NEQ` is live, until phase 6).
 | All 7 N/A | — | — | 0 | Nothing applies | grey N/A |
 
 For another team's checks, an unticked check (§3.8) counts exactly as N/A does
-here; only its icon differs — none, instead of grey.
+here; only its icon differs — none, instead of grey (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9).
 
 **What counts.**
 - **Each target once**, however many activities share it: a field project with
@@ -322,6 +351,16 @@ here; only its icon differs — none, instead of grey.
   - project-level checks on an activity with no field project (§7.3);
   - well-level checks — including checks enabled at both levels — on an
     activity with no well name (§7.3);
+  - (phase 7) a check that starts unticked and is **not selected** for the target
+    (§3.9): its cell reads `applies = false` from the check's own default. It is
+    left out of every figure — not even counted as not applicable — and out of
+    snapshots, so it never reaches a "Not applicable" list or the not-counted
+    (`na`) count. A target whose only cells are not selected has nothing counted
+    and reads "Nothing applies", like any other.
+    One helper in `readiness_effective`, `not_selected(value)` (`not
+    value.applies and value.applies_source == "default"`), serves three callers:
+    `_team_rows`' `figures` (which still returns the cell itself, for the tick
+    list), both branches of `live_cells`, and the snapshot's `at_submission`;
   - project-only checks on a well whose activity has no field project. Snapshots
     already skip these; phase 6 makes the live cells and the team grid skip them
     too (today they count at their default and can never be unticked). Every view
@@ -383,7 +422,7 @@ tile reads for it. Per-activity tooltip summaries use one helper
 
 ### 3.8 Checks that apply
 
-**Agreed 2026-10-23 (§9, phase 6) — not built.** Decisions 27–34 (§11).
+**Agreed 2026-10-23 (§9, phase 6) — built, PR #24 open.** Decisions 27–34 (§11).
 
 **Who gets it.** The tick list is for every team **except the Projects team**:
 Wells, Logistics and future teams such as Supply Chain. Those are the teams whose
@@ -422,7 +461,7 @@ starts **ticked**, and a team unticks the ones that don't apply.
   muted "—" in the team grids and in the All grid's expanded team columns (§8.2),
   and isn't counted in any figure (§3.7). Live tooltips and the Readiness panel
   still list it, muted, as **"Not applicable"**. Nothing else lists it: approvers
-  don't need a list of excluded checks (decision 33).
+  don't need a list of excluded checks (decision 33) (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9).
 - **No reason is asked** for an untick (decision 32) — it would add friction.
 - **Who ticks:** exactly who may write the check (§5.2) — the Wells and Logistics
   grantees for their own team's checks, and admins for any.
@@ -479,21 +518,92 @@ Project gates don't. That is why the gates can keep N/A.
 **History.** For these teams' checks, an N/A already stored (set through the old
 status menu) meant "doesn't apply", so phase 6 converts those values into unticks
 (§4.4); the Project gates' N/A values stay as they are. Snapshots record an
-unticked team check as N/A in `readiness_at_submission` (§6). In every revision,
+unticked team check as N/A in `readiness_at_submission` (§6) (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9). In every revision,
 old or new, an N/A team check is one that didn't apply: no icon, not counted. An
 N/A Project gate keeps its grey icon.
 
 **New checks apply everywhere** until a team unticks them, because the default is
-ticked. A target that read "Nothing applies" starts counting a check the moment
-an admin adds one to that team. A **restored** check, or a reactivated team,
+ticked — unless the check is created "starts unticked" (phase 7, §3.9). Such a
+check applies nowhere until ticked, and adding it changes no figure. A target
+that read "Nothing applies" starts counting a check the moment an admin adds one
+that starts ticked to that team. A **restored** check, or a reactivated team,
 comes back with the ticks and statuses it had when it was retired: its rows are
 kept, like its entries (§7.5).
 
 **The tick list opens from a row, never from an icon (§8.7).**
 
+### 3.9 Equipment checks (phase 7)
+
+**Agreed 2026-10-24 (§9, phase 7) — built, PR pending.** Decisions 35–41 (§11).
+
+**What changes.** Each of the 21 equipment types in §3.5's seed list becomes its
+own Logistics readiness check:
+- **Codes:** the plain codes — `RW`, `DSV`, … `NNRA` (decision 38).
+- **Shape:** enabled at both levels, standard status set, operational like every
+  Logistics check.
+- **Total:** Logistics then has 27 checks: the 6 core ones plus 21 equipment
+  types.
+- **No sub-list:** no icon opens a list of options — §3.5's rule still holds.
+- **History:** `NEQ` and its tag list stay retired and history-only.
+
+**Equipment starts unticked** (decision 36). Ticking a type *nominates* it for a
+field project, and its wells inherit that as they inherit any tick (§3.8); a well
+can still make its own choice.
+- **The setting:** each check carries a **"starts unticked"** setting,
+  `applies_by_default`. It is fixed when the check is created, like its level and
+  lock behaviour, because changing it would flip every target that has no tick of
+  its own.
+- **Which checks use it:** the 21 seeded equipment checks start unticked; the
+  checks that exist before 039 start ticked, as in phase 6. An admin creating a
+  check can choose either (§5.1).
+- **Not for gates:** a check that locks with the plan has no tick list (decision
+  31), so it can't start unticked — `applies_by_default` must be true.
+
+**Not selected vs not applicable** (decision 37). Defined by state, not history:
+
+| State | When | Shown as | Counted |
+|---|---|---|---|
+| **Not selected** | A check that starts unticked and reads its default: no applicability row on the target or on its field project (`applies_source: "default"`). Un-nominating a field project returns it, and every well that follows it, to this state | Nothing: no icon, a blank grid cell (not "—"), no "Not applicable" entry. Named for a target only in its tick list ("Vessels · 0 of 8 selected", where *selected* = ticked); an unfolded category's column headers name every type, as for any check | no — left out of every figure, not even as not counted (§3.7) |
+| **Not applicable** | A check that doesn't apply because of a row: the target's own `applies = false`, or its field project's (`applies_source` `well` or `project`). For example, a well unticking equipment its field project nominated, or a core check unticked | "—" and "Not applicable: …", as in phase 6 | no (not counted) |
+
+So a well that needs a crane and a lowbed shows two equipment icons, not 21 "Not
+applicable" entries. Figures don't move on the day the 21 checks appear, because
+a check that is not selected carries nothing (§3.7).
+
+**Effective "applies?"** (replaces §3.8's last fallback):
+- **Field project:** its own row; otherwise **the check's default**.
+- **Well:** its own row; otherwise its field project's effective choice (for a
+  check enabled at project level); otherwise **the check's default**.
+- **A row is stored only where the choice differs** from what the target would
+  otherwise read (§4.4). Nominating equipment on a field project therefore writes
+  an `applies = true` row, and un-nominating it deletes that row.
+
+**Categories** (decision 39). Every check that doesn't lock with the plan gets an
+optional, admin-editable **category**. The Project gates take none, so their
+seven icons, grid and prints stay as they are (decision 31).
+- **Equipment categories:** Aviation, Vessels, Barges, Land transport, Lifting,
+  Permits.
+- **Core checks** have none.
+- **Where categories show:** they group the tick list, the grids, the panel and
+  the legend (§8.8).
+- **On the chart and prints**, a category draws **one icon** — the worst status of
+  its types that apply. The tooltip names the types. This keeps a Logistics strip
+  at no more than 6 core icons + 6 category icons, instead of 27.
+- **A category's icon** is the icon of its first active check by sort order. The
+  seed gives every type in a category that category's icon (§3.4).
+- **A folded category cell is read-only:** it opens nothing, so no icon opens a
+  list of options (§3.5).
+
+**Status words are unchanged** (decision 39): the standard set, where Completed
+means the equipment is secured and Behind means it isn't available.
+
+**Production** (decision 41) runs Project readiness only, so no Nominated
+Equipment data exists there and nothing is carried over. Dev and test databases
+keep their old `NEQ` values as history.
+
 ## 4. Data model
 
-New migrations start at **034** (phase 6 adds **038**, §4.4). All tables follow
+New migrations start at **034** (phase 6 adds **038**, §4.4; phase 7 adds **039**, §4.5). All tables follow
 the existing conventions: UUID PKs, `""` (never NULL) as the "no name" sentinel
 inside unique keys (NULLs are mutually distinct in UNIQUE constraints on every
 backend we target — see `resource_registry.py`), and model/migration parity
@@ -581,20 +691,22 @@ with the plan**: the Project gates never get a row (decision 31).
 | `check_code` | FK → readiness_checks.code | |
 | `scope` | String(8) | `project` / `well`, and the check is enabled at that level |
 | `well_project` / `well_name` / `activity_type` | String(256) ×3 | Exactly as `readiness_entries` (`""` sentinels) |
-| `applies` | bool | `false` = doesn't apply. `true` (wells only) = the well's own choice to apply. A well row is written only where it differed from the field project at that moment, and it may later match the field project (§3.8) |
+| `applies` | bool | `false` = doesn't apply; `true` = applies. A field-project row is stored only where its choice differs from the check's default (`applies_by_default`): `false` for a check that starts ticked, `true` for one that starts unticked (phase 7). A well row is the well's own choice, written only where it differed from its field project at that moment; it may later match the field project (§3.8) |
 | `updated_at` / `updated_by` | | As `readiness_entries` (`updated_by` FK users `SET NULL`) |
 
 Unique `uq_readiness_applicability` on the same six columns as `uq_readiness_entry`
 — the identical key already exists on SQL Server, so it fits the 1700-byte limit.
 
 - **What a row means.**
-  - **Field project:** a row exists only for "doesn't apply". Ticking deletes it.
+  - **Field project:** a row exists only where the choice differs from the check's
+    default: `applies = false` for a check that starts ticked, `applies = true`
+    for one that starts unticked (phase 7). Writing the default deletes the row.
   - **Well:** a row is the well's own choice. It is written only when it differs
     from the field project's choice at that moment, and kept until **Follow
     project**, or a write of the field project's current choice, removes it —
     even if the field project later changes to match.
-  - **No row:** the check applies (field project), or follows the field project
-    (well).
+  - **No row:** a field project reads the check's default. A well follows its
+    field project, or — with nothing to follow — reads the default.
   - The server applies these rules inside the write (§5.1), so a client never
     decides from a value it read earlier.
 - **Renames move a status and its tick together.** Per check, the status entry
@@ -704,6 +816,76 @@ job's pytest step, after the concurrency tests.
   non-NULL note on a converted entry ends up in the migration's audit event.
 - PostgreSQL has no CI job: run it against PostgreSQL by hand before a PostgreSQL
   deploy.
+
+### 4.5 Categories and "starts unticked" (phase 7)
+
+**Migration 039** adds two columns to `readiness_checks` and seeds the 21
+equipment checks.
+
+| Column | Type | Notes |
+|---|---|---|
+| `category` | String(64), NOT NULL, server default `""` | Admin-editable label grouping checks within a team; `""` = none. Must be `""` for a check that locks with the plan. Not named `group`, which is a reserved word in PostgreSQL, SQL Server and SQLite |
+| `applies_by_default` | Boolean, NOT NULL, server default true | "Starts unticked" = false. Fixed at creation. Must be true for a check that locks with the plan |
+
+- **Both columns join `_DEFINITION_FIELDS`**, so a revision print groups by the
+  categories frozen with it. Older catalogs don't have them, so:
+  - `CatalogCheck` declares `category: str = ""` and `applies_by_default: bool =
+    True` (like `tag_list`);
+  - the TypeScript `CatalogCheck` makes both optional;
+  - `builtin_definitions()` fills `""` / `true` for the original gates.
+    `BUILTIN_CHECKS` keeps migration 034's shape, which
+    `test_migration_seed_matches_the_model_seed` compares exactly.
+
+  A missing category draws each check individually, as before.
+- **Seed:** the 21 checks (§3.4), each with `applies_by_default = false` and its
+  §3.4 category and icon, under the `logistics` team, with sort orders 100 and up
+  so they follow the core checks.
+  - A code is inserted only where it is absent (036's convention), with a Python
+    `uuid.uuid4()` literal as its id.
+  - Its `readiness_check_created` governance row is `INSERT … SELECT … FROM
+    readiness_checks WHERE id = <that literal>`. So a code that already existed
+    gets no event, and no bind is needed (the parity replay). The row has
+    `entity_type` `readiness_catalog`, `entity_id` = the check id, `project_id`
+    and `user_id` NULL, and a detail ending "; category <name>; starts unticked -
+    migration 039".
+- **Downgrade:** pre-039 code would read a "starts unticked" check as applying
+  everywhere, so none may stay active.
+  - Retire **every** active check with `applies_by_default = false` — the 21
+    seeded ones and any an admin created since — each with a
+    `readiness_check_retired` row (id generated in SQL, `entity_type`
+    `readiness_catalog`, `user_id` and `project_id` NULL, detail ending "migration
+    039").
+  - Then drop the two columns. On SQL Server, drop each column's default
+    constraint first; copy 022's `_drop_column` into 039, because migrations never
+    import each other.
+- **Upgrading again** after 039's own downgrade:
+  - every check that is still retired and whose `readiness_check_created` detail
+    ends with "; starts unticked" (§5.1), or with "; starts unticked - migration
+    039" for 039's seed rows, gets `applies_by_default = false` again. A category
+    may not contain ";" (§5.1), so no admin-entered text can end a detail that
+    way;
+  - of those, a check whose latest `readiness_check_retired` /
+    `readiness_check_restored` event is 039's downgrade retirement (`user_id`
+    NULL, detail ending "migration 039") also has `retired_at` cleared and gets a
+    `readiness_check_restored` row (038's pattern);
+  - the 21 seeded checks, found by 039's `readiness_check_created` rows, also get
+    their category back from the literals, retired or not;
+  - like the seed, these are bind-free `op.execute(...)` statements, because
+    `test_migration_model_parity` replays `upgrade()` against a fake bind;
+  - categories an admin set are lost, because the downgrade is lossy, and a check
+    an admin retired stays retired.
+- **SQLite and tests:** `create_all` gets the columns from the model. The seed runs
+  only in the migration, like Logistics itself, so tests seed through a shared
+  ORM helper.
+- **Tests:**
+  - a SQLite replay and a SQL Server round trip (upgrade, downgrade, upgrade) that
+    ends with all 21 checks active, starting unticked and categorised;
+  - `tests/test_migration_039_mssql.py` joins the `backend-mssql` pytest step
+    after 038's;
+  - `tests/migration_038_scenario.py` stops using `ReadinessCheck.__table__` for
+    `readiness_checks` and uses an `sa.table(...)` literal with 038's columns.
+    `test_migration_038_mssql.py` runs it at 037/038, where the new columns don't
+    exist yet, and its final `upgrade head` now also runs 039.
 
 ## 5. API and access control
 
@@ -831,6 +1013,56 @@ The path carries only the team code, never a name (DS-001). Body
 - **The response** is the target's new cells. For a field project it also includes
   the cells of every well row under it, because those wells follow it. The picker
   redraws from it; other open views refetch.
+- **Phase 7:**
+  - **Field project:** a value equal to the check's default deletes its row, the
+    other value writes it, and `null` → 422. In `_set_project_choice`, `before` is
+    the row's value or else `applies_by_default`. The delete branch is `want ==
+    applies_by_default`, the only case where a row is sure to exist (phase 6's
+    `assert row is not None` would fail on a check that starts unticked).
+  - **Not selected** (§3.9): such a cell comes back with `applies: false,
+    applies_source: "default"`. One frontend helper decides it: `notSelected(cell)`
+    = `cell.applies === false && cell.applies_source === "default"`, and
+    `ReadinessCell` gains `applies_source?`.
+    - `applies()` is unchanged and returns false for it.
+    - `teamDetails` drops not-selected cells, so `notApplicableLine`,
+      `summariseTeam().notApplicable`, the chart tooltips and the panel's "Not
+      applicable (N)" never name them.
+    - Two views build their lists without `teamDetails` and filter with
+      `notSelected` themselves:
+      - DrillChart's team-lens tooltip drops not-selected cells from `naCodes`;
+      - `ActivityReadinessPanel` drops them from both `notApplicable` and `shown`
+        (`shown` is every check not in `notApplicable`, so otherwise they would
+        come back as On Track rows). Its field-project column draws a blank, not
+        "—", for a field project's not-selected cell.
+    - The team grids and the All grid's expanded columns draw a blank cell, not
+      "—".
+    - `pickerRows` replaces its three `?? true` fallbacks with `??
+      (check.applies_by_default ?? true)`: the field is optional (§4.5), and a
+      definition without it starts ticked. `applicabilityBody` has no check in
+      scope; since a field project never sends `null`, it drops a `null` entry
+      instead of sending `true`.
+    - The docstrings of `TeamCheckState` and `api/readiness.ts` change "the default
+      (applies)" to "the check's default".
+  - **Figures:** the server's `figures` leave not-selected cells out entirely — not
+    even as not counted (§3.7).
+- **Catalog (phase 7):**
+  - `CatalogCheck` and `AdminCatalogCheck` gain `category` and
+    `applies_by_default`.
+  - `CheckCreate` takes both. It refuses `applies_by_default: false`, or a
+    non-empty `category`, with `locks_with_plan` (422).
+  - `CheckUpdate` takes `category` (audited like a label change; 422 on a check
+    that locks with the plan) but not `applies_by_default`. `_at_least_one`
+    counts it.
+  - `category` is `Annotated[str, StringConstraints(strip_whitespace=True,
+    max_length=64, pattern=r"^[^;]*$")]`, so `""` clears it (not `Label`, which
+    needs at least one character). Checks group by exact text within a team, and
+    the Admin form suggests existing categories so spellings stay one.
+  - A category may not contain ";" — `CheckCreate` and `CheckUpdate` both refuse
+    it (422). ";" separates the parts of the `readiness_check_created` detail,
+    and 039's re-upgrade reads that detail's ending (§4.5).
+  - The `readiness_check_created` detail adds `; category <name>` when one is set,
+    then `; starts unticked` when `applies_by_default` is false — including 039's
+    seed rows.
 
 ### 5.2 Authorization — new helper in `app/core/rbac.py`
 
@@ -895,6 +1127,12 @@ Catalog and grant endpoints require `is_admin`.
     Development)`.
   - The feed shows it as "Readiness NAV: applies → does not apply; for Bonga
     Phase 3".
+- **Phase 7:** the state with no row is the check's default, which reads `not
+  selected` for a check that starts unticked. Examples: `PSV: not selected ->
+  applies; for Bonga Phase 3`, and `PSV: applies -> not selected; for EGB-12 (no
+  field project, Oil Development)`. In code, `_set_well_choice`'s `label(None)`
+  with nothing to follow, and `_set_project_choice`'s missing row, use the check's
+  default ("applies" or "not selected"), never a fixed "applies".
 - The audit feed shows the newest 100 events. A large untick, or the migration's
   per-campaign events, can push older submit or sign events out of that view; the
   feed's limit or paging is a follow-up (§13).
@@ -909,6 +1147,10 @@ The snapshot stays a **flat activity list**, so existing readers keep parsing.
 | `readiness` | Governed project gates `{code: status}` | **Unchanged shape**; now built from catalog checks with `locks_with_plan`. Unchanged in phase 6: an N/A gate is recorded as N/A |
 | `readiness_at_submission` | Operational checks, **effective** values `{code: {status, source: well\|project\|default}}`, plus `tags` for a check with a tag list | **New**; absent in older revisions. (`inherited_tags` was never stored.) Phase 6: a check that doesn't apply is recorded with status `"N/A"`; no new snapshot carries tags |
 
+- **Phase 7:** a check that is **not selected** (§3.9) is left out of
+  `readiness_at_submission`, as an omitted cell is (§3.7). A check that doesn't
+  apply because of a row (the target's own or its field project's) is still
+  recorded as N/A.
 - **Catalog as of submission:** new nullable `revisions.catalog_json` stores the
   definitions (labels, team, status set, icon) used by that snapshot. Older
   revisions have `NULL` → readers fall back to the built-in definitions of the
@@ -964,9 +1206,10 @@ The snapshot stays a **flat activity list**, so existing readers keep parsing.
 10. **No status edits on a team check that doesn't apply (phase 6):** the status PUT
     and Reset to project both return 409 — tick it first. Re-ticking shows the
     status kept underneath.
-11. **New checks apply everywhere (phase 6):** the default is ticked (§3.8). A
-    restored check, or a reactivated team, comes back with the ticks it had when
-    retired.
+11. **New checks apply everywhere (phase 6)** unless they are created "starts
+    unticked" (phase 7, §3.9). A target with no row of its own, and no
+    field-project row to follow, reads the check's `applies_by_default` (§3.9). A restored check, or a reactivated team, comes back with
+    the ticks it had when it was retired.
 12. **Project-only checks on a well with no field project carry nothing** — in
     live views, as already in snapshots (§3.7, phase 6).
 13. **Name reuse (phase 6):** applicability rows, like entries, outlive
@@ -974,6 +1217,13 @@ The snapshot stays a **flat activity list**, so existing readers keep parsing.
     back its old ticks and statuses.
 14. **Withdrawn checks** (`NEQ`, phase 6) can't be restored, re-created or written;
     their code stays reserved, like `CON`.
+15. **Un-nominating on a field project (phase 7)** returns every well that follows
+    it to not selected. A well that ticked the type itself keeps it ("set on this
+    well"). A well that unticked it keeps its `applies = false` row and still reads
+    "Not applicable" until **Follow project**.
+16. **A well can nominate equipment its field project didn't (phase 7):** that is
+    an `applies = true` well row, exactly as in phase 6.
+17. **Retiring an equipment check** keeps its rows, as for any check (§4.4).
 
 ## 8. Frontend
 
@@ -1017,7 +1267,7 @@ the choice is remembered per user (`ds.readiness-lens`) and carried in `?lens=`.
   Withdrawn 2026-10-23 (§3.5).
 - **Phase 6, team grids (Wells, Logistics, future teams) and the All grid's team
   groups:** a team check that doesn't apply shows a muted "—" ("Not applicable")
-  in its column, so the columns keep their place. A folded team cell is the worst
+  in its column (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9), so the columns keep their place. A folded team cell is the worst
   of the checks that apply, and "—" when none does. Each team-grid row gets the
   **Checks…** control (§8.7); the All grid stays read-only.
 - Dots are editable only where the user can write (§5.2) — the API stays the
@@ -1042,7 +1292,7 @@ the choice is remembered per user (`ds.readiness-lens`) and carried in `?lens=`.
   The legend shows the team badges plus the severity colours. **Phase 6:** a team
   badge is the worst of the checks that apply; a team where nothing applies gets
   no badge. The tooltip lists unticked team checks muted ("Not applicable: NAV,
-  PO"), and such a team reads "Nothing applies". The Project gates badge is
+  PO") (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9), and such a team reads "Nothing applies". The Project gates badge is
   unchanged — grey when every gate is N/A.
 - **Rejected:** stacking every team's strip on each bar (21+ icons) — unreadable,
   and it would inflate the row height of the whole Gantt.
@@ -1070,7 +1320,8 @@ Both prints get a **"Readiness icons"** option: **Project gates · Wells · Logi
   section proposed in the first draft.
 - **All** prints the team badges (§8.3); **None** prints a plain sequence.
 - **Phase 6, team lenses:** prints draw only the checks that apply, packed left.
-  Icon size still comes from the lens's check count, so a lone icon doesn't grow.
+  Icon size still comes from the lens's check count (from phase 7: its
+  uncategorised checks plus its categories, §8.8), so a lone icon doesn't grow.
   An N/A team check in an older revision is one that didn't apply, so it isn't
   drawn. **Project gates prints are unchanged** — grey N/A icons included.
 - **Phase 6 legends:** a legend lists the statuses its icons can show.
@@ -1082,6 +1333,52 @@ Both prints get a **"Readiness icons"** option: **Project gates · Wells · Logi
     NEQ's Available / Pending / Not available.
 
 ### 8.5 Icons and output encoding (security)
+
+- **Phase 7 — more icons** (decision 40). The owned registry grows from 15 to 68
+  keys; every new key comes from lucide, which is already a dependency. Eleven
+  groups (`ICON_GROUPS` in `icon-registry.ts`), each in registry order, so the 15
+  earlier keys lead their group:
+  - **Sites and planning:** land-plot, map-pin, drafting-compass — earlier gate
+    icons that fit no other group.
+  - **Rigs and engineering:** rotary-table, drill, pickaxe, wrench, hammer, gauge,
+    cable, plug-zap, factory, warehouse.
+  - **Marine:** ship, anchor, container, ship-wheel, sailboat, life-buoy, waves.
+  - **Aviation:** helicopter, plane.
+  - **Land transport:** truck, bus, bus-front, van, car, tractor, caravan.
+  - **Lifting:** forklift, construction, hard-hat.
+  - **Permits and safety:** shield-check, radiation, biohazard, siren, shield-user,
+    id-card, key, stamp.
+  - **Documents and finance:** gavel, banknote, hand-coins, file-signature,
+    receipt, file-check, file-text, clipboard-check, clipboard-list,
+    calendar-check, badge-check, landmark, wallet, coins, scale.
+  - **People and community:** handshake, users.
+  - **Environment:** leaf, mountain, tree-pine, droplets, flame, fuel, wind,
+    thermometer, cloud-rain.
+  - **Comms:** radio, satellite-dish.
+- **Kept in sync by a generator:**
+  - **The script:** `frontend/scripts/gen-check-icons.mjs` (committed, no new
+    dependency) reads each key's `__iconNode` from
+    `node_modules/lucide-react/dist/esm/icons/<lucide name>.js`. It writes
+    `LUCIDE_PATHS`, which the chart's canvas icons and tooltips use; prints draw
+    the React icons.
+  - **Exceptions:** it maps aliases to their lucide file (`file-signature` →
+    `file-pen-line`) and leaves the hand-drawn `rotary-table` as written.
+  - **Visible change:** regenerating redraws LOC, FE and FID to lucide 0.577's
+    shapes, which the React icons already use.
+  - **Node:** the script needs a Node version with ESM detection (≥ 20.19 / 22.12).
+  - **Tests:** a vitest renders every `CHECK_ICONS` component with
+    `react-dom/server` and compares it with `LUCIDE_PATHS` (except
+    `rotary-table`). The existing parity tests keep the backend `ICON_KEYS` and
+    `icon-registry.ts` identical, in order.
+- **Admin icon picker:** a search box, plus groups as above (`IconPicker.tsx`).
+  - Every key is in exactly one group; within a group keys keep registry order.
+  - The groups only lay out the picker. They are never an allow-list —
+    `ICON_KEYS` is.
+  - A key the server offers that this build doesn't group (a newer catalog)
+    shows under **Other** rather than vanishing.
+  - Search matches icon names and group names: "ship" finds ship and
+    ship-wheel, "marine" the whole Marine group.
+- **Still owned:** admins choose a key; they never upload SVG.
 
 - Icons come from an **owned icon registry** (`icon_key` → React component + SVG
   path data for the ECharts/print renderer, as `check-icon-svg.ts` does today).
@@ -1107,7 +1404,7 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
   team grids (Wells · Logistics · future teams — not the Project gates), and on
   each of those teams' sections of the per-activity Readiness panel. It opens
   from the row, never from an icon (§3.5).
-- **What:** the team's active checks that don't lock with the plan, with ticks, all ticked by default — it looks
+- **What:** the team's active checks that don't lock with the plan, with ticks, ticked by default except checks that start unticked (phase 7, §3.9) — it looks
   like the old equipment picker. **Save** sends one request (§5.1): all or
   nothing, with a toast on 403.
 - **On a well:** a tick inherited from the field project reads "from project". A
@@ -1125,7 +1422,7 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
   its wells unless a well differs"; both change to "has its own choice", because a
   well's choice can come to match its project.
 - **Unticked checks:** "—" in grid cells (title "Not applicable"); in the
-  Readiness panel, under a collapsed **Not applicable (N)**.
+  Readiness panel, under a collapsed **Not applicable (N)** (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9).
 - **Status menus** of team checks offer On Track, Completed and Behind only.
   Reset to project is unchanged. The menu list is derived in code from the
   `STATUS_SETS` mirror and the `locks_with_plan` of the definition the view
@@ -1133,7 +1430,7 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
   unknown-code fallback, which reads as a governed gate. **The Project
   gates' menus keep N/A**, and the Project gates grid, the chart edit dialog's
   gates and the Activities grid strip are unchanged.
-- **Wording:** team-check views say "Not applicable" for an unticked check, and
+- **Wording:** team-check views say "Not applicable" for a check that doesn't apply because of a row (since phase 7, never for one that is not selected, §3.9), and
   "Nothing applies" for a target where no check of the team applies.
   - `team-summary.ts` says "Nothing applies" for team checks; the Project gates
     keep today's "Nothing applies (all N/A)".
@@ -1143,6 +1440,67 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
 - **Admin page:** the status-set select offers active sets only; the tag-list
   select and the Equipment types section go; Restore is hidden for withdrawn
   checks.
+
+### 8.8 Categories in the UI (phase 7)
+
+- **Tick list (Checks…):**
+  - **Layout:** a search box (code or label) above the list; the team's core
+    checks first, then one collapsible group per category with a tri-state
+    "select all" and "n of m selected". Groups with nothing selected start folded.
+  - **Search:** filtering hides rows but keeps their choices; the footer says
+    "Showing 5 of 27 · 2 unsaved changes".
+  - **Scrolling:** only the list scrolls; the header and **Save** stay in view.
+  - **No pagination:** a save covers every tick, so every tick must stay
+    reachable before Save.
+  - **Button text:** on every row and panel section, the **Checks…** count covers
+    only the checks that start ticked, as in phase 6 ("5 of 6" when one is
+    unticked). Nominations show separately ("· 2 selected"), and checks that are
+    not selected never count against the total (decision 37). A row with nothing
+    unticked and nothing nominated reads just "Checks…", so no row shows a count
+    on deploy.
+- **Team grids:**
+  - **Pinned column:** the field-project / well column stays put when the grid
+    scrolls sideways.
+  - **Columns:** core checks are individual columns. Each category is **one folded
+    column**: its icon plus the worst status of its types that apply, or blank when
+    none applies.
+  - **Unfolding:** click a category header to show its types. In an unfolded
+    category, a type that is not selected is blank and one that is not applicable
+    shows "—". A folded category cell is read-only — it opens nothing (§3.5). The
+    fold state is remembered per browser.
+  - **Rows:** search and pagination are unchanged.
+  - **Key:** one line per category.
+- **All grid:** an expanded team group shows its core checks as columns and each
+  category as one folded column, as the team grids do. It stays read-only.
+- **Readiness panel:** core rows as today, then one sub-section per category,
+  folded to "Vessels · 2 selected · 1 behind". "Not applicable (N)" lists only
+  checks that don't apply because of a row (§3.9), never ones that are not
+  selected.
+- **Chart (team lens):**
+  - **Strip:** core checks that apply, then one icon per category with at least
+    one type that applies. The tier is sized by the icons drawn (≤ 12 for
+    Logistics).
+  - **How it's built:** `chart-layout.ts` builds one synthetic strip check per
+    category before `barStripCodes`, `worstCheck` and `siblingMarker` run. Its
+    icon is the first active type's, and its cell is the worst of its types that
+    apply (none when no type applies). So the single-icon tier and the marker on a
+    project's other bars also show the category.
+  - **Tooltip:** core lines as today, then one line per category naming its types,
+    worst first ("Vessels (2): PSV Behind · DSV On Track"). "Not applicable" lists
+    only checks that don't apply because of a row, capped at 6 codes + "+N more".
+  - **Legend:** core checks plus one entry per category.
+- **All lens:** the Logistics badge is the worst of everything that applies, as
+  today; its summary line names types.
+- **Prints:** the same roll-up as the chart. A strip's column count is the number
+  of checks with no category plus the number of categories in the lens's
+  definitions (the frozen catalog on a revision print), not the full check count —
+  12 for the seeded Logistics.
+- **Admin:**
+  - **Create:** the check form gains **Category** (free text, suggesting existing
+    categories) and **Starts unticked** (fixed after creation). Both are hidden
+    for checks that lock with the plan.
+  - **Edit:** the form lets the category change.
+  - **List:** grouped by category within each team.
 
 ## 9. Build phases
 
@@ -1155,7 +1513,8 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **3. Well scope + lenses** — ✅ **shipped 2026-10-13** | Well-keyed entries, team lens API + grid (field-project and well rows), lens selector on the Readiness page, chart and sequence print with per-user default (§8.1, §8.4), rename carry-over (§7.1), shared-key warning in the grid, operational lock behaviour. **Moved forward from Phase 4:** project → well inheritance with override + "Reset to project" (§3.6) — admins could already create two-level checks in Phase 2, so the well grid needed it. **Deferred to Phase 4:** the lens on the *revision* print (needs `readiness_at_submission`), the All view, dashboard team tiles; the data-grid strip stays on project gates. | Lens picker appears once a second team exists; planners can print "project gates only". |
 | **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
 | **5. Rollups (§3.7)** — ✅ **shipped 2026-10-16** (`app/services/readiness_rollup.py`) | Three steps: **(1)** one backend rollup service; **Pending** in the equipment status set as its default (backend, picker, legend); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; unset equipment reads amber Pending instead of red Not available. |
-| **6. Checks that apply (§3.8)** — built on branch feature/readiness-checks-that-apply (PR pending) | **Backend:** `readiness_applicability` + migration 038 (N/A → unticks, `NEQ` retired, audited, tested on SQL Server); effective values, rollup, snapshot, re-key and clone read it; the team rows return `applies` per cell; the applicability endpoint (§5.1, not the Projects team); the status PUT refuses N/A on team checks (422) and a status on a team check that doesn't apply (409); every readiness write takes the campaign write lock; `NEQ` withdrawn (restore and create refused), `availability` and tag lists history only, tag endpoints removed; project-only checks carry nothing on wells with no field project. **Frontend:** the picker (§8.7) in the Wells and Logistics grids and the panel; team-check status menus without N/A; team lenses, prints, tooltips and team badges draw only what applies; equipment UI removed. **Project gates unchanged** (decision 31). **One branch and one PR:** the API change (no `tags`; no N/A on team checks) needs both stacks together. PRs are rebase-merged, so the commit that refuses N/A on team checks and drops `tags` must also remove them from the frontend (or merge this PR with squash). | Wells and Logistics tick which checks apply; N/A leaves their menus; their unticked checks leave the chart and prints; Logistics drops to six checks and its figures move. The Project gates look and work as before. |
+| **6. Checks that apply (§3.8)** — built on branch feature/readiness-checks-that-apply (PR #24, open) | **Backend:** `readiness_applicability` + migration 038 (N/A → unticks, `NEQ` retired, audited, tested on SQL Server); effective values, rollup, snapshot, re-key and clone read it; the team rows return `applies` per cell; the applicability endpoint (§5.1, not the Projects team); the status PUT refuses N/A on team checks (422) and a status on a team check that doesn't apply (409); every readiness write takes the campaign write lock; `NEQ` withdrawn (restore and create refused), `availability` and tag lists history only, tag endpoints removed; project-only checks carry nothing on wells with no field project. **Frontend:** the picker (§8.7) in the Wells and Logistics grids and the panel; team-check status menus without N/A; team lenses, prints, tooltips and team badges draw only what applies; equipment UI removed. **Project gates unchanged** (decision 31). **One branch and one PR:** the API change (no `tags`; no N/A on team checks) needs both stacks together. PRs are rebase-merged, so the commit that refuses N/A on team checks and drops `tags` must also remove them from the frontend (or merge this PR with squash). | Wells and Logistics tick which checks apply; N/A leaves their menus; their unticked checks leave the chart and prints; Logistics drops to six checks and its figures move. The Project gates look and work as before. |
+| **7. Equipment checks (§3.9)** — built on branch feature/readiness-equipment-checks (PR pending) | **Backend:** migration 039 (`category`, `applies_by_default`, the 21 seeded opt-in checks, audited; downgrade retires every check that starts unticked); effective "applies?" falls back to the check's default; not-selected cells carry nothing (figures, snapshots); applicability write compares with the default; catalog/admin fields; 53 more icon keys (68 in all), generated chart paths. **Frontend:** grouped and searchable tick list; grid category columns folded by default with a pinned first column; panel sub-sections; chart, legend, prints and tooltips roll categories up; admin Category + Starts unticked fields and a searchable icon picker; generated icon paths. | Logistics gains 21 equipment types that start unticked; ticking one nominates it; figures don't move on deploy. Admins get 68 icons. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
@@ -1233,6 +1592,36 @@ Phase 6 adds:
   - `ActivityReadinessPanel.test.tsx` picks N/A from L-BUD's menu: switch it to On
     Track, and assert the menu offers no N/A for team checks.
 
+Phase 7 adds:
+- **Effective rule:** a "starts unticked" check reads not selected with no row;
+  nominating on a field project writes one `applies = true` row; its wells
+  inherit it; un-nominating deletes the row; a well can nominate on its own.
+- **Not selected:** carries nothing — not in `figures`, not in
+  `readiness_at_submission`, not in "Not applicable" lists. Un-nominating a field
+  project returns its following wells to not selected. A well's own untick under
+  a nominating field project is N/A.
+- **Write path:** ticking a "starts unticked" check on a field project with no row
+  writes `applies = true` (no 500); un-nominating deletes it. Audit details read
+  "not selected -> applies" and "applies -> not selected".
+- **Figures on deploy:** seeding 039 into a campaign with Logistics values changes
+  no figure.
+- **Catalog:**
+  - create with `applies_by_default: false` and `locks_with_plan` → 422;
+  - `applies_by_default` isn't editable;
+  - a category edit is audited;
+  - `catalog_json` carries both fields.
+- **Migration 039:** SQLite replay and SQL Server round trip; the downgrade
+  retires every active check that starts unticked (the 21 seeded ones and any an
+  admin created), and upgrading again restores the ones it retired.
+- **Icons:** the backend, React registry and generated paths stay identical; 039's
+  seed icon keys are all in `ICON_KEYS`.
+- **UI:**
+  - the tick list groups, searches (a hidden choice survives a filter) and keeps
+    Save in view;
+  - the grid folds and unfolds categories with the first column pinned;
+  - the chart and print strips draw one icon per category, worst status;
+  - tooltips name the types.
+
 ## 10. `CLAUDE.md` rules that change
 
 Updated **in the same commit as the code that changes them**, not before:
@@ -1271,6 +1660,21 @@ Updated **in the same commit as the code that changes them**, not before:
   applicability) take `lock_campaign_writes` too.
 - **Governance is auditable** (Phase 6): add `readiness_applicability_changed` and
   the migration's `readiness_applicability_migrated`.
+- **Phase 7:**
+  - checks have an admin-editable category, and a "starts unticked" setting fixed
+    at creation (never on checks that lock with the plan, which also take no
+    category);
+  - the catalog sentence becomes "A check's team, status set, scope, lock
+    behaviour and 'starts unticked' are fixed at creation (only label, icon, order
+    and category are editable)";
+  - a check that starts unticked and reads its default (no row on the target or
+    its field project) carries nothing: not counted, named for a target only in its tick list,
+    not in snapshots;
+  - the effective "applies?" falls back to the check's default;
+  - on the chart and prints a category draws one icon (worst of its types that
+    apply);
+  - the chart's icon paths are generated from lucide (except the hand-drawn
+    `rotary-table`) and kept identical by parity tests.
 - **Other docs, same phase:**
   - `docs/user-guide.md` lists five statuses and `CON`, and says approval unlocks
     the plan;
@@ -1331,15 +1735,15 @@ Updated **in the same commit as the code that changes them**, not before:
     and frontend.
 27. **Each team picks which of its checks apply (2026-10-23):** per field project
     or per well, following the check's level (§3.8); every check starts ticked.
-    The Project gates are the exception (31).
+    The Project gates are the exception (31). *(Amended by 36.)*
 28. **N/A is no longer a status those teams pick (2026-10-23):** an unticked check
     doesn't apply — no icon, not counted — and is listed muted as "Not applicable"
-    only in live tooltips and the Readiness panel (33).
+    only in live tooltips and the Readiness panel (33). *(Narrowed by 37.)*
 29. **A team check that applies always shows its status (2026-10-23):**
     Completed, On Track or Behind. A Project gate can still read N/A (31).
 30. **Nominated Equipment is withdrawn (2026-10-23):** there is no equipment list,
     and no icon opens a list of options. `NEQ` is retired and its history kept as
-    recorded (§3.5).
+    recorded (§3.5). *(Amended by 35.)*
 31. **The Project gates stay as they are (2026-10-23):** a gate that doesn't apply
     is set to N/A in its status menu and drawn as the grey N/A icon. Gates are
     frozen with the plan and recorded in revisions, as today. There is no tick
@@ -1352,6 +1756,33 @@ Updated **in the same commit as the code that changes them**, not before:
     `readiness_applicability` (§4.4), not as an N/A status. Re-ticking restores the
     status kept underneath, and a well keeps following its field project's status
     while making its own choice about whether a check applies (§3.8).
+35. **Equipment types become Logistics checks (2026-10-24):** one check per type,
+    the 21 types of §3.5, under the Logistics team, enabled at both levels, with
+    the standard status set (§3.9). This amends decision 30: the equipment types
+    return as ordinary checks; `NEQ`, its tag list and the rule that no icon opens
+    a list of options stay as decided.
+36. **Equipment checks start unticked (2026-10-24):** ticking a type nominates it.
+    "Starts unticked" is a per-check setting fixed at creation. This amends
+    decision 27: every check starts ticked unless it is created "starts unticked".
+37. **Not selected carries nothing (2026-10-24):** a check that starts unticked and
+    reads its default (no row on the target or its field project) has no icon,
+    draws a blank grid cell, isn't counted and is named for a target only in its tick list.
+    Only a check that doesn't apply because of a row (the target's own untick or
+    its field project's) reads "Not applicable". This narrows decision 28.
+38. **Plain codes (2026-10-24):** `RW`, `DSV`, … `NNRA`, with no prefix.
+39. **Categories, and status words unchanged (2026-10-24):** checks get an
+    admin-editable category that groups the tick list (with search; no
+    pagination), the grid (folded columns), the panel and the legend. On the chart
+    and prints a category draws one icon, the worst of its types that apply.
+    Equipment uses Completed / On Track / Behind.
+40. **More icons (2026-10-24):** the owned icon registry grows to 68; every new key
+    comes from lucide. The icon picker gets search and groups (§8.5).
+41. **No carry-over (2026-10-24):** production runs Project readiness only, so it
+    has no readiness catalog and no Nominated Equipment data. The first deploy
+    runs, in order, every migration after production's current revision, through
+    039 (034–039 if production is at 033); check with `alembic current` before
+    deploying. Wherever 036 has run, 038 still retires `NEQ` and keeps its
+    history.
 
 ## 12. Open questions
 
@@ -1370,6 +1801,10 @@ Updated **in the same commit as the code that changes them**, not before:
        re-key sees the old name as still in use.
 
      Both need their own fix and a real SQL Server test.
+3. **"Equipment confirmed" (phase 7)** — with equipment starting unticked, "needs
+   no equipment" and "nobody has listed it yet" look the same. *Recommended:* one
+   core Logistics check, e.g. `EQC` "Equipment confirmed", that reads On Track
+   until the coordinator confirms the list. Not decided.
 
 ## 13. Future ideas (not decided)
 

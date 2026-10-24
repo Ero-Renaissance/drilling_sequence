@@ -1,7 +1,8 @@
 import type { CatalogCheck, CatalogTeam, CheckStatus } from "@/api/readiness";
 import type { PrintRow } from "@/components/revisions/RevisionPrintDoc";
-import { ALL_LENS, PROJECTS_TEAM, type Lens } from "@/components/readiness/catalog";
+import { ALL_LENS, PROJECTS_TEAM, lensChecksOf, type Lens } from "@/components/readiness/catalog";
 import { applies, worstStatus } from "@/components/readiness/check-meta";
+import { stripChecksOf, withCategoryCells } from "./chart-layout";
 import { wellKeyOf } from "./readiness-lens";
 
 /** Whether a revision recorded team (live) readiness at submission — revisions
@@ -18,7 +19,14 @@ export function hasTeamReadiness(rows: readonly PrintRow[]): boolean {
  * - "all" → per row, each team's WORST status as one badge per team.
  * A team check recorded as N/A didn't apply (spec §3.8, `applies()` against its
  * FROZEN definition): it isn't drawn, and a team where nothing applied gets no
- * badge. The Project gates print as stored — grey N/A icons included.
+ * badge. A check that was not selected at submission isn't recorded at all
+ * (phase 7, §6), so it draws nothing either. The Project gates print as stored
+ * — grey N/A icons included.
+ * Under a team lens a category prints ONE icon (phase 7, §8.8), keyed
+ * `categoryCode(name)`: the worst of its types that applied, from the
+ * categories FROZEN with the revision — the print draws `stripChecksOf` of the
+ * same frozen definitions. The All lens's badges are the worst of everything
+ * that applied, types included.
  * Rows with nothing under the lens print no strip. `frozen` is the revision's
  * frozen catalog (which checks belong to which team, as at submission).
  */
@@ -59,10 +67,19 @@ export function snapshotRowsForLens(
     });
   }
 
-  const defs = defsOf(lens);
+  // The lens's frozen definitions in catalog order (a category wears its first
+  // type's icon), and the strip they print: core checks, then one per category.
+  const defs = lensChecksOf(frozen, lens);
+  const strip = stripChecksOf(defs);
   const perWell = defs.some((c) => c.applies_well);
   return rows.map((r) => {
-    const values: Record<string, CheckStatus> = Object.fromEntries(recorded(r, defs));
+    const cells = withCategoryCells(defs, r.readiness_at_submission ?? {});
+    const values: Record<string, CheckStatus> = Object.fromEntries(
+      strip.flatMap((c) => {
+        const cell = cells[c.code];
+        return cell && applies(cell, c) ? [[c.code, cell.status] as [string, CheckStatus]] : [];
+      }),
+    );
     const any = Object.keys(values).length > 0;
     return {
       ...r,

@@ -23,6 +23,7 @@ from app.services.readiness_catalog import (
 from app.services.readiness_effective import (
     cell_status,
     load_index,
+    not_selected,
     project_value,
     well_value,
 )
@@ -67,9 +68,16 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
                 v = project_value(index, c, a.well_project)
             else:
                 continue
-            # Phase 6 (spec §6): a check that doesn't apply is recorded as "N/A" —
-            # every revision reads an N/A team check as one that didn't apply (no
-            # icon, not counted). No tags: Nominated Equipment is withdrawn.
+            # Phase 7 (spec §6, §3.9): a check that is NOT SELECTED — it starts
+            # unticked and no row ticks it here — carries nothing: left out, as
+            # an omitted cell is, so an approver never sees 21 "not applicable"
+            # equipment types.
+            if not_selected(v):
+                continue
+            # Phase 6 (spec §6): a check that doesn't apply because of a row is
+            # recorded as "N/A" — every revision reads an N/A team check as one
+            # that didn't apply (no icon, not counted). No tags: Nominated
+            # Equipment is withdrawn.
             values[c.code] = {"status": cell_status(v), "source": v.source}
         return values
     gates_result = await db.execute(

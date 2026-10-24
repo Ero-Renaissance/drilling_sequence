@@ -124,8 +124,14 @@ const NAV = logistics("NAV", "Naval Clearance", 70, { icon_key: "anchor" });
 // A project-only check an admin added to Logistics.
 const PRM = logistics("PRM", "Permit", 80, { applies_well: false, icon_key: "landmark" });
 
-/** A team cell as served since phase 6… */
-const cell = (status: CheckStatus, applies = true, applies_source: CheckSource = "default") => ({
+/** A team cell as served since phase 6 — a field project's untick comes from
+ *  its own row ("project"): `applies: false` from "default" would be a check
+ *  that starts unticked and is NOT SELECTED (phase 7), drawn blank… */
+const cell = (
+  status: CheckStatus,
+  applies = true,
+  applies_source: CheckSource = applies ? "default" : "project",
+) => ({
   status, notes: null, updated_at: null, applies, applies_source,
 });
 /** …and a well's, whose `source` says where its STATUS comes from. */

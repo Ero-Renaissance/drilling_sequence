@@ -277,7 +277,8 @@ describe("AllReadinessGrid", () => {
     // The Project gates (unfolded for this user) are drawn; Logistics, folded,
     // has no badge — just the muted dash.
     await waitFor(() => expect(within(w1).getByTitle("Final Inv. Decision: Behind")).toBeInTheDocument());
+    // Logistics comes with the live catalog and its team rows: wait for it.
+    expect(await within(w1).findByTitle("Logistics: Nothing applies")).toHaveTextContent("—");
     expect(within(w1).queryByLabelText(/^Logistics:/)).not.toBeInTheDocument();
-    expect(within(w1).getByTitle("Logistics: Nothing applies")).toHaveTextContent("—");
   });
 });

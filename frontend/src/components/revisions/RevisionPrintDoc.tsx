@@ -6,7 +6,7 @@
  * Sections: title/approval block · static Gantt (sequence) · decoding legend ·
  * activity schedule table (with readiness gate icons) · formal sign-off table.
  */
-import { Fragment } from "react";
+import { Fragment, useMemo } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
 import { ALL_LENS, PROJECTS_TEAM, useLens, useLensChecks } from "@/components/readiness/catalog";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
 import { getActivityColor } from "@/lib/chart-colors";
+import { isCategoryCode, stripChecksOf } from "@/lib/chart-layout";
 import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessRowsPerPage, type PrintYears } from "@/lib/print-gantt";
@@ -705,18 +706,39 @@ function printLegendStatuses(
   return [...listed, ...new Set(extra)];
 }
 
+/** The icons a print's strip draws for the lens in context, in strip order:
+ *  its checks with no category, then ONE per category (phase 7, spec §8.8) —
+ *  the categories frozen with a revision on its print. Its length is the
+ *  strip's column count (12 for the seeded Logistics, not 27). */
+function usePrintStrip() {
+  const gates = useLensChecks();
+  return useMemo(() => stripChecksOf(gates), [gates]);
+}
+
 function ReadinessKey({ rows }: { rows: readonly PrintRow[] }) {
   // The lens's checks from the catalog in context — a revision print pins its
   // frozen catalog; a working copy can print one team's lens.
   const gates = useLensChecks();
+  const strip = usePrintStrip();
   // Under the All lens the "checks" are teams — name them, don't show codes.
   const teamsOnly = useLens() === ALL_LENS;
   return (
     <div className="space-y-1.5 rounded-md border border-border bg-zinc-50 px-3 py-2 text-[9px] print:break-inside-avoid">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="w-16 shrink-0 font-semibold uppercase tracking-wider text-muted-foreground">Readiness</span>
-        {gates.map(({ code, label, icon_key }) => {
+        {strip.map(({ code, label, icon_key, members }) => {
           const Icon = checkIcon(icon_key);
+          // A category prints one icon: the key names the category and its
+          // types (admin-entered text — React escapes it).
+          if (isCategoryCode(code)) {
+            return (
+              <span key={code} className="inline-flex items-center gap-1" data-testid="print-key-category">
+                <Icon className="h-3 w-3" />
+                <span className="font-medium">{label}</span>
+                {members && <span className="text-muted-foreground">({members.join(", ")})</span>}
+              </span>
+            );
+          }
           return (
             <span key={code} className="inline-flex items-center gap-1">
               <Icon className="h-3 w-3" />
@@ -749,11 +771,14 @@ function ReadinessIcons({
    *  width so it never overruns into the next well's strip. */
   fill?: boolean;
 }) {
-  const gates = useLensChecks();
+  // The lens's strip: its checks, a category as ONE icon (phase 7, §8.8) —
+  // a row's `readiness` keys a category by its strip code, with the worst of
+  // its types that applied.
+  const gates = usePrintStrip();
   // The Project gates print every gate, as before (N/A grey). Any other lens
   // prints only what the row carries — the checks that applied, packed left
-  // (spec §8.4); the strip keeps the lens's column count so a lone icon doesn't
-  // grow.
+  // (spec §8.4); the strip keeps the lens's column count (its uncategorised
+  // checks plus its categories) so a lone icon doesn't grow.
   const projectGates = useLens() === PROJECTS_TEAM;
   const drawn = projectGates ? gates : gates.filter(({ code }) => readiness?.[code] !== undefined);
   if (fill) {
@@ -761,6 +786,7 @@ function ReadinessIcons({
       <span
         className="grid w-full gap-px"
         style={{ gridTemplateColumns: `repeat(${gates.length}, minmax(0, 1fr))` }}
+        data-columns={gates.length}
       >
         {drawn.map(({ code, icon_key }) => {
           const Icon = checkIcon(icon_key);
