@@ -39,9 +39,15 @@ class TeamCheckState(CheckState):
     """A cell of a team's rows (phase 6, spec §5.1 "Cells"). ``status`` is the
     status underneath — what re-ticking brings back; ``applies`` is whether the
     check applies to the target at all (§3.8), and ``applies_source`` where that
-    comes from: the well's own choice, its field project's, or the default
-    (applies). A check that locks with the plan (a Project gate) always reads
-    ``applies=True`` from ``"default"`` — it uses N/A instead."""
+    comes from: the well's own choice, its field project's, or the check's
+    default (``applies_by_default``). A check that locks with the plan (a
+    Project gate) always reads ``applies=True`` from ``"default"`` — it uses N/A
+    instead.
+
+    Phase 7 (§3.9): ``applies=False`` from ``"default"`` is NOT SELECTED — a
+    check that starts unticked and nothing ticks here. The cell is still sent
+    (the tick list names it), but it carries nothing: no figure counts it, not
+    even as N/A."""
 
     applies: bool = True
     applies_source: CellSource = "default"
@@ -145,7 +151,9 @@ class RowFigures(BaseModel):
     done: int
     in_progress: int  # on track
     behind: int  # blocked (Behind, Not available)
-    na: int = 0  # not counted (N/A, or a team check that doesn't apply)
+    # Not counted (N/A, or a team check that doesn't apply because of a row). A
+    # cell that is not selected (phase 7) isn't here either: it carries nothing.
+    na: int = 0
     ready: bool  # ≥1 counted cell and every counted cell done
 
 
@@ -204,6 +212,12 @@ class CatalogCheck(BaseModel):
     # History only since phase 6 (spec §3.5): kept so frozen catalogs read as
     # recorded; no new check may carry one.
     tag_list: str = ""
+    # Phase 7 (spec §3.9, §4.5): the group the check belongs to within its team
+    # ("" = none — drawn on its own), and False when it starts unticked. The
+    # defaults are what every check had before migration 039, so a catalog frozen
+    # earlier reads as recorded.
+    category: str = ""
+    applies_by_default: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -279,7 +293,9 @@ class TeamWellRow(BaseModel):
     # Every team check the well carries, at its effective value — a project-only
     # check is absent on a well with no field project (spec §3.7, §7.12).
     checks: dict[str, EffectiveCheckState]
-    figures: RowFigures | None = None  # over those cells; one that doesn't apply isn't counted
+    # Over those cells; one that doesn't apply isn't counted, and one that is
+    # not selected (phase 7) is left out entirely.
+    figures: RowFigures | None = None
 
 
 class TeamReadiness(BaseModel):
@@ -302,12 +318,29 @@ class ApplicabilityResult(BaseModel):
 
 # ── Admin: catalog management + team grants ─────────────────────────────────
 # extra="forbid": immutable fields (a check's code, team, status set, scope,
-# lock behaviour) sent on a PATCH are a 422, never silently ignored.
+# lock behaviour, "starts unticked") sent on a PATCH are a 422, never silently
+# ignored.
 
 TeamCode = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{1,31}$")]
 CheckCodeStr = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9-]{1,7}$")]
 Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+# A check's category (phase 7, spec §5.1): bounded like the String(64) column;
+# "" clears it, so not ``Label`` (which needs a character). Checks group by its
+# exact text within a team.
+# No ';': it separates the parts of the readiness_check_created detail, where the
+# category comes LAST when a check starts ticked — and migration 039's re-upgrade
+# reads that detail's ending ("; starts unticked") to know a retired check started
+# unticked. A category such as "Hire; starts unticked" would make a check that
+# starts ticked come back starting unticked. Refused on create and on edit (one
+# type), so no free text an admin types can end the detail that way.
+Category = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^;]*$")
+]
 SortOrder = Annotated[int, Field(ge=0, le=10_000)]
+
+# Shared by create and edit (phase 7, spec §3.9): the Project gates have no tick
+# list and keep their seven icons (decision 31).
+GOVERNED_NO_CATEGORY = "A check that locks with the plan takes no category"
 
 
 def _check_icon_key(value: str | None) -> str | None:
@@ -360,6 +393,11 @@ class CheckCreate(BaseModel):
     # spec §3.5, §4.4): only "" (none) is accepted. Kept as a field so an old
     # client sending "" still works and one sending a list gets a clear 422.
     tag_list: str = ""
+    # Phase 7 (spec §3.9, §5.1): optional grouping within the team, and "starts
+    # unticked" (False) — fixed at creation, so CheckUpdate doesn't take it.
+    # StrictBool: "false" or 0 is a 422, never coerced into a setting.
+    category: Category = ""
+    applies_by_default: StrictBool = True
 
     _icon = field_validator("icon_key")(_check_icon_key)
 
@@ -388,21 +426,33 @@ class CheckCreate(BaseModel):
         # block — they exist only at field-project level (spec §3.2).
         if self.locks_with_plan and (self.applies_well or not self.applies_project):
             raise ValueError("A check that locks with the plan is set at project level only")
+        # It has no tick list (decision 31), so it can't start unticked; and the
+        # Project gates take no category (spec §3.9).
+        if self.locks_with_plan and not self.applies_by_default:
+            raise ValueError("A check that locks with the plan can't start unticked")
+        if self.locks_with_plan and self.category:
+            raise ValueError(GOVERNED_NO_CATEGORY)
         return self
 
 
 class CheckUpdate(BaseModel):
+    # extra="forbid" also refuses ``applies_by_default``: fixed at creation.
     model_config = {"extra": "forbid"}
 
     label: Label | None = None
     icon_key: str | None = None
     sort_order: SortOrder | None = None
+    # "" clears it. A non-empty category on a check that locks with the plan is
+    # refused in the router (422), which knows the check.
+    category: Category | None = None
 
     _icon = field_validator("icon_key")(_check_icon_key)
 
     @model_validator(mode="after")
     def _at_least_one(self) -> "CheckUpdate":
-        if all(v is None for v in (self.label, self.icon_key, self.sort_order)):
+        if all(
+            v is None for v in (self.label, self.icon_key, self.sort_order, self.category)
+        ):
             raise ValueError("Provide at least one field to change")
         return self
 

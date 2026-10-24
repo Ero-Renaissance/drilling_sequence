@@ -15,7 +15,7 @@ import {
   type Lens,
 } from "@/components/readiness/catalog";
 import type { ReadinessCell } from "@/components/readiness/check-meta";
-import { barStripCodes, type StripCheck } from "./chart-layout";
+import { barStripCodes, categoryStrip, withCategoryCells } from "./chart-layout";
 import type { ChartCheckState, ReadinessMap } from "./chart-utils";
 import { summariseTeam, teamDetails, type TeamCheckDetail } from "./team-summary";
 
@@ -60,10 +60,13 @@ export function teamValuesFor(
 
 /** One team's badge for one activity, from its details: the worst of the
  *  checks that apply; `applies: false` when none does (no badge — the tooltip
- *  still lists them as "Not applicable"); nothing when the team has no cell
- *  here at all. */
-function teamBadge(details: TeamCheckDetail[]): ChartCheckState | undefined {
-  if (details.length === 0) return undefined;
+ *  reads "Nothing applies" and lists the ones that don't apply because of a
+ *  row as "Not applicable"); nothing when the team has no cell here at all.
+ *  `hasCells`: the team has cells here even if `details` is empty — every one
+ *  of them NOT SELECTED (phase 7), which carries nothing but still reads
+ *  "Nothing applies", like any other target where nothing counts (§3.7). */
+function teamBadge(details: TeamCheckDetail[], hasCells = details.length > 0): ChartCheckState | undefined {
+  if (!hasCells) return undefined;
   const summary = summariseTeam(details);
   return summary
     ? { status: summary.worst, details }
@@ -102,7 +105,11 @@ async function loadAll(
       if (badge) summary[PROJECTS_TEAM] = badge;
     }
     for (const team of teamData) {
-      const badge = teamBadge(teamDetails(team.checks, teamValuesFor(team, a)));
+      // The badge is the worst of everything that applies, types included —
+      // categories fold only a team lens's strip (spec §8.8 "All lens").
+      const values = teamValuesFor(team, a);
+      const hasCells = !!values && team.checks.some((c) => values[c.code] !== undefined);
+      const badge = teamBadge(teamDetails(team.checks, values), hasCells);
       if (badge) summary[team.team.code] = badge;
     }
     if (Object.keys(summary).length > 0) map.set(a.id, summary);
@@ -119,7 +126,11 @@ async function loadAll(
  * - a team with only project-level checks → its project rows;
  * - a team's cells keep `applies` as served: the chart drops the ones that
  *   don't apply (chart-layout, via `applies()`) and lists them only in its
- *   live tooltip;
+ *   live tooltip — never the ones that are not selected (`notSelected()`);
+ * - a team lens's cells also carry each category's synthetic cell (phase 7,
+ *   chart-layout `withCategoryCells`, from the team read's definitions): the
+ *   worst of its types that apply, none when no type applies — what the strip
+ *   draws for `stripChecksOf(lens checks)`;
  * - "all" → per activity, each team's worst status (needs the activities and
  *   the teams);
  * - "none" → nothing.
@@ -151,40 +162,49 @@ export async function loadLensReadiness(
     };
   }
   const team = await getTeamReadiness(projectId, lens);
+  const rolled = (cells: Record<string, TeamCheckState>): Record<string, ChartCheckState> =>
+    withCategoryCells(team.checks, cells);
   if (team.checks.some((c) => c.applies_well)) {
     return {
       map: new Map(
         team.well_rows.map((r) => [
           `${r.well_project}\u0001${r.well_name}\u0001${r.activity_type}`,
-          r.checks,
+          rolled(r.checks),
         ]),
       ),
       keyOf: wellKeyOf,
     };
   }
   return {
-    map: new Map(team.project_rows.map((r) => [r.well_project, r.checks])),
+    map: new Map(team.project_rows.map((r) => [r.well_project, rolled(r.checks)])),
     keyOf: projectKeyOf,
   };
 }
 
 /**
  * One activity's lens cells as a print row's `readiness` (code → status), in
- * catalog order: only the cells that apply (spec §8.4) — the chart strip's own
+ * strip order: only the cells that apply (spec §8.4) — the chart strip's own
  * rule (`barStripCodes`, `applies()` against `defs`, the print lens's checks).
- * So an unticked team check never prints the status kept underneath it, and the
- * All lens prints no badge for a team where nothing applies; the Project gates
- * print as they read, N/A included. Undefined when nothing is left: the row
- * prints no strip.
+ * So an unticked or not-selected team check never prints the status kept
+ * underneath it, and the All lens prints no badge for a team where nothing
+ * applies; the Project gates print as they read, N/A included. A category
+ * prints ONE icon (phase 7, §8.8), keyed `categoryCode(name)` — the worst of its
+ * types that apply, none when no type applies — so the print draws
+ * `stripChecksOf(defs)`, whose length is its column count. Undefined when
+ * nothing is left: the row prints no strip.
  */
 export function printedReadiness(
   cells: Record<string, ReadinessCell> | undefined,
-  defs: readonly StripCheck[],
+  defs: readonly CatalogCheck[],
   allLens: boolean,
 ): Record<string, CheckStatus> | undefined {
   if (!cells) return undefined;
-  const drawn = barStripCodes(defs, cells, allLens).filter((code) => cells[code] !== undefined);
+  const strip = categoryStrip(defs, cells);
+  const stripCells = strip.cells ?? {};
+  const drawn = barStripCodes(strip.defs, stripCells, allLens).filter(
+    (code) => stripCells[code] !== undefined,
+  );
   return drawn.length > 0
-    ? Object.fromEntries(drawn.map((code) => [code, cells[code].status]))
+    ? Object.fromEntries(drawn.map((code) => [code, stripCells[code].status]))
     : undefined;
 }

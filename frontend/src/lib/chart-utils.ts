@@ -1,5 +1,6 @@
 import type { Activity } from "@/api/activities";
-import type { CheckCode, CheckStatus } from "@/api/readiness";
+import type { CheckCode, CheckSource, CheckStatus } from "@/api/readiness";
+import type { CategoryType } from "./chart-layout";
 import type { TeamCheckDetail } from "./team-summary";
 import { getActivityColor } from "./chart-colors";
 import { formatDate } from "./utils";
@@ -23,9 +24,17 @@ export type ReadinessMap = Map<string, Record<CheckCode, ChartCheckState>>;
 export interface ChartCheckState {
   status: CheckStatus;
   applies?: boolean;
+  /** A team lens's cell as served: where its tick comes from — `applies: false`
+   *  from `"default"` is NOT SELECTED (phase 7, `notSelected()`), which no list
+   *  names. */
+  applies_source?: CheckSource;
   /** All lens only: the team's checks behind this badge, each marked with
-   *  `applies` — the ones that don't apply are never summarised. */
+   *  `applies` — the ones that don't apply are never summarised (and the ones
+   *  that are not selected aren't listed at all). */
   details?: TeamCheckDetail[];
+  /** A category's synthetic cell (team lens, phase 7 — chart-layout
+   *  `withCategoryCells`): its types that apply here, worst first. */
+  types?: CategoryType[];
 }
 
 /** The scheduling resource a row represents — a rig or an HWU. */

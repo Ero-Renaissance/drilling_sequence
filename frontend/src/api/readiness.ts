@@ -44,6 +44,18 @@ export interface CatalogCheck {
    *  only since phase 6 (spec §3.5): kept so frozen catalogs read as recorded,
    *  never set on a new check. Optional for definitions frozen before them. */
   tag_list?: string;
+  /** The group the check belongs to within its team (phase 7, spec §3.9, §4.5):
+   *  "Vessels", "Barges"… — admin-edited free text, grouped by exact text. ""
+   *  = none: a core check, drawn on its own. A check that locks with the plan (a
+   *  Project gate) never takes one. Optional: definitions frozen before
+   *  migration 039 don't carry it, and read as "" (lib/readiness-categories). */
+  category?: string;
+  /** False when the check "starts unticked" (phase 7, spec §3.9): it applies
+   *  nowhere until a team ticks it, and a target with no tick of its own (nor
+   *  one to follow) is NOT SELECTED — it carries nothing. Fixed at creation;
+   *  always true for a check that locks with the plan. Optional: a definition
+   *  without it starts ticked, as every check did before migration 039. */
+  applies_by_default?: boolean;
 }
 
 /** One code-defined status set, as the catalog serves it. */
@@ -78,14 +90,16 @@ export interface CheckState {
  *  target. Grids add the counts of the rows they show; they never decide which
  *  cells count. */
 export interface RowFigures {
-  /** Cells that count (N/A, or a team check that doesn't apply, doesn't). */
+  /** Cells that count (N/A, or a team check that doesn't apply, doesn't). A
+   *  check that is NOT SELECTED (phase 7, spec §3.9) is in no figure at all. */
   counted: number;
   done: number;
   /** On track (On Track, Pending). */
   in_progress: number;
   /** Behind or Not available. */
   behind: number;
-  /** Not counted (N/A, or a team check that doesn't apply). */
+  /** Not counted (N/A, or a team check that doesn't apply because of a row). A
+   *  not-selected check isn't counted here either: it carries nothing. */
   na?: number;
   /** At least one counted cell, and every counted cell done. */
   ready: boolean;
@@ -165,11 +179,14 @@ export type CheckSource = "well" | "project" | "default";
  * applies to this target at all (§3.8). A check that locks with the plan — a
  * Project gate — always reads `applies: true` from `"default"`: it uses N/A.
  * Whether a cell is SHOWN is decided by `applies()` in check-meta, never here.
+ * Phase 7 (§3.9): `applies: false` from `"default"` is a check that starts
+ * unticked and is NOT SELECTED here (`notSelected()` in check-meta) — it carries
+ * nothing; every other `applies: false` is "Not applicable" (a row says so).
  */
 export interface TeamCheckState extends CheckState {
   applies: boolean;
   /** Where the tick comes from: the well's own choice ("set on this well"), its
-   *  field project's, or the default (applies). */
+   *  field project's, or the check's default (`applies_by_default`). */
   applies_source: CheckSource;
 }
 
@@ -273,8 +290,10 @@ export async function resetWellReadiness(
  * Which of a team's checks apply to one target — the body of the applicability
  * PUT. Only the listed codes change (1–50), so a client with a stale catalog
  * can't untick a check it doesn't know about.
- * - Field project: `true` applies (the default), `false` doesn't. No `null`: a
- *   field project has nothing to follow (422).
+ * - Field project: `true` applies, `false` doesn't. The server stores a row only
+ *   where the value differs from the check's default (`applies_by_default`), so
+ *   writing the default removes it (phase 7). No `null`: a field project has
+ *   nothing to follow (422).
  * - Well: `true` / `false` are the well's own choice — stored only while it
  *   differs from its field project's; `null` is **Follow project**.
  * Names travel in the BODY, never the URL path (ticket DS-001).

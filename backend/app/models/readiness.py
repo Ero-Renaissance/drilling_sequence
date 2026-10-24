@@ -37,6 +37,7 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -138,6 +139,71 @@ ICON_KEYS: Final = (
     "handshake",
     "receipt",
     "ship",
+    # Phase 7 — more icons (spec §8.5, decision 40): all from lucide, appended
+    # so existing keys keep their order. Grouped as the admin picker shows them.
+    # Rigs and engineering
+    "drill",
+    "pickaxe",
+    "wrench",
+    "hammer",
+    "gauge",
+    "cable",
+    "plug-zap",
+    "factory",
+    "warehouse",
+    # Marine
+    "anchor",
+    "container",
+    "ship-wheel",
+    "sailboat",
+    "life-buoy",
+    "waves",
+    # Aviation
+    "helicopter",
+    "plane",
+    # Land transport
+    "bus",
+    "bus-front",
+    "van",
+    "car",
+    "tractor",
+    "caravan",
+    # Lifting
+    "construction",
+    "hard-hat",
+    # Permits and safety
+    "radiation",
+    "biohazard",
+    "siren",
+    "shield-user",
+    "id-card",
+    "key",
+    "stamp",
+    # Documents and finance
+    "file-check",
+    "file-text",
+    "clipboard-check",
+    "clipboard-list",
+    "calendar-check",
+    "badge-check",
+    "landmark",
+    "wallet",
+    "coins",
+    "scale",
+    # People and community
+    "users",
+    # Environment
+    "mountain",
+    "tree-pine",
+    "droplets",
+    "flame",
+    "fuel",
+    "wind",
+    "thermometer",
+    "cloud-rain",
+    # Comms
+    "radio",
+    "satellite-dish",
 )
 
 SCOPES: Final = ("project", "well")
@@ -231,6 +297,21 @@ class ReadinessCheck(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Phase 7 (spec §3.9, §4.5, migration 039). An admin-editable label grouping
+    # checks within a team ("" = none) — e.g. Vessels, Barges. Grouped by exact
+    # text. Always "" for a check that locks with the plan (the Project gates
+    # keep their seven icons). Not named ``group``: a reserved word everywhere.
+    category: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    # False = "starts unticked": with no applicability row on the target (or on
+    # its field project, for a well) the check doesn't apply — it is NOT
+    # SELECTED and carries nothing (the 21 equipment checks). Fixed at creation:
+    # changing it would flip every target with no tick of its own. Always True
+    # for a check that locks with the plan, which has no tick list.
+    applies_by_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
 
 # ── Values ──────────────────────────────────────────────────────────────────
@@ -292,13 +373,15 @@ class ReadinessApplicability(Base):
     Only for checks that DON'T lock with the plan: the Project gates never get a
     row — a gate that doesn't apply is set to N/A instead (decision 31).
 
-    - ``scope="project"``: a row exists only for "doesn't apply" (``applies``
-      False); ticking deletes it. Its wells follow it.
+    - ``scope="project"``: a row exists only where the choice differs from the
+      check's default (``ReadinessCheck.applies_by_default``, phase 7): ``False``
+      for a check that starts ticked, ``True`` for one that starts unticked.
+      Writing the default deletes it. Its wells follow it.
     - ``scope="well"``: the well's OWN choice (either value), written only where it
       differed from its field project at that moment, and kept until Follow
       project (or a write of the field project's current choice) removes it.
-    - No row: the check applies (field project), or the well follows its field
-      project (well).
+    - No row: the field project reads the check's default; a well follows its
+      field project, or — with nothing to follow — reads the default.
 
     Keyed exactly like ``ReadinessEntry`` (names, "" sentinels), so it survives a
     CSV replace and follows renames as a pair with the status entry.
@@ -329,7 +412,8 @@ class ReadinessApplicability(Base):
     well_project: Mapped[str] = mapped_column(String(256), nullable=False)
     well_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     activity_type: Mapped[str] = mapped_column(String(256), nullable=False, default="")
-    # False = doesn't apply. True (wells only) = the well's own choice to apply.
+    # False = doesn't apply; True = applies (a well's own choice, or a field
+    # project nominating a check that starts unticked).
     applies: Mapped[bool] = mapped_column(Boolean, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

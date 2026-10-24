@@ -146,9 +146,12 @@ jobs:
       # -p no:skipping: here these tests must run, so a broken DATABASE_URL fails
       # the job instead of quietly skipping the module. After the concurrency
       # tests, migration 038's data steps round-trip (downgrade to 037, seed,
-      # upgrade, downgrade, back to head) on this throwaway database.
+      # upgrade, downgrade, back to head), then migration 039's (seed check,
+      # downgrade to 038, an admin re-retires a check it retired, upgrade back
+      # to head) on this throwaway database.
       - name: SQL Server concurrency + migration tests
         run: >-
           python -m pytest -q -p no:skipping
           tests/test_concurrency_mssql.py
           tests/test_migration_038_mssql.py
+          tests/test_migration_039_mssql.py

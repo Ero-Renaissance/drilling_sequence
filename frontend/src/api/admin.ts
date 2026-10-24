@@ -42,10 +42,22 @@ export interface CheckCreate {
   icon_key: string;
   locks_with_plan: boolean;
   sort_order?: number;
+  /** Phase 7 (spec §3.9, §5.1): optional grouping within the team, ≤ 64
+   *  characters, trimmed by the server; omitted or "" = none. A check that locks
+   *  with the plan takes none (422). */
+  category?: string;
+  /** False = "starts unticked" — fixed at creation (never on a PATCH). A check
+   *  that locks with the plan can't start unticked (422). Omitted = true. */
+  applies_by_default?: boolean;
 }
 
-/** Only label, icon and order are editable — the rest is fixed at creation. */
-export type CheckUpdate = Partial<Pick<AdminCatalogCheck, "label" | "icon_key" | "sort_order">>;
+/** Only label, icon, order and category are editable — the rest (team, status
+ *  set, scope, lock behaviour, "starts unticked") is fixed at creation; the
+ *  server refuses any other field (422). `category: ""` clears it; a category on
+ *  a check that locks with the plan is refused (422). */
+export type CheckUpdate = Partial<
+  Pick<AdminCatalogCheck, "label" | "icon_key" | "sort_order" | "category">
+>;
 
 export const adminApi = {
   listUsers: () => api.get<AdminUser[]>("/api/admin/users"),

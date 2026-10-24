@@ -8,7 +8,9 @@ module, never a local formula:
   unset cell reads its status set's default, and every default is on track.
 - Cells roll up by their shared severity, never by status text: N/A is not
   counted, and neither is a team check that doesn't apply (unticked, §3.8 — the
-  live cells read it as N/A); **Complete** = done ÷ counted (the headline);
+  live cells read it as N/A). A check that is NOT SELECTED (phase 7, §3.9: it
+  starts unticked and no row ticks it) carries nothing — no cell at all, not
+  even a not-counted one; **Complete** = done ÷ counted (the headline);
   **On track** = (done + in progress) ÷ counted; **Behind** = blocked cells.
 - A target is *ready* when it has ≥1 counted cell and every counted cell is done.
   A target where nothing counts ("Nothing applies") is left out of the ready
@@ -32,6 +34,7 @@ from app.models.readiness import STATUS_SETS, ReadinessCheck
 from app.services.readiness_effective import (
     cell_status,
     load_index,
+    not_selected,
     project_value,
     well_cells,
 )
@@ -189,7 +192,10 @@ async def live_cells(
 ) -> tuple[str, dict[tuple[str, ...], dict[str, str]]]:
     """One team's targets among ``activities`` (already narrowed by ``in_scope``)
     with every check's effective status — N/A for a check that doesn't apply to
-    the target (``cell_status``), so it isn't counted.
+    the target (``cell_status``), so it isn't counted. A check that is NOT
+    SELECTED for the target (``not_selected``, phase 7) has no cell at all: it is
+    left out of every figure, not even counted as N/A. A target left with no
+    cell still counts as a target, where nothing applies.
 
     Returns ``(unit, {target key: cells})``. A team with well-level checks counts
     WELLS, keyed (field project or "", well, activity type) — project-level values
@@ -211,12 +217,20 @@ async def live_cells(
             }
         )
         return "wells", {
-            key: {code: cell_status(v) for code, v in well_cells(index, checks, key).items()}
+            key: {
+                code: cell_status(v)
+                for code, v in well_cells(index, checks, key).items()
+                if not not_selected(v)
+            }
             for key in wells
         }
     projects = sorted({a.well_project for a in activities if a.well_project})
     return "projects", {
-        (wp,): {c.code: cell_status(project_value(index, c, wp)) for c in checks}
+        (wp,): {
+            code: cell_status(v)
+            for code, v in ((c.code, project_value(index, c, wp)) for c in checks)
+            if not not_selected(v)
+        }
         for wp in projects
     }
 

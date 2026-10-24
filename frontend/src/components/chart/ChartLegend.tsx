@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ALL_LENS, useLens, useLensChecks } from "@/components/readiness/catalog";
 import { STATUS_DOT, STATUS_LABEL, legendStatuses } from "@/components/readiness/check-meta";
 import { checkIcon } from "@/components/readiness/icon-registry";
+import { isCategoryCode, stripChecksOf } from "@/lib/chart-layout";
 import { getActivityColor, isCataloguedActivityType } from "@/lib/chart-colors";
 import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 
@@ -56,6 +58,9 @@ export function ChartLegend({
 }: ChartLegendProps) {
   // The current lens's checks (project gates by default); none → no section.
   const gates = useLensChecks();
+  // What the strip draws: the core checks, then one entry per category (phase
+  // 7, spec §8.8) — a category is one icon on the chart, named by its category.
+  const entries = useMemo(() => stripChecksOf(gates), [gates]);
   // Under the All lens the "checks" are teams — name them, don't show codes.
   const teamsOnly = useLens() === ALL_LENS;
   return (
@@ -91,20 +96,23 @@ export function ChartLegend({
       {showReadiness && gates.length > 0 && (
         <>
           <Section label="Readiness" className="md:max-w-sm">
-            {gates.map(({ code, label, icon_key }) => {
+            {entries.map(({ code, label, icon_key, members }) => {
               const Icon = checkIcon(icon_key);
+              const category = isCategoryCode(code);
               return (
                 <span
                   key={code}
                   className="flex items-center gap-1.5 text-xs text-foreground"
-                  title={label}
+                  title={category && members ? `${label}: ${members.join(", ")}` : label}
+                  data-category={category ? label : undefined}
                 >
                   <Icon
                     className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                     strokeWidth={2}
                   />
-                  {!teamsOnly && <span className="font-medium">{code}</span>}
-                  <span className="text-muted-foreground">{label}</span>
+                  {/* A category is named by its name; a check by code + label. */}
+                  {!teamsOnly && !category && <span className="font-medium">{code}</span>}
+                  <span className={category ? "font-medium" : "text-muted-foreground"}>{label}</span>
                 </span>
               );
             })}
