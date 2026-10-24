@@ -37,6 +37,7 @@ import {
 import { buildCheckSvgDataUri } from "@/lib/check-icon-svg";
 import type { ChartCheckState, ReadinessMap } from "@/lib/chart-utils";
 import { server } from "./mocks/server";
+import { CatalogProbe, catalogLoaded } from "./catalog-probe";
 
 const LOGISTICS: CatalogTeam = {
   code: "logistics", name: "Logistics", editor_source: "team_grant", icon_key: "truck", sort_order: 20,
@@ -82,12 +83,15 @@ async function renderChart(lens: string, cells: Record<string, ChartCheckState>,
   const map: ReadinessMap = new Map([["a1", cells]]);
   render(
     <ReadinessCatalogProvider>
+      <CatalogProbe team="logistics" />
       <ReadinessLensProvider lens={lens}>
         <DrillChart activities={[ACT]} readinessMap={map} readinessKeyOf={(a) => a.id} />
       </ReadinessLensProvider>
     </ReadinessCatalogProvider>,
   );
-  // The live catalog (with the Logistics team) has loaded into the option.
+  // The live catalog (with the Logistics team) is in the option — a header
+  // alone can render from the built-in fallback first (catalog-probe.tsx).
+  await catalogLoaded();
   await waitFor(() => expect(tooltipOf()).toContain(waitFor_));
 }
 
