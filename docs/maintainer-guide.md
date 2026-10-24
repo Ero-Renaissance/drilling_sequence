@@ -64,6 +64,7 @@ drilling_sequence/
 │   ├─ requirements.txt      # The lockfile (full pinned tree; consumed by Docker).
 │   └─ Dockerfile            # Backend image (installs MSSQL ODBC Driver 18).
 └─ frontend/
+    ├─ scripts/              # gen-check-icons.mjs (generated chart icon paths).
     └─ src/
         ├─ main.tsx, App.tsx # Entry + router.
         ├─ api/              # One module per backend resource (fetch wrappers).
@@ -268,9 +269,11 @@ Run all four quality gates (§5) before committing.
   is replayed step by step on SQLite by `tests/test_migration_038_sqlite.py`, and
   round-tripped on SQL Server by `tests/test_migration_038_mssql.py` in the
   `backend-mssql` CI job — only ever against a **throwaway** database (it refuses
-  one that holds a campaign). No CI job covers PostgreSQL: before a PostgreSQL
-  deploy, run the latter by hand against a throwaway PostgreSQL database, widening
-  its skip guard.
+  one that holds a campaign). Migration 039 (equipment checks) has the same pair:
+  `tests/test_migration_039_sqlite.py`, and `tests/test_migration_039_mssql.py`,
+  which runs after 038's in the same job. No CI job covers PostgreSQL: before a
+  PostgreSQL deploy, run the two `_mssql` modules by hand against a throwaway
+  PostgreSQL database, widening their skip guards.
 - **Portability rules (the app must run on MSSQL and SQLite/Postgres):**
   - Timestamp defaults: `sa.func.now()` (dialect-translated), **not**
     `sa.text("now()")`.
@@ -372,13 +375,23 @@ Readiness is **not** a hard-coded gate list any more:
   `/api/admin/readiness/*`, every change audited): `readiness_teams` (`projects`,
   `logistics`, … — `editor_source` `planner` or `team_grant`) and `readiness_checks`
   (code, label, team, the levels it is enabled at — `applies_project` /
-  `applies_well` — status set, icon key, `locks_with_plan`, `retired_at`). Seeded
-  with the seven Project gates FDP/LLI/LOC/FE/FID/EIA/BUD (034) and the Logistics
-  checks (036). Codes are immutable and never reused (`CON`, retired before the
-  catalog, and the withdrawn `NEQ` stay reserved); checks are retired, never deleted.
+  `applies_well` — status set, icon key, `locks_with_plan`, `retired_at`, plus
+  `category` (admin-editable) and `applies_by_default` (the "starts unticked"
+  setting, fixed at creation); a check that locks with the plan takes no category
+  and always starts ticked).
+  Seeded with the seven Project gates FDP/LLI/LOC/FE/FID/EIA/BUD (034), the
+  Logistics checks (036) and 21 Logistics equipment checks that start unticked
+  (039). Codes are immutable and never reused (`CON`, retired before the catalog,
+  and the withdrawn `NEQ` stay reserved); checks are retired, never deleted.
   Status sets (`STATUS_SETS`) and icon keys (`ICON_KEYS`) stay code-defined, mirrored
   in `frontend/src/components/readiness/check-meta.ts` and the icon registry, and
   pinned by parity tests.
+- **Icons:** 68 keys, all lucide except the hand-drawn `rotary-table`.
+  `frontend/src/lib/check-icon-svg.ts::LUCIDE_PATHS` (the chart's canvas icons) is
+  **generated** by `node frontend/scripts/gen-check-icons.mjs` — rerun it after
+  adding a key or bumping `lucide-react`, never hand-edit the block; `--check`
+  exits 1 if it is stale. It needs Node ≥ 20.19 / 22.12. `check-icon-paths.test.ts`
+  and `check-icon-svg.test.ts` pin it.
 - **Values** (per campaign) are keyed by **names** — campaign + field project
   [+ well + activity type] — never `Activity.id`, so they survive a CSV replace:
   `readiness_entries` holds statuses, `readiness_applicability` holds which team
@@ -394,8 +407,17 @@ Readiness is **not** a hard-coded gate list any more:
     / Behind only (N/A → 422). A per-target tick list
     (`PUT /api/projects/{id}/readiness/teams/{team}/applicability`) says which
     apply; an unticked check has no icon and isn't counted. Operational — never 423;
-    recorded "as at submission" in `readiness_at_submission` (an unticked one as
-    N/A), shown but never diffed.
+    recorded "as at submission" in `readiness_at_submission` (one a row unticks as
+    N/A; a not-selected one is left out), shown but never diffed.
+- **Not selected:** a check that starts unticked, with no applicability row on the
+  target or its field project, carries nothing — no figure, no snapshot entry, no
+  "Not applicable" listing, a blank cell (`readiness_effective.py::not_selected`,
+  `check-meta.ts::notSelected`). "Not applicable" means a row says false; with no
+  row, the effective "applies?" falls back to the check's default.
+- **Categories:** checks group by category within a team; on the chart and prints
+  a category draws one icon, the worst of its types that apply (`chart-layout.ts`).
+  A category may not contain ";" (422): migration 039's re-upgrade reads the end of
+  the `readiness_check_created` audit detail, which ";" separates.
 - **Every readiness write** runs: Pydantic body → resolve the check or team →
   `assert_can_edit_check` → `lock_campaign_writes` → BOLA (the target must exist in
   this campaign) → 409 for a status on a check that doesn't apply → 423 for a

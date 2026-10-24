@@ -2,14 +2,15 @@
 
 **Status:** phases 1–5 shipped · **Date:** 2026-10-13 · §3.7 Rollups agreed
 2026-10-16 · **§3.8 Checks that apply agreed 2026-10-23** (phase 6, built — PR #24) ·
-**§3.9 Equipment checks agreed 2026-10-24** (phase 7, not built)
+**§3.9 Equipment checks agreed 2026-10-24** (phase 7, built — PR pending)
 
 > Passages marked "phase 6" or "since phase 6", and the withdrawal of `NEQ`
 > dated 2026-10-23 (decisions 27–34), describe that proposal. Until it ships,
 > the phase 1–5 behaviour applies: N/A can still be picked for every check, and
 > `NEQ` and its equipment list are live. The Project gates don't change in
-> phase 6. Passages marked "phase 7" (decisions 35–41) are agreed but not built;
-> until phase 7 ships, Logistics has its six core checks and every team check
+> phase 6. Passages marked "phase 7" (decisions 35–41) are built on branch
+> feature/readiness-equipment-checks (PR pending) but not yet shipped; until
+> phase 7 ships, Logistics has its six core checks and every team check
 > starts ticked.
 
 **Owner:** Osahon Ero · **Requested by:** Wells team, Logistics (Supply Chain expected next)
@@ -533,7 +534,7 @@ kept, like its entries (§7.5).
 
 ### 3.9 Equipment checks (phase 7)
 
-**Agreed 2026-10-24 (§9, phase 7) — not built.** Decisions 35–41 (§11).
+**Agreed 2026-10-24 (§9, phase 7) — built, PR pending.** Decisions 35–41 (§11).
 
 **What changes.** Each of the 21 equipment types in §3.5's seed list becomes its
 own Logistics readiness check:
@@ -859,8 +860,10 @@ equipment checks.
     import each other.
 - **Upgrading again** after 039's own downgrade:
   - every check that is still retired and whose `readiness_check_created` detail
-    contains "; starts unticked" (§5.1; 039's seed rows included) gets
-    `applies_by_default = false` again;
+    ends with "; starts unticked" (§5.1), or with "; starts unticked - migration
+    039" for 039's seed rows, gets `applies_by_default = false` again. A category
+    may not contain ";" (§5.1), so no admin-entered text can end a detail that
+    way;
   - of those, a check whose latest `readiness_check_retired` /
     `readiness_check_restored` event is 039's downgrade retirement (`user_id`
     NULL, detail ending "migration 039") also has `retired_at` cleared and gets a
@@ -1051,9 +1054,12 @@ The path carries only the team code, never a name (DS-001). Body
     that locks with the plan) but not `applies_by_default`. `_at_least_one`
     counts it.
   - `category` is `Annotated[str, StringConstraints(strip_whitespace=True,
-    max_length=64)]`, so `""` clears it (not `Label`, which needs at least one
-    character). Checks group by exact text within a team, and the Admin form
-    suggests existing categories so spellings stay one.
+    max_length=64, pattern=r"^[^;]*$")]`, so `""` clears it (not `Label`, which
+    needs at least one character). Checks group by exact text within a team, and
+    the Admin form suggests existing categories so spellings stay one.
+  - A category may not contain ";" — `CheckCreate` and `CheckUpdate` both refuse
+    it (422). ";" separates the parts of the `readiness_check_created` detail,
+    and 039's re-upgrade reads that detail's ending (§4.5).
   - The `readiness_check_created` detail adds `; category <name>` when one is set,
     then `; starts unticked` when `applies_by_default` is false — including 039's
     seed rows.
@@ -1329,19 +1335,24 @@ Both prints get a **"Readiness icons"** option: **Project gates · Wells · Logi
 ### 8.5 Icons and output encoding (security)
 
 - **Phase 7 — more icons** (decision 40). The owned registry grows from 15 to 68
-  keys; every new key comes from lucide, which is already a dependency. Groups:
-  - **Rigs and engineering:** drill, pickaxe, wrench, hammer, gauge, cable,
-    plug-zap, factory, warehouse.
-  - **Marine:** anchor, container, ship-wheel, sailboat, life-buoy, waves.
+  keys; every new key comes from lucide, which is already a dependency. Eleven
+  groups (`ICON_GROUPS` in `icon-registry.ts`), each in registry order, so the 15
+  earlier keys lead their group:
+  - **Sites and planning:** land-plot, map-pin, drafting-compass — earlier gate
+    icons that fit no other group.
+  - **Rigs and engineering:** rotary-table, drill, pickaxe, wrench, hammer, gauge,
+    cable, plug-zap, factory, warehouse.
+  - **Marine:** ship, anchor, container, ship-wheel, sailboat, life-buoy, waves.
   - **Aviation:** helicopter, plane.
-  - **Land transport:** bus, bus-front, van, car, tractor, caravan.
-  - **Lifting:** construction, hard-hat.
-  - **Permits and safety:** radiation, biohazard, siren, shield-user, id-card, key,
-    stamp.
-  - **Documents and finance:** file-check, file-text, clipboard-check,
-    clipboard-list, calendar-check, badge-check, landmark, wallet, coins, scale.
-  - **People and community:** users.
-  - **Environment:** mountain, tree-pine, droplets, flame, fuel, wind,
+  - **Land transport:** truck, bus, bus-front, van, car, tractor, caravan.
+  - **Lifting:** forklift, construction, hard-hat.
+  - **Permits and safety:** shield-check, radiation, biohazard, siren, shield-user,
+    id-card, key, stamp.
+  - **Documents and finance:** gavel, banknote, hand-coins, file-signature,
+    receipt, file-check, file-text, clipboard-check, clipboard-list,
+    calendar-check, badge-check, landmark, wallet, coins, scale.
+  - **People and community:** handshake, users.
+  - **Environment:** leaf, mountain, tree-pine, droplets, flame, fuel, wind,
     thermometer, cloud-rain.
   - **Comms:** radio, satellite-dish.
 - **Kept in sync by a generator:**
@@ -1354,12 +1365,19 @@ Both prints get a **"Readiness icons"** option: **Project gates · Wells · Logi
     `file-pen-line`) and leaves the hand-drawn `rotary-table` as written.
   - **Visible change:** regenerating redraws LOC, FE and FID to lucide 0.577's
     shapes, which the React icons already use.
-  - **Node:** the script needs a Node version with ESM detection (≥ 20.19).
+  - **Node:** the script needs a Node version with ESM detection (≥ 20.19 / 22.12).
   - **Tests:** a vitest renders every `CHECK_ICONS` component with
     `react-dom/server` and compares it with `LUCIDE_PATHS` (except
     `rotary-table`). The existing parity tests keep the backend `ICON_KEYS` and
     `icon-registry.ts` identical, in order.
-- **Admin icon picker:** a search box, plus groups as above.
+- **Admin icon picker:** a search box, plus groups as above (`IconPicker.tsx`).
+  - Every key is in exactly one group; within a group keys keep registry order.
+  - The groups only lay out the picker. They are never an allow-list —
+    `ICON_KEYS` is.
+  - A key the server offers that this build doesn't group (a newer catalog)
+    shows under **Other** rather than vanishing.
+  - Search matches icon names and group names: "ship" finds ship and
+    ship-wheel, "marine" the whole Marine group.
 - **Still owned:** admins choose a key; they never upload SVG.
 
 - Icons come from an **owned icon registry** (`icon_key` → React component + SVG
@@ -1434,6 +1452,12 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
   - **Scrolling:** only the list scrolls; the header and **Save** stay in view.
   - **No pagination:** a save covers every tick, so every tick must stay
     reachable before Save.
+  - **Button text:** on every row and panel section, the **Checks…** count covers
+    only the checks that start ticked, as in phase 6 ("5 of 6" when one is
+    unticked). Nominations show separately ("· 2 selected"), and checks that are
+    not selected never count against the total (decision 37). A row with nothing
+    unticked and nothing nominated reads just "Checks…", so no row shows a count
+    on deploy.
 - **Team grids:**
   - **Pinned column:** the field-project / well column stays put when the grid
     scrolls sideways.
@@ -1490,7 +1514,7 @@ Each phase ships on its own to `main`, with tests, keeping the suite green.
 | **4. Logistics + All** — ✅ **shipped 2026-10-14** | Migration 036 seeds the Logistics team + 7 checks (codes confirmed) + 21 equipment types; `availability` status set; `NEQ` tags (project ∪ well); `readiness_at_submission` + lens on the revision print (pinned to the frozen catalog); All view (grid with foldable team groups, chart team badges, print); dashboard team tiles; opt-out hides all teams. **Simplified:** the All grid is read-only (a group's *Open* switches to that team to edit); the chart's All tooltip lists each team's worst status rather than every check, and badges don't switch lens on click; the Breakdown "by gate" team selector is deferred. | Logistics live; All view. |
 | **5. Rollups (§3.7)** — ✅ **shipped 2026-10-16** (`app/services/readiness_rollup.py`) | Three steps: **(1)** one backend rollup service; **Pending** in the equipment status set as its default (backend, picker, legend); the Overview tiles (Project gates tile = Projects team tile), the last-approved tile and the revision compare % on it. **(2)** Readiness tab and team grids: the three figures over exactly the rows shown, the window filter, links that carry the window, opted-out and completed field projects hidden. **(3)** Chart marker on `blocked` severity; the admin catalog refuses governed checks outside the Projects team; snapshots follow the no-field-project / no-well-name rules. Tests include a backend/frontend parity test. | One set of figures everywhere ("50% complete · 83% on track · 1 behind"); Overview readiness drops wherever gates were only partly set; unset equipment reads amber Pending instead of red Not available. |
 | **6. Checks that apply (§3.8)** — built on branch feature/readiness-checks-that-apply (PR #24, open) | **Backend:** `readiness_applicability` + migration 038 (N/A → unticks, `NEQ` retired, audited, tested on SQL Server); effective values, rollup, snapshot, re-key and clone read it; the team rows return `applies` per cell; the applicability endpoint (§5.1, not the Projects team); the status PUT refuses N/A on team checks (422) and a status on a team check that doesn't apply (409); every readiness write takes the campaign write lock; `NEQ` withdrawn (restore and create refused), `availability` and tag lists history only, tag endpoints removed; project-only checks carry nothing on wells with no field project. **Frontend:** the picker (§8.7) in the Wells and Logistics grids and the panel; team-check status menus without N/A; team lenses, prints, tooltips and team badges draw only what applies; equipment UI removed. **Project gates unchanged** (decision 31). **One branch and one PR:** the API change (no `tags`; no N/A on team checks) needs both stacks together. PRs are rebase-merged, so the commit that refuses N/A on team checks and drops `tags` must also remove them from the frontend (or merge this PR with squash). | Wells and Logistics tick which checks apply; N/A leaves their menus; their unticked checks leave the chart and prints; Logistics drops to six checks and its figures move. The Project gates look and work as before. |
-| **7. Equipment checks (§3.9)** — agreed 2026-10-24, not built | **Backend:** migration 039 (`category`, `applies_by_default`, the 21 seeded opt-in checks, audited; downgrade retires every check that starts unticked); effective "applies?" falls back to the check's default; not-selected cells carry nothing (figures, snapshots); applicability write compares with the default; catalog/admin fields; 53 more icon keys (68 in all), generated chart paths. **Frontend:** grouped and searchable tick list; grid category columns folded by default with a pinned first column; panel sub-sections; chart, legend, prints and tooltips roll categories up; admin Category + Starts unticked fields and a searchable icon picker; generated icon paths. | Logistics gains 21 equipment types that start unticked; ticking one nominates it; figures don't move on deploy. Admins get 68 icons. |
+| **7. Equipment checks (§3.9)** — built on branch feature/readiness-equipment-checks (PR pending) | **Backend:** migration 039 (`category`, `applies_by_default`, the 21 seeded opt-in checks, audited; downgrade retires every check that starts unticked); effective "applies?" falls back to the check's default; not-selected cells carry nothing (figures, snapshots); applicability write compares with the default; catalog/admin fields; 53 more icon keys (68 in all), generated chart paths. **Frontend:** grouped and searchable tick list; grid category columns folded by default with a pinned first column; panel sub-sections; chart, legend, prints and tooltips roll categories up; admin Category + Starts unticked fields and a searchable icon picker; generated icon paths. | Logistics gains 21 equipment types that start unticked; ticking one nominates it; figures don't move on deploy. Admins get 68 icons. |
 | **Supply Chain** | Admin adds a team, checks and grants. | **Configuration only.** |
 
 Per `CLAUDE.md`, each backend phase adds denial tests for the new paths: non-grantee
