@@ -316,7 +316,8 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                       i % 2 === 1 && "bg-muted/15",
                     )}
                   >
-                    <td className="px-3 py-2">
+                    {/* Fixed-width column: a long unbroken name wraps inside it. */}
+                    <td className="px-3 py-2 [overflow-wrap:anywhere]">
                       <div className="font-medium text-foreground">{row.well_project}</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {row.activity_count}{" "}
