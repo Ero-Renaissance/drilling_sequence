@@ -48,7 +48,7 @@ function renderDash(entry = "/") {
 }
 
 const LOGISTICS_TILE = {
-  team_code: "logistics", name: "Logistics", icon_key: "truck", unit: "wells" as const,
+  team_code: "logistics", name: "Logistics", icon_key: "truck", unit: "projects" as const,
   focus_count: 4, overall_pct: 25, on_track_pct: 70, behind_cells: 3, ready: 1, ready_of: 4,
 };
 
@@ -192,14 +192,30 @@ describe("ProjectDashboard", () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
     renderDash();
     const link = await screen.findByRole("link", { name: /Logistics/ });
-    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&view=wells&horizon=12");
+    // The Projects view — what a team tile counts — whatever view was remembered.
+    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&view=projects&horizon=12");
     const tile = card(/Logistics/);
     // Reads exactly like the Project gates card: no "wells ready" count.
     expect(tile).toHaveTextContent("25%complete");
     expect(tile).toHaveTextContent("70% on track · 3 behind");
-    expect(tile).toHaveTextContent("4 wells");
+    expect(tile).toHaveTextContent("4 field projects");
     expect(tile).not.toHaveTextContent(/ready/);
     expect(tile.getAttribute("title")).toMatch(/Completed or On Track \(nothing behind\)/);
+  });
+
+  it("a team whose checks are all well-level counts wells — its card opens the Wells view", async () => {
+    // Such a team has no Projects view (spec §3.7): the card links to what it counts.
+    const wellsOnly = { ...LOGISTICS_TILE, team_code: "wells", name: "Wells", unit: "wells" as const };
+    vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [wellsOnly] }));
+    renderDash();
+    await screen.findByRole("region", { name: "Readiness" });
+    const tile = card(/Wells/);
+    expect(tile.querySelector("a")).toHaveAttribute("href", "/projects/p1/readiness?lens=wells&view=wells&horizon=12");
+    expect(within(tile).getByRole("link", { name: "3 behind" })).toHaveAttribute(
+      "href",
+      "/projects/p1/readiness?lens=wells&view=wells&horizon=12&focus=behind",
+    );
+    expect(tile).toHaveTextContent("4 wells");
   });
 
   it("groups the readiness cards under one window picked in the group header", async () => {
@@ -213,7 +229,7 @@ describe("ProjectDashboard", () => {
         .map((c) => c.querySelector("a")!.getAttribute("href")),
     ).toEqual([
       "/projects/p1/readiness?lens=projects&horizon=12",
-      "/projects/p1/readiness?lens=logistics&view=wells&horizon=12",
+      "/projects/p1/readiness?lens=logistics&view=projects&horizon=12",
     ]);
     // …with the window stated once, and its picker, in the group header.
     expect(within(group).getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
@@ -228,7 +244,7 @@ describe("ProjectDashboard", () => {
     await screen.findByRole("region", { name: "Readiness" });
     expect(within(card(/Logistics/)).getByRole("link", { name: "3 behind" })).toHaveAttribute(
       "href",
-      "/projects/p1/readiness?lens=logistics&view=wells&horizon=12&focus=behind",
+      "/projects/p1/readiness?lens=logistics&view=projects&horizon=12&focus=behind",
     );
     expect(within(card(/Project gates/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
       "href",

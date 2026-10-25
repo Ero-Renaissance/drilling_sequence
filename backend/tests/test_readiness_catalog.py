@@ -407,7 +407,7 @@ def test_frontend_status_sets_mirror_the_backend() -> None:
 def test_frontend_readiness_windows_mirror_the_backend() -> None:
     """The Readiness tab's window must cover what the Overview tile's window
     covers (spec §3.7): the same months → days."""
-    from app.services.dashboard import HORIZON_DAYS
+    from app.services.readiness_rollup import HORIZON_DAYS
 
     src = (FRONTEND_SRC / "lib" / "readiness-window.ts").read_text()
     block = re.search(r"export const HORIZON_DAYS: Record<number, number> = \{(.*?)\};", src, re.S)

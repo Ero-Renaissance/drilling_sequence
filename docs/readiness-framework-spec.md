@@ -339,9 +339,23 @@ here; only its icon differs — none, instead of grey (since phase 7, only a che
 - **Each target once**, however many activities share it: a field project with
   five wells counts its gates once; two workovers that share a well key count once
   (§7.2).
-- **Targets per lens:** the Project gates, and a team with only project-level
-  checks, count **field projects**; a team with well-level checks counts **wells**
-  (its project-level values reach them through inheritance, §3.6).
+- **Targets per lens:** every tile of a team with project-level checks counts
+  **field projects** — the Project gates always have; a team with checks at both
+  levels too since 2026-10-25 (it counted wells before). A team whose checks are
+  all well-level counts **wells**: its grid has only the Wells view, so a
+  field-project count would match no view. For a check enabled at well level, a
+  field project reads the
+  **worst of its in-scope wells**: each well's effective value, its project's
+  unless the well has its own (§3.6), so the check is done for the field project
+  only when it is done for every well that needs it, and behind when any of them
+  is behind. A project-only check — or a field project with no well in scope —
+  reads the project's own value. A well with no field project is on no tile
+  (it is still on the Wells view). The team grid's Projects rows carry these
+  figures per window (`figures_by_window`, only the wells with work starting
+  within it folding in), so the tab adds up to the tile; a row names its wells
+  behind ("1 well behind": wells in the window behind on a check enabled at well
+  level, counted by the server, `wells_behind_by_window` — a project-only check
+  is the project's own, so a well that only carries it isn't counted).
 - **Checks:** active checks of active teams; a revision uses its frozen catalog
   (`catalog_json`). Retired checks never count.
 - **No readiness at all**, in live views and snapshots alike:
@@ -387,8 +401,10 @@ the window (All: no date limit).
 - A summary above a grid describes exactly the rows shown, after every filter
   including search, and says what it covers: "12 field projects · next 12 months".
   A team grid shows one view at a time (§8.8): its Projects view sums field
-  projects, its Wells view sums wells — the Wells view reads as the team's
-  Overview tile, which counts wells, so the tile's links open the Wells view.
+  projects, its Wells view sums wells — the Projects view reads as the team's
+  Overview tile, which counts field projects, so the tile's links open the
+  Projects view. A team whose checks are all well-level has only the Wells view;
+  its tile counts wells and opens it.
 
 **"Starting soon, not ready."** Activities starting within 90 days whose
 **Project gates** are not ready (an unset gate reads On Track, so it is not
@@ -1014,8 +1030,11 @@ The path carries only the team code, never a name (DS-001). Body
 - The whole request is **one transaction** — every listed code changes, or none
   does.
 - **The response** is the target's new cells. For a field project it also includes
-  the cells of every well row under it, because those wells follow it. The picker
-  redraws from it; other open views refetch.
+  the cells of every well row under it, because those wells follow it. For a well
+  with a field project it is that project's row and every well row under it (since
+  2026-10-25 — the project's figures fold in its wells, §3.7); a well with no
+  field project returns its own row only. The picker redraws from it; other open
+  views refetch.
 - **Phase 7:**
   - **Field project:** a value equal to the check's default deletes its row, the
     other value writes it, and `null` → 422. In `_set_project_choice`, `before` is
@@ -1482,10 +1501,12 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
     Projects; a team with checks at one level has that view only, no switch. Each
     project row has **Wells →**: the Wells view narrowed to that project
     (`?project=`, banner "N shown — wells of Bonga Phase 3", Clear filter); the
-    narrowing lasts one visit — the switch or a lens change drops it. Links that
-    count or list wells open the Wells view: the Overview's team tiles and "N
-    behind", and the All grid's Open. A lens change drops the view, so each team
-    opens on its own.
+    narrowing lasts one visit — the switch or a lens change drops it. The
+    Overview's team tiles and their "N behind" open the view of what they count
+    (`view=` the tile's `unit`, whatever was remembered): the Projects view, or the
+    Wells view for a team whose checks are all well-level; the All grid's Open
+    opens the Wells view (its rows are wells). A lens change drops the view, so
+    each team opens on its own.
   - **Pinned column:** the field-project / well column stays put when the grid
     scrolls sideways.
   - **Columns:** core checks are individual columns. Each category is **one folded
@@ -1823,6 +1844,18 @@ Updated **in the same commit as the code that changes them**, not before:
     039 (034–039 if production is at 033); check with `alembic current` before
     deploying. Wherever 036 has run, 038 still retires `NEQ` and keeps its
     history.
+42. **A team grid shows one view at a time (2026-10-25):** Projects (default) or
+    Wells, and the count, summary, banners and window follow the view (§8.8).
+43. **Team tiles count field projects (2026-10-25)**, for consistency with the
+    Project gates — reversing "a team with well-level checks counts wells"
+    (2026-10-16). A field project folds in its in-scope wells: for a well-level
+    check, the worst of its wells (done only when done on every well that needs
+    it, behind when any is behind); a project-only check reads the project's own
+    value. Chosen over counting the project's own values only, which would hide a
+    well that is behind on its own. A well with no field project is on no tile.
+    The Projects view carries the same figures per window, so tile and tab agree.
+    A team whose checks are all well-level keeps counting wells — it has no
+    Projects view to agree with.
 
 ## 12. Open questions
 

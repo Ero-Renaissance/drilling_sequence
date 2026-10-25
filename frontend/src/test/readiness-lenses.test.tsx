@@ -545,6 +545,89 @@ describe("TeamReadinessGrid", () => {
       expect(screen.getByRole("option", { name: "All wells" })).toBeInTheDocument();
     });
 
+    it("the Projects view reads each field project's figures for the window, and names its wells behind", async () => {
+      // The server folds in only the wells with work in each window (spec §3.7):
+      // W-2 (in 300 days) is behind; it's in Bonga's All figures, not its 6-month ones.
+      const base = teamData();
+      const row = (counted: number, done: number, behind: number) => ({
+        counted, done, in_progress: counted - done - behind, behind, ready: counted > 0 && done === counted,
+      });
+      serveTeam(
+        teamData({
+          project_rows: [
+            {
+              ...base.project_rows[0],
+              focus_in_days: 10,
+              figures: row(2, 0, 1),
+              figures_by_window: { "0": row(2, 0, 1), "6": row(2, 1, 0), "12": row(2, 0, 1), "24": row(2, 0, 1) },
+              wells_behind_by_window: { "0": 1, "6": 0, "12": 1, "24": 1 },
+            },
+          ],
+          well_rows: [
+            { ...base.well_rows[0], focus_in_days: 10, figures: row(2, 1, 0) },
+            { ...base.well_rows[1], focus_in_days: 300, figures: row(2, 0, 1) },
+          ],
+        }),
+      );
+      renderTeam("/?horizon=6");
+      const projects = await screen.findByRole("region", { name: "Field projects" });
+      const bonga = () => within(projects).getByText("Bonga Phase 3").closest("tr")!;
+      expect(bonga().querySelector("[data-done]")).toHaveTextContent("1/2");
+      expect(within(bonga()).queryByTestId("wells-behind")).not.toBeInTheDocument();
+      expect(screen.getByTestId("readiness-summary")).toHaveTextContent("50%complete");
+
+      // All: W-2's Behind folds in — and the row says which wells.
+      await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "0");
+      await waitFor(() => expect(bonga().querySelector("[data-done]")).toHaveTextContent("0/2"));
+      expect(within(bonga()).getByTestId("wells-behind")).toHaveTextContent("1 well behind");
+      expect(screen.getByTestId("readiness-summary")).toHaveTextContent("0%complete");
+      expect(screen.getByTestId("readiness-summary")).toHaveTextContent("1behind");
+    });
+
+    it("names only the wells the server counts behind — not wells behind on the project's own check", async () => {
+      // Both well rows inherit Bonga's Behind on a project-only check, so each
+      // row's figures count it — but no well is behind on a check of its own.
+      const base = teamData();
+      const behind = { counted: 2, done: 0, in_progress: 1, behind: 1, ready: false };
+      serveTeam(
+        teamData({
+          project_rows: [
+            {
+              ...base.project_rows[0],
+              focus_in_days: 10,
+              figures: behind,
+              figures_by_window: { "0": behind },
+              wells_behind_by_window: { "0": 0 },
+            },
+          ],
+          well_rows: base.well_rows.map((r) => ({ ...r, focus_in_days: 10, figures: behind })),
+        }),
+      );
+      renderTeam("/?horizon=0");
+      const projects = await screen.findByRole("region", { name: "Field projects" });
+      const bonga = within(projects).getByText("Bonga Phase 3").closest("tr")!;
+      expect(bonga.querySelector("[data-done]")).toHaveTextContent("0/2");
+      expect(within(bonga).queryByTestId("wells-behind")).not.toBeInTheDocument();
+    });
+
+    it("?focus=behind keeps the field projects behind in the window — by the window's figures", async () => {
+      const base = teamData();
+      const row = (behind: number) => ({ counted: 2, done: 0, in_progress: 2 - behind, behind, ready: false });
+      serveTeam(
+        teamData({
+          project_rows: [
+            { ...base.project_rows[0], focus_in_days: 10, figures: row(1), figures_by_window: { "0": row(1), "6": row(0) } },
+          ],
+        }),
+      );
+      const first = renderTeam("/?focus=behind&horizon=6");
+      const projects = await screen.findByRole("region", { name: "Field projects" });
+      expect(within(projects).queryByText("Bonga Phase 3")).not.toBeInTheDocument();
+      first.unmount();
+      renderTeam("/?focus=behind");
+      expect(within(await screen.findByRole("region", { name: "Field projects" })).getByText("Bonga Phase 3")).toBeInTheDocument();
+    });
+
     it("'Wells →' on a project row opens the Wells view on that project's wells — for one visit", async () => {
       serveTeam(twoProjects());
       renderTeam();

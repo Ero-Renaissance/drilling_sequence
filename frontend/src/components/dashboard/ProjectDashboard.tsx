@@ -279,11 +279,19 @@ const HORIZON_OPTIONS = [
 ] as const;
 
 /** A readiness tile's door: the Readiness tab on that tile's lens and window, so
- *  the tab lists exactly what the tile counted (spec §3.7) — for a team, its
- *  Wells view, as a team tile counts wells (spec §8.8). */
-function readinessLink(base: string, lens: string, months: number, focus?: "behind"): string {
+ *  the tab lists exactly what the tile counted (spec §3.7) — for a team, the
+ *  view of what its tile counts (spec §8.8): its Projects view, or its Wells
+ *  view for a team whose checks are all well-level, whatever view the browser
+ *  last remembered. */
+function readinessLink(
+  base: string,
+  lens: string,
+  unit: "wells" | "projects",
+  months: number,
+  focus?: "behind",
+): string {
   const params = new URLSearchParams({ lens });
-  if (lens !== PROJECTS_TEAM) params.set("view", "wells");
+  if (lens !== PROJECTS_TEAM) params.set("view", unit);
   if (months in HORIZON_DAYS) params.set("horizon", String(months));
   if (focus) params.set("focus", focus);
   return `${base}/readiness?${params.toString()}`;
@@ -415,6 +423,7 @@ export function ProjectDashboard({
       completePct: readiness.overall_pct,
       onTrackPct: readiness.on_track_pct,
       behind: readiness.behind_cells,
+      unit: "projects" as const,
       scope: readinessScope(readiness.focus_count, "projects"),
     },
     ...(data.team_readiness ?? []).map((t) => ({
@@ -423,6 +432,7 @@ export function ProjectDashboard({
       completePct: t.overall_pct,
       onTrackPct: t.on_track_pct,
       behind: t.behind_cells,
+      unit: t.unit,
       scope: readinessScope(t.focus_count, t.unit),
     })),
   ];
@@ -526,8 +536,8 @@ export function ProjectDashboard({
               onTrackPct={c.onTrackPct}
               behind={c.behind}
               scope={c.scope}
-              to={readinessLink(base, c.code, horizon)}
-              behindTo={readinessLink(base, c.code, horizon, "behind")}
+              to={readinessLink(base, c.code, c.unit, horizon)}
+              behindTo={readinessLink(base, c.code, c.unit, horizon, "behind")}
               projectGates={c.code === PROJECTS_TEAM}
             />
           ))}

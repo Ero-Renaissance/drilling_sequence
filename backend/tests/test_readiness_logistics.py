@@ -474,21 +474,33 @@ async def test_dashboard_has_a_logistics_tile(client: AsyncClient, db: AsyncSess
         await _put(client, pid, code, _well("W-1"), "Completed")
     await _put(client, pid, "PO", _well("W-2"), "Behind")
 
-    dash = (await client.get(f"/api/projects/{pid}/dashboard")).json()
-    tile = next(t for t in dash["team_readiness"] if t["team_code"] == "logistics")
-    assert tile["unit"] == "wells"
-    assert tile["focus_count"] == 2  # W-OPT opted out
-    assert (tile["ready"], tile["ready_of"]) == (1, 2)
-    assert tile["overall_pct"] == 50  # 6 done of 12 counted
-    # W-2: PO behind; its unset checks read On Track (on track).
-    assert tile["behind_cells"] == 1
-    assert tile["on_track_pct"] == 92  # 11 of 12, rounded half up
+    async def tile() -> dict:
+        dash = (await client.get(f"/api/projects/{pid}/dashboard")).json()
+        return next(t for t in dash["team_readiness"] if t["team_code"] == "logistics")
+
+    # One FIELD PROJECT (spec §3.7, 2026-10-25), folding its wells (W-OPT opted
+    # out): each check the worst of W-1 and W-2 — PO Behind (W-2), the other five
+    # On Track (W-2's unset checks). Nothing is done until every well is.
+    t = await tile()
+    assert (t["unit"], t["focus_count"]) == ("projects", 1)
+    assert (t["ready"], t["ready_of"]) == (0, 1)
+    assert t["overall_pct"] == 0  # no check done on BOTH wells
+    assert t["behind_cells"] == 1
+    assert t["on_track_pct"] == 83  # 5 of 6, rounded half up
+
+    # Every well done → the field project is done, though the project's own
+    # values were never set (they reach no well that set its own).
+    for code in LIVE_CODES:
+        await _put(client, pid, code, _well("W-2"), "Completed")
+    t = await tile()
+    assert (t["overall_pct"], t["behind_cells"], t["ready"], t["ready_of"]) == (100, 0, 1, 1)
 
 
 @pytest.mark.asyncio
 async def test_logistics_tab_adds_up_to_its_tile(client: AsyncClient, db: AsyncSession) -> None:
-    """The Logistics tab, adding up the server's per-well figures for the wells
-    it shows, reads exactly what the Logistics tile reads (spec §3.7)."""
+    """The Logistics tab's Projects view, adding up the server's per-project
+    figures for the field projects it shows, reads exactly what the Logistics
+    tile reads (spec §3.7) — the tile counts field projects."""
     from app.services.readiness_rollup import pct
 
     await _seed_logistics(client, db)
@@ -499,9 +511,12 @@ async def test_logistics_tab_adds_up_to_its_tile(client: AsyncClient, db: AsyncS
     lens = await _lens(client, pid)
     # Field-project rows carry the window signal too.
     assert lens["project_rows"][0]["focus_start"] is not None
-    figs = [r["figures"] for r in lens["well_rows"] if r["focus_start"]]
+    figs = [r["figures_by_window"]["0"] for r in lens["project_rows"] if r["focus_start"]]
+    # A well's own figures are still its own (the Wells view).
     w1 = _well_row(lens, "W-1")["figures"]
     assert (w1["done"], w1["in_progress"], w1["behind"]) == (1, 4, 1)  # unset = On Track
+    # The field project folds both wells: PO done on both, NAV behind on W-1.
+    assert (figs[0]["done"], figs[0]["in_progress"], figs[0]["behind"]) == (1, 4, 1)
 
     tile = next(
         t

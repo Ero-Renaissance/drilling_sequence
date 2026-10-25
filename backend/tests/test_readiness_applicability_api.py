@@ -739,7 +739,8 @@ async def test_the_response_holds_exactly_the_rows_the_write_affects(
     client: AsyncClient, db: AsyncSession
 ) -> None:
     """Built as the lens builds them: a field project's row plus every well row
-    under it, or one well's row (spec §5.1)."""
+    under it — for a well's write too, as its field project's figures fold in its
+    wells (spec §3.7) — or, for a well with no field project, its own row."""
     pid = await _setup(client, db)
     await _put(client, pid, "PO", PROJECT, "Completed")
 
@@ -749,9 +750,20 @@ async def test_the_response_holds_exactly_the_rows_the_write_affects(
     assert r.json()["well_rows"] == [w for w in lens["well_rows"] if w["well_project"] == FP]
     assert [w["well_name"] for w in r.json()["well_rows"]] == ["W-1", "W-2"]
 
-    r = await _apply(client, pid, _well("W-2"), {"PO": False})
+    # A well's write answers with its field project's row and wells too: the
+    # project's figures fold in its wells. W-2 ticking NAV (unticked on the
+    # field project) makes NAV count for Bonga again.
+    before = lens["project_rows"][0]["figures"]
+    r = await _apply(client, pid, _well("W-2"), {"NAV": True})
+    lens = await _lens(client, pid)
+    assert r.json()["project_rows"] == lens["project_rows"]
+    assert r.json()["well_rows"] == [w for w in lens["well_rows"] if w["well_project"] == FP]
+    after = r.json()["project_rows"][0]["figures"]
+    assert (after["counted"], after["na"]) == (before["counted"] + 1, before["na"] - 1)
+
+    r = await _apply(client, pid, _well("LONE-1", project=""), {"PO": False})
     assert r.json()["project_rows"] == []
-    assert r.json()["well_rows"] == [_well_row(await _lens(client, pid), "W-2")]
+    assert r.json()["well_rows"] == [_well_row(await _lens(client, pid), "LONE-1")]
 
 
 @pytest.mark.asyncio
@@ -792,12 +804,16 @@ async def test_the_tab_adds_up_to_the_tile_with_unticked_checks(
     await _apply(client, pid, _well("LONE-1", project=""), {"PO": False})
 
     lens = await _lens(client, pid)
-    figs = [r["figures"] for r in lens["well_rows"] if r["focus_start"]]
     assert [(r["well_name"], r["figures"]["counted"]) for r in lens["well_rows"]] == [
         ("LONE-1", 1),  # NAV; PO unticked; no L-PRJ without a field project
         ("W-1", 2),  # PO, L-PRJ; NAV follows the untick
         ("W-2", 3),
     ]
+    # The tile counts FIELD PROJECTS (spec §3.7): LONE-1 has none, so it isn't
+    # there. Bonga folds W-1 and W-2: PO done on both; NAV unticked on W-1 but
+    # ticked on W-2 (its default, On Track); L-PRJ is project-only — its own.
+    figs = [r["figures_by_window"]["0"] for r in lens["project_rows"] if r["focus_start"]]
+    assert [(f["counted"], f["done"], f["in_progress"], f["na"]) for f in figs] == [(3, 1, 2, 0)]
     tile = next(
         t
         for t in (

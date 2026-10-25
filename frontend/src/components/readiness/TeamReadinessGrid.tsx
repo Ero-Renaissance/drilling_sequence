@@ -10,6 +10,7 @@ import {
   type ReadinessTarget,
   type RowFigures,
   type TeamCheckState,
+  type TeamProjectRow,
   type TeamReadiness,
   type TeamWellRow,
 } from "@/api/readiness";
@@ -141,12 +142,26 @@ function GridTable({ columns, children }: { columns: readonly GridColumn[]; chil
 }
 
 /** A row's Done figure (the server's per-row rollup, spec §3.7). */
-function DoneCell({ row }: { row: { figures?: RowFigures } }) {
+function DoneCell({ figures }: { figures: RowFigures | undefined }) {
   return (
     <td className="px-2 py-2 text-center" data-done="">
-      <DoneFigure figures={row.figures} nothingTitle={NOTHING_APPLIES} />
+      <DoneFigure figures={figures} nothingTitle={NOTHING_APPLIES} />
     </td>
   );
+}
+
+/** A field project's figures for the window shown: the server folds in only the
+ *  wells with work starting within it (spec §3.7), so the Projects view adds up
+ *  to the team's Overview tile for that window. */
+export function projectFigures(row: TeamProjectRow, months: number): RowFigures | undefined {
+  return row.figures_by_window?.[String(months)] ?? row.figures;
+}
+
+/** How many of a field project's wells in the window shown are behind on a
+ *  check enabled at well level — counted by the server, as the wells its
+ *  figures fold in (a project-only check is the project's own). */
+export function wellsBehind(row: TeamProjectRow, months: number): number {
+  return row.wells_behind_by_window?.[String(months)] ?? 0;
 }
 // The header row is tinted (`bg-muted/30` over the card): an inset shadow
 // paints the same tint on the pinned header cell's opaque background.
@@ -299,8 +314,9 @@ function rowCells(
  * work left, starting within the page's window (shared `?horizon=`), are listed —
  * completed or opted-out ones drop out — and the summary adds up the server's
  * per-row figures of exactly the view's targets shown: field projects in the
- * Projects view, wells in the Wells view (which reads as the team's Overview
- * tile, as that counts wells — its links open the Wells view).
+ * Projects view — each folding in its wells with work in the window, as the
+ * team's Overview tile counts them (its links open the Projects view) — and
+ * wells in the Wells view.
  */
 export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; teamCode: string }) {
   const user = useAuthStore((s) => s.user);
@@ -466,7 +482,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
       (data?.project_rows ?? []).filter(
         (r) =>
           inWindow(r, months) &&
-          (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
+          (!behindFocus || (projectFigures(r, months)?.behind ?? 0) > 0) &&
           (!q || r.well_project.toLowerCase().includes(q)),
       ),
     [data, q, months, behindFocus],
@@ -607,9 +623,14 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
               iconOf={iconOfCategory}
             />
             {/* The three figures over exactly the view's targets shown (spec §3.7):
-                the Wells view reads as the team's Overview tile, which counts wells. */}
+                the Projects view reads as the team's Overview tile, which counts
+                field projects — each folding in its wells. */}
             <ReadinessSummary
-              rows={(wellsView ? wells : projects).map((r) => r.figures)}
+              rows={
+                wellsView
+                  ? wells.map((r) => r.figures)
+                  : projects.map((r) => projectFigures(r, months))
+              }
               unit={wellsView ? ["well", "wells"] : ["field project", "field projects"]}
               windowMonths={months}
               projectGates={false}
@@ -671,6 +692,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                             />,
                           );
                         };
+                        const behindWells = wellsBehind(row, months);
                         return (
                           <tr key={row.well_project} className="border-b border-border/40">
                             <td className={cn("px-3 py-2", PINNED_CELL)} data-pinned="">
@@ -696,6 +718,14 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 <div className="text-xs text-muted-foreground">
                                   {row.activity_count}{" "}
                                   {row.activity_count === 1 ? "activity" : "activities"}
+                                  {behindWells > 0 && (
+                                    <>
+                                      {" · "}
+                                      <span className="font-medium text-red-500" data-testid="wells-behind">
+                                        {behindWells} {behindWells === 1 ? "well" : "wells"} behind
+                                      </span>
+                                    </>
+                                  )}
                                   {hasWellChecks && (
                                     <>
                                       {" · "}
@@ -712,7 +742,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 </div>
                               </div>
                             </td>
-                            <DoneCell row={row} />
+                            <DoneCell figures={projectFigures(row, months)} />
                             {rowCells(projectColumns, row.checks, lookAlikes, cellOf)}
                           </tr>
                         );
@@ -870,7 +900,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 </div>
                               </div>
                             </td>
-                            <DoneCell row={row} />
+                            <DoneCell figures={row.figures} />
                             {rowCells(wellColumns, row.checks, lookAlikes, cellOf)}
                           </tr>
                         );

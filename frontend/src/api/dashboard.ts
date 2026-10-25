@@ -20,8 +20,9 @@ export interface TeamReadinessStats {
   team_code: string;
   name: string;
   icon_key: string;
-  /** What `focus_count` / `ready` count: wells, or field projects for a team
-   *  with only project-level checks. */
+  /** What `focus_count` / `ready` count (spec §3.7): field projects — each
+   *  folding in its wells for a check at well level — or wells, for a team
+   *  whose checks are all well-level. The card opens the matching view. */
   unit: "wells" | "projects";
   focus_count: number;
   /** Complete (the headline): done ÷ counted — spec §3.7. */
@@ -31,7 +32,7 @@ export interface TeamReadinessStats {
   /** Blocked cells (Behind, Not available). */
   behind_cells: number;
   ready: number;
-  /** Wells/projects with at least one counted check. */
+  /** Targets (`unit`) with at least one counted check. */
   ready_of: number;
 }
 

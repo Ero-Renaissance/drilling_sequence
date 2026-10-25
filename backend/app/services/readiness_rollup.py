@@ -19,6 +19,16 @@ module, never a local formula:
   completed activities carry nothing; project-level checks need a field project,
   well-level checks a well name, and a project-only check carries nothing on a
   well with no field project.
+- Tiles count FIELD PROJECTS for every team with project-level checks (2026-10-25,
+  as the Project gates always have); a team whose checks are all well-level has
+  no field-project view, so its tile counts wells, as its grid does. For a check
+  enabled at well level, a field project reads the
+  WORST of its in-scope wells — each well's effective value, its project's
+  unless it has its own — so the check is done for the field project only when
+  it is done for every well that needs it, and behind when any of them is
+  behind. A project-only check, or a field project with no well in scope, reads
+  the project's own value (``fold_project_cells``). A well with no field project
+  has no field-project target. The Project gates have no well level.
 - Nothing counted → ``None`` (shown "—", never 0%). Percentages round half up.
 """
 import uuid
@@ -158,6 +168,12 @@ def carries_readiness(activity: ActivityLike) -> bool:
     return bool(activity.readiness_required) and activity.completed_at is None
 
 
+# Window presets (months → days) — the Overview's readiness window (its
+# activity-type mix too) and every Readiness lens's; 0 = no window (frontend
+# lib/readiness-window.ts mirrors it; a test pins both).
+HORIZON_DAYS: dict[int, int] = {6: 183, 12: 365, 24: 730}
+
+
 def in_scope(activity: ActivityLike, window_end: date | None) -> bool:
     """An activity that puts its target in scope for a window: it carries
     readiness and starts on/before the window's end (None = no date limit)."""
@@ -179,6 +195,78 @@ def days_until(day: date | None, today: date) -> int | None:
     return None if day is None else (day - today).days
 
 
+# ── A field project's cells (2026-10-25) ────────────────────────────────────
+
+# Which status of a check's cells under one field project wins: blocked over in
+# progress over done; not counted (N/A) only when nothing counts.
+_SEVERITY_RANK = {"not_counted": 0, "done": 1, "in_progress": 2, "blocked": 3}
+
+
+def worst_status(statuses: Iterable[str]) -> str:
+    """The worst of one check's cells by shared severity (never status text)."""
+    return max(statuses, key=lambda s: _SEVERITY_RANK[severity_of(s)])
+
+
+def fold_project_cells(
+    codes: Sequence[str],
+    own: Mapping[str, str],
+    wells: Iterable[Mapping[str, str]],
+    well_level: Iterable[str],
+) -> dict[str, str]:
+    """ONE field project's cells (spec §3.7), each check once:
+
+    - a check enabled at well level (``well_level``) reads the worst of its
+      wells' cells — each well's effective value, which is the project's own
+      wherever the well follows it — so it is done for the field project only
+      when it is done for every well that needs it, behind when any is behind,
+      and N/A (not counted) only when it applies to none of them;
+    - a project-only check — or any check, when no well is in scope — reads the
+      project's own cell.
+
+    A check with no cell (not selected) has none here either. ``own`` and
+    ``wells`` hold statuses, not-selected checks left out; the result is in
+    ``codes`` (catalog) order."""
+    wells = list(wells)
+    by_well = set(well_level)
+    out: dict[str, str] = {}
+    for code in codes:
+        if code in by_well and wells:
+            statuses = [cells[code] for cells in wells if code in cells]
+        else:
+            statuses = [own[code]] if code in own else []
+        if statuses:
+            out[code] = worst_status(statuses)
+    return out
+
+
+def project_own_statuses(
+    index: Mapping, checks: Sequence[ReadinessCheck], well_project: str
+) -> dict[str, str]:
+    """A field project's own cells: its project-level checks' effective statuses
+    (N/A where the check doesn't apply), not-selected checks left out."""
+    out: dict[str, str] = {}
+    for c in checks:
+        if c.applies_project:
+            value = project_value(index, c, well_project)
+            if not not_selected(value):
+                out[c.code] = cell_status(value)
+    return out
+
+
+def well_level_statuses(
+    index: Mapping, checks: Sequence[ReadinessCheck], key: tuple[str, str, str]
+) -> dict[str, str]:
+    """A well's cells for the checks enabled at WELL level — inheritance included
+    (§3.6/§3.8). A project-only check is its field project's own cell, not each
+    well's, so it isn't here."""
+    well_level = [c for c in checks if c.applies_well]
+    return {
+        code: cell_status(value)
+        for code, value in well_cells(index, well_level, key).items()
+        if not not_selected(value)
+    }
+
+
 # ── Live plan ───────────────────────────────────────────────────────────────
 
 
@@ -197,17 +285,20 @@ async def live_cells(
     left out of every figure, not even counted as N/A. A target left with no
     cell still counts as a target, where nothing applies.
 
-    Returns ``(unit, {target key: cells})``. A team with well-level checks counts
-    WELLS, keyed (field project or "", well, activity type) — project-level values
-    and ticks reach them by inheritance. The Project gates and a team with only
-    project-level checks count FIELD PROJECTS, keyed (field project,). ``unit``
-    forces one (the Project gates are always counted per field project). An
-    activity without a well name has no well target; one without a field project
-    has no field-project target, and its well carries no project-only check."""
+    Returns ``(unit, {target key: cells})``. A team with project-level checks —
+    the Project gates, Logistics… — counts FIELD PROJECTS, keyed (field
+    project,), each folding in its wells among ``activities`` (the window),
+    ``fold_project_cells``; the Project gates have no well level, so they read
+    their own values. A team whose checks are all well-level (or ``unit=
+    "wells"``) counts WELLS, keyed (field project or "", well, activity type),
+    project-level values and ticks reaching them by inheritance — that team's
+    grid has no Projects view to match a field-project count. An activity
+    without a well name has no well target; one without a field project has no
+    field-project target, and its well carries no project-only check."""
     activities = list(activities)
     index = await load_index(db, project_id, [c.code for c in checks])
     if unit is None:
-        unit = "wells" if any(c.applies_well for c in checks) else "projects"
+        unit = "projects" if any(c.applies_project for c in checks) else "wells"
     if unit == "wells":
         wells = sorted(
             {
@@ -225,12 +316,22 @@ async def live_cells(
             for key in wells
         }
     projects = sorted({a.well_project for a in activities if a.well_project})
+    wells_of: dict[str, set[tuple[str, str, str]]] = {}
+    if any(c.applies_well for c in checks):
+        for a in activities:
+            if a.well_project and a.well_name:
+                wells_of.setdefault(a.well_project, set()).add(
+                    (a.well_project, a.well_name, a.activity_type)
+                )
+    codes = [c.code for c in checks]
+    well_level = [c.code for c in checks if c.applies_well]
     return "projects", {
-        (wp,): {
-            code: cell_status(v)
-            for code, v in ((c.code, project_value(index, c, wp)) for c in checks)
-            if not not_selected(v)
-        }
+        (wp,): fold_project_cells(
+            codes,
+            project_own_statuses(index, checks, wp),
+            [well_level_statuses(index, checks, key) for key in sorted(wells_of.get(wp, ()))],
+            well_level,
+        )
         for wp in projects
     }
 

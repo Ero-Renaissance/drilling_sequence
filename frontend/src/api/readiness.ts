@@ -204,7 +204,17 @@ export interface TeamProjectRow {
   focus_start?: string | null;
   /** Days from the server's today to `focus_start`. */
   focus_in_days?: number | null;
+  /** The field project as its Overview tile counts it (spec §3.7): a check at
+   *  well level reads the worst of its wells with work left, a project-only
+   *  check the project's own cell — All windows. */
   figures?: RowFigures;
+  /** The same per window ("0" All, "6", "12", "24" months): only wells with work
+   *  starting within the window fold in — `projectFigures` picks one. */
+  figures_by_window?: Partial<Record<string, RowFigures>>;
+  /** Per window, its wells in the window behind on a check enabled at well
+   *  level — the row's "N wells behind" (`wellsBehind`). A project-only check
+   *  is the project's own: a well behind only on that isn't counted. */
+  wells_behind_by_window?: Partial<Record<string, number>>;
 }
 
 export interface TeamWellRow {
@@ -310,8 +320,10 @@ export type ApplicabilityUpdate =
     };
 
 /** The target's new rows, built exactly as the team read builds them: a field
- *  project's row plus every well row under it (they follow it), or the one well
- *  row. The picker redraws from it; other open views refetch. */
+ *  project's row plus every well row under it (they follow it). A well with a
+ *  field project returns the same — its project's figures fold its wells in
+ *  (spec §3.7) — and one with none its own row only. The picker redraws from
+ *  it; other open views refetch. */
 export interface ApplicabilityResult {
   project_rows: TeamProjectRow[];
   well_rows: TeamWellRow[];

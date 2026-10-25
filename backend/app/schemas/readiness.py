@@ -274,7 +274,17 @@ class TeamProjectRow(BaseModel):
     # project (None: nothing left to be ready for) — the window filter's signal.
     focus_start: date | None = None
     focus_in_days: int | None = None  # days from the server's today to focus_start
-    figures: RowFigures | None = None  # over the team's project-level checks
+    # The field project as its Overview tile counts it (spec §3.7): a check at
+    # well level the worst of its wells with work left, a project-only check its
+    # own cell — All windows.
+    figures: RowFigures | None = None
+    # The same per window ("0" All, "6", "12", "24" months): only wells with work
+    # starting within the window fold in, so the tab matches the tile.
+    figures_by_window: dict[str, RowFigures] | None = None
+    # Per window, its wells in the window that are behind on a check enabled at
+    # well level — the row's "N wells behind" (a project-only check is the
+    # project's own, so a well that only inherits it behind isn't counted).
+    wells_behind_by_window: dict[str, int] | None = None
 
 
 class TeamWellRow(BaseModel):

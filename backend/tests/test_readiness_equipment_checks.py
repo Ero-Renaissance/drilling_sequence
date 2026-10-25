@@ -196,12 +196,13 @@ async def _logistics_cells(db: AsyncSession, pid: str, **kwargs) -> dict[tuple[s
     activities = (
         await db.execute(select(Activity).where(Activity.project_id == uuid.UUID(pid)))
     ).scalars().all()
+    # Per well unless told otherwise: these tests pin the well cells' rules.
     _, cells = await live_cells(
         db,
         uuid.UUID(pid),
         await active_checks(db, team_code="logistics"),
         [a for a in activities if in_scope(a, None)],
-        **kwargs,
+        **{"unit": "wells", **kwargs},
     )
     return cells
 
@@ -553,8 +554,14 @@ async def test_the_tab_adds_up_to_the_tile_with_equipment(
         ("W-1", 8, 0),  # core + PSV + CR
         ("W-2", 8, 1),  # core + CR + LBT; PSV unticked on the well
     ]
-    figs = [r["figures"] for r in lens["well_rows"]]
+    # The tile counts FIELD PROJECTS (spec §3.7, 2026-10-25), each folding its
+    # wells: Bonga = core (On Track) · PSV (On Track on W-1, unticked on W-2) ·
+    # CR (Behind on both) · LBT (Completed on W-2, the only well with it). LONE-1
+    # has no field project, so its RW isn't on the tile.
+    figs = [r["figures_by_window"]["0"] for r in lens["project_rows"]]
+    assert [(f["counted"], f["done"], f["in_progress"], f["behind"]) for f in figs] == [(9, 1, 7, 1)]
     tile = _logistics_tile(await _dashboard(client, pid))
+    assert (tile["unit"], tile["focus_count"]) == ("projects", 1)
     counted = sum(f["counted"] for f in figs)
     done = sum(f["done"] for f in figs)
     assert (len(figs), pct(done, counted), sum(f["behind"] for f in figs)) == (
@@ -563,7 +570,7 @@ async def test_the_tab_adds_up_to_the_tile_with_equipment(
         tile["behind_cells"],
     )
     assert pct(done + sum(f["in_progress"] for f in figs), counted) == tile["on_track_pct"]
-    assert tile["behind_cells"] == 2  # CR, inherited by W-1 and W-2
+    assert tile["behind_cells"] == 1  # CR, behind for the field project — counted once
 
 
 # ── The applicability write (§5.1, §5.3) ────────────────────────────────────

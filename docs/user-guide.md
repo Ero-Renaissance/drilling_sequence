@@ -257,8 +257,12 @@ each code with its name, and so does the hover text on grid headers and tooltips
   between **Projects** (the default — nominate equipment and set statuses here;
   wells follow) and **Wells** in the toolbar. The count, summary and window
   follow the switch, and the grid remembers your choice. **Wells →** on a project
-  row shows just that project's wells. The Overview's Logistics card opens the
-  Wells view, since it counts wells. The core checks have a column each,
+  row shows just that project's wells. The Overview's Logistics card counts
+  field projects, like the Project gates card, and opens the Projects view. A
+  field project's Logistics figures include its wells: a check counts as
+  Completed for the project only when it's completed on every well that needs
+  it, and as Behind if it's behind on any of them — the row then says, e.g.,
+  "1 well behind". The core checks have a column each,
   and each category is **one folded column** showing its icon in the worst
   status of the types that apply (blank if none does; hover it to see which
   types). The key shows each category as a chip (e.g. "Vessels 8"); hover a chip

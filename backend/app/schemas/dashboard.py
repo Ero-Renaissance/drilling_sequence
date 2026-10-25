@@ -43,21 +43,22 @@ class ReadinessStats(BaseModel):
 
 class TeamReadinessStats(BaseModel):
     """One readiness team's tile (Wells, Logistics…) over the same focus window
-    as the project gates, by the same rollup (spec §3.7). Counts wells — or field
-    projects when the team has only project-level checks — with effective
-    (inherited) values; statuses roll up by their shared severity, so availability
-    checks count like any other."""
+    as the project gates, by the same rollup (spec §3.7). Counts field projects —
+    each reading, for a check enabled at well level, the worst of its wells in
+    the window — or wells, for a team whose checks are all well-level; values are
+    effective (inherited), and statuses roll up by their shared severity, so
+    availability checks count like any other."""
 
     team_code: str
     name: str
     icon_key: str
-    unit: str  # "wells" | "projects"
+    unit: str  # "projects" | "wells" — what the counts below count
     focus_count: int
     overall_pct: int | None  # COMPLETE: done / counted (N/A excluded)
     on_track_pct: int | None = None  # (done + on track) / counted
     behind_cells: int  # blocked cells (Behind, Not available)
-    ready: int  # focus wells/projects with ≥1 counted check, every counted check done
-    ready_of: int = 0  # focus wells/projects with ≥1 counted check
+    ready: int  # focus targets with ≥1 counted check, every counted check done
+    ready_of: int = 0  # focus targets with ≥1 counted check
 
 
 class RigDetail(BaseModel):
