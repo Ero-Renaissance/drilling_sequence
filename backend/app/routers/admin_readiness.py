@@ -67,6 +67,11 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 
 # Retired codes from before the catalog existed — never reusable.
 RESERVED_CHECK_CODES = frozenset({"CON"})
+# The frontend's lens names for "every team" and "no readiness"
+# (components/readiness/catalog.tsx ALL_LENS / NO_LENS): a team coded so would be
+# read as that lens everywhere, so its own grid and chart lens could never show.
+# Team codes are immutable, so the clash can only be prevented at creation.
+RESERVED_TEAM_CODES = frozenset({"all", "none"})
 
 
 def _audit(admin: User, entity_id: uuid.UUID, action: str, detail: str, old: str | None = None):
@@ -159,9 +164,10 @@ async def create_team(payload: TeamCreate, admin: CurrentAdmin, db: DB) -> Admin
     existing = (
         await db.execute(select(ReadinessTeam.id).where(ReadinessTeam.code == payload.code))
     ).scalar_one_or_none()
-    if existing is not None:
+    if existing is not None or payload.code in RESERVED_TEAM_CODES:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="That team code is already in use"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That team code is already in use or reserved",
         )
     team = ReadinessTeam(
         code=payload.code,

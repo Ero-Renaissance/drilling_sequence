@@ -383,6 +383,31 @@ async def test_team_rules(client: AsyncClient, db: AsyncSession) -> None:
     )
     assert sneaky.status_code == 422
 
+    # "all" and "none" are the frontend's lens names (every team / no readiness):
+    # reserved, refused like a taken code, and nothing is written or audited.
+    async def teams_created() -> int:
+        rows = await db.execute(select(AuditLog).where(AuditLog.field == "readiness_team_created"))
+        return len(rows.scalars().all())
+
+    before = await teams_created()
+    for reserved in ("all", "none"):
+        r = await client.post(
+            "/api/admin/readiness/teams",
+            json={"code": reserved, "name": "Allocation", "icon_key": "banknote"},
+        )
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"] == "That team code is already in use or reserved"
+    public = (await client.get("/api/readiness/catalog")).json()
+    assert not {"all", "none"} & {t["code"] for t in public["teams"]}
+    assert await teams_created() == before
+    # A code that merely starts like one is an ordinary team.
+    assert (
+        await client.post(
+            "/api/admin/readiness/teams",
+            json={"code": "alloc", "name": "Allocation", "icon_key": "banknote"},
+        )
+    ).status_code == 201
+
     assert (
         await client.patch("/api/admin/readiness/teams/projects", json={"is_active": False})
     ).status_code == 400
