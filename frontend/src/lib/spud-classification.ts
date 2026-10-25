@@ -8,6 +8,8 @@
  * browser (there is no shared app-level config store today).
  */
 
+import { ownValue } from "./own-key";
+
 export type SpudClass = "oil" | "gas" | "exploration" | "exclude";
 
 /** Per-activity-type overrides of the name-based default. */
@@ -35,9 +37,15 @@ export function defaultSpudClass(activityType: string): SpudClass {
   return "exclude"; // a spud we can't attribute to oil or gas — the planner can set it
 }
 
-/** A type's effective class: the explicit override if set, else the name default. */
+/** A type's effective class: the explicit override if set, else the name default.
+ *  Activity types are free text, so read the map's OWN entry only — a type named
+ *  "constructor" or "toString" must not pick up an inherited Object member. */
 export function resolveSpudClass(activityType: string, map: SpudMap): SpudClass {
-  return map[activityType] ?? defaultSpudClass(activityType);
+  return ownValue(map, activityType) ?? defaultSpudClass(activityType);
+}
+
+function isSpudClass(v: unknown): v is SpudClass {
+  return v === "oil" || v === "gas" || v === "exploration" || v === "exclude";
 }
 
 /** Read the saved overrides, sanitised to valid classes (ignores corrupt storage). */
@@ -48,11 +56,13 @@ export function loadSpudMap(): SpudMap {
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
-    const out: SpudMap = {};
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (v === "oil" || v === "gas" || v === "exploration" || v === "exclude") out[k] = v;
-    }
-    return out;
+    // Object.fromEntries defines own properties: a type named "__proto__" stays
+    // an override instead of hitting the prototype setter (and being lost).
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter((e): e is [string, SpudClass] =>
+        isSpudClass(e[1]),
+      ),
+    );
   } catch {
     return {}; // unreadable / malformed storage — fall back to defaults
   }

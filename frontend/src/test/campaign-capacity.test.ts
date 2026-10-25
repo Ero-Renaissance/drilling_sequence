@@ -95,6 +95,20 @@ describe("aggregateCapacity", () => {
     expect(aggregateCapacity(acts, { "Oil Development": "exclude" }).oilSpuds).toEqual([0]);
   });
 
+  it("a free-text type named after an Object member is no spud, and doesn't take a well's spud", () => {
+    const d = aggregateCapacity(
+      [
+        act({ well_name: "W1", activity_type: "constructor", start_date: "2026-02-01", end_date: "2026-03-01" }),
+        act({ well_name: "W1", activity_type: "Oil Development", start_date: "2027-02-01", end_date: "2027-08-01" }),
+        act({ well_name: "W2", activity_type: "toString", start_date: "2026-04-01", end_date: "2026-05-01" }),
+      ],
+      {},
+    );
+    expect(d.years).toEqual([2026, 2027]);
+    expect(d.unassignedGasSpuds).toEqual([0, 0]);
+    expect(d.oilSpuds).toEqual([0, 1]); // W1 spuds with its Oil Development, in 2027
+  });
+
   it("returns empty data when there are no dated activities", () => {
     expect(aggregateCapacity([], {}).years).toEqual([]);
   });

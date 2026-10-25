@@ -65,6 +65,17 @@ describe("chart-colors — default activity catalogue", () => {
     expect(suggestedActivityTypes([])).not.toContain("Well Testing");
   });
 
+  it("never reads an inherited Object member for a free-text type", () => {
+    // Activity types are free text: these used to come back as a function (or
+    // Object.prototype) — no bar fill, no swatch, no "colour pending" note.
+    for (const t of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]) {
+      expect(getActivityColor(t)).toBe(UNKNOWN_ACTIVITY_COLOR);
+      expect(isCataloguedActivityType(t)).toBe(false);
+    }
+    expect(getActivityColor("Well")).toBe("#64748b");
+    expect(isCataloguedActivityType("Oil Development")).toBe(true);
+  });
+
   it("merges project-specific types with the catalogue, deduped and sorted", () => {
     const out = suggestedActivityTypes(["Custom Type", "Oil Development"]);
     expect(out).toContain("Custom Type");

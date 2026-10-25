@@ -18,6 +18,7 @@ import {
   type UnknownActivityType,
 } from "@/api/activities";
 import { CATALOGUE_ACTIVITY_TYPES } from "@/lib/chart-colors";
+import { ownValue } from "@/lib/own-key";
 
 const KEEP_AS_IS = ""; // sentinel: leave the value verbatim (charts grey, warned)
 
@@ -133,16 +134,19 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
 
   function confirmMapping() {
     if (!mapping) return;
-    const mappings: Record<string, string> = {};
+    // The values are the sheet's free text: read OWN entries only (a value named
+    // "constructor" must not find an inherited, truthy "remember"), and build
+    // `mappings` from entries so a "__proto__" value stays a key.
+    const entries: [string, string][] = [];
     const remember: string[] = [];
     for (const u of mapping.unknowns) {
-      const target = mapping.choices[u.value];
+      const target = ownValue(mapping.choices, u.value);
       if (target && target !== KEEP_AS_IS) {
-        mappings[u.value] = target;
-        if (mapping.remember[u.value]) remember.push(u.value);
+        entries.push([u.value, target]);
+        if (ownValue(mapping.remember, u.value)) remember.push(u.value);
       }
     }
-    void commit(mapping.file, { mappings, remember });
+    void commit(mapping.file, { mappings: Object.fromEntries(entries), remember });
   }
 
   function handleOpenChange(val: boolean) {
@@ -197,7 +201,7 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
 
             <div className="max-h-[22rem] space-y-3 overflow-y-auto py-2">
               {mapping.unknowns.map((u) => {
-                const choice = mapping.choices[u.value] ?? KEEP_AS_IS;
+                const choice = ownValue(mapping.choices, u.value) ?? KEEP_AS_IS;
                 return (
                   <div key={u.value} className="rounded-md border border-border px-3 py-2.5">
                     <div className="mb-1.5 flex items-baseline justify-between gap-2">
@@ -230,7 +234,7 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
                       <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                         <input
                           type="checkbox"
-                          checked={!!mapping.remember[u.value]}
+                          checked={!!ownValue(mapping.remember, u.value)}
                           onChange={(e) =>
                             setMapping((m) =>
                               m
