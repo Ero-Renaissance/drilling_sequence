@@ -460,9 +460,10 @@ function TeamWorst({
   );
 }
 
-/** An expanded team's header for one of its categories: the category's icon and
- *  name; its title names every type. Folded only — the All grid's columns are a
- *  summary, and the team's own view unfolds it. */
+/** An expanded team's header for one of its categories: as narrow as a check's
+ *  column — the category's icon and type count, as in the team grids; its title
+ *  names every type. Folded only — the All grid's columns are a summary, and the
+ *  team's own view unfolds it. */
 function CategoryHead({ column, first }: { column: Extract<GridColumn, { kind: "category" }>; first: boolean }) {
   const Icon = checkIcon(column.icon_key);
   return (
@@ -476,7 +477,8 @@ function CategoryHead({ column, first }: { column: Extract<GridColumn, { kind: "
     >
       <span className="inline-flex items-center gap-1">
         <Icon className="h-3 w-3" aria-hidden />
-        {column.name}
+        <span className="sr-only">{column.name}</span>
+        <span className="font-normal">{column.items.length}</span>
       </span>
     </th>
   );

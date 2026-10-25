@@ -252,11 +252,13 @@ Carrier) vs **PO**, **CB** (Coaster Bus) vs **CBG**. The tick list always shows
 each code with its name, and so does the hover text on grid headers and tooltips.
 
 **Where categories show:**
-- **Logistics grid:** the core checks have a column each, and each category is
-  **one folded column** showing its icon in the worst status of the types that
-  apply (blank if none does; hover it to see which types). Click a category's
-  header to unfold its types, and again to fold them; the grid remembers this in
-  your browser. A folded cell is read-only — unfold the category to change a
+- **Logistics grid:** laid out like the Project gates page — the toolbar, the
+  key, then a **Done** column on each row. The core checks have a column each,
+  and each category is **one folded column** showing its icon in the worst
+  status of the types that apply (blank if none does; hover it to see which
+  types). The key shows each category as a chip (e.g. "Vessels 8"); hover a chip
+  to see its types. Click a category's header (its icon and count) to unfold its
+  types, and again to fold them; the grid remembers this in your browser. A folded cell is read-only — unfold the category to change a
   type. In an unfolded category, a type that isn't selected is blank and one
   that's unticked shows "—". The field-project / well column stays in place when
   you scroll sideways.

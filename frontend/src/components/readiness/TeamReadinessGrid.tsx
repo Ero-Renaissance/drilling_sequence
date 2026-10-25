@@ -8,35 +8,34 @@ import {
   type ApplicabilityResult,
   type CatalogCheck,
   type ReadinessTarget,
+  type RowFigures,
   type TeamCheckState,
   type TeamReadiness,
   type TeamWellRow,
 } from "@/api/readiness";
-import { Button } from "@/components/ui/button";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
-import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { cn, formatDate } from "@/lib/utils";
 import { inWindow } from "@/lib/readiness-window";
 import { mergeApplicability, wellsWithOwnChoice } from "@/lib/readiness-applicability";
-import { groupByCategory, lookAlikeCodes } from "@/lib/readiness-categories";
+import { lookAlikeCodes } from "@/lib/readiness-categories";
 import { ApplicabilityPicker } from "./ApplicabilityPicker";
 import { ReadinessDot } from "./ReadinessDot";
 import { FrozenCatalogProvider } from "./catalog";
 import {
   CategoryCellIcon,
-  CategoryKeyEntry,
   CategoryToggle,
   NotSelectedCell,
   categoryIcons,
+  columnSpan,
   gridColumns,
   type GridColumn,
 } from "./category-columns";
 import { useOpenCategories } from "./category-folds";
 import {
+  NOTHING_APPLIES,
   NOT_APPLICABLE,
-  STATUS_DOT,
   applies,
   defaultStatusOf,
   legendStatuses,
@@ -44,8 +43,10 @@ import {
   pickableStatuses,
 } from "./check-meta";
 import { checkIcon } from "./icon-registry";
-import { ReadinessSummary } from "./ReadinessSummary";
-import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
+import { ReadinessLegend } from "./ReadinessLegend";
+import { DoneFigure, ReadinessSummary } from "./ReadinessSummary";
+import { ReadinessToolbar } from "./ReadinessToolbar";
+import { useReadinessWindow } from "./ReadinessWindow";
 
 
 function wellKey(r: TeamWellRow): string {
@@ -99,14 +100,48 @@ function CheckHeader({ check, rowSpan }: { check: CatalogCheck; rowSpan?: number
 /** The first column (field project / well) stays put while the grid scrolls
  *  sideways (spec §8.8) — opaque, so the columns slide under it. */
 const PINNED_CELL = "sticky left-0 z-10 bg-card shadow-[1px_0_0_0_hsl(var(--border))]";
-/** The pinned cell's content keeps a sensible width, so a name and its
- *  sub-line don't wrap word by word and the Checks… control never overlaps
- *  them: with many columns the table grows and scrolls sideways (the wrapper's
- *  `overflow-x-auto`) rather than squeezing this column. On the inner block —
- *  a table cell's own min-width isn't reliably honoured. The name shares its
- *  line with Checks…; the sub-line below takes the column's full width. */
-const PINNED_CONTENT = "min-w-[18rem]";
+/** The pinned cell's content: the name shares its line with Checks…; the
+ *  sub-line below takes the column's full width. */
+const PINNED_CONTENT = "min-w-0";
 const PINNED_TOP = "flex items-start justify-between gap-2";
+
+// Column widths, as on the Project gates page (fixed layout): the first column
+// and Done keep theirs, and the check and category columns share the rest
+// evenly — down to MIN_COLUMN_REM each, below which the table stops shrinking
+// and its wrapper scrolls sideways (a category unfolded on a narrow screen).
+const PINNED_REM = 20;
+const DONE_REM = 4.5;
+const MIN_COLUMN_REM = 3.75;
+
+/** A team grid's table: the scrolling wrapper, the width floor and the columns. */
+function GridTable({ columns, children }: { columns: readonly GridColumn[]; children: ReactNode }) {
+  const n = columnSpan(columns);
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
+      <div style={{ minWidth: `${PINNED_REM + DONE_REM + n * MIN_COLUMN_REM}rem` }} data-grid-floor="">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            <col style={{ width: `${PINNED_REM}rem` }} />
+            <col style={{ width: `${DONE_REM}rem` }} />
+            {Array.from({ length: n }, (_, i) => (
+              <col key={i} />
+            ))}
+          </colgroup>
+          {children}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** A row's Done figure (the server's per-row rollup, spec §3.7). */
+function DoneCell({ row }: { row: { figures?: RowFigures } }) {
+  return (
+    <td className="px-2 py-2 text-center" data-done="">
+      <DoneFigure figures={row.figures} nothingTitle={NOTHING_APPLIES} />
+    </td>
+  );
+}
 // The header row is tinted (`bg-muted/30` over the card): an inset shadow
 // paints the same tint on the pinned header cell's opaque background.
 const PINNED_HEAD =
@@ -140,6 +175,12 @@ function GridHead({
           data-pinned=""
         >
           {first}
+        </th>
+        <th
+          rowSpan={span}
+          className="whitespace-nowrap px-2 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          Done
         </th>
         {columns.map((col) =>
           col.kind === "check" ? (
@@ -360,7 +401,6 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   );
   // Codes a folded cell's title words with their label ("PC (Personnel Carrier)").
   const lookAlikes = useMemo(() => lookAlikeCodes((data?.checks ?? []).map((c) => c.code)), [data]);
-  const keyGroups = useMemo(() => groupByCategory(data?.checks ?? []), [data]);
   const hasWellChecks = !!data?.checks.some((c) => c.applies_well);
   const projectCellsOf = useMemo(
     () => new Map((data?.project_rows ?? []).map((r) => [r.well_project, r.checks])),
@@ -391,6 +431,15 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
       ),
     [data, q, months, behindFocus],
   );
+  // How many targets the window covers, before the search and any drill-through
+  // — the toolbar's "2 of 6", as on the Project gates page.
+  const scopedCount = useMemo(
+    () =>
+      (hasWellChecks ? (data?.well_rows ?? []) : (data?.project_rows ?? [])).filter((r) =>
+        inWindow(r, months),
+      ).length,
+    [data, months, hasWellChecks],
+  );
   const pageCount = Math.max(1, Math.ceil(wells.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visibleWells = wells.slice(safeIndex * pageSize, (safeIndex + 1) * pageSize);
@@ -412,63 +461,19 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   }
 
   const teamName = data.team.name;
+  const shown = hasWellChecks ? wells.length : projects.length;
+  const filtering = Boolean(q) || behindFocus;
+  const [one, many] = hasWellChecks ? ["well", "wells"] : ["project", "projects"];
+  const targets = hasWellChecks ? "wells" : "field projects";
   // The dots read labels/icons from the definitions this response carries — the
   // server's view of the team's checks, consistent with the rows.
   return (
     <FrozenCatalogProvider checks={data.checks}>
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border/70 bg-card/60 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="team-status-key">
-            {legendStatuses(data.checks).map((s) => (
-              <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
-                <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
-                {s}
-              </span>
-            ))}
-            <span className="flex items-center gap-1.5 text-xs text-foreground">
-              <span className="text-muted-foreground/60">—</span>
-              {NOT_APPLICABLE}
-            </span>
-          </div>
-          <div className="hidden h-4 w-px bg-border/70 md:block" />
-          <div className="flex flex-1 flex-wrap gap-x-5 gap-y-2">
-            {keyGroups.core.map((c) => {
-              const Icon = checkIcon(c.icon_key);
-              return (
-                <span key={c.code} className="flex items-center gap-1.5 whitespace-nowrap text-xs">
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
-                  <span className="font-medium">{c.code}</span>
-                  <span className="text-muted-foreground">{c.label}</span>
-                </span>
-              );
-            })}
-            {/* One line per category — its types are named in it (spec §8.8). */}
-            {keyGroups.categories.map((g) => (
-              <CategoryKeyEntry key={g.name} name={g.name} items={g.items} />
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <ReadinessWindowSelect
-              value={months}
-              onChange={setMonths}
-              allLabel={hasWellChecks ? "All wells" : "All field projects"}
-            />
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Search well or project…"
-              ariaLabel="Search wells and field projects"
-            />
-            <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            </Button>
-          </div>
-        </div>
-
         {behindFocus && (
           <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
             <span>
-              Showing only {hasWellChecks ? "wells" : "field projects"} with a check behind
+              <span className="font-semibold">{shown}</span> shown — {targets} with a check behind
             </span>
             <button
               type="button"
@@ -479,6 +484,37 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
             </button>
           </div>
         )}
+        {months !== 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+            <span>
+              <span className="font-semibold">{shown}</span> shown — {targets} with
+              readiness-required work starting in the next {months} months
+            </span>
+            <button
+              type="button"
+              onClick={() => setMonths(0)}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Clear filter
+            </button>
+          </div>
+        )}
+        <ReadinessToolbar
+          loading={loading}
+          onRefresh={load}
+          window={{
+            value: months,
+            onChange: setMonths,
+            allLabel: hasWellChecks ? "All wells" : "All field projects",
+          }}
+          search={{
+            value: search,
+            onChange: setSearch,
+            placeholder: "Search well or project…",
+            ariaLabel: "Search wells and field projects",
+          }}
+          count={filtering ? `${shown} of ${scopedCount}` : `${scopedCount} ${scopedCount === 1 ? one : many}`}
+        />
 
         {!canEdit && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -493,6 +529,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
           </div>
         ) : (
           <>
+            <ReadinessLegend statuses={legendStatuses(data.checks)} notApplicable checks={data.checks} />
             {/* The three figures over exactly the targets shown (spec §3.7). */}
             <ReadinessSummary
               rows={(hasWellChecks ? wells : projects).map((r) => r.figures)}
@@ -502,7 +539,14 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
             />
             {projectChecks.length > 0 && (
               <section aria-label="Field projects" className="space-y-2">
-                <h3 className="text-sm font-semibold">Field projects</h3>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <h3 className="text-sm font-semibold">Field projects</h3>
+                  {hasWellChecks && (
+                    <span className="text-xs text-muted-foreground">
+                      A field project&apos;s ticks apply to its wells unless a well has its own choice.
+                    </span>
+                  )}
+                </div>
                 {projects.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     {q
@@ -514,80 +558,77 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                         : "No field projects have readiness work left."}
                   </p>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
-                    <table className="w-full min-w-[640px] border-collapse text-sm">
-                      <GridHead first="Field Project" columns={projectColumns} onToggle={toggleCategory} />
-                      <tbody>
-                        {projects.map((row) => {
-                          const target: ReadinessTarget = {
-                            scope: "project",
-                            well_project: row.well_project,
-                          };
-                          const cellOf = (c: CatalogCheck, className?: string) => {
-                            const key = `p:${row.well_project}:${c.code}`;
-                            const current: TeamCheckState | undefined = row.checks[c.code];
-                            // Not selected (starts unticked, nothing nominated it):
-                            // blank — not even "—" (spec §3.9).
-                            if (notSelected(current)) {
-                              return gridCell(c.code, className, <NotSelectedCell />);
-                            }
-                            // Unticked (or carried nowhere): "—", no status to set.
-                            if (!applies(current, c)) {
-                              return gridCell(c.code, className, <NotApplicableCell />);
-                            }
-                            const status = current?.status ?? defaultStatusOf(c.status_set);
-                            const disabled = !canEdit || saving === key || frozen(c);
-                            return gridCell(
-                              c.code,
-                              className,
-                              <ReadinessDot
-                                code={c.code}
-                                status={status}
-                                disabled={disabled}
-                                statuses={pickableStatuses(c)}
-                                onChange={(next) =>
-                                  write(key, () => setReadiness(projectId, c.code, target, next))
-                                }
-                              />,
-                            );
-                          };
-                          return (
-                            <tr key={row.well_project} className="border-b border-border/40">
-                              <td className={cn("px-3 py-2", PINNED_CELL)} data-pinned="">
-                                <div className={PINNED_CONTENT}>
-                                  <div className={PINNED_TOP}>
-                                    <div className="min-w-0 font-medium">{row.well_project}</div>
-                                    <ApplicabilityPicker
-                                      projectId={projectId}
-                                      team={data.team}
-                                      checks={data.checks}
-                                      target={target}
-                                      targetLabel={`${row.well_project} (field project)`}
-                                      cells={row.checks}
-                                      canEdit={canEdit}
-                                      wellsWithOwnChoice={wellsWithOwnChoice(
-                                        data.well_rows,
-                                        row.well_project,
-                                        data.checks,
-                                      )}
-                                      onSaved={applyTicks}
-                                    />
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {row.activity_count}{" "}
-                                    {row.activity_count === 1 ? "activity" : "activities"}
-                                    {hasWellChecks &&
-                                      " · applies to its wells unless a well has its own choice"}
-                                  </div>
-                                </div>
-                              </td>
-                              {rowCells(projectColumns, row.checks, lookAlikes, cellOf)}
-                            </tr>
+                  <GridTable columns={projectColumns}>
+                    <GridHead first="Field Project" columns={projectColumns} onToggle={toggleCategory} />
+                    <tbody>
+                      {projects.map((row) => {
+                        const target: ReadinessTarget = {
+                          scope: "project",
+                          well_project: row.well_project,
+                        };
+                        const cellOf = (c: CatalogCheck, className?: string) => {
+                          const key = `p:${row.well_project}:${c.code}`;
+                          const current: TeamCheckState | undefined = row.checks[c.code];
+                          // Not selected (starts unticked, nothing nominated it):
+                          // blank — not even "—" (spec §3.9).
+                          if (notSelected(current)) {
+                            return gridCell(c.code, className, <NotSelectedCell />);
+                          }
+                          // Unticked (or carried nowhere): "—", no status to set.
+                          if (!applies(current, c)) {
+                            return gridCell(c.code, className, <NotApplicableCell />);
+                          }
+                          const status = current?.status ?? defaultStatusOf(c.status_set);
+                          const disabled = !canEdit || saving === key || frozen(c);
+                          return gridCell(
+                            c.code,
+                            className,
+                            <ReadinessDot
+                              code={c.code}
+                              status={status}
+                              disabled={disabled}
+                              statuses={pickableStatuses(c)}
+                              onChange={(next) =>
+                                write(key, () => setReadiness(projectId, c.code, target, next))
+                              }
+                            />,
                           );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                        };
+                        return (
+                          <tr key={row.well_project} className="border-b border-border/40">
+                            <td className={cn("px-3 py-2", PINNED_CELL)} data-pinned="">
+                              <div className={PINNED_CONTENT}>
+                                <div className={PINNED_TOP}>
+                                  <div className="min-w-0 font-medium">{row.well_project}</div>
+                                  <ApplicabilityPicker
+                                    projectId={projectId}
+                                    team={data.team}
+                                    checks={data.checks}
+                                    target={target}
+                                    targetLabel={`${row.well_project} (field project)`}
+                                    cells={row.checks}
+                                    canEdit={canEdit}
+                                    wellsWithOwnChoice={wellsWithOwnChoice(
+                                      data.well_rows,
+                                      row.well_project,
+                                      data.checks,
+                                    )}
+                                    onSaved={applyTicks}
+                                  />
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {row.activity_count}{" "}
+                                  {row.activity_count === 1 ? "activity" : "activities"}
+                                </div>
+                              </div>
+                            </td>
+                            <DoneCell row={row} />
+                            {rowCells(projectColumns, row.checks, lookAlikes, cellOf)}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </GridTable>
                 )}
               </section>
             )}
@@ -608,124 +649,123 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                     )}
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-soft-sm">
-                    <table className="w-full min-w-[640px] border-collapse text-sm">
-                      <GridHead first="Well" columns={wellColumns} onToggle={toggleCategory} />
-                      <tbody>
-                        {visibleWells.map((row) => {
-                          const wk = wellKey(row);
-                          const target = {
-                            scope: "well" as const,
-                            well_project: row.well_project,
-                            well_name: row.well_name,
-                            activity_type: row.activity_type,
-                          };
-                          const label = `${row.well_name} · ${row.well_project || "No field project"} · ${row.activity_type}`;
-                          const cellOf = (c: CatalogCheck, className?: string) => {
-                            const state = row.checks[c.code];
-                            const key = `w:${wk}:${c.code}`;
-                            // Not selected (starts unticked; neither this well nor its
-                            // field project nominated it): blank, not "—" (spec §3.9).
-                            if (notSelected(state)) {
-                              return gridCell(c.code, className, <NotSelectedCell />);
-                            }
-                            // A tick inherits like a status (§3.8): only a two-level
-                            // check under a field project has one to follow.
-                            const inheritsTick = c.applies_project && c.applies_well && !!row.well_project;
-                            const ownTick = inheritsTick && state?.applies_source === "well";
-                            // Unticked, or carried nowhere (a project-only check on a
-                            // well with no field project): "—", no status to set.
-                            if (!applies(state, c)) {
-                              return gridCell(c.code, className, <NotApplicableCell ownChoice={ownTick} />);
-                            }
-                            const status = state?.status ?? defaultStatusOf(c.status_set);
-                            // Project-only checks are set on the field-project row.
-                            if (!c.applies_well) {
-                              return gridCell(
-                                c.code,
-                                className,
-                                <ReadinessDot code={c.code} status={status} inherited />,
-                              );
-                            }
-                            // Faded "from field project" only while the well reads its
-                            // field project's status — not where that project doesn't
-                            // apply: a well ticked there reads the default (§3.8).
-                            const projectTicked =
-                              projectCellsOf.get(row.well_project)?.[c.code]?.applies !== false;
-                            const inherited =
-                              state?.source !== "well" &&
-                              c.applies_project &&
-                              !!row.well_project &&
-                              projectTicked;
-                            const canReset = c.applies_project && state?.source === "well";
+                  <GridTable columns={wellColumns}>
+                    <GridHead first="Well" columns={wellColumns} onToggle={toggleCategory} />
+                    <tbody>
+                      {visibleWells.map((row) => {
+                        const wk = wellKey(row);
+                        const target = {
+                          scope: "well" as const,
+                          well_project: row.well_project,
+                          well_name: row.well_name,
+                          activity_type: row.activity_type,
+                        };
+                        const label = `${row.well_name} · ${row.well_project || "No field project"} · ${row.activity_type}`;
+                        const cellOf = (c: CatalogCheck, className?: string) => {
+                          const state = row.checks[c.code];
+                          const key = `w:${wk}:${c.code}`;
+                          // Not selected (starts unticked; neither this well nor its
+                          // field project nominated it): blank, not "—" (spec §3.9).
+                          if (notSelected(state)) {
+                            return gridCell(c.code, className, <NotSelectedCell />);
+                          }
+                          // A tick inherits like a status (§3.8): only a two-level
+                          // check under a field project has one to follow.
+                          const inheritsTick = c.applies_project && c.applies_well && !!row.well_project;
+                          const ownTick = inheritsTick && state?.applies_source === "well";
+                          // Unticked, or carried nowhere (a project-only check on a
+                          // well with no field project): "—", no status to set.
+                          if (!applies(state, c)) {
+                            return gridCell(c.code, className, <NotApplicableCell ownChoice={ownTick} />);
+                          }
+                          const status = state?.status ?? defaultStatusOf(c.status_set);
+                          // Project-only checks are set on the field-project row.
+                          if (!c.applies_well) {
                             return gridCell(
                               c.code,
                               className,
-                              <div
-                                className="relative inline-flex"
-                                title={ownTick ? "Applies — set on this well" : undefined}
-                              >
-                                <ReadinessDot
-                                  code={c.code}
-                                  status={status}
-                                  inherited={inherited}
-                                  disabled={!canEdit || saving === key || frozen(c)}
-                                  statuses={pickableStatuses(c)}
-                                  onChange={(next) =>
-                                    write(key, () => setReadiness(projectId, c.code, target, next))
-                                  }
-                                  onReset={
-                                    canReset
-                                      ? () => write(key, () => resetWellReadiness(projectId, c.code, target))
-                                      : undefined
-                                  }
-                                />
-                                {ownTick && <OwnChoiceMark />}
-                              </div>,
+                              <ReadinessDot code={c.code} status={status} inherited />,
                             );
-                          };
-                          return (
-                            <tr key={wk} className="border-b border-border/40">
-                              <td className={cn("px-3 py-2", PINNED_CELL)} data-pinned="">
-                                <div className={PINNED_CONTENT}>
-                                  <div className={PINNED_TOP}>
-                                    <div className="flex min-w-0 items-center gap-1.5 font-medium">
-                                      {row.well_name}
-                                      {row.activity_count > 1 && (
-                                        <span
-                                          className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
-                                          title={`${row.activity_count} activities share this field project, well and activity type, so they share this readiness`}
-                                        >
-                                          <AlertTriangle className="h-3 w-3" />
-                                          {row.activity_count} share
-                                        </span>
-                                      )}
-                                    </div>
-                                    <ApplicabilityPicker
-                                      projectId={projectId}
-                                      team={data.team}
-                                      checks={data.checks}
-                                      target={target}
-                                      targetLabel={label}
-                                      cells={row.checks}
-                                      projectCells={projectCellsOf.get(row.well_project)}
-                                      canEdit={canEdit}
-                                      onSaved={applyTicks}
-                                    />
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {row.well_project || "No field project"} · {row.activity_type} ·{" "}
-                                    {formatDate(row.start_date)}
-                                  </div>
-                                </div>
-                              </td>
-                              {rowCells(wellColumns, row.checks, lookAlikes, cellOf)}
-                            </tr>
+                          }
+                          // Faded "from field project" only while the well reads its
+                          // field project's status — not where that project doesn't
+                          // apply: a well ticked there reads the default (§3.8).
+                          const projectTicked =
+                            projectCellsOf.get(row.well_project)?.[c.code]?.applies !== false;
+                          const inherited =
+                            state?.source !== "well" &&
+                            c.applies_project &&
+                            !!row.well_project &&
+                            projectTicked;
+                          const canReset = c.applies_project && state?.source === "well";
+                          return gridCell(
+                            c.code,
+                            className,
+                            <div
+                              className="relative inline-flex"
+                              title={ownTick ? "Applies — set on this well" : undefined}
+                            >
+                              <ReadinessDot
+                                code={c.code}
+                                status={status}
+                                inherited={inherited}
+                                disabled={!canEdit || saving === key || frozen(c)}
+                                statuses={pickableStatuses(c)}
+                                onChange={(next) =>
+                                  write(key, () => setReadiness(projectId, c.code, target, next))
+                                }
+                                onReset={
+                                  canReset
+                                    ? () => write(key, () => resetWellReadiness(projectId, c.code, target))
+                                    : undefined
+                                }
+                              />
+                              {ownTick && <OwnChoiceMark />}
+                            </div>,
                           );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                        };
+                        return (
+                          <tr key={wk} className="border-b border-border/40">
+                            <td className={cn("px-3 py-2", PINNED_CELL)} data-pinned="">
+                              <div className={PINNED_CONTENT}>
+                                <div className={PINNED_TOP}>
+                                  <div className="flex min-w-0 items-center gap-1.5 font-medium">
+                                    {row.well_name}
+                                    {row.activity_count > 1 && (
+                                      <span
+                                        className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+                                        title={`${row.activity_count} activities share this field project, well and activity type, so they share this readiness`}
+                                      >
+                                        <AlertTriangle className="h-3 w-3" />
+                                        {row.activity_count} share
+                                      </span>
+                                    )}
+                                  </div>
+                                  <ApplicabilityPicker
+                                    projectId={projectId}
+                                    team={data.team}
+                                    checks={data.checks}
+                                    target={target}
+                                    targetLabel={label}
+                                    cells={row.checks}
+                                    projectCells={projectCellsOf.get(row.well_project)}
+                                    canEdit={canEdit}
+                                    onSaved={applyTicks}
+                                  />
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {row.well_project || "No field project"} · {row.activity_type} ·{" "}
+                                  {formatDate(row.start_date)}
+                                </div>
+                              </div>
+                            </td>
+                            <DoneCell row={row} />
+                            {rowCells(wellColumns, row.checks, lookAlikes, cellOf)}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </GridTable>
                 )}
                 {wells.length > 0 && (
                   <PaginationFooter

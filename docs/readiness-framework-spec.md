@@ -1420,7 +1420,10 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
 - **On a field project:** "Applies to its wells unless a well has its own choice",
   plus how many wells have one. Today the grid's status line reads "applies to
   its wells unless a well differs"; both change to "has its own choice", because a
-  well's choice can come to match its project.
+  well's choice can come to match its project. (Since the 2026-10-25 layout
+  update, §8.8, the grid says it once, above the Field projects table — "A field
+  project's ticks apply to its wells unless a well has its own choice." — not on
+  every row; the tick list still says how many wells have their own choice.)
 - **Unticked checks:** "—" in grid cells (title "Not applicable"); in the
   Readiness panel, under a collapsed **Not applicable (N)** (since phase 7, only a check that doesn't apply because of a row; one that is not selected is blank, unlisted, not counted even as not applicable and left out of snapshots, §3.9).
 - **Status menus** of team checks offer On Track, Completed and Behind only.
@@ -1459,19 +1462,39 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
     unticked and nothing nominated reads just "Checks…", so no row shows a count
     on deploy.
 - **Team grids:**
+  - **Frame (layout update, 2026-10-25):** the Project gates page's, so the lenses
+    read as one page — the drill-through banners (now "N shown — wells with a
+    check behind" / "… with readiness-required work starting in the next N
+    months", with Clear filter), the **Readiness Tracker** toolbar (Refresh, the
+    window, search, and "6 wells" / "2 of 6"), then the two-section key (Status ·
+    Readiness checks). Shared code: `ReadinessToolbar`, `ReadinessLegend`,
+    `DoneFigure`.
   - **Pinned column:** the field-project / well column stays put when the grid
     scrolls sideways.
   - **Columns:** core checks are individual columns. Each category is **one folded
     column**: its icon plus the worst status of its types that apply, or blank when
-    none applies.
+    none applies. As on the Project gates page the layout is fixed: the first
+    column (20rem) and **Done** (the row's done ÷ counted, from its server
+    figures; "—" with "Nothing applies" when nothing counts) keep their width, and
+    the check and category columns share the rest evenly — down to 3.75rem each,
+    below which the table scrolls sideways (a category unfolded on a narrow
+    screen). A folded category's header is its icon and type count; its name is
+    in the key's chip, the hover and the button's label. Unfolded over two or more
+    types, the header names the category.
   - **Unfolding:** click a category header to show its types. In an unfolded
     category, a type that is not selected is blank and one that is not applicable
     shows "—". A folded category cell is read-only — it opens nothing (§3.5). The
     fold state is remembered per browser.
   - **Rows:** search and pagination are unchanged.
-  - **Key:** one line per category.
+  - **Key:** core checks as code and label, then **one chip per category** — its
+    icon, name and type count; its types and their labels show on hover (and to
+    screen readers). Changed 2026-10-25 from one line listing every type, which
+    grew the key taller than the grid once the 21 equipment types arrived; the
+    columns already show every category. Prints keep their type list (paper has
+    no hover).
 - **All grid:** an expanded team group shows its core checks as columns and each
-  category as one folded column, as the team grids do. It stays read-only.
+  category as one folded column (its icon and type count), as the team grids do.
+  It stays read-only.
 - **Readiness panel:** core rows as today, then one sub-section per category,
   folded to "Vessels · 2 selected · 1 behind". "Not applicable (N)" lists only
   checks that don't apply because of a row (§3.9), never ones that are not

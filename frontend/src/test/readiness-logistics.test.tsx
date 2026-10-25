@@ -220,7 +220,11 @@ describe("Logistics grid — checks that apply", () => {
     const bonga = rowOf(projects, "Bonga Phase 3");
     expect(within(bonga).getByTitle("Not applicable")).toHaveTextContent("—");
     expect(within(bonga).queryByTitle(/Naval Clearance: Completed/)).not.toBeInTheDocument();
-    expect(within(bonga).getByText(/applies to its wells unless a well has its own choice/)).toBeInTheDocument();
+    // The inheritance rule is said once, over the Field projects table — not in every row.
+    expect(
+      within(projects).getByText("A field project's ticks apply to its wells unless a well has its own choice."),
+    ).toBeInTheDocument();
+    expect(within(bonga).queryByText(/apply to its wells|applies to its wells/)).not.toBeInTheDocument();
 
     const wells = screen.getByRole("region", { name: "Wells" });
     // W-1 follows the untick.
@@ -245,7 +249,7 @@ describe("Logistics grid — checks that apply", () => {
     );
     expect(screen.getByTestId("readiness-summary").getAttribute("title")).not.toMatch(/N\/A/);
     // The legend: no N/A for team checks, a "—" key instead.
-    const key = screen.getByTestId("team-status-key");
+    const key = screen.getByTestId("status-key");
     expect(within(key).queryByText("N/A")).not.toBeInTheDocument();
     expect(within(key).getByText("Not applicable")).toBeInTheDocument();
     expect(key).toHaveTextContent("On TrackBehindCompleted—Not applicable");

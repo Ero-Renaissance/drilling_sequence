@@ -102,3 +102,35 @@ function Figure({
     </div>
   );
 }
+
+/**
+ * A row's "Done" figure — done ÷ counted from the server's per-row rollup
+ * (spec §3.7), green once the row is ready; "—" when nothing counts there
+ * (`nothingTitle` says why). Shared by the Project gates grid and the team grids.
+ */
+export function DoneFigure({
+  figures,
+  nothingTitle,
+}: {
+  figures: RowFigures | undefined;
+  nothingTitle: string;
+}) {
+  if (!figures) return <span className="text-xs text-muted-foreground/60">—</span>;
+  if (figures.counted === 0) {
+    return (
+      <span className="text-xs text-muted-foreground/60" title={nothingTitle}>
+        —
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "text-xs font-semibold tabular-nums",
+        figures.ready ? "text-emerald-500" : "text-muted-foreground",
+      )}
+    >
+      {figures.done}/{figures.counted}
+    </span>
+  );
+}

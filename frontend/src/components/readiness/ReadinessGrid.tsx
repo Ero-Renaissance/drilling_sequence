@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Lock } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { inWindow } from "@/lib/readiness-window";
 import { checksReady } from "@/lib/watchlist";
@@ -13,67 +12,16 @@ import {
   upsertCheck,
 } from "@/api/readiness";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
-import { SearchInput } from "@/components/ui/search-input";
 import { toast } from "@/components/ui/toaster";
 import { ReadinessDot } from "./ReadinessDot";
 import { statusOf, useProjectGates } from "./catalog";
-import { STATUS_DOT } from "./check-meta";
 import { checkIcon } from "./icon-registry";
-import { ReadinessSummary } from "./ReadinessSummary";
-import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
+import { ReadinessLegend } from "./ReadinessLegend";
+import { DoneFigure, ReadinessSummary } from "./ReadinessSummary";
+import { ReadinessToolbar } from "./ReadinessToolbar";
+import { useReadinessWindow } from "./ReadinessWindow";
 
 const STATUSES: CheckStatus[] = ["On Track", "Behind", "Completed", "N/A"];
-
-// ── Legend ───────────────────────────────────────────────────────────────────
-
-function Legend() {
-  const gates = useProjectGates();
-  return (
-    <div className="rounded-lg border border-border/70 bg-card/60 px-4 py-3">
-      <div className="flex flex-col gap-3 md:flex-row md:gap-8">
-        {/* Status colors */}
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Status
-          </span>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {STATUSES.map((s) => (
-              <span key={s} className="flex items-center gap-1.5 text-xs text-foreground">
-                <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_DOT[s])} />
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Separator on md+ */}
-        <div className="hidden w-px bg-border/70 md:block" />
-
-        {/* Check icons */}
-        <div className="flex flex-1 flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Readiness Checks
-          </span>
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
-            {gates.map((gate) => {
-              const Icon = checkIcon(gate.icon_key);
-              return (
-                <span
-                  key={gate.code}
-                  className="flex items-center gap-1.5 whitespace-nowrap text-xs text-foreground"
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
-                  <span className="font-medium">{gate.code}</span>
-                  <span className="text-muted-foreground">{gate.label}</span>
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -251,50 +199,24 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
         </div>
       )}
       {/* Toolbar */}
-      <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
-        <span className="text-sm font-medium text-foreground">Readiness Tracker</span>
-        <div className="mx-1 h-4 w-px bg-border" />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={load}
-          disabled={loading}
-          className="text-muted-foreground"
-        >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          <span className="ml-1.5">Refresh</span>
-        </Button>
-
-        {isLocked && (
-          <span
-            className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
-            title="The campaign's plan is locked."
-          >
-            <Lock className="h-3 w-3" />
-            Plan locked
-          </span>
-        )}
-
-        <div className="ml-auto flex items-center gap-3">
-          <ReadinessWindowSelect
-            value={horizon}
-            onChange={setHorizon}
-            allLabel="All field projects"
-          />
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search field project…"
-            ariaLabel="Search readiness"
-            testId="readiness-search"
-          />
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {filtering
-              ? `${filteredRows.length} of ${scopedRows.length}`
-              : `${scopedRows.length} ${scopedRows.length === 1 ? "project" : "projects"}`}
-          </span>
-        </div>
-      </div>
+      <ReadinessToolbar
+        loading={loading}
+        onRefresh={load}
+        locked={isLocked}
+        window={{ value: horizon, onChange: setHorizon, allLabel: "All field projects" }}
+        search={{
+          value: search,
+          onChange: setSearch,
+          placeholder: "Search field project…",
+          ariaLabel: "Search readiness",
+          testId: "readiness-search",
+        }}
+        count={
+          filtering
+            ? `${filteredRows.length} of ${scopedRows.length}`
+            : `${scopedRows.length} ${scopedRows.length === 1 ? "project" : "projects"}`
+        }
+      />
 
       {error && (
         <p
@@ -306,7 +228,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
       )}
 
       {/* Legend (always visible above the matrix) */}
-      <Legend />
+      <ReadinessLegend statuses={STATUSES} checks={gates} />
 
       {/* The three figures over exactly the rows shown (spec §3.7) */}
       {scopedRows.length > 0 && (
@@ -402,25 +324,7 @@ export function ReadinessGrid({ projectId }: ReadinessGridProps) {
                       </div>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      {!f ? (
-                        <span className="text-xs text-muted-foreground/60">—</span>
-                      ) : f.counted > 0 ? (
-                        <span
-                          className={cn(
-                            "text-xs font-semibold tabular-nums",
-                            f.ready ? "text-emerald-500" : "text-muted-foreground",
-                          )}
-                        >
-                          {f.done}/{f.counted}
-                        </span>
-                      ) : (
-                        <span
-                          className="text-xs text-muted-foreground/60"
-                          title="Every gate is N/A — nothing applies"
-                        >
-                          —
-                        </span>
-                      )}
+                      <DoneFigure figures={f} nothingTitle="Every gate is N/A — nothing applies" />
                     </td>
                     {gates.map(({ code }) => {
                       const key = `${row.well_project}:${code}`;
