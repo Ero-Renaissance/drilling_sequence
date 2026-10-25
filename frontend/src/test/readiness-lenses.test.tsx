@@ -372,11 +372,77 @@ describe("TeamReadinessGrid", () => {
     const wells = await screen.findByRole("region", { name: "Wells" });
     expect(within(wells).getByText("W-LATE")).toBeInTheDocument();
     expect(within(wells).queryByText("W-OK")).not.toBeInTheDocument();
-    expect(screen.getByText("Showing only wells with a check behind")).toBeInTheDocument();
+    // Worded as on the Project gates page: how many are shown, and why.
+    expect(screen.getByText(/shown — wells with a check behind/)).toHaveTextContent("1 shown — wells with a check behind");
     expect(screen.getByTestId("readiness-summary")).toHaveTextContent("1 well · all");
 
     await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
     await waitFor(() => expect(within(wells).getByText("W-OK")).toBeInTheDocument());
+  });
+
+  it("has the Project gates page's toolbar: its title, Refresh, the window, search and a count", async () => {
+    serveTeam(teamData());
+    render(
+      <MemoryRouter>
+        <TeamReadinessGrid projectId={PID} teamCode="logistics" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("region", { name: "Wells" });
+    expect(screen.getByText("Readiness Tracker")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /refresh/i })).toBeInTheDocument();
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("2 wells");
+    await userEvent.type(screen.getByLabelText("Search wells and field projects"), "W-2");
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("1 of 2");
+  });
+
+  it("says how many a window shows, and clears it, as the Project gates page does", async () => {
+    const base = teamData().well_rows[0];
+    serveTeam(
+      teamData({
+        well_rows: [
+          { ...base, well_name: "W-SOON", focus_in_days: 10 },
+          { ...base, well_name: "W-LATER", focus_in_days: 400 },
+        ],
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/?lens=logistics&horizon=6"]}>
+        <TeamReadinessGrid projectId={PID} teamCode="logistics" />
+      </MemoryRouter>,
+    );
+    const wells = await screen.findByRole("region", { name: "Wells" });
+    expect(within(wells).getByText("W-SOON")).toBeInTheDocument();
+    expect(within(wells).queryByText("W-LATER")).not.toBeInTheDocument();
+    expect(screen.getByText(/shown — wells with/)).toHaveTextContent(
+      "1 shown — wells with readiness-required work starting in the next 6 months",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
+    await waitFor(() => expect(within(wells).getByText("W-LATER")).toBeInTheDocument());
+    expect(screen.queryByText(/shown — wells with/)).not.toBeInTheDocument();
+  });
+
+  it("shows each row's Done figure from the server's figures, as the Project gates page does", async () => {
+    const data = teamData();
+    data.project_rows[0].figures = { counted: 2, done: 1, in_progress: 1, behind: 0, ready: false };
+    data.well_rows[0].figures = { counted: 2, done: 2, in_progress: 0, behind: 0, ready: true };
+    data.well_rows[1].figures = { counted: 0, done: 0, in_progress: 0, behind: 0, ready: false };
+    serveTeam(data);
+    render(
+      <MemoryRouter>
+        <TeamReadinessGrid projectId={PID} teamCode="logistics" />
+      </MemoryRouter>,
+    );
+    const wells = await screen.findByRole("region", { name: "Wells" });
+    const projects = screen.getByRole("region", { name: "Field projects" });
+    const doneOf = (region: HTMLElement, name: string) =>
+      within(region).getByText(name).closest("tr")!.querySelector<HTMLElement>("[data-done]")!;
+    expect(doneOf(projects, "Bonga Phase 3")).toHaveTextContent("1/2");
+    expect(doneOf(wells, "W-1")).toHaveTextContent("2/2");
+    // Ready reads green, as on the Project gates page.
+    expect(doneOf(wells, "W-1").firstElementChild!.className).toContain("text-emerald-500");
+    // Nothing counts there: "—", and the hover says why.
+    expect(doneOf(wells, "W-2")).toHaveTextContent("—");
+    expect(doneOf(wells, "W-2").firstElementChild).toHaveAttribute("title", "Nothing applies");
   });
 
   it("explains an empty team", async () => {

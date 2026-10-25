@@ -266,7 +266,15 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
     renderGrid();
     const wells = await screen.findByRole("region", { name: "Wells" });
     const headers = within(wells).getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual(["Well", "L-BUD", "CTR", "PO", "NAV", "Vessels3", "Barges2", "Lifting1"]);
+    // A folded category is as narrow as a check: its icon and type count — its
+    // name is the header button's label (and its hover, and the key's chip).
+    expect(headers).toEqual(["Well", "Done", "L-BUD", "CTR", "PO", "NAV", "3", "2", "1"]);
+    for (const name of ["Vessels", "Barges", "Lifting"]) {
+      expect(within(wells).getByRole("button", { name: `Unfold ${name}` })).toHaveAttribute(
+        "title",
+        expect.stringMatching(new RegExp(`^${name}: `)),
+      );
+    }
 
     const w1 = rowOf(wells, "W-1");
     // Worst first, look-alike codes with their label.
@@ -304,7 +312,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
     await userEvent.click(within(wells).getByRole("button", { name: "Unfold Vessels" }));
     expect(within(wells).getByRole("button", { name: "Fold Vessels" })).toHaveAttribute("aria-expanded", "true");
     const headers = within(wells).getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual(["Well", "L-BUD", "CTR", "PO", "NAV", "Vessels", "Barges2", "Lifting1", "DSV", "PSV", "PC"]);
+    expect(headers).toEqual(["Well", "Done", "L-BUD", "CTR", "PO", "NAV", "Vessels", "2", "1", "DSV", "PSV", "PC"]);
 
     const w2 = rowOf(wells, "W-2");
     // DSV: this well's own untick — "Not applicable", marked set on this well.
@@ -366,18 +374,28 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
     expect(projects.querySelectorAll("[data-pinned]")).toHaveLength(2);
   });
 
-  it("the pinned column keeps a sensible width; headers stay on one line, so the table scrolls instead", async () => {
+  it("columns are fixed as on the Project gates page; unfolding raises the floor, so the table scrolls instead of squeezing", async () => {
     renderGrid();
     const wells = await screen.findByRole("region", { name: "Wells" });
+    const floorOf = (region: HTMLElement) => region.querySelector<HTMLElement>("[data-grid-floor]")!;
+    // 4 core checks + 3 folded categories, after the first column and Done.
+    expect(floorOf(wells).style.minWidth).toBe(`${20 + 4.5 + 7 * 3.75}rem`);
     await userEvent.click(within(wells).getByRole("button", { name: "Unfold Vessels" }));
+    // Vessels' 3 types replace its one folded column: 2 columns more.
+    expect(floorOf(wells).style.minWidth).toBe(`${20 + 4.5 + 9 * 3.75}rem`);
     const projects = screen.getByRole("region", { name: "Field projects" });
     for (const region of [projects, wells]) {
-      // Every header — the pinned one, core checks, categories, unfolded types.
+      const table = region.querySelector("table")!;
+      expect(table.className).toContain("table-fixed");
+      const cols = [...table.querySelectorAll("col")];
+      expect(cols[0].style.width).toBe("20rem");
+      expect(cols[1].style.width).toBe("4.5rem");
+      // The check and category columns share the rest evenly.
+      expect(cols.slice(2).every((c) => c.style.width === "")).toBe(true);
+      // Every header on one line; the wrapper scrolls sideways.
       for (const th of region.querySelectorAll("th")) expect(th.className).toContain("whitespace-nowrap");
-      expect(region.querySelector("table")!.parentElement!.className).toContain("overflow-x-auto");
+      expect(floorOf(region).parentElement!.className).toContain("overflow-x-auto");
       for (const cell of region.querySelectorAll<HTMLElement>("td[data-pinned]")) {
-        // A width floor on the content, not the squeezable cell.
-        expect((cell.firstElementChild as HTMLElement).className).toContain("min-w-[18rem]");
         // Checks… shares the name's line; the sub-line below takes the full width.
         const button = within(cell).getByRole("button", { name: /^Checks…/ });
         expect(button.className).toContain("whitespace-nowrap");
@@ -390,16 +408,29 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
     }
   });
 
-  it("the key has one line per category, naming its types", async () => {
+  it("the key: Status and Readiness checks, as on the Project gates page — a chip per category, its types on hover", async () => {
     renderGrid();
     await screen.findByRole("region", { name: "Wells" });
-    expect(screen.getAllByTestId("category-key").map((e) => e.textContent)).toEqual([
-      "VesselsDSV · PSV · PC",
-      "BargesJUB · CBG",
-      "LiftingCR",
+    const legend = screen.getByTestId("status-key").closest<HTMLElement>(".rounded-lg")!;
+    expect(within(legend).getByText("Status")).toBeInTheDocument();
+    expect(within(legend).getByText("Readiness Checks")).toBeInTheDocument();
+    // Core checks read as code and label.
+    expect(within(legend).getByText("Budget Availability")).toBeInTheDocument();
+    const chips = screen.getAllByTestId("category-key");
+    expect(chips.map((c) => [within(c).getByText(/^[A-Z][a-z]/).textContent, within(c).getByText(/^\d+$/).textContent])).toEqual([
+      ["Vessels", "3"],
+      ["Barges", "2"],
+      ["Lifting", "1"],
     ]);
-    // The equipment types aren't each a line of the key.
-    expect(screen.getByTestId("team-status-key").parentElement).not.toHaveTextContent("Platform Support Vessel");
+    expect(chips.map((c) => c.getAttribute("title"))).toEqual([
+      "Vessels: DSV Diving Support Vessel · PSV Platform Support Vessel · PC Personnel Carrier",
+      "Barges: JUB Jack-up Barge · CBG Crane Barge",
+      "Lifting: CR Crane",
+    ]);
+    // Screen readers get the types too; nothing spells them out on screen.
+    expect(chips[0].querySelector(".sr-only")).toHaveTextContent("DSV Diving Support Vessel, PSV Platform Support Vessel, PC Personnel Carrier");
+    expect(within(legend).queryByText("Platform Support Vessel")).not.toBeInTheDocument();
+    expect(within(legend).queryByText(/DSV · PSV/)).not.toBeInTheDocument();
   });
 });
 
@@ -578,9 +609,10 @@ describe("All grid — an expanded team folds its categories (spec §8.8)", () =
       "CTR",
       "PO",
       "NAV",
-      "Vessels",
-      "Barges",
-      "Lifting",
+      // Each category: its icon and count on screen, its name for screen readers.
+      "Vessels3",
+      "Barges2",
+      "Lifting1",
     ]);
     // Headers stay on one line ("L-BUD", not "L-" / "BUD"): the table scrolls instead.
     for (const th of table.querySelectorAll("th")) expect(th.className).toContain("whitespace-nowrap");

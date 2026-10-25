@@ -74,7 +74,9 @@ export function categoryTitle(name: string, items: readonly CatalogCheck[]): str
 }
 
 /** A category's header button: unfolds it into one column per type, or folds
- *  it back. */
+ *  it back. Folded, it's as narrow as a check's column — the category's icon and
+ *  type count; its name is in the key's chip, the hover and the button's label.
+ *  Unfolded over two or more types, it names the category. */
 export function CategoryToggle({
   name,
   items,
@@ -98,11 +100,11 @@ export function CategoryToggle({
       title={categoryTitle(name, items)}
       data-icon={iconKey}
       onClick={onToggle}
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground/80 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground/80 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {open ? <ChevronLeft className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      <Icon className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2} />
-      <span>{name}</span>
+      {open ? <ChevronLeft className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
+      {open && items.length > 1 && <span className="min-w-0 truncate">{name}</span>}
       {!open && <span className="font-normal normal-case text-muted-foreground">{items.length}</span>}
     </button>
   );
@@ -149,23 +151,4 @@ export function CategoryCellIcon({
  *  The empty box keeps the row's height. */
 export function NotSelectedCell() {
   return <span aria-hidden className="inline-block h-7 w-7" data-not-selected="" />;
-}
-
-/** The key's line for one category: its icon, name and types — given the
- *  team's full definitions of it, so its first item's icon is the category's. */
-export function CategoryKeyEntry({ name, items }: { name: string; items: readonly CatalogCheck[] }) {
-  const iconKey = items[0]?.icon_key ?? "";
-  const Icon = checkIcon(iconKey);
-  return (
-    <span
-      className="flex items-center gap-1.5 text-xs"
-      title={categoryTitle(name, items)}
-      data-testid="category-key"
-      data-icon={iconKey}
-    >
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
-      <span className="font-medium">{name}</span>
-      <span className="text-muted-foreground">{items.map((c) => c.code).join(" · ")}</span>
-    </span>
-  );
 }
