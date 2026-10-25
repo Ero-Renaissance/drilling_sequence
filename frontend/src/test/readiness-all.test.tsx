@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { http, HttpResponse } from "msw";
 
 vi.mock("@/lib/auth", () => ({
@@ -31,6 +31,7 @@ import { barStripCodes } from "@/lib/chart-layout";
 import type { PrintRow } from "@/components/revisions/RevisionPrintDoc";
 import { loadLensReadiness } from "@/lib/readiness-lens";
 import { hasTeamReadiness, snapshotRowsForLens } from "@/lib/readiness-snapshot";
+import { ReadinessTab } from "@/pages/ProjectDetail";
 import { server } from "./mocks/server";
 
 const PID = "cccccccc-0000-0000-0000-000000000001";
@@ -280,5 +281,45 @@ describe("AllReadinessGrid", () => {
     // Logistics comes with the live catalog and its team rows: wait for it.
     expect(await within(w1).findByTitle("Logistics: Nothing applies")).toHaveTextContent("—");
     expect(within(w1).queryByLabelText(/^Logistics:/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ReadinessTab — a team's view (spec §8.8)", () => {
+  // The tab remembers its lens per browser.
+  afterEach(() => window.localStorage.removeItem("ds.readiness-lens"));
+
+  function LocationProbe() {
+    return <output data-testid="location">{useLocation().search}</output>;
+  }
+
+  it("the All grid's Open lands on the team's Wells view; a lens change drops the view", async () => {
+    render(
+      <MemoryRouter initialEntries={[`/projects/${PID}/readiness?lens=all`]}>
+        <Routes>
+          <Route
+            path="/projects/:projectId/readiness"
+            element={
+              <ReadinessCatalogProvider>
+                <ReadinessTab />
+                <LocationProbe />
+              </ReadinessCatalogProvider>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    // The All grid's rows are wells, so Open shows the team's wells.
+    await userEvent.click(await screen.findByRole("button", { name: "Unfold Logistics" }));
+    const header = screen.getByRole("button", { name: "Fold Logistics" }).closest("th")!;
+    await userEvent.click(within(header).getByRole("button", { name: "Open" }));
+    expect(await screen.findByRole("region", { name: "Wells" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("lens=logistics&view=wells");
+
+    // A lens change drops the view — it belonged to that team…
+    await userEvent.click(screen.getByRole("radio", { name: "Project gates" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).not.toContain("view="));
+    // …so the team opens on its own view next time: Projects by default.
+    await userEvent.click(screen.getByRole("radio", { name: "Logistics" }));
+    expect(await screen.findByRole("region", { name: "Field projects" })).toBeInTheDocument();
   });
 });

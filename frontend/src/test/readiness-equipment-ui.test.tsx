@@ -86,9 +86,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderGrid() {
+/** The grid at `path` — `?view=wells` opens the Wells view (spec §8.8: one view
+ *  at a time, Projects by default). */
+function renderGrid(path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <TeamReadinessGrid projectId={PID} teamCode="logistics" />
       <Toaster />
     </MemoryRouter>,
@@ -96,6 +98,11 @@ function renderGrid() {
 }
 
 const rowOf = (region: HTMLElement, name: string) => within(region).getByText(name).closest("tr")!;
+/** Switch the grid's view; resolves to the view's region. */
+async function showView(view: "Projects" | "Wells") {
+  await userEvent.click(screen.getByRole("radio", { name: view }));
+  return screen.findByRole("region", { name: view === "Wells" ? "Wells" : "Field projects" });
+}
 /** A folded category's cell on a row (null when blank). */
 const categoryCellOf = (row: HTMLElement, name: string) =>
   row.querySelector<HTMLElement>(`[data-category="${name}"]`);
@@ -263,7 +270,7 @@ describe("the grouped, searchable tick list (spec §8.8)", () => {
 
 describe("team grid — categories fold to one column (spec §8.8)", () => {
   it("core checks are columns; each category is one folded column, its icon the worst type that applies", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     const headers = within(wells).getAllByRole("columnheader").map((h) => h.textContent);
     // A folded category is as narrow as a check: its icon and type count — its
@@ -289,7 +296,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
     expect(categoryCellOf(w2, "Lifting")).toBeNull();
 
     // The field-project row: the spec's own example.
-    const projects = screen.getByRole("region", { name: "Field projects" });
+    const projects = await showView("Projects");
     expect(categoryCellOf(rowOf(projects, "Bonga Phase 3"), "Vessels")).toHaveAttribute(
       "title",
       "Vessels (2): PSV Behind · DSV On Track",
@@ -297,7 +304,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
   });
 
   it("a folded category cell is read-only — it opens nothing", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     const cell = categoryCellOf(rowOf(wells, "W-1"), "Vessels")!;
     expect(cell.closest("button")).toBeNull();
@@ -307,7 +314,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
   });
 
   it("unfolding a category shows its types: not selected is blank, not applicable '—'", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(wells).getByRole("button", { name: "Unfold Vessels" }));
     expect(within(wells).getByRole("button", { name: "Fold Vessels" })).toHaveAttribute("aria-expanded", "true");
@@ -331,13 +338,13 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
   });
 
   it("remembers the fold per browser", async () => {
-    const first = renderGrid();
+    const first = renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(wells).getByRole("button", { name: "Unfold Lifting" }));
     expect(JSON.parse(window.localStorage.getItem(CATEGORY_FOLDS_KEY) ?? "{}")).toEqual({ logistics: ["Lifting"] });
     first.unmount();
 
-    renderGrid();
+    renderGrid("/?view=wells");
     const again = await screen.findByRole("region", { name: "Wells" });
     expect(within(again).getByRole("button", { name: "Fold Lifting" })).toBeInTheDocument();
     expect(within(again).getByRole("button", { name: "Unfold Vessels" })).toBeInTheDocument();
@@ -345,7 +352,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
 
   it("still folds and unfolds when the browser's storage is unavailable or holds junk", async () => {
     window.localStorage.setItem(CATEGORY_FOLDS_KEY, "{not json");
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     expect(within(wells).getByRole("button", { name: "Unfold Vessels" })).toBeInTheDocument();
 
@@ -360,7 +367,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
   });
 
   it("pins the field-project / well column while the grid scrolls sideways", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     const pinned = wells.querySelectorAll<HTMLElement>("[data-pinned]");
     // The header cell and one per well row.
@@ -370,12 +377,12 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
       expect(cell.className).toContain("left-0");
       expect(cell.className).toContain("bg-card");
     }
-    const projects = screen.getByRole("region", { name: "Field projects" });
+    const projects = await showView("Projects");
     expect(projects.querySelectorAll("[data-pinned]")).toHaveLength(2);
   });
 
   it("columns are fixed as on the Project gates page; unfolding raises the floor, so the table scrolls instead of squeezing", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     const floorOf = (region: HTMLElement) => region.querySelector<HTMLElement>("[data-grid-floor]")!;
     // 4 core checks + 3 folded categories, after the first column and Done.
@@ -383,8 +390,7 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
     await userEvent.click(within(wells).getByRole("button", { name: "Unfold Vessels" }));
     // Vessels' 3 types replace its one folded column: 2 columns more.
     expect(floorOf(wells).style.minWidth).toBe(`${20 + 4.5 + 9 * 3.75}rem`);
-    const projects = screen.getByRole("region", { name: "Field projects" });
-    for (const region of [projects, wells]) {
+    const checkFrame = (region: HTMLElement) => {
       const table = region.querySelector("table")!;
       expect(table.className).toContain("table-fixed");
       const cols = [...table.querySelectorAll("col")];
@@ -408,12 +414,17 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
         expect(subLine).toHaveTextContent(/activit|Oil Development/);
         expect(subLine).not.toContainElement(button);
       }
-    }
+    };
+    checkFrame(wells);
+    // The Projects view: the same frame (the fold is shared — Vessels stays open).
+    const projects = await showView("Projects");
+    expect(within(projects).getByRole("button", { name: "Fold Vessels" })).toBeInTheDocument();
+    checkFrame(projects);
   });
 
   it("the key: Status and Readiness checks, as on the Project gates page — a chip per category, its types on hover", async () => {
     renderGrid();
-    await screen.findByRole("region", { name: "Wells" });
+    await screen.findByRole("region", { name: "Field projects" });
     const legend = screen.getByTestId("status-key").closest<HTMLElement>(".rounded-lg")!;
     expect(within(legend).getByText("Status")).toBeInTheDocument();
     expect(within(legend).getByText("Readiness Checks")).toBeInTheDocument();
@@ -475,7 +486,7 @@ describe("the Checks… marker — exceptions only (spec §8.7, decision 37)", (
     // NAV unticked, DSV and PSV nominated.
     expect(badgeOf(projects, "Bonga Phase 3")).toBe("3 of 4 · 2 selected");
     // Wells count what they follow from Bonga, and their own nominations.
-    const wells = screen.getByRole("region", { name: "Wells" });
+    const wells = await showView("Wells");
     expect(badgeOf(wells, "W-1")).toBe("3 of 4 · 3 selected");
     expect(badgeOf(wells, "W-2")).toBe("3 of 4 · 1 selected");
   });
@@ -549,22 +560,26 @@ describe("a category wears ONE icon across the page (spec §3.9)", () => {
     };
     renderGrid();
     const projects = await screen.findByRole("region", { name: "Field projects" });
-    const wells = screen.getByRole("region", { name: "Wells" });
     const projectHead = within(projects).getByRole("button", { name: "Unfold Vessels" });
-    const wellHead = within(wells).getByRole("button", { name: "Unfold Vessels" });
     expect(projectHead).toHaveAttribute("data-icon", "ship-wheel");
-    expect(wellHead).toHaveAttribute("data-icon", "ship-wheel");
-    // The drawn icon itself is the same (the chevron is the first svg).
-    expect(projectHead.querySelectorAll("svg")[1].innerHTML).toBe(wellHead.querySelectorAll("svg")[1].innerHTML);
+    const projectHeadIcon = projectHead.querySelectorAll("svg")[1].innerHTML; // the chevron is the first svg
     const projectCell = categoryCellOf(rowOf(projects, "Bonga Phase 3"), "Vessels")!;
-    const wellCell = categoryCellOf(rowOf(wells, "W-1"), "Vessels")!;
     expect(projectCell).toHaveAttribute("data-icon", "ship-wheel");
-    expect(wellCell).toHaveAttribute("data-icon", "ship-wheel");
-    expect(projectCell.querySelector("svg")!.innerHTML).toBe(wellCell.querySelector("svg")!.innerHTML);
+    const projectCellIcon = projectCell.querySelector("svg")!.innerHTML;
     // The header's title still names only the types this grid shows.
     expect(projectHead.getAttribute("title")).not.toContain("SUPV");
-    const key = screen.getAllByTestId("category-key").find((e) => e.textContent?.startsWith("Vessels"));
-    expect(key).toHaveAttribute("data-icon", "ship-wheel");
+    // The key, too, though this view lists only the project-level types.
+    const keyOf = () => screen.getAllByTestId("category-key").find((e) => e.textContent?.startsWith("Vessels"));
+    expect(keyOf()).toHaveAttribute("data-icon", "ship-wheel");
+
+    const wells = await showView("Wells");
+    const wellHead = within(wells).getByRole("button", { name: "Unfold Vessels" });
+    expect(wellHead).toHaveAttribute("data-icon", "ship-wheel");
+    expect(wellHead.querySelectorAll("svg")[1].innerHTML).toBe(projectHeadIcon);
+    const wellCell = categoryCellOf(rowOf(wells, "W-1"), "Vessels")!;
+    expect(wellCell).toHaveAttribute("data-icon", "ship-wheel");
+    expect(wellCell.querySelector("svg")!.innerHTML).toBe(projectCellIcon);
+    expect(keyOf()).toHaveAttribute("data-icon", "ship-wheel");
   });
 });
 

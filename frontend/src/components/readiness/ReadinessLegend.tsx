@@ -17,13 +17,17 @@ export function ReadinessLegend({
   statuses,
   notApplicable = false,
   checks,
+  iconOf,
 }: {
   statuses: readonly CheckStatus[];
   /** Team checks key their "—" (unticked) cell; the Project gates key N/A instead. */
   notApplicable?: boolean;
-  /** The checks the grid shows, in catalog order (a team's FULL definitions, so
-   *  each category wears its first type's icon, as everywhere else). */
+  /** The checks the grid shows, in catalog order. */
   checks: readonly CatalogCheck[];
+  /** Each category's icon from the team's FULL definitions (`categoryIcons`),
+   *  for a view that shows only some types — a category wears one icon across
+   *  the page. Without it, a category wears its first listed type's icon. */
+  iconOf?: ReadonlyMap<string, string>;
 }) {
   const { core, categories } = groupByCategory(checks);
   return (
@@ -76,7 +80,12 @@ export function ReadinessLegend({
           {categories.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {categories.map((g) => (
-                <CategoryChip key={g.name} name={g.name} items={g.items} />
+                <CategoryChip
+                  key={g.name}
+                  name={g.name}
+                  items={g.items}
+                  iconKey={iconOf?.get(g.name) ?? g.items[0]?.icon_key ?? ""}
+                />
               ))}
             </div>
           )}
@@ -88,8 +97,15 @@ export function ReadinessLegend({
 
 /** A category in the key: its icon, name and type count; hovering it lists the
  *  types with their labels (screen readers get the same list). */
-export function CategoryChip({ name, items }: { name: string; items: readonly CatalogCheck[] }) {
-  const iconKey = items[0]?.icon_key ?? "";
+export function CategoryChip({
+  name,
+  items,
+  iconKey,
+}: {
+  name: string;
+  items: readonly CatalogCheck[];
+  iconKey: string;
+}) {
   const Icon = checkIcon(iconKey);
   return (
     <span

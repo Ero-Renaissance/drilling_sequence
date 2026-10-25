@@ -202,9 +202,11 @@ beforeEach(() => {
   );
 });
 
-function renderGrid() {
+/** The grid at `path` — `?view=wells` opens the Wells view (spec §8.8: one view
+ *  at a time, Projects by default). */
+function renderGrid(path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <TeamReadinessGrid projectId={PID} teamCode="logistics" />
       <Toaster />
     </MemoryRouter>,
@@ -226,7 +228,8 @@ describe("Logistics grid — checks that apply", () => {
     ).toBeInTheDocument();
     expect(within(bonga).queryByText(/apply to its wells|applies to its wells/)).not.toBeInTheDocument();
 
-    const wells = screen.getByRole("region", { name: "Wells" });
+    await userEvent.click(screen.getByRole("radio", { name: "Wells" }));
+    const wells = await screen.findByRole("region", { name: "Wells" });
     // W-1 follows the untick.
     expect(within(rowOf(wells, "W-1")).getByTitle("Not applicable")).toBeInTheDocument();
     // W-2 made its own choice: NAV applies there, marked "set on this well".
@@ -241,7 +244,7 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("names the not-counted cells 'not applicable', not N/A, and keys the dash", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     await screen.findByRole("region", { name: "Wells" });
     expect(screen.getByTestId("readiness-summary")).toHaveAttribute(
       "title",
@@ -281,7 +284,7 @@ describe("Logistics grid — checks that apply", () => {
       },
     ];
     server.use(http.get("/api/projects/:projectId/readiness/teams/:team", () => HttpResponse.json(data)));
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     expect(within(rowOf(wells, "W-1")).queryByTitle(/Naval Clearance: Behind/)).not.toBeInTheDocument();
     const summary = screen.getByTestId("readiness-summary");
@@ -294,7 +297,7 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("offers On Track, Behind and Completed in a team check's menu — no N/A", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(rowOf(wells, "W-1")).getByTitle(/Budget Availability/));
     const menu = await screen.findByRole("menu");
@@ -342,7 +345,7 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("a well's picker: ticks 'from project', its own choice with Follow project, project-only checks read-only", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
@@ -375,7 +378,7 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("a box click sends the explicit tick — never null, even where it matches the field project as loaded", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
@@ -410,7 +413,7 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("only Follow project sends null", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
@@ -421,7 +424,7 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("a well with no field project ticks plainly — no 'from project', no Follow project", async () => {
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(rowOf(wells, "LONE-1")).getByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
@@ -467,7 +470,7 @@ describe("Logistics grid — checks that apply", () => {
 
   it("is read-only without the Logistics grant — the ticks show, nothing changes", async () => {
     currentUser = { id: "u2", is_admin: false, teams: ["wells"] };
-    renderGrid();
+    renderGrid("/?view=wells");
     const wells = await screen.findByRole("region", { name: "Wells" });
     await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });

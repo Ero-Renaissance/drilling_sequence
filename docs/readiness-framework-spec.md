@@ -386,6 +386,9 @@ the window (All: no date limit).
   calendar as the tile (no time-zone drift at midnight).
 - A summary above a grid describes exactly the rows shown, after every filter
   including search, and says what it covers: "12 field projects · next 12 months".
+  A team grid shows one view at a time (§8.8): its Projects view sums field
+  projects, its Wells view sums wells — the Wells view reads as the team's
+  Overview tile, which counts wells, so the tile's links open the Wells view.
 
 **"Starting soon, not ready."** Activities starting within 90 days whose
 **Project gates** are not ready (an unset gate reads On Track, so it is not
@@ -1469,6 +1472,20 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
     window, search, and "6 wells" / "2 of 6"), then the two-section key (Status ·
     Readiness checks). Shared code: `ReadinessToolbar`, `ReadinessLegend`,
     `DoneFigure`.
+  - **Views (2026-10-25):** one table at a time — a **Projects | Wells** switch in
+    the toolbar (`team-view.tsx`), Projects by default (where a team nominates and
+    sets what wells inherit). Everything follows the view: the table, the count
+    ("3 projects" / "5 wells"), the summary (§3.7), the banners, the window's All
+    label ("All field projects" / "All wells"), the search and the key (the view's
+    checks; a category keeps its full-definition icon). The view is in the link
+    (`?view=`, which wins), else remembered per team in this browser, else
+    Projects; a team with checks at one level has that view only, no switch. Each
+    project row has **Wells →**: the Wells view narrowed to that project
+    (`?project=`, banner "N shown — wells of Bonga Phase 3", Clear filter); the
+    narrowing lasts one visit — the switch or a lens change drops it. Links that
+    count or list wells open the Wells view: the Overview's team tiles and "N
+    behind", and the All grid's Open. A lens change drops the view, so each team
+    opens on its own.
   - **Pinned column:** the field-project / well column stays put when the grid
     scrolls sideways.
   - **Columns:** core checks are individual columns. Each category is **one folded
