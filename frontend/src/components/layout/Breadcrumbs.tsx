@@ -1,6 +1,7 @@
 import { Fragment, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
+import { ownValue } from "@/lib/own-key";
 import { useProjectsStore } from "@/store/projects";
 
 const STATIC_LABELS: Record<string, string> = {
@@ -32,7 +33,10 @@ export function Breadcrumbs() {
       accumulated += `/${part}`;
       const prev = parts[i - 1];
 
-      let label = STATIC_LABELS[part];
+      // URL segments are free text (an id, or anything typed): read OWN labels
+      // only — "__proto__" would otherwise render Object.prototype and crash
+      // the header, which sits outside every error boundary.
+      let label = ownValue(STATIC_LABELS, part);
 
       if (!label && prev === "projects") {
         const project = projects.find((p) => p.id === part);

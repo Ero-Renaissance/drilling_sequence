@@ -17,6 +17,7 @@ vi.mock("@/components/ui/toaster", () => ({
 }));
 
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
+import { isFocusFilter } from "@/lib/watchlist";
 import { server } from "./mocks/server";
 
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
@@ -394,6 +395,46 @@ describe("Conflicts queue empty state", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /show all 3 activities/i }));
     expect(await screen.findByText("W0")).toBeInTheDocument();
+  });
+});
+
+describe("?focus= from the URL", () => {
+  // The value is whatever the URL says: only the five filters' own names count.
+  // Object members ("__proto__", "constructor") used to pass the `in` guard — a
+  // crash ("Objects are not valid as a React child") or a phantom filter that
+  // hid completed work behind a blank banner.
+  const acts = [
+    { id: "a1", well_name: "W-OPEN", completed_at: null },
+    { id: "a2", well_name: "W-DONE", completed_at: "2026-02-01T00:00:00Z" },
+  ].map((a) => ({
+    ...a, project_id: PROJECT_ID, activity_type: "Oil Development",
+    start_date: "2026-01-01", end_date: "2026-01-20", rig_name: "Rig 1", hwu_name: null,
+    well_project: null, project_group: null, location: "LAND", risk: null, comment: null,
+    plan_type: null, market: null, readiness_required: true, created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z", updated_by_name: null, locked_by_revision_id: null,
+  }));
+
+  it.each(["__proto__", "constructor", "toString"])("ignores ?focus=%s — every row, no banner", async (value) => {
+    expect(isFocusFilter(value)).toBe(false);
+    server.use(http.get("/api/projects/:projectId/activities", () => HttpResponse.json(acts)));
+    render(
+      <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}/data?focus=${value}`]}>
+        <Routes>
+          <Route path="/projects/:projectId/data" element={<ActivityGrid projectId={PROJECT_ID} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("W-OPEN")).toBeInTheDocument();
+    expect(screen.getByText("W-DONE")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /clear filter/i })).not.toBeInTheDocument();
+  });
+
+  it("still knows the five filters", () => {
+    for (const f of ["overdue", "flood-risk", "conflicts", "past-contract", "not-ready"]) {
+      expect(isFocusFilter(f)).toBe(true);
+    }
+    expect(isFocusFilter(null)).toBe(false);
+    expect(isFocusFilter("bogus")).toBe(false);
   });
 });
 

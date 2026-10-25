@@ -85,6 +85,36 @@ describe("ImportDialog activity-type mapping", () => {
     expect(screen.getByText(/Gas Development/)).toBeInTheDocument();
   });
 
+  it.each(["constructor", "toString", "__proto__"])(
+    "a sheet value named %s starts with 'Remember' unticked and maps as a plain key",
+    async (value) => {
+      // The values are the sheet's free text; inherited Object members used to
+      // read as an already-ticked "remember" (and "__proto__" vanished from the
+      // mappings through the prototype setter).
+      vi.mocked(api.importActivities)
+        .mockResolvedValueOnce({ ...base, dry_run: true, unknown_types: [{ value, rows: 1 }] })
+        .mockResolvedValueOnce({ ...base, imported: 1 });
+      render(<ImportDialog projectId="p1" onImported={() => {}} />);
+      await userEvent.click(screen.getByRole("button", { name: /import csv/i }));
+      await selectFile();
+      await userEvent.click(screen.getByRole("button", { name: "Import" }));
+      await waitFor(() =>
+        expect(screen.getByText(/Map unrecognised activity types/)).toBeInTheDocument(),
+      );
+      await userEvent.selectOptions(screen.getByTestId(`map-select-${value}`), "Oil Development");
+      expect(screen.getByTestId(`remember-${value}`)).not.toBeChecked();
+      await userEvent.click(screen.getByTestId("confirm-mapping"));
+
+      await waitFor(() => expect(api.importActivities).toHaveBeenCalledTimes(2));
+      const sent = vi.mocked(api.importActivities).mock.calls[1][3] as {
+        mapping: { mappings: Record<string, string>; remember: string[] };
+      };
+      // Compare as JSON: a `{ "__proto__": … }` literal would set a prototype.
+      expect(JSON.stringify(sent.mapping.mappings)).toBe(JSON.stringify(Object.fromEntries([[value, "Oil Development"]])));
+      expect(sent.mapping.remember).toEqual([]);
+    },
+  );
+
   it("keep-as-is imports verbatim — no mapping sent for that value", async () => {
     vi.mocked(api.importActivities)
       .mockResolvedValueOnce({

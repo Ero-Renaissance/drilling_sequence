@@ -34,6 +34,15 @@ describe("resolveSpudClass", () => {
     expect(resolveSpudClass("Oil Development", { "Oil Development": "exclude" })).toBe("exclude");
     expect(resolveSpudClass("Well Testing", { "Well Testing": "gas" })).toBe("gas");
   });
+
+  it("reads only the map's own overrides — a type named after an Object member gets its default", () => {
+    // Activity types are free text: "constructor" / "toString" used to read the
+    // inherited function, skip the default and count as a gas spud.
+    for (const t of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]) {
+      expect(resolveSpudClass(t, {})).toBe("exclude");
+    }
+    expect(resolveSpudClass("constructor", { constructor: "oil" as const })).toBe("oil");
+  });
 });
 
 describe("loadSpudMap / saveSpudMap", () => {
@@ -45,6 +54,15 @@ describe("loadSpudMap / saveSpudMap", () => {
 
     window.localStorage.setItem("ds.spud-map", JSON.stringify({ A: "oil", B: "nonsense" }));
     expect(loadSpudMap()).toEqual({ A: "oil" });
+  });
+
+  it("keeps an override for a type named __proto__ across a reload", () => {
+    window.localStorage.setItem("ds.spud-map", '{"__proto__":"oil","A":"gas"}');
+    const map = loadSpudMap();
+    expect(Object.prototype.hasOwnProperty.call(map, "__proto__")).toBe(true);
+    expect(resolveSpudClass("__proto__", map)).toBe("oil");
+    expect(resolveSpudClass("A", map)).toBe("gas");
+    expect(Object.getPrototypeOf(map)).toBe(Object.prototype);
   });
 
   it("returns empty on malformed storage", () => {

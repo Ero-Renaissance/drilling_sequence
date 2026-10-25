@@ -2,6 +2,7 @@ import type { Activity } from "@/api/activities";
 import type { CheckStatus } from "@/api/readiness";
 import { STATUS_SEVERITY } from "@/components/readiness/check-meta";
 import { detectResourceConflicts } from "@/lib/conflicts";
+import { ownValue } from "@/lib/own-key";
 
 // Watchlist "focus" filters — shared by the dashboard links and the grids that
 // honour them. Definitions mirror backend/app/services/dashboard.py so the
@@ -24,8 +25,11 @@ export const FOCUS_LABEL: Record<FocusFilter, string> = {
   "not-ready": "Starting within the next 90 days and not yet ready",
 };
 
+/** Whether a `?focus=` value (straight from the URL) is one of the filters —
+ *  FOCUS_LABEL's OWN keys only: `in` would also accept inherited Object members
+ *  ("constructor", "__proto__"), whose "label" then crashes the grid's banner. */
 export function isFocusFilter(value: string | null): value is FocusFilter {
-  return value !== null && value in FOCUS_LABEL;
+  return value !== null && ownValue(FOCUS_LABEL, value) !== undefined;
 }
 
 function daysFromToday(dateStr: string): number {

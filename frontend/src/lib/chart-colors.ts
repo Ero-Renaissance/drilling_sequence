@@ -20,6 +20,8 @@
  *    marks it "colour pending". Assign new types the next SPARE_ACTIVITY_COLORS
  *    entry; once spares run out, extend the palette and re-validate.
  */
+import { ownValue } from "./own-key";
+
 const ACTIVITY_COLORS: Record<string, string> = {
   // Oil family — warm band.
   "Oil Development": "#9f1239", // burgundy (red itself is reserved for status)
@@ -82,15 +84,22 @@ export const CATALOGUE_ACTIVITY_TYPES: readonly string[] = Object.keys(
   ACTIVITY_COLORS,
 ).sort((a, b) => a.localeCompare(b));
 
-/** True when the type has a designed color (curated catalogue or synthetic). */
+/** True when the type has a designed color (curated catalogue or synthetic).
+ *  Activity types are free text: OWN entries only, so "constructor" or
+ *  "toString" never match an inherited Object member. */
 export function isCataloguedActivityType(activityType: string): boolean {
-  return activityType in ACTIVITY_COLORS || activityType in SYNTHETIC_COLORS;
+  return (
+    ownValue(ACTIVITY_COLORS, activityType) !== undefined ||
+    ownValue(SYNTHETIC_COLORS, activityType) !== undefined
+  );
 }
 
 export function getActivityColor(activityType: string): string {
-  if (SYNTHETIC_COLORS[activityType]) return SYNTHETIC_COLORS[activityType];
-  if (ACTIVITY_COLORS[activityType]) return ACTIVITY_COLORS[activityType];
-  return UNKNOWN_ACTIVITY_COLOR;
+  return (
+    ownValue(SYNTHETIC_COLORS, activityType) ??
+    ownValue(ACTIVITY_COLORS, activityType) ??
+    UNKNOWN_ACTIVITY_COLOR
+  );
 }
 
 /**

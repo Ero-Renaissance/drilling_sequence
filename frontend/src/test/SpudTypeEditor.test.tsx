@@ -24,6 +24,11 @@ describe("SpudTypeEditor", () => {
     expect(onChange).toHaveBeenCalledWith({ "Well Testing": "gas" });
   });
 
+  it("a type named after an Object member shows its default (Exclude) pressed", () => {
+    render(<SpudTypeEditor types={["constructor"]} value={{}} onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Exclude" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("shows a placeholder when there are no types yet", () => {
     render(<SpudTypeEditor types={[]} value={{}} onChange={vi.fn()} />);
     expect(screen.getByText(/no activity types to classify/i)).toBeInTheDocument();
