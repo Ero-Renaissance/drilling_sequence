@@ -101,8 +101,13 @@ function CheckHeader({ check, rowSpan }: { check: CatalogCheck; rowSpan?: number
  *  sideways (spec §8.8) — opaque, so the columns slide under it. */
 const PINNED_CELL = "sticky left-0 z-10 bg-card shadow-[1px_0_0_0_hsl(var(--border))]";
 /** The pinned cell's content: the name shares its line with Checks…; the
- *  sub-line below takes the column's full width. */
-const PINNED_CONTENT = "min-w-0";
+ *  sub-line below takes the column's full width. The column is fixed-width, so
+ *  a long unbroken name (up to 256 characters) wraps inside it rather than
+ *  running into Checks… or the Done column. `overflow-wrap` is inherited by the
+ *  name and the sub-line; `anywhere` (not `break-word`) also lowers the text's
+ *  min-content width, so it wraps even as a flex item (the well name shares a
+ *  flex row with its "N share" badge). */
+const PINNED_CONTENT = "min-w-0 [overflow-wrap:anywhere]";
 const PINNED_TOP = "flex items-start justify-between gap-2";
 
 // Column widths, as on the Project gates page (fixed layout): the first column

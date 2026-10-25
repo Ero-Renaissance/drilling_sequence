@@ -49,6 +49,15 @@ describe("ReadinessGrid", () => {
     });
   });
 
+  it("wraps a long field-project name inside its fixed-width column", async () => {
+    renderGrid();
+    const name = await screen.findByText("Bonga Phase 3");
+    // The layout is fixed, so an unbroken name (up to 256 characters) must wrap
+    // rather than run into the Done column.
+    expect(name.closest("table")!.className).toContain("table-fixed");
+    expect(name.closest("td")!.className).toContain("[overflow-wrap:anywhere]");
+  });
+
   it("disables the dots and shows the lock chip when the campaign is locked", async () => {
     const checks = Object.fromEntries(
       BUILTIN_PROJECT_GATES.map(({ code: c }) => [c, { status: "On Track", notes: null, updated_at: null }]),

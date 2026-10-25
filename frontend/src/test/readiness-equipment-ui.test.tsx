@@ -400,6 +400,9 @@ describe("team grid — categories fold to one column (spec §8.8)", () => {
         const button = within(cell).getByRole("button", { name: /^Checks…/ });
         expect(button.className).toContain("whitespace-nowrap");
         const content = cell.firstElementChild as HTMLElement;
+        // A long unbroken name or sub-line wraps inside the fixed-width column
+        // (overflow-wrap is inherited), never running into Checks… or Done.
+        expect(content.className).toContain("[overflow-wrap:anywhere]");
         expect(button.parentElement!.parentElement).toBe(content);
         const subLine = content.children[1] as HTMLElement;
         expect(subLine).toHaveTextContent(/activit|Oil Development/);
