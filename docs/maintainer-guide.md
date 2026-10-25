@@ -383,6 +383,8 @@ Readiness is **not** a hard-coded gate list any more:
   Logistics checks (036) and 21 Logistics equipment checks that start unticked
   (039). Codes are immutable and never reused (`CON`, retired before the catalog,
   and the withdrawn `NEQ` stay reserved); checks are retired, never deleted.
+  Team codes `all` and `none` are reserved too (`RESERVED_TEAM_CODES`): they
+  are the frontend's All / None lens names, so creating such a team 409s.
   Status sets (`STATUS_SETS`) and icon keys (`ICON_KEYS`) stay code-defined, mirrored
   in `frontend/src/components/readiness/check-meta.ts` and the icon registry, and
   pinned by parity tests.

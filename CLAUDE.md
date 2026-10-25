@@ -164,7 +164,8 @@ logic against these active business rules:
 - **Readiness checks are an admin-curated catalog, not an enum**
   (`docs/readiness-framework-spec.md`): `readiness_checks`, seeded with
   FDP/LLI/LOC/FE/FID/EIA/BUD (the retired derived `CON` gate's code stays
-  reserved). Still an allow-list — writes are validated server-side against
+  reserved; team codes `all` / `none` are reserved too — the frontend's All /
+  None lens names, `RESERVED_TEAM_CODES`). Still an allow-list — writes are validated server-side against
   ACTIVE catalog rows, never free-form; codes are immutable and never reused;
   checks are retired (`retired_at`), never deleted. Status sets (`STATUS_SETS`, each
   status mapped to a shared severity) and icon keys (`ICON_KEYS`, an owned registry

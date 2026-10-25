@@ -615,7 +615,7 @@ it has nothing to do with N/A or with a check that doesn't apply (§3.8).
 **`readiness_teams`**
 | Column | Type | Notes |
 |---|---|---|
-| `code` | String(32), unique | `projects`, `wells`, `logistics` — immutable |
+| `code` | String(32), unique | `projects`, `wells`, `logistics` — immutable; reserved: `all`, `none` (the frontend's All / None lens names; create 409s) |
 | `name` | String(64) | Display name |
 | `editor_source` | String(16) | `planner` (campaign planner role) or `team_grant` |
 | `icon_key` | String(32) | Team badge in the **All** view (§8.3); code allow-list |
