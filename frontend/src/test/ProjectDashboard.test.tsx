@@ -192,7 +192,7 @@ describe("ProjectDashboard", () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
     renderDash();
     const link = await screen.findByRole("link", { name: /Logistics/ });
-    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&horizon=12");
+    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&view=wells&horizon=12");
     const tile = card(/Logistics/);
     // Reads exactly like the Project gates card: no "wells ready" count.
     expect(tile).toHaveTextContent("25%complete");
@@ -213,7 +213,7 @@ describe("ProjectDashboard", () => {
         .map((c) => c.querySelector("a")!.getAttribute("href")),
     ).toEqual([
       "/projects/p1/readiness?lens=projects&horizon=12",
-      "/projects/p1/readiness?lens=logistics&horizon=12",
+      "/projects/p1/readiness?lens=logistics&view=wells&horizon=12",
     ]);
     // …with the window stated once, and its picker, in the group header.
     expect(within(group).getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
@@ -228,7 +228,7 @@ describe("ProjectDashboard", () => {
     await screen.findByRole("region", { name: "Readiness" });
     expect(within(card(/Logistics/)).getByRole("link", { name: "3 behind" })).toHaveAttribute(
       "href",
-      "/projects/p1/readiness?lens=logistics&horizon=12&focus=behind",
+      "/projects/p1/readiness?lens=logistics&view=wells&horizon=12&focus=behind",
     );
     expect(within(card(/Project gates/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
       "href",

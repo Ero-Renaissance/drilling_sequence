@@ -57,6 +57,7 @@ import { AllReadinessGrid } from "@/components/readiness/AllReadinessGrid";
 import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
 import { ActivityReadinessPanel } from "@/components/readiness/ActivityReadinessPanel";
 import { LensPicker } from "@/components/readiness/LensPicker";
+import { lensChangeParams, type TeamView } from "@/components/readiness/team-view";
 import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
 
 const tabs = [
@@ -853,16 +854,11 @@ export function ReadinessTab() {
     !!urlLens &&
     (teams.some((t) => t.code === urlLens) || (urlLens === ALL_LENS && teams.length > 1));
   const lens = urlValid ? urlLens : savedLens;
-  const chooseLens = (next: string) => {
+  // A lens change drops the old team's view and project narrowing (each team
+  // opens on its own remembered view) unless a view is asked for.
+  const chooseLens = (next: string, view?: TeamView) => {
     setSavedLens(next);
-    setSearchParams(
-      (prev) => {
-        const params = new URLSearchParams(prev);
-        params.set("lens", next);
-        return params;
-      },
-      { replace: true },
-    );
+    setSearchParams((prev) => lensChangeParams(prev, next, view), { replace: true });
   };
   if (!projectId) return null;
   return (
@@ -872,7 +868,10 @@ export function ReadinessTab() {
         {lens === PROJECTS_TEAM ? (
           <ReadinessGrid projectId={projectId} />
         ) : lens === ALL_LENS ? (
-          <AllReadinessGrid projectId={projectId} onOpenLens={chooseLens} />
+          <AllReadinessGrid
+            projectId={projectId}
+            onOpenLens={(code) => chooseLens(code, code === PROJECTS_TEAM ? undefined : "wells")}
+          />
         ) : (
           <TeamReadinessGrid key={lens} projectId={projectId} teamCode={lens} />
         )}

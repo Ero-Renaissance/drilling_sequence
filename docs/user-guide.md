@@ -253,7 +253,12 @@ each code with its name, and so does the hover text on grid headers and tooltips
 
 **Where categories show:**
 - **Logistics grid:** laid out like the Project gates page — the toolbar, the
-  key, then a **Done** column on each row. The core checks have a column each,
+  key, then a **Done** column on each row. It shows one table at a time: switch
+  between **Projects** (the default — nominate equipment and set statuses here;
+  wells follow) and **Wells** in the toolbar. The count, summary and window
+  follow the switch, and the grid remembers your choice. **Wells →** on a project
+  row shows just that project's wells. The Overview's Logistics card opens the
+  Wells view, since it counts wells. The core checks have a column each,
   and each category is **one folded column** showing its icon in the worst
   status of the types that apply (blank if none does; hover it to see which
   types). The key shows each category as a chip (e.g. "Vessels 8"); hover a chip

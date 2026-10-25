@@ -279,9 +279,11 @@ const HORIZON_OPTIONS = [
 ] as const;
 
 /** A readiness tile's door: the Readiness tab on that tile's lens and window, so
- *  the tab lists exactly what the tile counted (spec §3.7). */
+ *  the tab lists exactly what the tile counted (spec §3.7) — for a team, its
+ *  Wells view, as a team tile counts wells (spec §8.8). */
 function readinessLink(base: string, lens: string, months: number, focus?: "behind"): string {
   const params = new URLSearchParams({ lens });
+  if (lens !== PROJECTS_TEAM) params.set("view", "wells");
   if (months in HORIZON_DAYS) params.set("horizon", String(months));
   if (focus) params.set("focus", focus);
   return `${base}/readiness?${params.toString()}`;

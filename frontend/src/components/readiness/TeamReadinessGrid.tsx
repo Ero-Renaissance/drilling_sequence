@@ -33,6 +33,7 @@ import {
   type GridColumn,
 } from "./category-columns";
 import { useOpenCategories } from "./category-folds";
+import { PROJECT_PARAM, TeamViewSwitch, useTeamView } from "./team-view";
 import {
   NOTHING_APPLIES,
   NOT_APPLICABLE,
@@ -271,9 +272,13 @@ function rowCells(
 }
 
 /**
- * One team's readiness in a campaign (the Wells / Logistics… lens):
- * - "Field projects": the team's project-level checks, one row per field project.
- * - "Wells": one row per well activity (project + well + activity type) with
+ * One team's readiness in a campaign (the Wells / Logistics… lens), ONE view at
+ * a time (spec §8.8) — the Projects | Wells switch (`team-view.tsx`; Projects by
+ * default, `?view=` in the link, remembered per team) — and everything on the
+ * page (count, summary, banners, window label, search) follows the view:
+ * - Projects: the team's project-level checks, one row per field project; each
+ *   row's "Wells →" opens the Wells view on that project's wells (`?project=`).
+ * - Wells: one row per well activity (project + well + activity type) with
  *   every team check. A check enabled at both levels shows the project's value
  *   faded ("from field project") until the well sets its own; "Reset to
  *   project" drops the well's value. Project-only checks are shown read-only on
@@ -293,8 +298,9 @@ function rowCells(
  * Rows and the summary follow spec §3.7: only targets with readiness-required
  * work left, starting within the page's window (shared `?horizon=`), are listed —
  * completed or opted-out ones drop out — and the summary adds up the server's
- * per-row figures of exactly the targets shown (wells, or field projects for a
- * team with only project-level checks), as the team's Overview tile does.
+ * per-row figures of exactly the view's targets shown: field projects in the
+ * Projects view, wells in the Wells view (which reads as the team's Overview
+ * tile, as that counts wells — its links open the Wells view).
  */
 export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; teamCode: string }) {
   const user = useAuthStore((s) => s.user);
@@ -351,7 +357,6 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPageIndex(0), [search, teamCode, months, behindFocus]);
 
   const canEdit =
     !!user &&
@@ -407,6 +412,35 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   // Codes a folded cell's title words with their label ("PC (Personnel Carrier)").
   const lookAlikes = useMemo(() => lookAlikeCodes((data?.checks ?? []).map((c) => c.code)), [data]);
   const hasWellChecks = !!data?.checks.some((c) => c.applies_well);
+  // One view at a time (spec §8.8): Projects (default) or Wells — whichever the
+  // team's checks allow. Everything below follows it.
+  const [view, setView] = useTeamView(teamCode, {
+    projects: projectChecks.length > 0,
+    wells: hasWellChecks,
+  });
+  const wellsView = view === "wells";
+  // "Wells →" on a project row: the Wells view narrowed to that field project.
+  const projectFilter = wellsView ? searchParams.get(PROJECT_PARAM) : null;
+  const clearProjectFilter = () =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.delete(PROJECT_PARAM);
+        return params;
+      },
+      { replace: true },
+    );
+  const openWellsOf = (wellProject: string) =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("view", "wells");
+        params.set(PROJECT_PARAM, wellProject);
+        return params;
+      },
+      { replace: true },
+    );
+  useEffect(() => setPageIndex(0), [search, teamCode, months, behindFocus, view, projectFilter]);
   const projectCellsOf = useMemo(
     () => new Map((data?.project_rows ?? []).map((r) => [r.well_project, r.checks])),
     [data],
@@ -419,12 +453,13 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
         (r) =>
           inWindow(r, months) &&
           (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
+          (projectFilter === null || r.well_project === projectFilter) &&
           (!q ||
             r.well_name.toLowerCase().includes(q) ||
             r.well_project.toLowerCase().includes(q) ||
             r.activity_type.toLowerCase().includes(q)),
       ),
-    [data, q, months, behindFocus],
+    [data, q, months, behindFocus, projectFilter],
   );
   const projects = useMemo(
     () =>
@@ -436,18 +471,20 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
       ),
     [data, q, months, behindFocus],
   );
-  // How many targets the window covers, before the search and any drill-through
-  // — the toolbar's "2 of 6", as on the Project gates page.
+  // How many of the view's targets the window covers, before the search and any
+  // drill-through — the toolbar's "2 of 6", as on the Project gates page.
   const scopedCount = useMemo(
     () =>
-      (hasWellChecks ? (data?.well_rows ?? []) : (data?.project_rows ?? [])).filter((r) =>
+      (wellsView ? (data?.well_rows ?? []) : (data?.project_rows ?? [])).filter((r) =>
         inWindow(r, months),
       ).length,
-    [data, months, hasWellChecks],
+    [data, months, wellsView],
   );
-  const pageCount = Math.max(1, Math.ceil(wells.length / pageSize));
+  const shownCount = wellsView ? wells.length : projects.length;
+  const pageCount = Math.max(1, Math.ceil(shownCount / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visibleWells = wells.slice(safeIndex * pageSize, (safeIndex + 1) * pageSize);
+  const visibleProjects = projects.slice(safeIndex * pageSize, (safeIndex + 1) * pageSize);
 
   if (error) {
     return (
@@ -466,10 +503,12 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
   }
 
   const teamName = data.team.name;
-  const shown = hasWellChecks ? wells.length : projects.length;
-  const filtering = Boolean(q) || behindFocus;
-  const [one, many] = hasWellChecks ? ["well", "wells"] : ["project", "projects"];
-  const targets = hasWellChecks ? "wells" : "field projects";
+  const shown = shownCount;
+  const filtering = Boolean(q) || behindFocus || projectFilter !== null;
+  const [one, many] = wellsView ? ["well", "wells"] : ["project", "projects"];
+  const targets = wellsView ? "wells" : "field projects";
+  // A team with checks at both levels has both views; the switch picks one.
+  const bothViews = projectChecks.length > 0 && hasWellChecks;
   // The dots read labels/icons from the definitions this response carries — the
   // server's view of the team's checks, consistent with the rows.
   return (
@@ -504,20 +543,45 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
             </button>
           </div>
         )}
+        {projectFilter !== null && (
+          <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+            <span>
+              <span className="font-semibold">{shown}</span> shown — wells of{" "}
+              {projectFilter || "no field project"}
+            </span>
+            <button
+              type="button"
+              onClick={clearProjectFilter}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Clear filter
+            </button>
+          </div>
+        )}
         <ReadinessToolbar
           loading={loading}
           onRefresh={load}
+          viewSwitch={bothViews ? <TeamViewSwitch value={view} onChange={setView} /> : undefined}
           window={{
             value: months,
             onChange: setMonths,
-            allLabel: hasWellChecks ? "All wells" : "All field projects",
+            allLabel: wellsView ? "All wells" : "All field projects",
           }}
-          search={{
-            value: search,
-            onChange: setSearch,
-            placeholder: "Search well or project…",
-            ariaLabel: "Search wells and field projects",
-          }}
+          search={
+            wellsView
+              ? {
+                  value: search,
+                  onChange: setSearch,
+                  placeholder: "Search well or project…",
+                  ariaLabel: "Search wells and field projects",
+                }
+              : {
+                  value: search,
+                  onChange: setSearch,
+                  placeholder: "Search field project…",
+                  ariaLabel: "Search field projects",
+                }
+          }
           count={filtering ? `${shown} of ${scopedCount}` : `${scopedCount} ${scopedCount === 1 ? one : many}`}
         />
 
@@ -534,15 +598,23 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
           </div>
         ) : (
           <>
-            <ReadinessLegend statuses={legendStatuses(data.checks)} notApplicable checks={data.checks} />
-            {/* The three figures over exactly the targets shown (spec §3.7). */}
+            {/* The key names the view's checks; a category wears its icon from
+                the team's full definitions, as in the grids (spec §3.9). */}
+            <ReadinessLegend
+              statuses={legendStatuses(data.checks)}
+              notApplicable
+              checks={wellsView ? data.checks : projectChecks}
+              iconOf={iconOfCategory}
+            />
+            {/* The three figures over exactly the view's targets shown (spec §3.7):
+                the Wells view reads as the team's Overview tile, which counts wells. */}
             <ReadinessSummary
-              rows={(hasWellChecks ? wells : projects).map((r) => r.figures)}
-              unit={hasWellChecks ? ["well", "wells"] : ["field project", "field projects"]}
+              rows={(wellsView ? wells : projects).map((r) => r.figures)}
+              unit={wellsView ? ["well", "wells"] : ["field project", "field projects"]}
               windowMonths={months}
               projectGates={false}
             />
-            {projectChecks.length > 0 && (
+            {!wellsView && (
               <section aria-label="Field projects" className="space-y-2">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <h3 className="text-sm font-semibold">Field projects</h3>
@@ -566,7 +638,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                   <GridTable columns={projectColumns}>
                     <GridHead first="Field Project" columns={projectColumns} onToggle={toggleCategory} />
                     <tbody>
-                      {projects.map((row) => {
+                      {visibleProjects.map((row) => {
                         const target: ReadinessTarget = {
                           scope: "project",
                           well_project: row.well_project,
@@ -624,6 +696,19 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 <div className="text-xs text-muted-foreground">
                                   {row.activity_count}{" "}
                                   {row.activity_count === 1 ? "activity" : "activities"}
+                                  {hasWellChecks && (
+                                    <>
+                                      {" · "}
+                                      <button
+                                        type="button"
+                                        onClick={() => openWellsOf(row.well_project)}
+                                        aria-label={`Show the wells of ${row.well_project}`}
+                                        className="font-medium text-primary hover:underline"
+                                      >
+                                        Wells →
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </td>
@@ -635,16 +720,37 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                     </tbody>
                   </GridTable>
                 )}
+                {projects.length > 0 && (
+                  <PaginationFooter
+                    pageIndex={safeIndex}
+                    pageCount={pageCount}
+                    pageSize={pageSize}
+                    onPageChange={setPageIndex}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setPageIndex(0);
+                    }}
+                  />
+                )}
               </section>
             )}
 
-            {hasWellChecks && (
+            {wellsView && (
               <section aria-label="Wells" className="space-y-2">
-                <h3 className="text-sm font-semibold">Wells</h3>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <h3 className="text-sm font-semibold">Wells</h3>
+                  {projectChecks.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      Each well follows its field project&apos;s ticks and statuses until it sets its own.
+                    </span>
+                  )}
+                </div>
                 {wells.length === 0 ? (
                   <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
                     {q ? (
                       <>No wells match &ldquo;{search}&rdquo;.</>
+                    ) : projectFilter !== null ? (
+                      `No wells of ${projectFilter || "no field project"} in this window.`
                     ) : behindFocus ? (
                       "No wells with a check behind."
                     ) : months ? (
