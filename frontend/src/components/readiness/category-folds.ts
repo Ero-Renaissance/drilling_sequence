@@ -15,33 +15,45 @@ export const CATEGORY_FOLDS_KEY = "ds.readiness-categories-open";
 const MAX_NAMES = 64;
 const MAX_NAME_LENGTH = 64;
 
-type Stored = Record<string, string[]>;
+// A Map, never a plain object: a team code is any `^[a-z][a-z0-9-]{1,31}$`, so
+// "constructor" or "valueOf" would read an inherited Object member (and a stored
+// "__proto__" key would re-prototype the object) instead of the team's entry.
+type Stored = Map<string, string[]>;
 
 function readAll(): Stored {
   try {
     const raw = window.localStorage.getItem(CATEGORY_FOLDS_KEY);
-    if (!raw) return {};
+    if (!raw) return new Map();
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const out: Stored = {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+    const out: Stored = new Map();
     for (const [team, names] of Object.entries(parsed as Record<string, unknown>)) {
       if (!Array.isArray(names)) continue;
-      out[team] = names
-        .filter((n): n is string => typeof n === "string" && n.length > 0 && n.length <= MAX_NAME_LENGTH)
-        .slice(0, MAX_NAMES);
+      out.set(
+        team,
+        names
+          .filter((n): n is string => typeof n === "string" && n.length > 0 && n.length <= MAX_NAME_LENGTH)
+          .slice(0, MAX_NAMES),
+      );
     }
     return out;
   } catch {
-    return {};
+    return new Map();
   }
+}
+
+/** The categories a team has unfolded, as stored (empty when none or unreadable). */
+function savedOpen(team: string): Set<string> {
+  return new Set(readAll().get(team) ?? []);
 }
 
 function writeTeam(team: string, names: readonly string[]): void {
   try {
     const all = readAll();
-    if (names.length > 0) all[team] = [...names].slice(0, MAX_NAMES);
-    else delete all[team];
-    window.localStorage.setItem(CATEGORY_FOLDS_KEY, JSON.stringify(all));
+    if (names.length > 0) all.set(team, [...names].slice(0, MAX_NAMES));
+    else all.delete(team);
+    // Object.fromEntries defines own properties, so even a "__proto__" key stays data.
+    window.localStorage.setItem(CATEGORY_FOLDS_KEY, JSON.stringify(Object.fromEntries(all)));
   } catch {
     // storage unavailable — the in-session choice still applies
   }
@@ -51,16 +63,16 @@ function writeTeam(team: string, names: readonly string[]): void {
 export function useOpenCategories(teamCode: string): [ReadonlySet<string>, (name: string) => void] {
   const [state, setState] = useState<{ team: string; open: ReadonlySet<string> }>(() => ({
     team: teamCode,
-    open: new Set(readAll()[teamCode] ?? []),
+    open: savedOpen(teamCode),
   }));
   // Another team's grid (the lens switched): read its remembered choice.
   const open =
-    state.team === teamCode ? state.open : new Set<string>(readAll()[teamCode] ?? []);
+    state.team === teamCode ? state.open : savedOpen(teamCode);
   const toggle = useCallback(
     (name: string) => {
       setState((prev) => {
         const current =
-          prev.team === teamCode ? prev.open : new Set<string>(readAll()[teamCode] ?? []);
+          prev.team === teamCode ? prev.open : savedOpen(teamCode);
         const next = new Set(current);
         if (next.has(name)) next.delete(name);
         else next.add(name);
