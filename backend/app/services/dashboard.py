@@ -44,6 +44,7 @@ from app.services.readiness_catalog import (
     project_gate_checks,
 )
 from app.services.readiness_rollup import (
+    HORIZON_DAYS,
     in_scope,
     live_cells,
     rollup,
@@ -55,7 +56,7 @@ from app.services.snapshot import build_project_snapshot
 
 # Config knobs (defaults; see spec §10).
 NEAR_TERM_DAYS = 90
-FOCUS_WINDOW_DAYS = 365
+FOCUS_WINDOW_DAYS = HORIZON_DAYS[12]  # the historical 12-month focus window
 STALE_APPROVAL_DAYS = 7
 
 # Contract urgency thresholds — kept in sync with frontend/src/lib/contract-urgency.ts.
@@ -67,11 +68,6 @@ _SOON_DAYS = 180
 # How far ahead a placeholder slot with scheduled work counts as a procurement
 # alert — rig tendering realistically takes most of a year.
 _PROCUREMENT_LOOKAHEAD_DAYS = 270
-
-
-# Focus-window presets (months → days), shared by the readiness block and the
-# activity-type mix. 0 = no window; 12 keeps the historical FOCUS_WINDOW_DAYS.
-HORIZON_DAYS = {6: 183, 12: FOCUS_WINDOW_DAYS, 24: 730}
 
 
 async def build_dashboard(

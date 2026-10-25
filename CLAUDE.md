@@ -230,7 +230,18 @@ logic against these active business rules:
   applies. An unset check reads its default and every default is on track
   (On Track). Ready = ≥1 counted cell, all done. Each target (field project /
   well) counts once; opt-outs, completed work, no field
-  project (project checks) and no well name (well checks) carry nothing. Nothing
+  project (project checks) and no well name (well checks) carry nothing. Tiles
+  count FIELD PROJECTS for every team with project-level checks (2026-10-25; a
+  team whose checks are all well-level counts wells — it has only the Wells
+  view): for a check enabled at well level a field project reads the WORST of
+  its in-scope wells (each well's effective value, the project's unless it has
+  its own) — done only when done for every well that needs it, behind when any
+  is behind; a project-only check,
+  or a project with no well in scope, reads the project's own value
+  (`readiness_rollup.py::fold_project_cells`); a well with no field project is on
+  no tile. The team grid's Projects rows carry the same figures per window
+  (`figures_by_window`), so the tab adds up to the tile, and the server's count
+  of wells behind on a well-level check (`wells_behind_by_window`). Nothing
   counted → `None` ("—", never 0%); percentages round half up. The "starting soon,
   not ready" warning reads the Project gates only.
 <!-- END OF BUSINESS CONSTRAINTS -->

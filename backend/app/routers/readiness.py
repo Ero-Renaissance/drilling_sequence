@@ -1,7 +1,7 @@
 import logging
 import uuid
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -66,7 +66,14 @@ from app.services.readiness_effective import (
     well_cells,
     well_value,
 )
-from app.services.readiness_rollup import days_until, focus_start_of, target_figures
+from app.services.readiness_rollup import (
+    HORIZON_DAYS,
+    days_until,
+    focus_start_of,
+    fold_project_cells,
+    target_figures,
+    well_level_statuses,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +389,28 @@ def _target_label(target: WellTarget) -> str:
 # ── Team rows (the lens read, and the applicability write's response) ───────
 
 
+def _project_window(
+    codes: list[str],
+    well_level: list[str],
+    own: dict[str, str],
+    wells: list[WellKey],
+    cells_of: dict[WellKey, dict[str, str]],
+    focus_of: dict[WellKey, date | None],
+    end: date | None,
+) -> tuple[RowFigures, int]:
+    """A field project in one window (spec §3.7): its figures — its wells whose
+    work left starts by ``end`` (None = All) folded with its own cells — and how
+    many of those wells are behind on a check enabled at well level (the row's
+    "N wells behind"; a project-only check is the project's, not each well's)."""
+    in_window = [
+        k for k in wells if end is None or (focus_of[k] is not None and focus_of[k] <= end)
+    ]
+    cells = [cells_of[k] for k in in_window]
+    folded = fold_project_cells(codes, own, cells, well_level)
+    behind = sum(1 for c in cells if target_figures(c.values()).behind)
+    return _row_figures(folded.values()), behind
+
+
 def _counted_statuses(values: Iterable[Effective]) -> list[str]:
     """What a row's ``figures`` roll up (spec §3.7): each cell's ``cell_status``
     (N/A where the check doesn't apply because of a row), with the cells that
@@ -419,16 +448,29 @@ async def _team_rows(
 ) -> tuple[list[TeamProjectRow], list[TeamWellRow]]:
     """One team's rows in a campaign — every row, or (``target``) only the rows
     one write affects: a field project's row plus every well row under it (they
-    follow it), or one well's row. ONE builder for both, so the applicability
-    write returns rows exactly as the lens read draws them.
+    follow it), or one well's row — and, for a well with a field project, that
+    project's row and wells too, since a field project's figures fold in its
+    wells. ONE builder for both, so the applicability write returns rows exactly
+    as the lens read draws them.
 
     Each cell is the effective value of spec §3.6/§3.8 with whether the check
     applies; a row's ``figures`` don't count a cell that doesn't apply. A cell
     that is NOT SELECTED (phase 7, §3.9 — a check that starts unticked, with no
     row ticking it here) is still returned, for the tick list, but left out of
     ``figures`` entirely: not even counted as N/A (``_counted_statuses``).
+
+    A well row's ``figures`` are that well's. A field project's are the field
+    project as the Overview tile counts it (spec §3.7, 2026-10-25): a check
+    enabled at well level reads the worst of its wells, a project-only one the
+    project's own cell (``fold_project_cells``) — over the wells with work left
+    starting within each window, so ``figures_by_window`` carries one per
+    window ("0" = All, as ``figures``), with ``wells_behind_by_window`` beside
+    it. A team whose checks are all well-level has no project rows.
     """
     index = await load_index(db, project_id, [c.code for c in checks])
+    # A well's tick or status moves its field project's figures: widen a well
+    # target with a field project to that project (its row and all its wells).
+    widen = target is not None and target.scope == "well" and bool(target.well_project)
     stmt = select(
         Activity.well_project,
         Activity.well_name,
@@ -439,19 +481,53 @@ async def _team_rows(
         Activity.readiness_required,
     ).where(Activity.project_id == project_id)
     if target is not None:
-        stmt = stmt.where(*_target_filters(target))
+        stmt = stmt.where(
+            *([_well_project_filter(target.well_project)] if widen else _target_filters(target))
+        )
     activities = (await db.execute(stmt)).all()
 
     today = date.today()
+
+    # The wells first: a field project's figures fold them in.
+    groups: dict[WellKey, list] = {}
+    if any(c.applies_well for c in checks):
+        for a in activities:
+            # No well name → no well gates; readiness opt-out → no readiness at all
+            # (from any team — decided 2026-10-14).
+            if a.well_name and a.readiness_required:
+                key = (a.well_project or "", a.well_name, a.activity_type)
+                groups.setdefault(key, []).append(a)
+    for acts in groups.values():
+        acts.sort(key=lambda a: a.start_date)
+    well_focus = {key: focus_start_of(acts) for key, acts in groups.items()}
+
     project_checks = [c for c in checks if c.applies_project]
     project_rows: list[TeamProjectRow] = []
-    if project_checks and (target is None or target.scope == "project"):
+    if project_checks and (target is None or target.scope == "project" or widen):
+        codes = [c.code for c in checks]
+        well_level = [c.code for c in checks if c.applies_well]
+        # Each pending well's well-level cells, once; folded per window below.
+        pending = {
+            key: well_level_statuses(index, checks, key)
+            for key, focus in well_focus.items()
+            if key[0] and focus is not None
+        }
+        windows: dict[str, date | None] = {
+            "0": None,
+            **{str(m): today + timedelta(days=d) for m, d in HORIZON_DAYS.items()},
+        }
         by_project: dict[str, list] = {}
         for a in activities:
             if a.well_project:
                 by_project.setdefault(a.well_project, []).append(a)
         for wp, acts in sorted(by_project.items()):
             values = {c.code: project_value(index, c, wp) for c in project_checks}
+            own = {code: cell_status(v) for code, v in values.items() if not not_selected(v)}
+            mine = [key for key in pending if key[0] == wp]
+            by_window = {
+                name: _project_window(codes, well_level, own, mine, pending, well_focus, end)
+                for name, end in windows.items()
+            }
             # The window signal — the same scope rule as the tiles (spec §3.7).
             focus = focus_start_of(acts)
             project_rows.append(
@@ -461,41 +537,33 @@ async def _team_rows(
                     checks={code: _team_cell(v) for code, v in values.items()},
                     focus_start=focus,
                     focus_in_days=days_until(focus, today),
-                    figures=_row_figures(_counted_statuses(values.values())),
+                    figures=by_window["0"][0],
+                    figures_by_window={name: f for name, (f, _) in by_window.items()},
+                    wells_behind_by_window={name: n for name, (_, n) in by_window.items()},
                 )
             )
 
     well_rows: list[TeamWellRow] = []
-    if any(c.applies_well for c in checks):
-        groups: dict[WellKey, list] = {}
-        for a in activities:
-            # No well name → no well gates; readiness opt-out → no readiness at all
-            # (from any team — decided 2026-10-14).
-            if a.well_name and a.readiness_required:
-                key = (a.well_project or "", a.well_name, a.activity_type)
-                groups.setdefault(key, []).append(a)
-
-        for key, acts in groups.items():
-            acts.sort(key=lambda a: a.start_date)
-            focus = focus_start_of(acts)
-            # A project-only check carries nothing on a well with no field project
-            # (spec §3.7, §7.12) — it is absent from the row, not drawn at its default.
-            values = well_cells(index, checks, key)
-            well_rows.append(
-                TeamWellRow(
-                    well_project=key[0],
-                    well_name=key[1],
-                    activity_type=key[2],
-                    activity_count=len(acts),
-                    location=acts[0].location,
-                    start_date=acts[0].start_date,
-                    focus_start=focus,
-                    focus_in_days=days_until(focus, today),
-                    checks={code: _well_cell(v) for code, v in values.items()},
-                    figures=_row_figures(_counted_statuses(values.values())),
-                )
+    for key, acts in groups.items():
+        focus = well_focus[key]
+        # A project-only check carries nothing on a well with no field project
+        # (spec §3.7, §7.12) — it is absent from the row, not drawn at its default.
+        values = well_cells(index, checks, key)
+        well_rows.append(
+            TeamWellRow(
+                well_project=key[0],
+                well_name=key[1],
+                activity_type=key[2],
+                activity_count=len(acts),
+                location=acts[0].location,
+                start_date=acts[0].start_date,
+                focus_start=focus,
+                focus_in_days=days_until(focus, today),
+                checks={code: _well_cell(v) for code, v in values.items()},
+                figures=_row_figures(_counted_statuses(values.values())),
             )
-        well_rows.sort(key=lambda r: (r.start_date, r.well_project, r.well_name, r.activity_type))
+        )
+    well_rows.sort(key=lambda r: (r.start_date, r.well_project, r.well_name, r.activity_type))
     return project_rows, well_rows
 
 
@@ -921,7 +989,10 @@ async def get_team_readiness(
 ) -> TeamReadiness:
     """One team's readiness in this campaign — the Wells / Logistics… lens.
 
-    ``project_rows``: one per field project, the team's project-level checks.
+    ``project_rows`` (only when the team has project-level checks): one per field
+    project, with the team's project-level checks; its figures are the field
+    project as the Overview tile counts it, folding in its wells for a check
+    enabled at well level (spec §3.7), per window.
     ``well_rows`` (only when the team has well-level checks): one per well
     activity (project + well + activity type), with every team check the well
     carries at its effective value — the well's own entry, else the field

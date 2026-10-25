@@ -9,8 +9,9 @@ import { cn } from "@/lib/utils";
  * inherit) or its wells. Everything on the page follows the view: the table,
  * the count, the summary, the banners, the window's label and the search.
  *
- * - `?view=projects|wells` — a deep link (the Overview's team cards and the All
- *   grid's Open, which count or list wells, open the Wells view) wins;
+ * - `?view=projects|wells` — a deep link wins: the Overview's team cards open
+ *   the Projects view (they count field projects), the All grid's Open the
+ *   Wells view (its rows are wells);
  * - else the browser's remembered choice for this team;
  * - else Projects. A team with checks at one level only has that one view.
  */

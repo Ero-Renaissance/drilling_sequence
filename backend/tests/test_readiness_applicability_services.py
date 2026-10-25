@@ -158,11 +158,14 @@ async def _logistics_cells(db: AsyncSession, pid: str) -> dict[tuple[str, ...], 
     activities = (
         await db.execute(select(Activity).where(Activity.project_id == uuid.UUID(pid)))
     ).scalars().all()
+    # Per well: these tests pin the well cells' rules (the tiles count field
+    # projects, each folding these cells — test_readiness_project_tiles.py).
     unit, cells = await live_cells(
         db,
         uuid.UUID(pid),
         await active_checks(db, team_code="logistics"),
         [a for a in activities if in_scope(a, None)],
+        unit="wells",
     )
     assert unit == "wells"
     return cells
