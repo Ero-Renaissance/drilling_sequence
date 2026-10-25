@@ -62,6 +62,7 @@ import {
   daysUntilExpiry,
   CONTRACT_MARKER_HEX,
 } from "@/lib/contract-urgency";
+import { ownValue } from "@/lib/own-key";
 import { useThemeStore } from "@/store/theme";
 import {
   DropdownMenu,
@@ -906,7 +907,7 @@ export function DrillChart({
         if (tier === "full") {
           for (let i = 0; i < barCodes.length; i++) {
             const code = barCodes[i];
-            const status = (checks[code]?.status ?? "On Track") as CheckStatus;
+            const status = (ownValue(checks, code)?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (ICON_SIZE + ICON_GAP), stripY, ICON_SIZE);
           }
         } else if (tier === "half") {
@@ -914,7 +915,7 @@ export function DrillChart({
           const SMALL_GAP = 1;
           for (let i = 0; i < barCodes.length; i++) {
             const code = barCodes[i];
-            const status = (checks[code]?.status ?? "On Track") as CheckStatus;
+            const status = (ownValue(checks, code)?.status ?? "On Track") as CheckStatus;
             placeIcon(code, status, stripX + i * (SMALL + SMALL_GAP), stripY + 2, SMALL);
           }
         } else if (tier === "grid") {
@@ -923,7 +924,7 @@ export function DrillChart({
           const GRID_GAP = 1;
           for (let i = 0; i < barCodes.length; i++) {
             const code = barCodes[i];
-            const status = (checks[code]?.status ?? "On Track") as CheckStatus;
+            const status = (ownValue(checks, code)?.status ?? "On Track") as CheckStatus;
             const cols = gridCols(barCodes.length);
             const row = Math.floor(i / cols);
             const col = i % cols;
@@ -1202,7 +1203,7 @@ export function DrillChart({
             // "Nothing applies"; the all-N/A Project gates keep their grey N/A.
             const blocks = stripCodes
               .map((code) => {
-                const state = t.checks?.[code];
+                const state = ownValue(t.checks, code);
                 if (!state) return "";
                 const details = state.details ?? [];
                 const summary = state.details ? summariseTeam(details) : undefined;
@@ -1254,18 +1255,18 @@ export function DrillChart({
             // carries nothing and is never listed.
             const barChecks: Record<string, ChartCheckState | CategoryCell> = withCategories(t.checks);
             const shownCodes = stripDefs
-              .filter((g) => applies(barChecks[g.code], g))
+              .filter((g) => applies(ownValue(barChecks, g.code), g))
               .map((g) => g.code);
             const naCodes = gates
               .filter((g) => {
-                const cell = barChecks[g.code];
+                const cell = ownValue(barChecks, g.code);
                 return cell !== undefined && !applies(cell, g) && !notSelected(cell);
               })
               .map((g) => codeWithLabel(g, lookAlikes));
             const cells = shownCodes.map((code) => {
               const status =
-                (barChecks[code]?.status as CheckStatus | undefined) ?? "On Track";
-              const types = isCategoryCode(code) ? (barChecks[code] as CategoryCell).types : null;
+                (ownValue(barChecks, code)?.status as CheckStatus | undefined) ?? "On Track";
+              const types = isCategoryCode(code) ? (ownValue(barChecks, code) as CategoryCell).types : null;
               if (types) {
                 // A category: one line, its icon in its worst status.
                 const line = categoryLine(labelByCode.get(code) ?? "", types, (ty) =>

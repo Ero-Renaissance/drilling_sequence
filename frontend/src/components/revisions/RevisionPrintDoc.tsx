@@ -22,6 +22,7 @@ import { CONTRACT_MARKER_HEX } from "@/lib/contract-urgency";
 import { buildDocRef, formatDocId } from "@/lib/doc-id";
 import { computeFittedWindows, computeYearSpans, estimateNamePct, placeBarLabel, readinessRowsPerPage, type PrintYears } from "@/lib/print-gantt";
 import { terrainRank } from "@/lib/gantt-rows";
+import { ownValue } from "@/lib/own-key";
 import { cn, formatDate } from "@/lib/utils";
 import type { CheckStatus } from "@/api/readiness";
 import type { RevisionDetail } from "@/api/revisions";
@@ -780,7 +781,7 @@ function ReadinessIcons({
   // (spec §8.4); the strip keeps the lens's column count (its uncategorised
   // checks plus its categories) so a lone icon doesn't grow.
   const projectGates = useLens() === PROJECTS_TEAM;
-  const drawn = projectGates ? gates : gates.filter(({ code }) => readiness?.[code] !== undefined);
+  const drawn = projectGates ? gates : gates.filter(({ code }) => ownValue(readiness, code) !== undefined);
   if (fill) {
     return (
       <span
@@ -790,7 +791,7 @@ function ReadinessIcons({
       >
         {drawn.map(({ code, icon_key }) => {
           const Icon = checkIcon(icon_key);
-          const st = (readiness?.[code] ?? "Not Started") as CheckStatus;
+          const st = (ownValue(readiness, code) ?? "Not Started") as CheckStatus;
           return <Icon key={code} className={cn("h-auto w-full", STATUS_ICON_COLOR[st])} />;
         })}
       </span>
@@ -800,7 +801,7 @@ function ReadinessIcons({
     <span className="inline-flex gap-0.5">
       {drawn.map(({ code, icon_key }) => {
         const Icon = checkIcon(icon_key);
-        const st = (readiness?.[code] ?? "Not Started") as CheckStatus;
+        const st = (ownValue(readiness, code) ?? "Not Started") as CheckStatus;
         return <Icon key={code} className={cn("h-3 w-3", STATUS_ICON_COLOR[st])} />;
       })}
     </span>

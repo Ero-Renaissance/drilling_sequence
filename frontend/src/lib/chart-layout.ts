@@ -6,6 +6,7 @@
  */
 import type { CatalogCheck, CheckCode, CheckStatus, Severity } from "@/api/readiness";
 import { STATUS_SEVERITY, applies, type ReadinessCell } from "@/components/readiness/check-meta";
+import { ownValue } from "./own-key";
 import { groupByCategory, type Categorised } from "./readiness-categories";
 
 /** A strip's checks, in catalog order — the lens's definitions (or, under the
@@ -121,7 +122,7 @@ export function categoryCell(
   cells: Cells,
 ): CategoryCell | undefined {
   const shown = types.flatMap((t): CategoryType[] => {
-    const cell = cells?.[t.code];
+    const cell = ownValue(cells, t.code);
     return cell && applies(cell, t) ? [{ code: t.code, label: t.label, status: cell.status }] : [];
   });
   if (shown.length === 0) return undefined;
@@ -192,7 +193,7 @@ export function worstCheck(
   };
   let winner: { code: CheckCode; status: CheckStatus } | null = null;
   for (const def of defs) {
-    const cell = checks[def.code];
+    const cell = ownValue(checks, def.code);
     if (!cell || !applies(cell, def)) continue;
     const s = cell.status;
     if (!winner || rank[s] > rank[winner.status]) {
@@ -235,7 +236,10 @@ export function barStripCodes(
   allLens: boolean,
 ): CheckCode[] {
   return defs
-    .filter((d) => (!allLens || checks[d.code] !== undefined) && applies(checks[d.code], d))
+    .filter((d) => {
+      const cell = ownValue(checks, d.code);
+      return (!allLens || cell !== undefined) && applies(cell, d);
+    })
     .map((d) => d.code);
 }
 
