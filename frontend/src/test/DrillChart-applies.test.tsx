@@ -213,6 +213,40 @@ describe("the All lens", () => {
   });
 });
 
+describe("the All lens with a team coded 'constructor' (a valid team code)", () => {
+  it("draws no phantom badge and no tooltip block for it on a bar with none", async () => {
+    const CONSTRUCTOR: CatalogTeam = {
+      code: "constructor", name: "Construction", editor_source: "team_grant", icon_key: "hard-hat", sort_order: 30,
+    };
+    server.use(
+      http.get("/api/readiness/catalog", () =>
+        HttpResponse.json({
+          teams: [...BUILTIN_TEAMS, LOGISTICS, CONSTRUCTOR],
+          checks: [
+            ...BUILTIN_PROJECT_GATES, LBUD, CTR, NAV, PO,
+            { ...check("CNS", "stamp", 10), team_code: "constructor" },
+          ],
+          status_sets: {},
+        }),
+      ),
+    );
+    await renderChart(
+      "all",
+      {
+        logistics: {
+          status: "On Track",
+          details: [{ code: "PO", label: "PO", status: "On Track", applies: true }],
+        },
+      },
+      "READINESS BY TEAM",
+    );
+    expect(stripImages()).toEqual([icon(LOGISTICS, "On Track")]);
+    const html = tooltipOf();
+    expect(html).not.toContain("Construction");
+    expect(html).not.toContain("undefined");
+  });
+});
+
 describe("the Project gates lens is unchanged", () => {
   it("draws every gate — an N/A gate in grey — and lists them all", async () => {
     const gates = Object.fromEntries(

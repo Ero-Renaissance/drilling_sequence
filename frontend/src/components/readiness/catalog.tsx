@@ -14,6 +14,7 @@ import {
   type CheckStatus,
 } from "@/api/readiness";
 import { logger } from "@/lib/logger";
+import { ownValue } from "@/lib/own-key";
 import { useAuthStore } from "@/store/auth";
 
 /** The team that owns the field-project gates (the "Project gates" lens). */
@@ -152,7 +153,7 @@ export function statusOf(
   checks: Partial<Record<string, { status: CheckStatus }>> | null | undefined,
   code: string,
 ): CheckStatus {
-  return checks?.[code]?.status ?? "On Track";
+  return ownValue(checks, code)?.status ?? "On Track";
 }
 
 // ── Lenses (Phase 3): one team's checks at a time keeps each view uncluttered ──
