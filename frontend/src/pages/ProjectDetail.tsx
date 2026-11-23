@@ -19,6 +19,7 @@ import { ResourceRegistryPanel } from "@/components/resources/ResourceRegistryPa
 import { FleetDemandChart } from "@/components/resources/FleetDemandChart";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
+import { WellExecutionGrid } from "@/components/readiness/WellExecutionGrid";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { SequencePrintControl } from "@/components/chart/SequencePrintControl";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -850,15 +851,18 @@ export function ReadinessTab() {
     <div className="space-y-3">
       <LensPicker value={lens} onChange={chooseLens} />
       <ErrorBoundary label="readiness table">
-        {lens === ALL_LENS ? (
+        {lens === PROJECTS_TEAM ? (
+          // The well execution readiness checks, laid out as the sheet (phase 8,
+          // Part B): wells grouped by value stream and field project.
+          <WellExecutionGrid projectId={projectId} canEditPlan={canEditPlan} />
+        ) : lens === ALL_LENS ? (
           <AllReadinessGrid
             projectId={projectId}
             onOpenLens={(code) => chooseLens(code, "wells")}
           />
         ) : (
-          // Every team — the well execution readiness checks included (phase
-          // 8) — through the one grid: Projects | Wells, each well following
-          // its field project until it has its own value.
+          // Every other team through the one grid: Projects | Wells, each well
+          // following its field project until it has its own value.
           <TeamReadinessGrid
             key={lens}
             projectId={projectId}

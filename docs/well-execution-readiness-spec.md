@@ -1,7 +1,10 @@
 # Well Execution Readiness — draft spec (readiness phase 8)
 
 **Status:** decisions D1–D7 agreed 2026-11-23 (§5). **Part A is built**
-(migration 040, branch `feat/well-execution-readiness`); Part B is not started.
+(migration 040, PR 33). **Part B is built** (`WellExecutionGrid.tsx`, branch
+`feat/well-execution-readiness-page`), with two additions it needed: each well
+row carries its value stream (`market`), and a status write that sends no
+`notes` keeps the cell's note (`notes: null` clears it).
 **Source:** the "Well Execution Readiness" sheet (Value Stream · Project · Wells ·
 Spud date · eight checks, coloured cells) and the decision that the Project gates
 are really per-well readiness checks.

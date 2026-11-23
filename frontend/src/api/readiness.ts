@@ -181,6 +181,8 @@ export interface TeamWellRow {
    *  share its readiness (e.g. two workovers) — the grid warns. */
   activity_count: number;
   location: string | null;
+  /** The well's value stream — its activity's Market. */
+  market?: string | null;
   start_date: string;
   focus_start: string | null;
   /** Days from the server's today to `focus_start`. */
@@ -227,7 +229,9 @@ export async function setReadiness(
   const resp = await fetch(`/api/projects/${projectId}/readiness/${encodeURIComponent(checkCode)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({ ...target, status, notes: notes ?? null }),
+    // `notes` is sent only when given: left out, the server keeps the cell's
+    // note (a status picked from a menu must not wipe it); null clears it.
+    body: JSON.stringify({ ...target, status, ...(notes === undefined ? {} : { notes }) }),
   });
   if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }

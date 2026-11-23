@@ -290,7 +290,6 @@ describe("TeamReadinessGrid", () => {
         well_name: "W-1",
         activity_type: "Oil Development",
         status: "Behind",
-        notes: null,
       }),
     );
   });

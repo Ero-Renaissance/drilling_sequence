@@ -297,6 +297,7 @@ describe("setApplicability — PUT …/readiness/teams/{team}/applicability", ()
       }),
     );
     await setReadiness(PID, "PO", { scope: "project", well_project: "Bonga Phase 3" }, "Behind");
-    expect(body).toEqual({ scope: "project", well_project: "Bonga Phase 3", status: "Behind", notes: null });
+    // No `notes` unless one is given: the server then keeps the cell's note.
+    expect(body).toEqual({ scope: "project", well_project: "Bonga Phase 3", status: "Behind" });
   });
 });
