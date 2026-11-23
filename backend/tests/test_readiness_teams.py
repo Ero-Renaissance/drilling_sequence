@@ -184,7 +184,7 @@ async def test_operational_team_check_stays_writable_while_the_plan_is_locked(
     await _grant(client, grantee, ["logistics"])
     assert (await client.post(f"/api/projects/{pid}/revisions", json={})).status_code in (200, 201)
 
-    assert (await _put(client, pid, "FID")).status_code == 423  # governed gate
+    assert (await _put(client, pid, "FID")).status_code == 200  # Project gate: live too
     assert (await _put(noplan_client, pid, "L-BUD")).status_code == 200  # operational
 
 

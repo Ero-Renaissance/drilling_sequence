@@ -841,8 +841,8 @@ async def test_nominations_stay_live_while_the_plan_is_locked(
     assert (await _put(client, pid, "PSV", PROJECT, "Completed")).status_code == 200
     assert (await _apply(client, pid, PROJECT, {"PSV": False})).status_code == 200
     assert await _rows(db, pid) == []
-    # A Project gate is still frozen.
-    assert (await _put(client, pid, "FID", PROJECT, "Completed")).status_code == 423
+    # A Project gate stays live as well (2026-11-23).
+    assert (await _put(client, pid, "FID", PROJECT, "Completed")).status_code == 200
 
 
 # ── The Project gates are unchanged (decision 31) ───────────────────────────

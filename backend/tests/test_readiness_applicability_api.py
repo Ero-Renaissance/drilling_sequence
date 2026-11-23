@@ -260,26 +260,36 @@ async def test_ticks_stay_live_while_the_plan_is_locked(
 
 
 @pytest.mark.asyncio
-async def test_a_project_gate_status_write_while_approved_is_423(
-    client: AsyncClient, other_client: AsyncClient, db: AsyncSession
+async def test_a_project_gate_stays_editable_while_the_plan_is_locked(
+    client: AsyncClient, other_client: AsyncClient, noplan_client: AsyncClient, db: AsyncSession
 ) -> None:
-    """Approval keeps the plan locked (the approved snapshot is the record), so a
-    Project-gate status write is refused — nothing written, nothing audited —
-    while a team check's status stays writable."""
+    """Readiness is live (2026-11-23): approval keeps the PLAN locked, but a
+    Project-gate status write is still accepted — written, audited as made under
+    the lock — and the approved snapshot, the record, doesn't move. Who may write
+    is unchanged: a non-planner is still refused."""
+    import json
+
     pid = await _setup(client, db)
     assert (await _put(client, pid, "FID", PROJECT, "Behind")).status_code == 200
     await _approve(client, other_client, pid)
     before = await _details(db, pid, "readiness_updated")
 
-    refused = await _put(client, pid, "FID", PROJECT, "Completed")
-    assert refused.status_code == 423
-    assert "locked by a revision (pending or approved)" in refused.json()["detail"]
-    refused_na = await _put(client, pid, "FID", PROJECT, "N/A")
-    assert refused_na.status_code == 423
+    assert (await _put(client, pid, "FID", PROJECT, "Completed")).status_code == 200
     rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    assert rows[0]["checks"]["FID"]["status"] == "Behind" and rows[0]["locked"] is True
-    assert await _details(db, pid, "readiness_updated") == before
+    assert rows[0]["checks"]["FID"]["status"] == "Completed" and rows[0]["locked"] is True
+    assert (await _details(db, pid, "readiness_updated"))[len(before) :] == [
+        "FID for Bonga Phase 3: Behind -> Completed; plan locked"
+    ]
 
+    # The approved revision still reads what was signed.
+    revs = (await client.get(f"/api/projects/{pid}/revisions")).json()
+    detail = (await client.get(f"/api/projects/{pid}/revisions/{revs[0]['id']}")).json()
+    assert detail["status"] == "approved"
+    w1 = next(a for a in json.loads(detail["snapshot_json"]) if a["well_name"] == "W-1")
+    assert w1["readiness"]["FID"] == "Behind"
+
+    # The plan itself is still locked, and the role check still decides who writes.
+    assert (await _put(noplan_client, pid, "FID", PROJECT, "Behind")).status_code == 403
     assert (await _put(client, pid, "PO", _well(), "Completed")).status_code == 200
 
 

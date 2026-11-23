@@ -22,9 +22,10 @@ export function ReadinessToolbar({
 }: {
   loading: boolean;
   onRefresh: () => void;
-  /** The campaign's plan is locked (the Project gates freeze with it). */
+  /** The campaign's plan is locked. Readiness stays editable — the chip says
+   *  so, and that changes don't alter the revision's frozen record. */
   locked?: boolean;
-  /** A team grid's Projects | Wells switch (spec §8.8); the gates page has none. */
+  /** The Projects | Wells switch (spec §8.8) — the Project gates page has one too. */
   viewSwitch?: ReactNode;
   window: { value: number; onChange: (months: number) => void; allLabel: string };
   search: {
@@ -55,10 +56,10 @@ export function ReadinessToolbar({
       {locked && (
         <span
           className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
-          title="The campaign's plan is locked."
+          title="The plan is locked, but readiness can still be updated. Changes are recorded in the audit log and don't alter what the revision recorded."
         >
           <Lock className="h-3 w-3" />
-          Plan locked
+          Plan locked · readiness stays editable
         </span>
       )}
 

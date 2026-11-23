@@ -105,11 +105,18 @@ logic against these active business rules:
   (activity create/edit/complete/delete, CSV import, "Add project" bulk wells
   (`POST .../activities/project-wells`) and "Edit project" (`PUT` same path —
   all-or-nothing, must list every well of the project, 409 on a stale well or a
-  rename onto another project's name), rig/HWU contract upsert/delete,
-  readiness PUT/reset for a **governed** check — `locks_with_plan`, i.e. the project
-  gates; operational checks and the team tick lists (applicability PUT) stay
-  editable, never 423) is then refused with **423** via `app/core/locks.py`
-  (`ensure_activity_unlocked` / `assert_project_not_locked`). **Approval keeps the
+  rename onto another project's name), rig/HWU contract upsert/delete) is then
+  refused with **423** via `app/core/locks.py`
+  (`ensure_activity_unlocked` / `assert_project_not_locked`). **Readiness is NOT
+  frozen by the lock** (decided 2026-11-23): every readiness write — status
+  PUT/reset for any check, the Project gates included, and the team tick lists —
+  stays editable while the plan is locked, pending or approved, never 423. The
+  role check is unchanged (`assert_can_edit_check`), each change is still audited,
+  and a Project-gate change made under the lock is marked `; plan locked` in its
+  `readiness_updated` detail. The revision's `snapshot_json` still holds the gates
+  as submitted — that, not the live value, is what signers sign. `locks_with_plan`
+  now only marks the governed Project gates (snapshot gate block, diff, N/A,
+  project level only); it no longer refuses a write. **Approval keeps the
   plan LOCKED** — the approved `snapshot_json` is the immutable record, so the live
   plan can't drift from it silently. Reject / request-changes / discard unlock it
   (the planner must edit to address feedback); approval does **not**. A planner
@@ -179,8 +186,8 @@ logic against these active business rules:
   (`is_withdrawn` — today `NEQ`, retired by migration 038): it is retired, can't
   be restored (409) or created (422), every write treats it as retired, and its
   code stays reserved like `CON`. **N/A is pickable only on the Project gates**
-  (checks that lock with the plan) — drawn as the grey N/A icon and frozen with
-  the plan, as before. Every other team's checks use the **tick list** instead
+  (checks flagged `locks_with_plan`) — drawn as the grey N/A icon; like every
+  readiness value it stays editable under the plan lock (2026-11-23). Every other team's checks use the **tick list** instead
   (`readiness_applicability`, `PUT .../readiness/teams/{team}/applicability`;
   422 for the Projects team or a check that locks with the plan): N/A isn't
   picked for them (status PUT 422s it), a status or Reset to project on an

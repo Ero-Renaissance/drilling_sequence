@@ -107,7 +107,6 @@ export function ActivityReadinessPanel({
   const teams = useReadinessTeams();
   const projectGates = useProjectGates();
   const [views, setViews] = useState<TeamView[] | null>(null);
-  const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -145,7 +144,6 @@ export function ActivityReadinessPanel({
         };
       });
       setViews(next);
-      setLocked(!!gateRow?.locked || perTeam.some((d) => d.locked));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load readiness");
     }
@@ -256,7 +254,6 @@ export function ActivityReadinessPanel({
               const columnCount = 1 + (showWell ? 1 : 0) + (showProject ? 1 : 0);
               const renderRow = (c: CatalogCheck) => {
                 const Icon = checkIcon(c.icon_key);
-                const frozen = locked && c.locks_with_plan;
                 // Team views offer the check's pickable statuses — never
                 // N/A (untick it instead); the Project gates keep N/A.
                 const statuses = pickableStatuses(c);
@@ -267,11 +264,6 @@ export function ActivityReadinessPanel({
                         <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="font-mono text-xs font-semibold">{c.code}</span>
                         <span className="truncate text-muted-foreground">{c.label}</span>
-                        {frozen && (
-                          <span title="Frozen with the plan while a revision is pending or approved">
-                            <Lock className="h-3 w-3 text-muted-foreground" />
-                          </span>
-                        )}
                       </div>
                     </td>
                     {showWell && (
@@ -281,7 +273,7 @@ export function ActivityReadinessPanel({
                             check={c}
                             state={well?.[c.code]}
                             statuses={statuses}
-                            disabled={!editable || frozen || saving === `w:${c.code}`}
+                            disabled={!editable || saving === `w:${c.code}`}
                             inherited={
                               // Faded only while it reads the field project's
                               // status — a well ticked under an unticked
@@ -326,7 +318,7 @@ export function ActivityReadinessPanel({
                             check={c}
                             state={project?.[c.code]}
                             statuses={statuses}
-                            disabled={!editable || frozen || saving === `p:${c.code}`}
+                            disabled={!editable || saving === `p:${c.code}`}
                             inherited={false}
                             onSave={(status) =>
                               write(`p:${c.code}`, () =>

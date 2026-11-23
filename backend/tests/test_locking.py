@@ -107,14 +107,17 @@ async def test_edit_allowed_after_revision_discarded(client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
-async def test_readiness_upsert_locked_then_unlocked(client: AsyncClient) -> None:
-    project_id, _activity_id = await _project_with_activity(client)
+async def test_readiness_upsert_stays_live_under_the_lock(client: AsyncClient) -> None:
+    project_id, activity_id = await _project_with_activity(client)
     revision_id = await _create_revision(client, project_id)
 
-    # Readiness is per FIELD PROJECT now — the gate freezes with the plan.
+    # Readiness is live status (2026-11-23): a Project gate is writable while the
+    # plan is locked — the plan itself still isn't.
     url = f"/api/projects/{project_id}/readiness/BUD"
     body = {"well_project": "Lock Project", "status": "On Track"}
-    assert (await client.put(url, json=body)).status_code == 423
+    assert (await client.put(url, json=body)).status_code == 200
+    activity = f"/api/projects/{project_id}/activities/{activity_id}"
+    assert (await client.patch(activity, json={"well_name": "Changed"})).status_code == 423
 
     discard = await client.delete(f"/api/projects/{project_id}/revisions/{revision_id}")
     assert discard.status_code == 204
@@ -125,7 +128,8 @@ async def test_readiness_upsert_locked_then_unlocked(client: AsyncClient) -> Non
 @pytest.mark.asyncio
 async def test_readiness_list_reports_locked(client: AsyncClient) -> None:
     """The readiness list flags each row as locked while a revision is pending, so
-    the grid can disable the dots up front; the flag clears once resolved."""
+    the grid can say the plan is locked (the gates stay editable); the flag
+    clears once resolved."""
     project_id, _ = await _project_with_activity(client)
     revision_id = await _create_revision(client, project_id)
 

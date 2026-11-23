@@ -153,14 +153,17 @@ describe("ActivityReadinessPanel", () => {
     expect(within(gates).queryByRole("button", { name: /^Checks…/ })).not.toBeInTheDocument();
   });
 
-  it("planners edit the project gates, which freeze with the plan", async () => {
+  it("planners edit the project gates, also while the plan is locked", async () => {
     currentUser = { id: "p1", is_admin: false, teams: [] };
     locked = true;
     renderPanel({ canEditProjectGates: true });
     const gates = await screen.findByRole("region", { name: "Project gates" });
     expect(within(gates).getByText("You can edit")).toBeInTheDocument();
+    // Readiness is live (2026-11-23): the plan lock doesn't freeze the gates.
     await waitFor(() =>
-      expect(within(gates).queryAllByRole("button", { name: /click to change/i })).toHaveLength(0),
+      expect(
+        within(gates).queryAllByRole("button", { name: /click to change/i }).length,
+      ).toBeGreaterThan(0),
     );
     // …while the live logistics checks are view-only only for lack of the grant
     // (the Logistics section waits for the live catalog).

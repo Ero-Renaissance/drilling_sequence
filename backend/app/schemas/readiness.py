@@ -166,9 +166,9 @@ class ProjectReadiness(BaseModel):
     # Count of activities in the campaign that carry this project (context for the
     # grid: "Bonga Phase 3 · 4 activities").
     activity_count: int = 0
-    # Frozen while the plan is locked by a revision, pending or approved (the
-    # gates' status PUT 423s) — lets the grid disable the controls up front,
-    # matching the campaign plan lock.
+    # True while the plan is locked by a revision, pending or approved. The gates
+    # stay editable (2026-11-23); the grid uses it to say that changes are live
+    # and don't alter the revision's frozen record.
     locked: bool = False
     # Earliest start date of a not-done, readiness-required activity under this
     # field project. Lets the readiness page apply the same focus window the
@@ -313,7 +313,7 @@ class TeamReadiness(BaseModel):
     checks: list[CatalogCheck]
     project_rows: list[TeamProjectRow]
     well_rows: list[TeamWellRow]
-    # The plan lock — only checks that lock with the plan are frozen by it.
+    # The plan lock. Readiness stays editable under it (2026-11-23).
     locked: bool
 
 
