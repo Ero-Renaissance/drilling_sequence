@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { delay, http, HttpResponse } from "msw";
 
@@ -58,7 +58,7 @@ describe("ReadinessGrid", () => {
     expect(name.closest("td")!.className).toContain("[overflow-wrap:anywhere]");
   });
 
-  it("disables the dots and shows the lock chip when the campaign is locked", async () => {
+  it("keeps the dots editable and says so when the campaign is locked", async () => {
     const checks = Object.fromEntries(
       BUILTIN_PROJECT_GATES.map(({ code: c }) => [c, { status: "On Track", notes: null, updated_at: null }]),
     );
@@ -79,10 +79,11 @@ describe("ReadinessGrid", () => {
     renderGrid();
     await waitFor(() => screen.getByText("Bonga Phase 3"));
 
-    expect(screen.getByText(/plan locked/i)).toBeInTheDocument();
+    // Readiness is live (2026-11-23): the plan lock doesn't freeze the gates.
+    expect(screen.getByText(/plan locked · readiness stays editable/i)).toBeInTheDocument();
     const dots = screen.getAllByTitle(/: On Track$/);
     expect(dots.length).toBeGreaterThan(0);
-    dots.forEach((dot) => expect(dot).toBeDisabled());
+    dots.forEach((dot) => expect(dot).toBeEnabled());
   });
 
   it("shows BUD as Completed for the Bonga Phase 3 project row", async () => {
@@ -240,7 +241,7 @@ describe("ReadinessGrid", () => {
     await waitFor(() => {
       // Grid loaded with 2 field-project rows — empty state should NOT show
       expect(
-        screen.queryByText("Give activities a Project in the Data tab first."),
+        screen.queryByText("Give activities a Project in the Activities tab first."),
       ).not.toBeInTheDocument();
     });
   });
@@ -361,5 +362,98 @@ describe("ReadinessGrid", () => {
     renderAt("/?focus=not-ready");
     await waitFor(() => screen.getByText("Far Field"));
     expect(screen.queryByText("Near Field")).not.toBeInTheDocument();
+  });
+});
+
+// ── The Wells view (Projects | Wells, as on the team grids) ───────────────────
+
+describe("ReadinessGrid — Wells view", () => {
+  const well = (id: string, well_name: string, well_project: string | null, extra: object = {}) => ({
+    id,
+    project_id: PROJECT_ID,
+    activity_type: "Oil Development",
+    start_date: SOON,
+    end_date: SOON,
+    well_name,
+    rig_name: "Rig Alpha",
+    hwu_name: null,
+    location: "OFFSHORE",
+    well_project,
+    project_group: null,
+    risk: null,
+    comment: null,
+    plan_type: "Firm",
+    readiness_required: true,
+    completed_at: null,
+    updated_at: "2026-05-25T08:00:00Z",
+    updated_by_name: null,
+    locked_by_revision_id: null,
+    ...extra,
+  });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          well("a1", "Bonga-1", "Bonga Phase 3"),
+          well("a2", "Bonga-2", "Bonga Phase 3"),
+          well("a3", "Egina-1", "Egina North"),
+          // Carry no gates: no field project, readiness switched off.
+          well("a4", "Lone-1", null),
+          well("a5", "Bonga-Off", "Bonga Phase 3", { readiness_required: false }),
+        ]),
+      ),
+    );
+  });
+
+  async function openWells() {
+    renderGrid();
+    await screen.findByText("Bonga Phase 3");
+    await userEvent.click(screen.getByRole("radio", { name: "Wells" }));
+    return screen.findByRole("table", { name: /wells and their field project's gates/i });
+  }
+
+  it("opens on Projects and switches to one row per well", async () => {
+    renderGrid();
+    await screen.findByText("Bonga Phase 3");
+    expect(screen.getByRole("radio", { name: "Projects" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("2 projects");
+
+    await userEvent.click(screen.getByRole("radio", { name: "Wells" }));
+    const table = await screen.findByRole("table", { name: /wells and their field project's gates/i });
+    for (const name of ["Bonga-1", "Bonga-2", "Egina-1"]) {
+      expect(within(table).getByText(name)).toBeInTheDocument();
+    }
+    expect(within(table).queryByText("Lone-1")).not.toBeInTheDocument();
+    expect(within(table).queryByText("Bonga-Off")).not.toBeInTheDocument();
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("3 wells");
+    // The figures still count each field project once.
+    expect(screen.getByTestId("readiness-summary")).toHaveTextContent("2 field projects");
+    expect(screen.getByTestId("gates-wells-note")).toHaveTextContent(/set per field project/i);
+  });
+
+  it("a gate changed on one well is the field project's — its other wells follow", async () => {
+    const table = await openWells();
+    const row = (name: string) => within(table).getByText(name).closest("tr")!;
+    // The mock's Bonga Phase 3 starts with one gate Completed (BUD).
+    expect(within(row("Bonga-2")).getAllByTitle(/: Completed$/)).toHaveLength(1);
+    await userEvent.click(within(row("Bonga-1")).getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Completed/ }));
+
+    await waitFor(() => expect(savedGates.get("Bonga Phase 3")).toBeDefined());
+    await waitFor(() => expect(within(row("Bonga-2")).getAllByTitle(/: Completed$/)).toHaveLength(2));
+    expect(within(row("Bonga-1")).getAllByTitle(/: Completed$/)).toHaveLength(2);
+    expect(within(row("Egina-1")).queryAllByTitle(/: Completed$/)).toHaveLength(0);
+  });
+
+  it("'Wells →' on a field project opens its wells only", async () => {
+    renderGrid();
+    await screen.findByText("Bonga Phase 3");
+    await userEvent.click(screen.getByRole("button", { name: "Show the wells of Egina North" }));
+    const table = await screen.findByRole("table", { name: /wells and their field project's gates/i });
+    expect(within(table).getByText("Egina-1")).toBeInTheDocument();
+    expect(within(table).queryByText("Bonga-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("1 of 3");
   });
 });

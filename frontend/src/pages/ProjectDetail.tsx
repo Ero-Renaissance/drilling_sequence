@@ -870,7 +870,7 @@ export function ReadinessTab() {
         ) : lens === ALL_LENS ? (
           <AllReadinessGrid
             projectId={projectId}
-            onOpenLens={(code) => chooseLens(code, code === PROJECTS_TEAM ? undefined : "wells")}
+            onOpenLens={(code) => chooseLens(code, "wells")}
           />
         ) : (
           <TeamReadinessGrid key={lens} projectId={projectId} teamCode={lens} />
