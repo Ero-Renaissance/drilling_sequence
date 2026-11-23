@@ -359,7 +359,9 @@ describe("RevisionPrintDoc — readiness key", () => {
 
   it("the Project gates and All keep N/A", () => {
     const frozen = [...BUILTIN_PROJECT_GATES, teamCheck("PO")];
-    expect(statusKey("projects", frozen, { FDP: "N/A" })).toBe("StatusOn TrackBehindCompletedN/A");
+    expect(statusKey("projects", frozen, { FDP: "N/A" })).toBe(
+      "StatusNot startedOn TrackBehindCompletedN/A",
+    );
   });
 
   it("a revision that recorded Nominated Equipment keys its history statuses", () => {
@@ -371,7 +373,7 @@ describe("RevisionPrintDoc — readiness key", () => {
   it("also keys any other known status the rows draw", () => {
     // A lens whose frozen catalog lost the definition still keys what it drew.
     expect(statusKey("projects", [...BUILTIN_PROJECT_GATES], { FDP: "Completed", LLI: "Pending" })).toBe(
-      "StatusOn TrackBehindCompletedN/APending",
+      "StatusNot startedOn TrackBehindCompletedN/APending",
     );
   });
 });

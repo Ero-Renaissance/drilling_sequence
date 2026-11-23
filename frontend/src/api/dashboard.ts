@@ -11,6 +11,9 @@ export interface GateBreakdown {
   code: string;
   completed: number;
   on_track: number;
+  /** Counted but not yet moving (phase 8, "Not started"). Optional: an older
+   *  response without it reads 0. */
+  not_started?: number;
   behind: number;
   na: number;
 }

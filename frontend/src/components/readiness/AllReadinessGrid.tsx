@@ -3,7 +3,6 @@ import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { listActivities, type Activity } from "@/api/activities";
 import {
   getTeamReadiness,
-  listReadiness,
   type CatalogCheck,
   type CatalogTeam,
   type CheckState,
@@ -77,7 +76,6 @@ export function AllReadinessGrid({
   const projectGates = useProjectGates();
   const userTeams = useAuthStore((s) => s.user?.teams);
   const [activities, setActivities] = useState<Activity[] | null>(null);
-  const [gates, setGates] = useState<Map<string, Values>>(new Map());
   const [teamData, setTeamData] = useState<TeamReadiness[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -92,15 +90,13 @@ export function AllReadinessGrid({
     setLoading(true);
     setError(null);
     try {
-      const [acts, projectRows, ...perTeam] = await Promise.all([
+      // Every team through the same read — the well execution readiness
+      // checks are per well too (phase 8).
+      const [acts, ...perTeam] = await Promise.all([
         listActivities(projectId),
-        listReadiness(projectId),
-        ...teams
-          .filter((t) => t.code !== PROJECTS_TEAM)
-          .map((t) => getTeamReadiness(projectId, t.code)),
+        ...teams.map((t) => getTeamReadiness(projectId, t.code)),
       ]);
       setActivities(acts);
-      setGates(new Map(projectRows.map((r) => [r.well_project, r.checks])));
       setTeamData(perTeam);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load readiness data");
@@ -161,19 +157,10 @@ export function AllReadinessGrid({
   // column per category — the Project gates have none) and how a row reads its
   // values.
   const groups = teams.map((team) => {
-    if (team.code === PROJECTS_TEAM) {
-      const checks = projectGates as CatalogCheck[];
-      return {
-        team,
-        checks,
-        columns: gridColumns(checks, null),
-        lookAlikes: new Set<string>(),
-        values: (r: WellRow): Values | undefined =>
-          r.well_project ? gates.get(r.well_project) : undefined,
-      };
-    }
     const data = teamData.find((d) => d.team.code === team.code);
-    const checks = data?.checks ?? [];
+    // Until its read lands, the built-in team's columns come from the catalog.
+    const checks =
+      data?.checks ?? (team.code === PROJECTS_TEAM ? (projectGates as CatalogCheck[]) : []);
     return {
       team,
       checks,

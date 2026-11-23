@@ -93,7 +93,7 @@ describe("pickableStatuses — what a status menu offers (spec §3.3)", () => {
   });
 
   it("a Project gate keeps N/A", () => {
-    expect(pickableStatuses(FDP)).toEqual(["On Track", "Behind", "Completed", "N/A"]);
+    expect(pickableStatuses(FDP)).toEqual(["Not started", "On Track", "Behind", "Completed", "N/A"]);
   });
 
   it("a history-only set offers nothing; an unknown set reads as standard", () => {

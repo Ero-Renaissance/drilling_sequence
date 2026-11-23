@@ -358,7 +358,7 @@ export function ActivityFormDialog({
             />
             <span className="font-medium">Readiness check required</span>
             <span className="text-xs text-muted-foreground">
-              — off hides the readiness gates on the chart &amp; print
+              — off hides the readiness checks on the chart &amp; print
             </span>
           </label>
 

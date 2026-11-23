@@ -3,7 +3,6 @@ import { ChevronDown, ChevronRight, Lock, Pencil, RefreshCw } from "lucide-react
 import type { Activity } from "@/api/activities";
 import {
   getTeamReadiness,
-  listReadiness,
   resetWellReadiness,
   setReadiness,
   type CatalogCheck,
@@ -11,7 +10,6 @@ import {
   type CheckSource,
   type CheckState,
   type CheckStatus,
-  type ProjectReadiness,
   type ReadinessTarget,
   type TeamCheckState,
   type TeamReadiness,
@@ -118,16 +116,10 @@ export function ActivityReadinessPanel({
   const load = useCallback(async () => {
     setError(null);
     try {
-      const others = teams.filter((t) => t.code !== PROJECTS_TEAM);
-      const [gates, ...perTeam] = await Promise.all([
-        listReadiness(projectId),
-        ...others.map((t) => getTeamReadiness(projectId, t.code)),
-      ]);
-      const gateRow: ProjectReadiness | undefined = gates.find((r) => r.well_project === wp);
+      // Every team through the same read — the well execution readiness
+      // checks included (phase 8: each well follows its field project).
+      const perTeam = await Promise.all(teams.map((t) => getTeamReadiness(projectId, t.code)));
       const next: TeamView[] = teams.map((team) => {
-        if (team.code === PROJECTS_TEAM) {
-          return { team, checks: projectGates, project: gateRow?.checks };
-        }
         const data: TeamReadiness | undefined = perTeam.find((d) => d.team.code === team.code);
         return {
           team,

@@ -616,7 +616,7 @@ describe("All grid — an expanded team folds its categories (spec §8.8)", () =
         </ReadinessCatalogProvider>
       </MemoryRouter>,
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Unfold Logistics" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Unfold Logistics Execution Readiness" }));
     const table = screen.getByRole("table");
     const sub = within(table).getAllByRole("row")[1];
     // The Project gates (expanded: they're this user's default lens), then
@@ -652,20 +652,20 @@ describe("All grid — an expanded team folds its categories (spec §8.8)", () =
         </ReadinessCatalogProvider>
       </MemoryRouter>,
     );
-    await screen.findByRole("button", { name: "Unfold Logistics" });
+    await screen.findByRole("button", { name: "Unfold Logistics Execution Readiness" });
     const w1 = await waitFor(() => {
       const row = screen.getByText("W-1").closest("tr")!;
-      expect(within(row).getByLabelText(/^Logistics:/)).toBeInTheDocument();
+      expect(within(row).getByLabelText(/^Logistics Execution Readiness:/)).toBeInTheDocument();
       return row;
     });
     // PSV Behind wins; the not-selected types are neither counted nor named:
     // six checks apply (L-BUD, CTR, PO, DSV, PSV, CR), two of them done.
-    const badge = within(w1).getByLabelText(/^Logistics:/);
+    const badge = within(w1).getByLabelText(/^Logistics Execution Readiness:/);
     // Its summary line names types, as the All lens's does (spec §8.8), and
     // words a look-alike code with its label (§3.4) — CTR looks like CR, PO
     // like PC, judged over the team's full checks as the team lens does.
     expect(badge.getAttribute("title")).toBe(
-      "Logistics: 2 of 6 done · Behind: PSV · On Track: CTR (Contract Availability), PO (Purchase Order), DSV",
+      "Logistics Execution Readiness: 2 of 6 done · Behind: PSV · On Track: CTR (Contract Availability), PO (Purchase Order), DSV",
     );
     expect(badge.querySelector("svg")!.getAttribute("class")).toContain("text-red-500");
   });
@@ -710,7 +710,7 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
 
   it("folds each category to 'Vessels · 2 selected · 1 behind'; core rows stay as they are", async () => {
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await within(logistics).findByText("Budget Availability");
     const vessels = within(logistics).getByRole("button", { name: "Vessels · 2 selected · 1 behind" });
     expect(vessels).toHaveAttribute("aria-expanded", "false");
@@ -730,7 +730,7 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
 
   it("'Not applicable (N)' lists only checks a row unticked — never one that is not selected", async () => {
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await within(logistics).findByText("Budget Availability");
     const toggle = within(logistics).getByRole("button", { name: "Not applicable (1)" });
     await userEvent.click(toggle);
@@ -744,7 +744,7 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
 
   it("the field-project column is blank where the field project didn't select the type", async () => {
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await userEvent.click(await within(logistics).findByRole("button", { name: "Lifting · 1 selected" }));
     const row = within(logistics).getByText("Crane").closest("tr")!;
     const [, wellCell, projectCell] = within(row).getAllByRole("cell");
@@ -779,7 +779,7 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
         <ActivityReadinessPanel projectId={PID} activity={lone} canEditProjectGates={false} open onOpenChange={vi.fn()} />
       </ReadinessCatalogProvider>,
     );
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await within(logistics).findByText("Budget Availability");
     expect(within(logistics).queryByRole("rowgroup", { name: "Permits" })).not.toBeInTheDocument();
     expect(within(logistics).queryByText(/Permits · \d+ selected/)).not.toBeInTheDocument();
@@ -811,7 +811,7 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
       ],
     };
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     const permits = await within(logistics).findByRole("button", { name: "Permits · 1 selected · 1 behind" });
     await userEvent.click(permits);
     const group = within(logistics).getByRole("rowgroup", { name: "Permits" });

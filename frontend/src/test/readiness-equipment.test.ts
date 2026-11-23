@@ -457,7 +457,7 @@ describe("the synthetic strip check per category (§8.8 'How it's built')", () =
   it("a print strip's column count is its uncategorised checks plus its categories", () => {
     expect(stripColumnCount(LOGISTICS_CHECKS)).toBe(12);
     expect(stripColumnCount(EQUIPMENT)).toBe(6);
-    expect(stripColumnCount(BUILTIN_PROJECT_GATES)).toBe(7);
+    expect(stripColumnCount(BUILTIN_PROJECT_GATES)).toBe(8);
     expect(stripColumnCount(lensChecksOf(BUILTIN_PROJECT_GATES, "all", TEAMS))).toBe(2);
   });
 });

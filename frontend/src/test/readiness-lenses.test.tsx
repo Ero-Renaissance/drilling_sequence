@@ -218,7 +218,10 @@ describe("LensPicker", () => {
       </ReadinessCatalogProvider>,
     );
     const logistics = await screen.findByRole("radio", { name: /logistics/i });
-    expect(screen.getByRole("radio", { name: /project gates/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /well execution readiness/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     await userEvent.click(logistics);
     expect(onChange).toHaveBeenCalledWith("logistics");
   });

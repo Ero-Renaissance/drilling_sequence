@@ -10,7 +10,7 @@ import type { RowFigures } from "@/api/readiness";
  *  gates, whose not-counted cells are N/A. */
 export const READINESS_FIGURES_HINT =
   "Complete = done ÷ counted · On track = Completed or On Track (nothing behind) · " +
-  "N/A isn't counted · an unset check reads On Track";
+  "N/A isn't counted · an unset check reads Not started (counted, not on track)";
 
 /** The same hint for a team's checks (Wells, Logistics…), whose not-counted
  *  cells are the checks that don't apply (spec §3.8, §8.7). */
@@ -51,6 +51,8 @@ export interface SummedFigures extends ReadinessFigures {
   counted: number;
   done: number;
   in_progress: number;
+  /** Counted but not yet moving (phase 8, "Not started"). */
+  not_started: number;
   /** Not-counted cells (N/A gates, or team checks that don't apply). */
   na: number;
   /** Rows with ≥1 counted check, every one done. */
@@ -64,6 +66,7 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
   let counted = 0;
   let done = 0;
   let inProgress = 0;
+  let notStarted = 0;
   let behind = 0;
   let na = 0;
   let ready = 0;
@@ -73,6 +76,7 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
     counted += f.counted;
     done += f.done;
     inProgress += f.in_progress;
+    notStarted += f.not_started ?? 0;
     behind += f.behind;
     na += f.na ?? 0;
     if (f.counted > 0) readyOf += 1;
@@ -83,6 +87,7 @@ export function sumFigures(rows: readonly (RowFigures | undefined)[]): SummedFig
     counted,
     done,
     in_progress: inProgress,
+    not_started: notStarted,
     behind,
     na,
     ready,

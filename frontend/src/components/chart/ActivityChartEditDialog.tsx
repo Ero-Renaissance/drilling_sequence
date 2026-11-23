@@ -21,12 +21,21 @@ import {
   updateActivity,
   type Activity,
 } from "@/api/activities";
-import { upsertCheck, type CheckCode, type CheckStatus } from "@/api/readiness";
+import {
+  getTeamReadiness,
+  setReadiness,
+  type CheckCode,
+  type CheckStatus,
+  type EffectiveCheckState,
+  type ReadinessTarget,
+} from "@/api/readiness";
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import { LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
-import { statusOf, useProjectGates } from "@/components/readiness/catalog";
+import { PROJECTS_TEAM, useProjectGates } from "@/components/readiness/catalog";
+import { defaultStatusOf } from "@/components/readiness/check-meta";
+import { teamValuesFor } from "@/lib/readiness-lens";
 import { getActivityColor, suggestedActivityTypes } from "@/lib/chart-colors";
 import {
   ResourceContractSection,
@@ -69,7 +78,6 @@ type FormValues = z.infer<typeof schema>;
 interface Props {
   projectId: string;
   activity: Activity;
-  readiness: Record<CheckCode, { status: CheckStatus }> | null;
   /** All activities in the project — used for rig autocomplete + conflict detection. */
   allActivities?: Activity[];
   /** Rig contracts in the project — used for the contract preview chip. */
@@ -112,7 +120,6 @@ const selectClass =
 export function ActivityChartEditDialog({
   projectId,
   activity,
-  readiness,
   allActivities,
   contractsByRig,
   contractsByHwu,
@@ -121,21 +128,44 @@ export function ActivityChartEditDialog({
   onSaved,
   onOpenReadiness,
 }: Props) {
-  // The field-project gates the user can edit — from the readiness catalog.
+  // The well execution readiness checks — from the readiness catalog.
   const gates = useProjectGates();
   const locked = !!activity.locked_by_revision_id;
   const isCompleted = !!activity.completed_at;
-  // Readiness gates live on the FIELD PROJECT (well_project). Without one there's
-  // nothing to attach them to, so the gates are shown disabled with a hint.
-  const hasProject = !!activity.well_project;
+  // Each WELL has its own checks (phase 8), following its field project until
+  // it is given its own value. No well name → no well to attach them to.
+  const hasWell = !!activity.well_name;
   const [completing, setCompleting] = useState(false);
   const [savingGates, setSavingGates] = useState(false);
   // The Project field is read-only until the user asks to move the well.
   const [movingProject, setMovingProject] = useState(false);
 
-  const [checkStatuses, setCheckStatuses] = useState<Record<CheckCode, CheckStatus>>(
-    () => Object.fromEntries(gates.map(({ code }) => [code, statusOf(readiness, code)])),
-  );
+  // What the well shows now (its own value, else its field project's, else the
+  // default) — loaded when the dialog opens — and what the user changed here.
+  const [loaded, setLoaded] = useState<Record<CheckCode, EffectiveCheckState> | null>(null);
+  const [edited, setEdited] = useState<Record<CheckCode, CheckStatus>>({});
+  useEffect(() => {
+    setEdited({});
+    setLoaded(null);
+    if (!open || !activity.well_name) return;
+    let active = true;
+    getTeamReadiness(projectId, PROJECTS_TEAM)
+      .then((team) => {
+        if (!active) return;
+        const cells = teamValuesFor(team, activity) as
+          | Record<CheckCode, EffectiveCheckState>
+          | undefined;
+        setLoaded(cells ?? {});
+      })
+      .catch(() => active && setLoaded({})); // best-effort: the checks read their defaults
+    return () => {
+      active = false;
+    };
+    // The well's key: the dialog reloads when it is opened for another well.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, projectId, activity.id, activity.well_project, activity.well_name, activity.activity_type]);
+  const shownStatus = (code: CheckCode, statusSet: string): CheckStatus =>
+    edited[code] ?? loaded?.[code]?.status ?? defaultStatusOf(statusSet);
 
   const [error, setError] = useState<string | null>(null);
   const contractRef = useRef<ResourceContractHandle>(null);
@@ -191,12 +221,9 @@ export function ActivityChartEditDialog({
       comment: activity.comment ?? "",
       readiness_required: activity.readiness_required ?? true,
     });
-    setCheckStatuses(
-      Object.fromEntries(gates.map(({ code }) => [code, statusOf(readiness, code)])),
-    );
     setError(null);
     setMovingProject(false);
-  }, [activity, readiness, reset, gates]);
+  }, [activity, reset]);
 
   // ── Derived: resource suggestions (existing rigs/HWUs of the chosen type) ────
   // Existing field-project names — a datalist nudge toward consistent spelling
@@ -275,7 +302,9 @@ export function ActivityChartEditDialog({
   }, [noResource, allActivities, activity, watchedResourceType, watchedResourceName, watchedStart, watchedEnd]);
 
   const changedGates = gates.filter(
-    ({ code }) => checkStatuses[code] !== undefined && checkStatuses[code] !== statusOf(readiness, code),
+    ({ code, status_set }) =>
+      edited[code] !== undefined &&
+      edited[code] !== (loaded?.[code]?.status ?? defaultStatusOf(status_set)),
   );
 
   // Who the dialog is about — the SAVED activity, so the heading stays put
@@ -309,7 +338,16 @@ export function ActivityChartEditDialog({
         readiness_required: values.readiness_required,
       });
 
-      await saveGates();
+      // The checks are keyed by the well's NAMES: write them under the names
+      // just saved (a rename moved the well's values with it).
+      if (values.well_name) {
+        await saveGates({
+          scope: "well",
+          well_project: values.well_project?.trim() ?? "",
+          well_name: values.well_name,
+          activity_type: values.activity_type,
+        });
+      }
 
       // The resource's contract (only if the user edited it) saves with the
       // activity — one Save, not two.
@@ -322,14 +360,11 @@ export function ActivityChartEditDialog({
     }
   }
 
-  // Persist the readiness gates the user changed. Gates belong to the FIELD
-  // PROJECT (well_project), so this updates every activity sharing it; an
-  // activity with no field project has no gates to save.
-  async function saveGates() {
-    const wellProject = activity.well_project;
-    if (!wellProject) return;
+  // Persist the checks the user changed — on THIS well (phase 8): its field
+  // project's value and the project's other wells are untouched.
+  async function saveGates(target: ReadinessTarget) {
     await Promise.all(
-      changedGates.map(({ code }) => upsertCheck(projectId, wellProject, code, checkStatuses[code])),
+      changedGates.map(({ code }) => setReadiness(projectId, code, target, edited[code])),
     );
   }
 
@@ -340,7 +375,14 @@ export function ActivityChartEditDialog({
     setError(null);
     setSavingGates(true);
     try {
-      await saveGates();
+      if (activity.well_name) {
+        await saveGates({
+          scope: "well",
+          well_project: activity.well_project ?? "",
+          well_name: activity.well_name,
+          activity_type: activity.activity_type,
+        });
+      }
       onSaved();
       onOpenChange(false);
     } catch (err) {
@@ -659,20 +701,26 @@ export function ActivityChartEditDialog({
                 </Button>
               )}
             </div>
-            {/* Gates are per FIELD PROJECT — editing them here updates every activity
-                that shares this well's project. */}
-            {hasProject ? (
-              <p className="text-xs text-muted-foreground">
-                Gates apply to the whole{" "}
-                <span className="font-medium text-foreground">{activity.well_project}</span>{" "}
-                field project — every activity in it shares them.
+            {/* The checks are per WELL (phase 8): a change here is this well's
+                own value; until then it follows its field project. */}
+            {!hasWell ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Give this activity a well name to track its readiness checks.
+              </p>
+            ) : activity.well_project ? (
+              <p className="text-xs text-muted-foreground" data-testid="readiness-scope-note">
+                These are <span className="font-medium text-foreground">{activity.well_name}</span>
+                &apos;s own checks. A faded icon follows the{" "}
+                <span className="font-medium text-foreground">{activity.well_project}</span> field
+                project; changing it here sets it for this well only.
               </p>
             ) : (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                Set a Project for this well to track its readiness gates.
+              <p className="text-xs text-muted-foreground" data-testid="readiness-scope-note">
+                These are <span className="font-medium text-foreground">{activity.well_name}</span>
+                &apos;s own checks (it has no field project to follow).
               </p>
             )}
-            {locked && hasProject && (
+            {locked && hasWell && (
               <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                 <Lock className="h-3 w-3 shrink-0" />
                 The plan is locked, but readiness can still be updated. Changes don&apos;t alter
@@ -690,15 +738,18 @@ export function ActivityChartEditDialog({
               />
               <span className="font-medium text-foreground">Readiness check required</span>
               <span className="text-muted-foreground">
-                — off hides these gates on the chart &amp; print-out
+                — off hides these checks on the chart &amp; print-out
               </span>
             </label>
             <div
               className="grid gap-3 rounded-lg border border-border/70 bg-card/60 p-3"
               style={{ gridTemplateColumns: `repeat(${gates.length}, minmax(0, 1fr))` }}
             >
-              {gates.map(({ code, label }) => {
-                const status = checkStatuses[code] ?? statusOf(readiness, code);
+              {gates.map(({ code, label, status_set }) => {
+                const status = shownStatus(code, status_set);
+                // Faded while the well still reads its field project's value.
+                const inherited =
+                  edited[code] === undefined && loaded?.[code]?.source === "project";
                 return (
                   <div key={code} className="flex flex-col items-center gap-1.5">
                     <div className="flex flex-col items-center gap-0.5">
@@ -712,10 +763,9 @@ export function ActivityChartEditDialog({
                     <ReadinessDot
                       code={code}
                       status={status}
-                      disabled={!hasProject}
-                      onChange={(next) =>
-                        setCheckStatuses((prev) => ({ ...prev, [code]: next }))
-                      }
+                      inherited={inherited}
+                      disabled={!hasWell || loaded === null}
+                      onChange={(next) => setEdited((prev) => ({ ...prev, [code]: next }))}
                     />
                     <span className="text-[10px] text-muted-foreground">{status}</span>
                   </div>
@@ -758,7 +808,7 @@ export function ActivityChartEditDialog({
               {locked ? "Close" : "Cancel"}
             </Button>
             {locked ? (
-              hasProject && (
+              hasWell && (
                 <Button type="submit" disabled={savingGates || changedGates.length === 0}>
                   {savingGates ? "Saving…" : "Save readiness"}
                 </Button>

@@ -50,8 +50,8 @@ describe("ChartLegend — readiness statuses", () => {
     expect(statusKey("logistics")).toBe("StatusOn TrackBehindCompleted");
   });
 
-  it("the Project gates keep N/A, drawn grey", () => {
-    expect(statusKey("projects")).toBe("StatusOn TrackBehindCompletedN/A");
+  it("the well execution readiness checks list Not started and keep N/A", () => {
+    expect(statusKey("projects")).toBe("StatusNot startedOn TrackBehindCompletedN/A");
   });
 
   it("the All lens keeps N/A — its Project gates badge can be grey", () => {

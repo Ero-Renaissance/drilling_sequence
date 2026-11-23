@@ -17,7 +17,8 @@ import { logger } from "@/lib/logger";
 import { ownValue } from "@/lib/own-key";
 import { useAuthStore } from "@/store/auth";
 
-/** The team that owns the field-project gates (the "Project gates" lens). */
+/** The team that owns the well execution readiness checks (the "Well Execution
+ *  Readiness" lens). The code stays `projects`, as Campaign's stays `Project`. */
 export const PROJECTS_TEAM = "projects";
 
 function gate(code: string, label: string, icon_key: string, sort_order: number): CatalogCheck {
@@ -26,8 +27,10 @@ function gate(code: string, label: string, icon_key: string, sort_order: number)
     label,
     team_code: PROJECTS_TEAM,
     applies_project: true,
-    applies_well: false,
-    status_set: "standard",
+    // Phase 8: every well has every check, following its field project until
+    // it has its own value; an unset one reads Not started (`execution`).
+    applies_well: true,
+    status_set: "execution",
     icon_key,
     locks_with_plan: true,
     sort_order,
@@ -35,19 +38,20 @@ function gate(code: string, label: string, icon_key: string, sort_order: number)
 }
 
 /**
- * The original seven field-project gates — mirrors `BUILTIN_CHECKS` in
+ * The eight well execution readiness checks — mirrors `BUILTIN_CHECKS` in
  * backend/app/models/readiness.py (a test keeps them identical). Used until the
  * live catalog loads, if it can't load, and outside the app shell (tests, dev
  * fixtures). Revisions bring their own frozen catalog from the API.
  */
 export const BUILTIN_PROJECT_GATES: readonly CatalogCheck[] = [
-  gate("FDP", "Field Development Plan", "land-plot", 10),
-  gate("LLI", "Long Lead Items", "rotary-table", 20),
-  gate("LOC", "Location", "map-pin", 30),
-  gate("FE", "Wells Front End", "drafting-compass", 40),
-  gate("FID", "Final Inv. Decision", "gavel", 50),
-  gate("EIA", "Env. Assessment", "leaf", 60),
-  gate("BUD", "Budget", "banknote", 70),
+  gate("FDP", "Approved FDP/IP", "land-plot", 10),
+  gate("FID", "Final Investment Decision", "gavel", 20),
+  gate("BUD", "Budget Supported by Partners", "banknote", 30),
+  gate("FE", "Well Proposal", "drafting-compass", 40),
+  gate("EIA", "EIA/Waiver", "leaf", 50),
+  gate("LLI", "Long Lead Items", "rotary-table", 60),
+  gate("LOC", "Location Readiness", "map-pin", 70),
+  gate("WP", "Well Permits", "stamp", 80),
 ];
 
 /** The built-in team (the field-project gates), mirroring `BUILTIN_TEAMS`. */
@@ -147,13 +151,16 @@ export function checkDefOf(checks: readonly CatalogCheck[], code: string): Catal
   );
 }
 
-/** A gate's status on a row, or the standard default when the row has no value
- *  for it (e.g. the catalog gained a check the row predates). */
+/** A check's status on a row, or `fallback` when the row has no value for it
+ *  (e.g. the catalog gained a check the row predates). Pass the check's own
+ *  default (`defaultStatusOf(def.status_set)`) where the definition is at hand:
+ *  the standard default suits only frozen rows from before phase 8. */
 export function statusOf(
   checks: Partial<Record<string, { status: CheckStatus }>> | null | undefined,
   code: string,
+  fallback: CheckStatus = "On Track",
 ): CheckStatus {
-  return ownValue(checks, code)?.status ?? "On Track";
+  return ownValue(checks, code)?.status ?? fallback;
 }
 
 // ── Lenses (Phase 3): one team's checks at a time keeps each view uncluttered ──
@@ -169,10 +176,18 @@ export function useReadinessTeams(): readonly CatalogTeam[] {
   return useContext(TeamsContext);
 }
 
-/** What a lens is called: the built-in team reads "Project gates". */
+/** What a lens is called (phase 8): the built-in team reads "Well Execution
+ *  Readiness", every other team "<Team> Execution Readiness". The lens label
+ *  only — a team's own name is unchanged (catalog, Admin page, grants, audit). */
 export function lensLabel(team: Pick<CatalogTeam, "code" | "name">): string {
   if (team.code === ALL_LENS) return "All teams";
-  return team.code === PROJECTS_TEAM ? "Project gates" : team.name;
+  return `${team.code === PROJECTS_TEAM ? "Well" : team.name} Execution Readiness`;
+}
+
+/** A lens named in a heading ("… — live status"): a team lens already says
+ *  "Execution Readiness"; "All teams" needs the word in front. */
+export function readinessHeading(label: string): string {
+  return /readiness/i.test(label) ? label : `Readiness: ${label}`;
 }
 
 /** The "All" lens shows one summary badge per team: a synthetic check per team

@@ -42,7 +42,7 @@ describe("ReadinessDot menu", () => {
 
   it("a Project gate keeps N/A", async () => {
     expect(await menuOf(<ReadinessDot code="FDP" status="On Track" onChange={() => {}} />)).toEqual([
-      "On Track", "Behind", "Completed", "N/A",
+      "Not started", "On Track", "Behind", "Completed", "N/A",
     ]);
   });
 

@@ -89,7 +89,7 @@ describe("Presentation", () => {
     serve();
     renderAt(`/projects/${PID}/present?lens=logistics`);
     await waitFor(() =>
-      expect(screen.getByTestId("presentation-lens")).toHaveTextContent("Readiness: Logistics"),
+      expect(screen.getByTestId("presentation-lens")).toHaveTextContent("Logistics Execution Readiness"),
     );
     const chart = await screen.findByTestId("chart");
     expect(chart).toHaveAttribute("data-lens", "logistics");
@@ -97,11 +97,11 @@ describe("Presentation", () => {
     await waitFor(() => expect(chart).toHaveAttribute("data-readiness", "1"));
   });
 
-  it("falls back to the project gates without a lens", async () => {
+  it("falls back to the well execution readiness checks without a lens", async () => {
     serve();
     renderAt(`/projects/${PID}/present`);
     const chart = await screen.findByTestId("chart");
     expect(chart).toHaveAttribute("data-lens", "projects");
-    expect(screen.getByTestId("presentation-lens")).toHaveTextContent("Readiness: Project gates");
+    expect(screen.getByTestId("presentation-lens")).toHaveTextContent("Well Execution Readiness");
   });
 });

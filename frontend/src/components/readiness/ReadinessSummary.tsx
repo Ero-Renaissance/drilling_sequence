@@ -50,6 +50,9 @@ export function ReadinessSummary({
         <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           <Count dot={STATUS_DOT.Completed} value={f.done} label="done" />
           <Count dot={STATUS_DOT["On Track"]} value={f.in_progress} label="on track" />
+          {f.not_started > 0 && (
+            <Count dot={STATUS_DOT["Not started"]} value={f.not_started} label="not started" />
+          )}
           <Count dot={STATUS_DOT.Behind} value={f.behind} label="behind" />
           {f.na > 0 && (
             <Count dot={STATUS_DOT["N/A"]} value={f.na} label={notCountedLabel(projectGates)} />

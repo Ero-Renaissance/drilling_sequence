@@ -84,7 +84,7 @@ describe("catalog providers", () => {
     );
     // Give the failed fetch a tick to settle; the gates must still be there.
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.getByText("Final Inv. Decision")).toBeInTheDocument();
+    expect(screen.getByText("Final Investment Decision")).toBeInTheDocument();
   });
 
   it("a revision pins its frozen catalog over the live one", async () => {
@@ -114,7 +114,7 @@ describe("catalog providers", () => {
         <ChartLegend activityTypes={[]} />
       </FrozenCatalogProvider>,
     );
-    expect(screen.getByText("Field Development Plan")).toBeInTheDocument();
+    expect(screen.getByText("Approved FDP/IP")).toBeInTheDocument();
   });
 });
 

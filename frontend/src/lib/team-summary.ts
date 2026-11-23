@@ -81,7 +81,7 @@ export interface TeamSummary {
   notApplicable: TeamCheckDetail[];
 }
 
-const ATTENTION_ORDER: Severity[] = ["blocked", "in_progress"];
+const ATTENTION_ORDER: Severity[] = ["blocked", "not_started", "in_progress"];
 
 /** Summarise a team's checks for one activity — the "All" lens tooltip and the
  *  All grid's folded cell. Checks that don't apply are dropped FIRST (spec §5.1),

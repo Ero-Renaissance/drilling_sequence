@@ -318,7 +318,17 @@ function rowCells(
  * team's Overview tile counts them (its links open the Projects view) — and
  * wells in the Wells view.
  */
-export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; teamCode: string }) {
+export function TeamReadinessGrid({
+  projectId,
+  teamCode,
+  canEditPlan = false,
+}: {
+  projectId: string;
+  teamCode: string;
+  /** Planner on this campaign (or admin): may edit a planner-edited team's
+   *  checks — the well execution readiness checks. The API stays the authority. */
+  canEditPlan?: boolean;
+}) {
   const user = useAuthStore((s) => s.user);
   const [data, setData] = useState<TeamReadiness | null>(null);
   const [loading, setLoading] = useState(false);
@@ -378,7 +388,12 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
     !!user &&
     !!data &&
     (user.is_admin ||
-      (data.team.editor_source === "team_grant" && (user.teams ?? []).includes(data.team.code)));
+      (data.team.editor_source === "team_grant" && (user.teams ?? []).includes(data.team.code)) ||
+      (data.team.editor_source === "planner" && canEditPlan));
+  // The checks that lock with the plan — the well execution readiness checks —
+  // have no tick list: one that doesn't apply is marked N/A (decision 31).
+  const hasTickList = !!data?.checks.some((c) => !c.locks_with_plan);
+  const plannerEdited = data?.team.editor_source === "planner";
 
   // A tick save answers with the target's new rows (a field project's plus its
   // wells', built as the read builds them): fold them in rather than reload.
@@ -576,6 +591,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
         <ReadinessToolbar
           loading={loading}
           onRefresh={load}
+          locked={plannerEdited && data.locked}
           viewSwitch={bothViews ? <TeamViewSwitch value={view} onChange={setView} /> : undefined}
           window={{
             value: months,
@@ -603,7 +619,9 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
         {!canEdit && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="h-3.5 w-3.5" />
-            View only — updating {teamName} readiness needs the {teamName} grant (Admin page).
+            {plannerEdited
+              ? "View only — updating these checks needs planner rights on this campaign."
+              : `View only — updating ${teamName} readiness needs the ${teamName} grant (Admin page).`}
           </p>
         )}
 
@@ -617,7 +635,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                 the team's full definitions, as in the grids (spec §3.9). */}
             <ReadinessLegend
               statuses={legendStatuses(data.checks)}
-              notApplicable
+              notApplicable={hasTickList}
               checks={wellsView ? data.checks : projectChecks}
               iconOf={iconOfCategory}
             />
@@ -632,7 +650,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
               }
               unit={wellsView ? ["well", "wells"] : ["field project", "field projects"]}
               windowMonths={months}
-              projectGates={false}
+              projectGates={!hasTickList}
             />
             {!wellsView && (
               <section aria-label="Field projects" className="space-y-2">
@@ -640,7 +658,9 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                   <h3 className="text-sm font-semibold">Field projects</h3>
                   {hasWellChecks && (
                     <span className="text-xs text-muted-foreground">
-                      A field project&apos;s ticks apply to its wells unless a well has its own choice.
+                      {hasTickList
+                        ? "A field project's ticks apply to its wells unless a well has its own choice."
+                        : "A field project's status applies to its wells until a well is given its own."}
                     </span>
                   )}
                 </div>
@@ -698,7 +718,8 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                               <div className={PINNED_CONTENT}>
                                 <div className={PINNED_TOP}>
                                   <div className="min-w-0 font-medium">{row.well_project}</div>
-                                  <ApplicabilityPicker
+                                  {hasTickList && (
+<ApplicabilityPicker
                                     projectId={projectId}
                                     team={data.team}
                                     checks={data.checks}
@@ -713,6 +734,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                     )}
                                     onSaved={applyTicks}
                                   />
+)}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
                                   {row.activity_count}{" "}
@@ -770,7 +792,9 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                   <h3 className="text-sm font-semibold">Wells</h3>
                   {projectChecks.length > 0 && (
                     <span className="text-xs text-muted-foreground">
-                      Each well follows its field project&apos;s ticks and statuses until it sets its own.
+                      {hasTickList
+                        ? "Each well follows its field project's ticks and statuses until it sets its own."
+                        : "Each well follows its field project's status until it is given its own (shown faded until then)."}
                     </span>
                   )}
                 </div>
@@ -881,7 +905,8 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                       </span>
                                     )}
                                   </div>
-                                  <ApplicabilityPicker
+                                  {hasTickList && (
+<ApplicabilityPicker
                                     projectId={projectId}
                                     team={data.team}
                                     checks={data.checks}
@@ -892,6 +917,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                     canEdit={canEdit}
                                     onSaved={applyTicks}
                                   />
+)}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
                                   {row.well_project || "No field project"} · {row.activity_type} ·{" "}

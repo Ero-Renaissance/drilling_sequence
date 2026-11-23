@@ -2,9 +2,9 @@ import { http, HttpResponse } from "msw";
 import type { Project, User } from "@/types";
 import type { Activity, ImportResult } from "@/api/activities";
 import type {
+  CatalogCheck,
   CheckCode,
   CheckStatus,
-  ProjectReadiness,
   ReadinessCatalog,
   RowFigures,
 } from "@/api/readiness";
@@ -27,11 +27,108 @@ export function mockRowFigures(statuses: CheckStatus[]): RowFigures {
     counted: counted.length,
     done,
     in_progress: counted.filter((x) => x === "in_progress").length,
+    not_started: counted.filter((x) => x === "not_started").length,
     behind: counted.filter((x) => x === "blocked").length,
     na: sev.length - counted.length,
     ready: counted.length > 0 && done === counted.length,
   };
 }
+/**
+ * The Projects team's read (`GET /readiness/teams/projects`) for fixtures — the
+ * well execution readiness checks (phase 8): a row per field project and per
+ * well, each well following its field project until it has its own value.
+ * Statuses: `status` for everything (default: Not started), then a field
+ * project's own (`projectStatuses`, plus `savedGates` under its name), then a
+ * well's own (`wellStatuses` keyed "project\u0001well", plus `savedGates`
+ * under that key — the mock PUT writes both).
+ */
+export function mockGateTeam({
+  wells,
+  status = "Not started",
+  projectStatuses = {},
+  wellStatuses = {},
+  activityCounts = {},
+  locked = false,
+  checks = BUILTIN_PROJECT_GATES,
+}: {
+  wells: { well_project: string; well_name: string; activity_type?: string; start_date?: string }[];
+  status?: CheckStatus;
+  projectStatuses?: Record<string, Record<CheckCode, CheckStatus>>;
+  wellStatuses?: Record<string, Record<CheckCode, CheckStatus>>;
+  activityCounts?: Record<string, number>;
+  locked?: boolean;
+  checks?: readonly CatalogCheck[];
+}) {
+  const cell = (s: CheckStatus, source: "well" | "project" | "default") => ({
+    status: s,
+    notes: null,
+    updated_at: null,
+    applies: true,
+    applies_source: "default" as const,
+    source,
+  });
+  const ownOfProject = (wp: string): Record<CheckCode, CheckStatus> => ({
+    ...(projectStatuses[wp] ?? {}),
+    ...(savedGates.get(wp) ?? {}),
+  });
+  const projectCells = (wp: string) =>
+    Object.fromEntries(
+      checks.map(({ code }) => {
+        const own = ownOfProject(wp);
+        return [code, cell(own[code] ?? status, code in own ? "project" : "default")];
+      }),
+    );
+  const projects = [...new Set(wells.map((w) => w.well_project).filter(Boolean))];
+  const well_rows = wells.map((w) => {
+    const key = `${w.well_project}\u0001${w.well_name}`;
+    const own = { ...(wellStatuses[key] ?? {}), ...(savedGates.get(key) ?? {}) };
+    const fromProject = w.well_project ? ownOfProject(w.well_project) : {};
+    const cells = Object.fromEntries(
+      checks.map(({ code }) => [
+        code,
+        code in own
+          ? cell(own[code], "well")
+          : code in fromProject
+            ? cell(fromProject[code], "project")
+            : cell(status, "default"),
+      ]),
+    );
+    return {
+      well_project: w.well_project,
+      well_name: w.well_name,
+      activity_type: w.activity_type ?? "Oil Development",
+      activity_count: 1,
+      location: "OFFSHORE",
+      start_date: w.start_date ?? SOON,
+      focus_start: w.start_date ?? SOON,
+      focus_in_days: 30,
+      checks: cells,
+      figures: mockRowFigures(Object.values(cells).map((c) => c.status)),
+    };
+  });
+  const project_rows = projects.map((wp) => {
+    const cells = projectCells(wp);
+    const figures = mockRowFigures(Object.values(cells).map((c) => c.status));
+    return {
+      well_project: wp,
+      activity_count: activityCounts[wp] ?? wells.filter((w) => w.well_project === wp).length,
+      checks: cells,
+      focus_start: SOON,
+      focus_in_days: 30,
+      figures,
+      figures_by_window: { "0": figures, "6": figures, "12": figures, "24": figures },
+      wells_behind_by_window: { "0": 0, "6": 0, "12": 0, "24": 0 },
+    };
+  });
+  return {
+    team: { code: "projects", name: "Projects", editor_source: "planner" as const, icon_key: "land-plot", sort_order: 0 },
+    checks: [...checks],
+    project_rows,
+    well_rows,
+    locked,
+  };
+}
+
 import type { AuditEntry } from "@/api/audit";
 import type { Viewer } from "@/api/viewers";
 import type { Revision, RevisionDetail } from "@/api/revisions";
@@ -222,60 +319,53 @@ export const handlers = [
           default: "On Track",
           history_only: false,
         },
+        execution: {
+          statuses: [
+            { status: "Not started", severity: "not_started" },
+            { status: "On Track", severity: "in_progress" },
+            { status: "Completed", severity: "done" },
+            { status: "Behind", severity: "blocked" },
+            { status: "N/A", severity: "not_counted" },
+          ],
+          default: "Not started",
+          history_only: false,
+        },
       },
     };
     return HttpResponse.json(catalog);
   }),
 
-  http.get("/api/projects/:projectId/readiness", () => {
-    const makeChecks = (): Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }> =>
-      Object.fromEntries(
-        BUILTIN_PROJECT_GATES.map(({ code }) => [
-          code,
-          { status: "On Track" as CheckStatus, notes: null, updated_at: null },
-        ]),
-      ) as Record<CheckCode, { status: CheckStatus; notes: null; updated_at: null }>;
-    // A stand-in for the server: saved gates show on the next read, and each row
-    // carries its rollup (spec §3.7) and a focus_start inside every window.
-    const withSaved = (wp: string, checks: ReturnType<typeof makeChecks>) => {
-      for (const [code, status] of Object.entries(savedGates.get(wp) ?? {})) {
-        checks[code] = { status, notes: null, updated_at: null };
-      }
-      return checks;
-    };
-    const row = (well_project: string, activity_count: number, checks: ReturnType<typeof makeChecks>) => {
-      const statuses = Object.values(withSaved(well_project, checks)).map((c) => c.status);
-      return {
-        well_project,
-        activity_count,
-        checks,
-        focus_start: SOON,
-        focus_in_days: 30,
-        figures: mockRowFigures(statuses),
-      };
-    };
-
-    // One entry per distinct FIELD PROJECT (well_project).
-    const rows: ProjectReadiness[] = [
-      row("Bonga Phase 3", 3, {
-        ...makeChecks(),
-        BUD: { status: "Completed", notes: null, updated_at: null },
+  // The well execution readiness checks through the team read (phase 8) — see
+  // `mockGateTeam`: two field projects, one well each, every check Not started
+  // except Bonga's BUD, plus whatever a test saved through the mock PUT.
+  http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+    HttpResponse.json(
+      mockGateTeam({
+        wells: [
+          { well_project: "Bonga Phase 3", well_name: "Bonga-1" },
+          { well_project: "Egina North", well_name: "Egina-1" },
+        ],
+        projectStatuses: { "Bonga Phase 3": { BUD: "Completed" } },
+        activityCounts: { "Bonga Phase 3": 3, "Egina North": 2 },
       }),
-      row("Egina North", 2, makeChecks()),
-    ];
-    return HttpResponse.json(rows);
-  }),
+    ),
+  ),
 
   http.put(
     "/api/projects/:projectId/readiness/:checkCode",
     async ({ request, params }) => {
       const body = (await request.json()) as {
+        scope?: "project" | "well";
         well_project: string;
+        well_name?: string;
         status: CheckStatus;
         notes: string | null;
       };
-      savedGates.set(body.well_project, {
-        ...(savedGates.get(body.well_project) ?? {}),
+      // A well's own value is kept apart from its field project's.
+      const key =
+        body.scope === "well" ? `${body.well_project}\u0001${body.well_name}` : body.well_project;
+      savedGates.set(key, {
+        ...(savedGates.get(key) ?? {}),
         [String(params.checkCode)]: body.status,
       });
       return HttpResponse.json({

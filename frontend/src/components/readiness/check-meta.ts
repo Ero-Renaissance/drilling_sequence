@@ -9,12 +9,14 @@ import type { CatalogCheck, CheckSource, CheckStatus, Severity } from "@/api/rea
 
 /**
  * Color applied to the icon stroke per status.
+ *   Not started → slate (counted, nobody has said it is moving — phase 8)
  *   On Track  → amber  (in flight, no problem)
  *   Completed → green  (done)
  *   Behind    → red    (slipping)
  *   N/A       → muted + strikethrough (does not apply)
  */
 export const STATUS_ICON_COLOR: Record<CheckStatus, string> = {
+  "Not started": "text-slate-400 dark:text-slate-500",
   "On Track": "text-amber-500",
   Completed: "text-emerald-500",
   Behind: "text-red-500",
@@ -30,6 +32,7 @@ export const STATUS_ICON_COLOR: Record<CheckStatus, string> = {
  * what cells render.
  */
 export const STATUS_DOT: Record<CheckStatus, string> = {
+  "Not started": "bg-slate-400 dark:bg-slate-500",
   "On Track": "bg-amber-500",
   Completed: "bg-emerald-500",
   Behind: "bg-red-500",
@@ -44,6 +47,7 @@ export const STATUS_DOT: Record<CheckStatus, string> = {
  * (+ N/A, auto-derived), so the label is just the canonical value.
  */
 export const STATUS_LABEL: Record<CheckStatus, string> = {
+  "Not started": "Not started",
   "On Track": "On Track",
   Completed: "Completed",
   Behind: "Behind",
@@ -64,7 +68,13 @@ export const STATUS_SETS: Record<
   { statuses: CheckStatus[]; default: CheckStatus; history_only?: boolean }
 > = {
   standard: { statuses: ["On Track", "Behind", "Completed", "N/A"], default: "On Track" },
-  // Every default is on track: an unset check means no reported problem (§3.7).
+  // Well execution readiness (phase 8): the Projects team's checks only. An
+  // unset one reads Not started — nobody has said the work is moving.
+  execution: {
+    statuses: ["Not started", "On Track", "Behind", "Completed", "N/A"],
+    default: "Not started",
+  },
+  // Every other default is on track: an unset check means no reported problem (§3.7).
   // History only since phase 6 (Nominated Equipment withdrawn, §3.5): kept so
   // past revisions render, never offered for a new check.
   availability: {
@@ -75,6 +85,7 @@ export const STATUS_SETS: Record<
 };
 
 export const STATUS_SEVERITY: Record<CheckStatus, Severity> = {
+  "Not started": "not_started",
   "On Track": "in_progress",
   Completed: "done",
   Behind: "blocked",
@@ -207,8 +218,10 @@ export function statusLabelOf(status: CheckStatus, check: CheckRule): string {
   return status === "N/A" ? notApplicableLabel(check) : (STATUS_LABEL[status] ?? status);
 }
 
+// Worst first: behind > not started > on track > done (backend `_SEVERITY_RANK`).
 const SEVERITY_RANK: Record<Severity, number> = {
-  blocked: 3,
+  blocked: 4,
+  not_started: 3,
   in_progress: 2,
   done: 1,
   not_counted: 0,
@@ -216,6 +229,7 @@ const SEVERITY_RANK: Record<Severity, number> = {
 // A standard status that wears each severity's colour — for team summaries.
 const SEVERITY_STATUS: Record<Severity, CheckStatus> = {
   blocked: "Behind",
+  not_started: "Not started",
   in_progress: "On Track",
   done: "Completed",
   not_counted: "N/A",

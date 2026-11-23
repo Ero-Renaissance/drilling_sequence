@@ -136,22 +136,30 @@ describe("Admin — categories and 'starts unticked'", () => {
     fireEvent.click(within(gateDialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-    // A project-level Logistics check set to lock: the fields go, nothing is sent.
-    const dialog = await openAdd("Logistics");
-    fireEvent.change(within(dialog).getByLabelText("Category"), { target: { value: "Vessels" } });
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: /starts unticked/i }));
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: /^well$/i }));
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: /locks with the plan/i }));
-    expect(within(dialog).queryByLabelText("Category")).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole("checkbox", { name: /starts unticked/i })).not.toBeInTheDocument();
+    // A new well execution readiness check: both levels, the execution set,
+    // part of the approval record — and neither field is sent (phase 8).
+    const dialog = await openAdd("Projects");
     fireEvent.change(within(dialog).getByLabelText("Code"), { target: { value: "GOV" } });
     fireEvent.change(within(dialog).getByLabelText("Label"), { target: { value: "Governed" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /add check/i }));
     await waitFor(() => expect(createCheck).toHaveBeenCalledTimes(1));
     const body = createCheck.mock.calls[0][0] as Record<string, unknown>;
-    expect(body.locks_with_plan).toBe(true);
+    expect(body).toMatchObject({
+      locks_with_plan: true,
+      applies_project: true,
+      applies_well: true,
+      status_set: "execution",
+    });
     expect(body).not.toHaveProperty("category");
     expect(body).not.toHaveProperty("applies_by_default");
+    // Only the Projects team's checks are part of the approval record: another
+    // team's form can't switch it on.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const logistics = await openAdd("Logistics");
+    const record = within(logistics).getByRole("checkbox", { name: /part of the approval record/i });
+    expect(record).not.toBeChecked();
+    expect(record).toBeDisabled();
   });
 
   it("shows the server's 422 refusal and keeps the dialog", async () => {

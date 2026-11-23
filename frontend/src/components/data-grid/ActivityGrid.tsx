@@ -38,15 +38,19 @@ import {
   type Activity,
 } from "@/api/activities";
 import {
-  listReadiness,
-  upsertCheck,
+  getTeamReadiness,
+  setReadiness,
   type CheckCode,
-  type CheckState,
   type CheckStatus,
+  type EffectiveCheckState,
+  type TeamCheckState,
+  type TeamReadiness,
 } from "@/api/readiness";
+import { defaultStatusOf } from "@/components/readiness/check-meta";
+import { teamValuesFor } from "@/lib/readiness-lens";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { ActivityReadinessPanel } from "@/components/readiness/ActivityReadinessPanel";
-import { statusOf, useProjectGates } from "@/components/readiness/catalog";
+import { PROJECTS_TEAM, statusOf, useProjectGates } from "@/components/readiness/catalog";
 import { useSearchParams } from "react-router-dom";
 import { listContracts, type RigContract } from "@/api/contracts";
 import {
@@ -82,10 +86,10 @@ declare module "@tanstack/react-table" {
     deleteRow: (id: string) => void;
     toggleCompletion: (id: string) => void;
     openHistory: (id: string) => void;
-    // Readiness is per FIELD PROJECT (well_project), so it's keyed by project name,
-    // not activity id — every activity under a project shares its gates.
-    readinessByProject: Map<string, Record<CheckCode, CheckState>>;
-    onReadinessChange: (wellProject: string, code: CheckCode, next: CheckStatus) => void;
+    // The well execution readiness checks are per WELL (phase 8): an activity
+    // reads its well's values — its own, else its field project's.
+    readinessFor: (a: Activity) => Record<CheckCode, TeamCheckState> | undefined;
+    onReadinessChange: (a: Activity, code: CheckCode, next: CheckStatus) => void;
     savingReadinessKey: string | null;
     /** Open the activity's Readiness panel (every team's checks). */
     openReadiness: (id: string) => void;
@@ -159,19 +163,20 @@ function PlanTypeChip({ value }: { value: string | null }) {
 // ── Readiness inline strip ───────────────────────────────────────────────────
 
 function ReadinessStrip({
-  wellProject,
+  activityId,
   checks,
   onChange,
   savingKey,
 }: {
-  /** The activity's field project — gates live here. Null → no project, no gates. */
-  wellProject: string | null;
-  checks: Record<CheckCode, CheckState> | undefined;
+  activityId: string;
+  /** The activity's well's checks. Undefined → no well name (or readiness
+   *  switched off): no checks. */
+  checks: Record<CheckCode, TeamCheckState> | undefined;
   onChange: (code: CheckCode, next: CheckStatus) => void;
   savingKey: string | null;
 }) {
   const gates = useProjectGates();
-  if (!wellProject || !checks) {
+  if (!checks) {
     return (
       <div className="flex items-center gap-1 px-2 text-xs text-muted-foreground/60">
         <span className="italic">no checks</span>
@@ -180,14 +185,16 @@ function ReadinessStrip({
   }
   return (
     <div className="flex items-center gap-0.5 px-1">
-      {gates.map(({ code }) => (
+      {gates.map(({ code, status_set }) => (
         <ReadinessDot
           key={code}
           code={code}
-          status={statusOf(checks, code)}
+          status={statusOf(checks, code, defaultStatusOf(status_set))}
           size="sm"
+          // Faded while the well still reads its field project's value.
+          inherited={(checks[code] as EffectiveCheckState | undefined)?.source === "project"}
           onChange={(next) => onChange(code, next)}
-          disabled={savingKey === `${wellProject}:${code}`}
+          disabled={savingKey === `${activityId}:${code}`}
         />
       ))}
     </div>
@@ -203,9 +210,14 @@ interface ActivityGridProps {
 
 export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridProps) {
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [readinessByProject, setReadinessByProject] = useState<
-    Map<string, Record<CheckCode, CheckState>>
-  >(new Map());
+  const [gateData, setGateData] = useState<TeamReadiness | null>(null);
+  // The activity's well execution readiness checks (phase 8): its WELL's
+  // values — its own, else its field project's.
+  const readinessFor = useCallback(
+    (a: Activity) => (gateData ? teamValuesFor(gateData, a) : undefined),
+    [gateData],
+  );
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -224,11 +236,11 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
     try {
       const [acts, readiness, rigContracts] = await Promise.all([
         listActivities(projectId),
-        listReadiness(projectId).catch(() => []),
+        getTeamReadiness(projectId, PROJECTS_TEAM).catch(() => null),
         listContracts(projectId).catch(() => []),
       ]);
       setActivities(acts);
-      setReadinessByProject(new Map(readiness.map((r) => [r.well_project, r.checks])));
+      setGateData(readiness);
       setContracts(rigContracts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activities");
@@ -342,19 +354,19 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
           return !!end && a.end_date > end;
         }
         case "not-ready":
-          // Mirrors the Overview warning (spec §3.7): project gates only, and an
-          // activity with no field project carries none — never "not ready".
+          // Mirrors the Overview warning (spec §3.7): the well execution
+          // readiness checks only, at the WELL's value (phase 8).
           return (
             a.readiness_required !== false &&
-            !!a.well_project &&
+            !!a.well_name &&
             isNearTerm(a.start_date) &&
-            !checksReady(readinessByProject.get(a.well_project))
+            !checksReady(readinessFor(a))
           );
         default:
           return true;
       }
     });
-  }, [focus, activities, conflictMeta, sessionIds, contractEndByRig, readinessByProject]);
+  }, [focus, activities, conflictMeta, sessionIds, contractEndByRig, readinessFor]);
 
   function clearFocus() {
     searchParams.delete("focus");
@@ -540,47 +552,31 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
   }, []);
 
   const onReadinessChange = useCallback(
-    async (wellProject: string, code: CheckCode, next: CheckStatus) => {
-      const key = `${wellProject}:${code}`;
-      const checks = readinessByProject.get(wellProject);
-      if (!checks) return;
-      const previous = statusOf(checks, code);
-
-      // Optimistic update — a gate is set for the whole field project, so every
-      // row sharing this well_project reflects it at once.
-      setReadinessByProject((prev) => {
-        const updated = new Map(prev);
-        const existing = updated.get(wellProject);
-        if (existing) {
-          updated.set(wellProject, {
-            ...existing,
-            [code]: { ...existing[code], status: next },
-          });
-        }
-        return updated;
-      });
-
-      setSavingReadinessKey(key);
+    async (a: Activity, code: CheckCode, next: CheckStatus) => {
+      if (!a.well_name) return;
+      setSavingReadinessKey(`${a.id}:${code}`);
       try {
-        await upsertCheck(projectId, wellProject, code, next);
+        // Set on THIS well; the field project's value and its other wells stay.
+        await setReadiness(
+          projectId,
+          code,
+          {
+            scope: "well",
+            well_project: a.well_project ?? "",
+            well_name: a.well_name,
+            activity_type: a.activity_type,
+          },
+          next,
+        );
+        // Re-read: the row's figures and sources are the server's.
+        setGateData(await getTeamReadiness(projectId, PROJECTS_TEAM));
       } catch (err) {
-        setReadinessByProject((prev) => {
-          const reverted = new Map(prev);
-          const existing = reverted.get(wellProject);
-          if (existing) {
-            reverted.set(wellProject, {
-              ...existing,
-              [code]: { ...existing[code], status: previous },
-            });
-          }
-          return reverted;
-        });
         toast.error(err instanceof Error ? err.message : `Failed to save ${code} status.`);
       } finally {
         setSavingReadinessKey(null);
       }
     },
-    [readinessByProject, projectId],
+    [projectId],
   );
 
   const columns = useMemo(
@@ -753,17 +749,18 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
         cell: ({ row, table }) => {
           const meta = table.options.meta;
           if (!meta) return null;
-          const wp = row.original.well_project ?? null;
           const label = row.original.well_name ?? row.original.activity_type;
           return (
             <div className="flex items-center">
               <ReadinessStrip
-                wellProject={wp}
-                checks={wp ? meta.readinessByProject.get(wp) : undefined}
+                activityId={row.original.id}
+                checks={
+                  row.original.readiness_required === false
+                    ? undefined
+                    : meta.readinessFor(row.original)
+                }
                 savingKey={meta.savingReadinessKey}
-                onChange={(code, next) => {
-                  if (wp) meta.onReadinessChange(wp, code, next);
-                }}
+                onChange={(code, next) => meta.onReadinessChange(row.original, code, next)}
               />
               {/* Every team's checks (Wells, Logistics…) for this activity. */}
               <button
@@ -942,7 +939,7 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
       deleteRow,
       toggleCompletion,
       openHistory,
-      readinessByProject,
+      readinessFor,
       onReadinessChange,
       savingReadinessKey,
       openReadiness: setReadinessActivityId,

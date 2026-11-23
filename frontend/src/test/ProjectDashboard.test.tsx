@@ -77,7 +77,7 @@ describe("ProjectDashboard", () => {
     expect(screen.getByText("9")).toBeInTheDocument(); // completed_ytd value
     // The Project gates card: the three figures (spec §3.7) and what it counts —
     // no ready count on the card (that lives on the Readiness tab).
-    const gates = card(/Project gates/);
+    const gates = card(/Well Execution Readiness/);
     expect(gates).toHaveTextContent("62%complete");
     expect(gates).toHaveTextContent("89% on track · 1 behind");
     expect(gates).toHaveTextContent("4 field projects");
@@ -96,7 +96,7 @@ describe("ProjectDashboard", () => {
       screen.getByRole("link", { name: label }).getAttribute("href");
     expect(href(/Completed YTD/)).toBe("/projects/p1/data");
     // The tile opens the tab on its own lens and window (spec §3.7).
-    expect(href(/Project gates/)).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=12");
+    expect(href(/Well Execution Readiness/)).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=12");
     expect(href(/Fleet status/)).toBe("/projects/p1/fleet");
     expect(href(/Contracts at risk/)).toBe("/projects/p1/fleet?focus=contracts");
   });
@@ -138,7 +138,7 @@ describe("ProjectDashboard", () => {
     renderDash();
     await screen.findByText("Fleet status");
     const readinessHref = () =>
-      screen.getByRole("link", { name: /Project gates/ }).getAttribute("href");
+      screen.getByRole("link", { name: /Well Execution Readiness/ }).getAttribute("href");
     expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
     expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
     // The tile deep-links into the readiness page pre-filtered to its window.
@@ -174,7 +174,7 @@ describe("ProjectDashboard", () => {
     );
     expect(await screen.findByText(/Activity-type mix · next 6 months/i)).toBeInTheDocument();
     // The readiness block keeps its own window — the two filters are independent.
-    expect(screen.getByText(/Readiness by gate · next 12 months/i)).toBeInTheDocument();
+    expect(screen.getByText(/Well execution readiness by check · next 12 months/i)).toBeInTheDocument();
     expect(window.localStorage.getItem("ds.activity-mix-horizon")).toBe("6");
   });
 
@@ -182,7 +182,7 @@ describe("ProjectDashboard", () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
     expect(await screen.findByText(/Activity-type mix · all duration/i)).toBeInTheDocument();
-    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+    expect(screen.getByText(/Well execution readiness by check/i)).toBeInTheDocument();
     expect(screen.getByText("Oil Development")).toBeInTheDocument();
     expect(screen.queryByText("Plan firmness")).not.toBeInTheDocument();
     expect(screen.queryByText(/Rig idle gaps/i)).not.toBeInTheDocument();
@@ -235,7 +235,7 @@ describe("ProjectDashboard", () => {
     expect(within(group).getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
     expect(within(group).getByLabelText("Readiness horizon")).toBeInTheDocument();
     // The operations row no longer carries a readiness card.
-    expect(screen.getAllByRole("link", { name: /Project gates/ })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: /Well Execution Readiness/ })).toHaveLength(1);
   });
 
   it("'N behind' on a card opens the Readiness tab on just the behind items", async () => {
@@ -246,7 +246,7 @@ describe("ProjectDashboard", () => {
       "href",
       "/projects/p1/readiness?lens=logistics&view=projects&horizon=12&focus=behind",
     );
-    expect(within(card(/Project gates/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
+    expect(within(card(/Well Execution Readiness/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
       "href",
       "/projects/p1/readiness?lens=projects&view=projects&horizon=12&focus=behind",
     );
@@ -280,12 +280,12 @@ describe("ProjectDashboard", () => {
       "Focused on Logistics · 1 other team hidden · Show all",
     );
     // The by-gate card is the Project gates' — hidden while focused elsewhere.
-    expect(screen.queryByText(/Readiness by gate/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Well execution readiness by check/i)).not.toBeInTheDocument();
     expect(window.localStorage.getItem("ds.overview-readiness-focus")).toBe("logistics");
 
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     expect(within(group).getAllByTestId("readiness-card")).toHaveLength(2);
-    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+    expect(screen.getByText(/Well execution readiness by check/i)).toBeInTheDocument();
   });
 
   it("an all-teams link opens on every team, even with a saved single-team focus", async () => {
@@ -325,8 +325,8 @@ describe("ProjectDashboard", () => {
     renderDash("/?lens=projects");
     const group = await screen.findByRole("region", { name: "Readiness" });
     expect(within(group).getAllByTestId("readiness-card")).toHaveLength(1);
-    expect(card(/Project gates/)).toBeInTheDocument();
-    expect(screen.getByTestId("readiness-focus-note")).toHaveTextContent("Focused on Project gates");
+    expect(card(/Well Execution Readiness/)).toBeInTheDocument();
+    expect(screen.getByTestId("readiness-focus-note")).toHaveTextContent("Focused on Well Execution Readiness");
   });
 
   it("breakdown panel is open by default and collapses/expands from its header", async () => {
@@ -334,17 +334,17 @@ describe("ProjectDashboard", () => {
     renderDash();
     const toggle = await screen.findByRole("button", { name: "Breakdown" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+    expect(screen.getByText(/Well execution readiness by check/i)).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText(/Readiness by gate/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Well execution readiness by check/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Activity-type mix/i)).not.toBeInTheDocument();
     // The hero tiles stay put — only the breakdown folds away.
     expect(screen.getByText(/Completed YTD/i)).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/Readiness by gate/i)).toBeInTheDocument();
+    expect(screen.getByText(/Well execution readiness by check/i)).toBeInTheDocument();
   });
 });

@@ -33,6 +33,7 @@ import { loadLensReadiness } from "@/lib/readiness-lens";
 import { hasTeamReadiness, snapshotRowsForLens } from "@/lib/readiness-snapshot";
 import { ReadinessTab } from "@/pages/ProjectDetail";
 import { server } from "./mocks/server";
+import { mockGateTeam } from "./mocks/handlers";
 
 const PID = "cccccccc-0000-0000-0000-000000000001";
 const LOGISTICS: CatalogTeam = { code: "logistics", name: "Logistics", editor_source: "team_grant", icon_key: "truck", sort_order: 20 };
@@ -78,27 +79,29 @@ function teamData(navApplies = false, poApplies = true): TeamReadiness {
   };
 }
 
+function gateData(status: CheckStatus = "Completed", fid: CheckStatus = "Behind") {
+  return mockGateTeam({
+    wells: [{ well_project: "Bonga Phase 3", well_name: "W-1" }],
+    status,
+    projectStatuses: { "Bonga Phase 3": { FID: fid } },
+  });
+}
+
 beforeEach(() => {
   currentUser = { id: "u1", is_admin: false, teams: [] };
   server.use(
     http.get("/api/readiness/catalog", () =>
       HttpResponse.json({ teams: TEAMS, checks: [...BUILTIN_PROJECT_GATES, PO, NAV], status_sets: {} }),
     ),
+    // The well execution readiness checks, per well (phase 8): W-1 follows
+    // Bonga Phase 3 — FID Behind, everything else Completed.
+    http.get("/api/projects/:projectId/readiness/teams/projects", () => HttpResponse.json(gateData())),
     http.get("/api/projects/:projectId/readiness/teams/:team", () => HttpResponse.json(teamData())),
     http.get("/api/projects/:projectId/activities", () =>
       HttpResponse.json([
         act("a1"),
         act("a2", { well_name: "W-OPT", readiness_required: false }),
         act("a3", { well_name: "W-DONE", completed_at: "2026-10-01T00:00:00Z" }),
-      ]),
-    ),
-    http.get("/api/projects/:projectId/readiness", () =>
-      HttpResponse.json([
-        {
-          well_project: "Bonga Phase 3",
-          activity_count: 2,
-          checks: Object.fromEntries(BUILTIN_PROJECT_GATES.map((g) => [g.code, st(g.code === "FID" ? "Behind" : "Completed")])),
-        },
       ]),
     ),
   );
@@ -114,8 +117,8 @@ describe("worst-of summaries", () => {
 
   it("the All lens has one summary check per team", () => {
     expect(lensChecksOf(BUILTIN_PROJECT_GATES, "all", TEAMS).map((c) => [c.code, c.label])).toEqual([
-      ["projects", "Project gates"],
-      ["logistics", "Logistics"],
+      ["projects", "Well Execution Readiness"],
+      ["logistics", "Logistics Execution Readiness"],
     ]);
   });
 
@@ -148,17 +151,11 @@ describe("worst-of summaries", () => {
 
   it("gives no Logistics badge where none of its checks applies — gates all N/A stay grey", async () => {
     server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json(gateData("N/A", "N/A")),
+      ),
       http.get("/api/projects/:projectId/readiness/teams/:team", () =>
         HttpResponse.json(teamData(false, false)),
-      ),
-      http.get("/api/projects/:projectId/readiness", () =>
-        HttpResponse.json([
-          {
-            well_project: "Bonga Phase 3",
-            activity_count: 2,
-            checks: Object.fromEntries(BUILTIN_PROJECT_GATES.map((g) => [g.code, st("N/A")])),
-          },
-        ]),
       ),
     );
     const { map } = await loadLensReadiness(PID, "all", {
@@ -248,22 +245,23 @@ describe("AllReadinessGrid", () => {
     // Logistics starts folded: one worst badge over the checks that apply — NAV
     // (Behind underneath, unticked) doesn't count.
     await waitFor(() =>
-      expect(within(w1).getByLabelText("Logistics: All 1 done")).toBeInTheDocument(),
+      expect(within(w1).getByLabelText("Logistics Execution Readiness: All 1 done")).toBeInTheDocument(),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Unfold Logistics" }));
+    await userEvent.click(screen.getByRole("button", { name: "Unfold Logistics Execution Readiness" }));
     expect(within(w1).getByTitle("PO: Completed")).toBeInTheDocument();
     // Unfolded, the unticked NAV is a muted "—" — never the Behind underneath.
     expect(within(w1).getByTitle("NAV: Not applicable")).toHaveTextContent("—");
     expect(within(w1).queryByTitle("NAV: Behind")).not.toBeInTheDocument();
 
-    const header = screen.getByRole("button", { name: "Fold Logistics" }).closest("th")!;
+    const header = screen.getByRole("button", { name: "Fold Logistics Execution Readiness" }).closest("th")!;
     await userEvent.click(within(header).getByRole("button", { name: "Open" }));
     expect(onOpenLens).toHaveBeenCalledWith("logistics");
   });
 
   it("a folded team where nothing applies reads '—', not a badge", async () => {
     server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () => HttpResponse.json(gateData())),
       http.get("/api/projects/:projectId/readiness/teams/:team", () =>
         HttpResponse.json(teamData(false, false)),
       ),
@@ -277,10 +275,10 @@ describe("AllReadinessGrid", () => {
     const w1 = (await screen.findByText("W-1")).closest("tr")!;
     // The Project gates (unfolded for this user) are drawn; Logistics, folded,
     // has no badge — just the muted dash.
-    await waitFor(() => expect(within(w1).getByTitle("Final Inv. Decision: Behind")).toBeInTheDocument());
+    await waitFor(() => expect(within(w1).getByTitle(/^Final Investment Decision: Behind/)).toBeInTheDocument());
     // Logistics comes with the live catalog and its team rows: wait for it.
-    expect(await within(w1).findByTitle("Logistics: Nothing applies")).toHaveTextContent("—");
-    expect(within(w1).queryByLabelText(/^Logistics:/)).not.toBeInTheDocument();
+    expect(await within(w1).findByTitle("Logistics Execution Readiness: Nothing applies")).toHaveTextContent("—");
+    expect(within(w1).queryByLabelText(/^Logistics Execution Readiness:/)).not.toBeInTheDocument();
   });
 });
 
@@ -309,17 +307,17 @@ describe("ReadinessTab — a team's view (spec §8.8)", () => {
       </MemoryRouter>,
     );
     // The All grid's rows are wells, so Open shows the team's wells.
-    await userEvent.click(await screen.findByRole("button", { name: "Unfold Logistics" }));
-    const header = screen.getByRole("button", { name: "Fold Logistics" }).closest("th")!;
+    await userEvent.click(await screen.findByRole("button", { name: "Unfold Logistics Execution Readiness" }));
+    const header = screen.getByRole("button", { name: "Fold Logistics Execution Readiness" }).closest("th")!;
     await userEvent.click(within(header).getByRole("button", { name: "Open" }));
     expect(await screen.findByRole("region", { name: "Wells" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("lens=logistics&view=wells");
 
     // A lens change drops the view — it belonged to that team…
-    await userEvent.click(screen.getByRole("radio", { name: "Project gates" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Well Execution Readiness" }));
     await waitFor(() => expect(screen.getByTestId("location").textContent).not.toContain("view="));
     // …so the team opens on its own view next time: Projects by default.
-    await userEvent.click(screen.getByRole("radio", { name: "Logistics" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Logistics Execution Readiness" }));
     expect(await screen.findByRole("region", { name: "Field projects" })).toBeInTheDocument();
   });
 });

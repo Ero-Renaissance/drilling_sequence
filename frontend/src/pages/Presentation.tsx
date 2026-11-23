@@ -3,19 +3,17 @@ import { useParams, NavLink, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 import { listActivities, type Activity } from "@/api/activities";
-import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
-import type { ReadinessMap } from "@/lib/chart-utils";
 import { DrillChart } from "@/components/chart/DrillChart";
 import {
   ALL_LENS,
-  PROJECTS_TEAM,
   ReadinessLensProvider,
   lensLabel,
+  readinessHeading,
   useProjectGates,
   useReadinessLens,
   useReadinessTeams,
@@ -35,7 +33,6 @@ export function Presentation() {
   const [searchParams] = useSearchParams();
   const [project, setProject] = useState<Project | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [readinessMap, setReadinessMap] = useState<ReadinessMap | undefined>(undefined);
   const [contractsByRig, setContractsByRig] = useState<Map<string, RigContract> | undefined>(undefined);
   const [contractsByHwu, setContractsByHwu] = useState<Map<string, HwuContract> | undefined>(undefined);
   const [notes, setNotes] = useState<ChangeNote[]>([]);
@@ -54,21 +51,15 @@ export function Presentation() {
 
   const load = useCallback(async () => {
     if (!projectId) return;
-    const [proj, acts, readiness, contracts, hwuContracts, changeNotes] = await Promise.all([
+    const [proj, acts, contracts, hwuContracts, changeNotes] = await Promise.all([
       projectsApi.get(projectId).catch(() => null),
       listActivities(projectId),
-      listReadiness(projectId).catch(() => []),
       listContracts(projectId).catch(() => []),
       listHwuContracts(projectId).catch(() => []),
       listChangeNotes(projectId).catch(() => []),
     ]);
     if (proj) setProject(proj);
     setActivities(acts);
-    setReadinessMap(
-      new Map(
-        readiness.map((r) => [r.well_project, r.checks as Record<CheckCode, { status: CheckStatus }>]),
-      ),
-    );
     setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
     setContractsByHwu(new Map(hwuContracts.map((c) => [c.hwu_name, c])));
     setNotes(changeNotes);
@@ -78,9 +69,10 @@ export function Presentation() {
     load();
   }, [load]);
 
-  // A team lens loads that team's readiness; the project gates come with `load`.
+  // Every lens loads its team's readiness — the well execution readiness
+  // checks included (phase 8).
   useEffect(() => {
-    if (!projectId || lens === PROJECTS_TEAM) {
+    if (!projectId) {
       setLensReadiness(null);
       return;
     }
@@ -118,7 +110,7 @@ export function Presentation() {
             </h1>
             <p className="text-xs text-muted-foreground">
               Rig Sequence — presentation ·{" "}
-              <span data-testid="presentation-lens">Readiness: {lensName}</span>
+              <span data-testid="presentation-lens">{readinessHeading(lensName)}</span>
             </p>
           </div>
         </header>
@@ -129,8 +121,8 @@ export function Presentation() {
               <DrillChart
                 stickyScale
                 activities={activities}
-                readinessMap={lens === PROJECTS_TEAM ? readinessMap : lensReadiness?.map}
-                readinessKeyOf={lens === PROJECTS_TEAM ? undefined : lensReadiness?.keyOf}
+                readinessMap={lensReadiness?.map}
+                readinessKeyOf={lensReadiness?.keyOf}
                 contractsByRig={contractsByRig}
                 contractsByHwu={contractsByHwu}
                 enableFilters
