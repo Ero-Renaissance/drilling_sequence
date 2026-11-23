@@ -1,6 +1,5 @@
 import type { RowFigures } from "@/api/readiness";
 import { notCountedLabel, readinessFiguresHint, sumFigures } from "@/lib/readiness-figures";
-import { windowPhrase } from "@/lib/readiness-window";
 import { cn } from "@/lib/utils";
 import { STATUS_DOT } from "./check-meta";
 
@@ -17,18 +16,19 @@ import { STATUS_DOT } from "./check-meta";
 export function ReadinessSummary({
   rows,
   unit,
-  windowMonths,
+  scope: scopeLabel,
   projectGates = true,
 }: {
   rows: readonly (RowFigures | undefined)[];
   /** What a row is: ["field project", "field projects"] or ["well", "wells"]. */
   unit: [string, string];
-  windowMonths: number;
+  /** What the rows cover — the years shown ("2026–2028"). */
+  scope: string;
   /** The Project gates (default), or a team's checks. */
   projectGates?: boolean;
 }) {
   const f = sumFigures(rows);
-  const scope = `${f.targets} ${f.targets === 1 ? unit[0] : unit[1]} · ${windowPhrase(windowMonths)}`;
+  const scope = `${f.targets} ${f.targets === 1 ? unit[0] : unit[1]} · ${scopeLabel}`;
   return (
     <div
       className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-border/70 bg-card px-4 py-3 shadow-soft-sm"

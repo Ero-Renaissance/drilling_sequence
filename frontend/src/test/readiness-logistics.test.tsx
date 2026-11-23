@@ -294,7 +294,7 @@ describe("Logistics grid — checks that apply", () => {
     expect(summary).toHaveTextContent("3 not applicable");
     expect(summary).toHaveTextContent("of 5 checks");
     expect(summary).toHaveTextContent("1/1ready");
-    expect(summary).toHaveTextContent("2 wells · all");
+    expect(summary).toHaveTextContent("2 wells · 2026–2028");
   });
 
   it("offers On Track, Behind and Completed in a team check's menu — no N/A", async () => {

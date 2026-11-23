@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { toast } from "@/components/ui/toaster";
-import { inWindow } from "@/lib/readiness-window";
+import { inYears, rangePhrase, yearsOf } from "@/lib/readiness-window";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { FrozenCatalogProvider, PROJECTS_TEAM } from "./catalog";
@@ -38,7 +38,7 @@ import { STATUS_DOT, defaultStatusOf, pickableStatuses } from "./check-meta";
 import { ReadinessDot } from "./ReadinessDot";
 import { ReadinessSummary } from "./ReadinessSummary";
 import { ReadinessToolbar } from "./ReadinessToolbar";
-import { useReadinessWindow } from "./ReadinessWindow";
+import { OutsideYears, useReadinessYears } from "./ReadinessWindow";
 import { PROJECT_PARAM } from "./team-view";
 
 /** The longest note a cell takes (backend `CheckUpsert.notes`). */
@@ -108,6 +108,8 @@ function spans<T>(rows: readonly T[], keyOf: (row: T) => string): number[] {
  * Execution Readiness" sheet (docs/well-execution-readiness-spec.md Part B): one
  * row per well, grouped by value stream (the activity's Market) and field
  * project, the spud month under its year, and one solid coloured cell per check.
+ * The user shows 1 to 3 years at a time; wells that spud outside them are
+ * hidden (and counted, so the list never reads as everything).
  *
  * Each well follows its field project until it is given its own value (marked
  * with a dot); a cell's menu sets the status, edits its note or resets the well
@@ -115,7 +117,7 @@ function spans<T>(rows: readonly T[], keyOf: (row: T) => string): number[] {
  * Campaign planners (and admins) edit — the API stays the authority.
  *
  * Rows and the summary follow spec §3.7: wells with readiness-required work
- * left, starting within the page's window; the summary adds up the server's
+ * left, starting within the years shown; the summary adds up the server's
  * per-row figures of exactly the wells shown.
  */
 export function WellExecutionGrid({
@@ -134,7 +136,9 @@ export function WellExecutionGrid({
   const [stream, setStream] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
-  const [months, setMonths] = useReadinessWindow();
+  // The years shown — 1 to 3 at a time: the spud columns, and which wells are
+  // listed (those that spud within them).
+  const [range, setRange] = useReadinessYears();
   const [searchParams, setSearchParams] = useSearchParams();
   // The cell whose note is being edited, and the field project being set.
   const [noteFor, setNoteFor] = useState<{ row: TeamWellRow; check: CatalogCheck } | null>(null);
@@ -159,7 +163,7 @@ export function WellExecutionGrid({
     setLoading(true);
     setError(null);
     try {
-      const next = await getTeamReadiness(projectId, PROJECTS_TEAM);
+      const next = await getTeamReadiness(projectId, PROJECTS_TEAM, range);
       if (seq === loadSeq.current) setData(next);
     } catch (err: unknown) {
       if (seq === loadSeq.current) {
@@ -168,7 +172,7 @@ export function WellExecutionGrid({
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, range]);
 
   useEffect(() => {
     load();
@@ -201,8 +205,8 @@ export function WellExecutionGrid({
   );
   const q = search.trim().toLowerCase();
   const scoped = useMemo(
-    () => (data?.well_rows ?? []).filter((r) => inWindow(r, months)),
-    [data, months],
+    () => (data?.well_rows ?? []).filter((r) => inYears(r, range)),
+    [data, range],
   );
   const rows = useMemo(
     () =>
@@ -227,18 +231,17 @@ export function WellExecutionGrid({
         ),
     [scoped, stream, behindFocus, projectFilter, q],
   );
-  useEffect(() => setPageIndex(0), [search, stream, months, behindFocus, projectFilter]);
+  useEffect(() => setPageIndex(0), [search, stream, range, behindFocus, projectFilter]);
 
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
   const visible = rows.slice(safeIndex * pageSize, (safeIndex + 1) * pageSize);
   const streamSpans = spans(visible, streamOf);
   const projectSpans = spans(visible, (r) => `${streamOf(r)}\u0001${r.well_project}`);
-  // One column per year a listed well spuds in.
-  const years = useMemo(
-    () => [...new Set(rows.map((r) => r.start_date.slice(0, 4)))].sort(),
-    [rows],
-  );
+  // One column per year shown, whether or not a well spuds in it.
+  const years = useMemo(() => yearsOf(range).map(String), [range]);
+  // Wells with work left that the years shown leave out.
+  const outside = (data?.well_rows ?? []).filter((r) => !!r.focus_start).length - scoped.length;
   const projectCells = useMemo(
     () => new Map((data?.project_rows ?? []).map((r) => [r.well_project, r.checks])),
     [data],
@@ -278,12 +281,6 @@ export function WellExecutionGrid({
             {projectFilter || "no field project"}
           </FilterBanner>
         )}
-        {months !== 0 && (
-          <FilterBanner onClear={() => setMonths(0)}>
-            <span className="font-semibold">{rows.length}</span> shown — wells with
-            readiness-required work starting in the next {months} months
-          </FilterBanner>
-        )}
 
         <ReadinessToolbar
           loading={loading}
@@ -306,7 +303,7 @@ export function WellExecutionGrid({
               </select>
             ) : undefined
           }
-          window={{ value: months, onChange: setMonths, allLabel: "All wells" }}
+          years={{ value: range, onChange: setRange }}
           search={{
             value: search,
             onChange: setSearch,
@@ -321,6 +318,8 @@ export function WellExecutionGrid({
           }
         />
 
+        <OutsideYears count={outside} unit="well" />
+
         {!canEdit && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="h-3.5 w-3.5" />
@@ -332,7 +331,7 @@ export function WellExecutionGrid({
           <ReadinessSummary
             rows={rows.map((r) => r.figures)}
             unit={["well", "wells"]}
-            windowMonths={months}
+            scope={rangePhrase(range)}
           />
         )}
 
@@ -342,10 +341,8 @@ export function WellExecutionGrid({
               <>No wells match &ldquo;{search}&rdquo;.</>
             ) : filtering ? (
               "No wells match the current filter."
-            ) : months ? (
-              `No wells have readiness-required work starting in the next ${months} months.`
             ) : (
-              "No wells with readiness work left — add wells in the Activities tab, or they are completed or opted out."
+              `No wells with readiness work left spud in ${rangePhrase(range)}.`
             )}
           </div>
         ) : (

@@ -273,7 +273,7 @@ async def test_completed_and_opted_out_work_drops_out(client: AsyncClient) -> No
     )
     assert r.status_code == 200, r.text
 
-    d = (await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=0")).json()
+    d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     assert d["readiness"]["focus_count"] == 0
     assert d["readiness"]["overall_pct"] is None  # "—", never 0%
     assert d["watchlist"]["near_term_not_ready"] == 0
@@ -294,19 +294,14 @@ async def test_a_well_with_no_field_project_has_its_own_checks(client: AsyncClie
 # ── The Readiness tab rows carry the same rollup (step 2) ──────────────────
 
 
-def _sum_rows(rows: list[dict], window_end: date | None) -> dict:
-    """What the Readiness tab does: keep the rows in scope for the window, add
-    their server-computed figures, divide (half up)."""
-    shown = [
-        r for r in rows
-        if r["focus_in_days"] is not None
-        and (window_end is None or r["focus_in_days"] <= (window_end - TODAY).days)
-    ]
-    figs = [r["figures"] for r in shown]
+def _sum_rows(rows: list[dict]) -> dict:
+    """What the Readiness tab does: keep the field projects in the year range
+    (the server says which), add their server-computed figures, divide (half up)."""
+    figs = [r["figures"] for r in rows if r["in_range"]]
     counted = sum(f["counted"] for f in figs)
     done = sum(f["done"] for f in figs)
     return {
-        "targets": len(shown),
+        "targets": len(figs),
         "complete": pct(done, counted),
         "on_track": pct(done + sum(f["in_progress"] for f in figs), counted),
         "behind": sum(f["behind"] for f in figs),
@@ -339,8 +334,8 @@ async def test_readiness_rows_carry_their_figures(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_the_tab_adds_up_to_the_tile(client: AsyncClient) -> None:
-    """The Readiness tab, adding up the rows it shows for a window, reads exactly
-    what the Overview tile reads for that window."""
+    """The Readiness tab, adding up the field projects it shows for a year range,
+    reads exactly what the Overview tile reads for that range."""
     pid = await _campaign(client)
     await _activity(client, pid, "Soon", "W1", TODAY + timedelta(days=20))
     await _activity(client, pid, "Later", "W2", TODAY + timedelta(days=500))
@@ -351,19 +346,28 @@ async def test_the_tab_adds_up_to_the_tile(client: AsyncClient) -> None:
     await _gate(client, pid, "Later", "FID", "Behind")
     await _gate(client, pid, "Overdue", "BUD", "N/A")
 
-    rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    for months, window_end in ((12, TODAY + timedelta(days=365)), (0, None)):
+    # Every year range the data touches, one to three years at a time.
+    first = (TODAY - timedelta(days=30)).year
+    for from_year, years in ((first, 3), (first, 1), ((TODAY + timedelta(days=500)).year, 1)):
+        query = f"from_year={from_year}&years={years}"
+        rows = (
+            await client.get(f"/api/projects/{pid}/readiness/teams/projects?{query}")
+        ).json()["project_rows"]
         tile = (
-            await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months={months}")
+            await client.get(
+                f"/api/projects/{pid}/dashboard"
+                f"?readiness_from_year={from_year}&readiness_years={years}"
+            )
         ).json()["readiness"]
-        assert _sum_rows(rows, window_end) == {
+        assert (tile["from_year"], tile["years"]) == (from_year, years)
+        assert _sum_rows(rows) == {
             "targets": tile["focus_count"],
             "complete": tile["overall_pct"],
             "on_track": tile["on_track_pct"],
             "behind": tile["behind_cells"],
             "ready": tile["ready"],
             "ready_of": tile["ready_of"],
-        }, months
+        }, (from_year, years)
 
 
 def test_one_scope_rule_for_every_target() -> None:

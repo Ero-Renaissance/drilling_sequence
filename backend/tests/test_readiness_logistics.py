@@ -511,7 +511,7 @@ async def test_logistics_tab_adds_up_to_its_tile(client: AsyncClient, db: AsyncS
     lens = await _lens(client, pid)
     # Field-project rows carry the window signal too.
     assert lens["project_rows"][0]["focus_start"] is not None
-    figs = [r["figures_by_window"]["0"] for r in lens["project_rows"] if r["focus_start"]]
+    figs = [r["figures"] for r in lens["project_rows"] if r["focus_start"]]
     # A well's own figures are still its own (the Wells view).
     w1 = _well_row(lens, "W-1")["figures"]
     assert (w1["done"], w1["in_progress"], w1["behind"]) == (1, 4, 1)  # unset = On Track
@@ -520,7 +520,7 @@ async def test_logistics_tab_adds_up_to_its_tile(client: AsyncClient, db: AsyncS
 
     tile = next(
         t
-        for t in (await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=0")).json()[
+        for t in (await client.get(f"/api/projects/{pid}/dashboard?readiness_from_year=2026&readiness_years=3")).json()[
             "team_readiness"
         ]
         if t["team_code"] == "logistics"

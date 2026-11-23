@@ -62,6 +62,10 @@ function card(label: RegExp): HTMLElement {
   return screen.getByRole("link", { name: label }).closest("[data-testid='readiness-card']")!;
 }
 
+// The Overview opens on this year and the next two.
+const YEAR = new Date().getFullYear();
+const RANGE = { from: YEAR, years: 3 };
+
 describe("ProjectDashboard", () => {
   beforeEach(() => {
     vi.mocked(fetchDashboard).mockReset();
@@ -96,7 +100,7 @@ describe("ProjectDashboard", () => {
       screen.getByRole("link", { name: label }).getAttribute("href");
     expect(href(/Completed YTD/)).toBe("/projects/p1/data");
     // The tile opens the tab on its own lens and window (spec §3.7).
-    expect(href(/Well Execution Readiness/)).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=12");
+    expect(href(/Well Execution Readiness/)).toBe("/projects/p1/readiness?lens=projects&view=projects");
     expect(href(/Fleet status/)).toBe("/projects/p1/fleet");
     expect(href(/Contracts at risk/)).toBe("/projects/p1/fleet?focus=contracts");
   });
@@ -133,31 +137,40 @@ describe("ProjectDashboard", () => {
     expect(screen.getByTitle("On track: 3 projects")).toHaveTextContent("3");
   });
 
-  it("readiness horizon select refetches with the chosen window and relabels", async () => {
+  it("the year picker refetches for the chosen years, relabels, and the tiles' links follow", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData());
     renderDash();
     await screen.findByText("Fleet status");
     const readinessHref = () =>
       screen.getByRole("link", { name: /Well Execution Readiness/ }).getAttribute("href");
-    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
-    expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
-    // The tile deep-links into the readiness page pre-filtered to its window.
-    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=12");
-
-    fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "6" } });
-    await waitFor(() =>
-      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 6, 0),
-    );
-    expect(await screen.findByText(/Readiness · next 6 months/i)).toBeInTheDocument();
-    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=6");
-
-    fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "0" } });
-    await waitFor(() =>
-      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 0, 0),
-    );
-    expect(await screen.findByText(/Readiness · all duration/i)).toBeInTheDocument();
-    // "All duration" is not a finite window — the tile links to the unfiltered page.
+    // Opens on this year and the next two; the default leaves the link bare.
+    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", RANGE, 0);
+    expect(screen.getByText(`Readiness · ${YEAR}–${YEAR + 2}`)).toBeInTheDocument();
     expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects");
+
+    // One year only.
+    fireEvent.change(screen.getByLabelText("How many years to show"), { target: { value: "1" } });
+    await waitFor(() =>
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", { from: YEAR, years: 1 }, 0),
+    );
+    expect(await screen.findByText(`Readiness · ${YEAR}`)).toBeInTheDocument();
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects&years=1");
+
+    // Step forward a year: the tile opens the Readiness tab on the same years.
+    fireEvent.click(screen.getByRole("button", { name: "Later years" }));
+    await waitFor(() =>
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith(
+        "p1",
+        { from: YEAR + 1, years: 1 },
+        0,
+      ),
+    );
+    expect(readinessHref()).toBe(
+      `/projects/p1/readiness?lens=projects&view=projects&from=${YEAR + 1}&years=1`,
+    );
+    // Never more than three years at a time.
+    const options = within(screen.getByLabelText("How many years to show")).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["1 year", "2 years", "3 years"]);
   });
 
   it("activity-mix horizon select refetches with its own window and relabels", async () => {
@@ -165,16 +178,18 @@ describe("ProjectDashboard", () => {
     renderDash();
     await screen.findByText("Fleet status");
     // Defaults: readiness 12, mix 0 (whole plan — the card's historical view).
-    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
+    expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", RANGE, 0);
     expect(screen.getByText(/Activity-type mix · all duration/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Activity mix horizon"), { target: { value: "6" } });
     await waitFor(() =>
-      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 6),
+      expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", RANGE, 6),
     );
     expect(await screen.findByText(/Activity-type mix · next 6 months/i)).toBeInTheDocument();
     // The readiness block keeps its own window — the two filters are independent.
-    expect(screen.getByText(/Well execution readiness by check · next 12 months/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(`Well execution readiness by check · ${YEAR}–${YEAR + 2}`),
+    ).toBeInTheDocument();
     expect(window.localStorage.getItem("ds.activity-mix-horizon")).toBe("6");
   });
 
@@ -193,7 +208,7 @@ describe("ProjectDashboard", () => {
     renderDash();
     const link = await screen.findByRole("link", { name: /Logistics/ });
     // The Projects view — what a team tile counts — whatever view was remembered.
-    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&view=projects&horizon=12");
+    expect(link).toHaveAttribute("href", "/projects/p1/readiness?lens=logistics&view=projects");
     const tile = card(/Logistics/);
     // Reads exactly like the Project gates card: no "wells ready" count.
     expect(tile).toHaveTextContent("25%complete");
@@ -210,15 +225,15 @@ describe("ProjectDashboard", () => {
     renderDash();
     await screen.findByRole("region", { name: "Readiness" });
     const tile = card(/Wells/);
-    expect(tile.querySelector("a")).toHaveAttribute("href", "/projects/p1/readiness?lens=wells&view=wells&horizon=12");
+    expect(tile.querySelector("a")).toHaveAttribute("href", "/projects/p1/readiness?lens=wells&view=wells");
     expect(within(tile).getByRole("link", { name: "3 behind" })).toHaveAttribute(
       "href",
-      "/projects/p1/readiness?lens=wells&view=wells&horizon=12&focus=behind",
+      "/projects/p1/readiness?lens=wells&view=wells&focus=behind",
     );
     expect(tile).toHaveTextContent("4 wells");
   });
 
-  it("groups the readiness cards under one window picked in the group header", async () => {
+  it("groups the readiness cards under one year range picked in the group header", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(makeData({ team_readiness: [LOGISTICS_TILE] }));
     renderDash();
     const group = await screen.findByRole("region", { name: "Readiness" });
@@ -228,12 +243,12 @@ describe("ProjectDashboard", () => {
         .getAllByTestId("readiness-card")
         .map((c) => c.querySelector("a")!.getAttribute("href")),
     ).toEqual([
-      "/projects/p1/readiness?lens=projects&view=projects&horizon=12",
-      "/projects/p1/readiness?lens=logistics&view=projects&horizon=12",
+      "/projects/p1/readiness?lens=projects&view=projects",
+      "/projects/p1/readiness?lens=logistics&view=projects",
     ]);
     // …with the window stated once, and its picker, in the group header.
-    expect(within(group).getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
-    expect(within(group).getByLabelText("Readiness horizon")).toBeInTheDocument();
+    expect(within(group).getByText(`Readiness · ${YEAR}–${YEAR + 2}`)).toBeInTheDocument();
+    expect(within(group).getByRole("group", { name: "Years shown" })).toBeInTheDocument();
     // The operations row no longer carries a readiness card.
     expect(screen.getAllByRole("link", { name: /Well Execution Readiness/ })).toHaveLength(1);
   });
@@ -244,11 +259,11 @@ describe("ProjectDashboard", () => {
     await screen.findByRole("region", { name: "Readiness" });
     expect(within(card(/Logistics/)).getByRole("link", { name: "3 behind" })).toHaveAttribute(
       "href",
-      "/projects/p1/readiness?lens=logistics&view=projects&horizon=12&focus=behind",
+      "/projects/p1/readiness?lens=logistics&view=projects&focus=behind",
     );
     expect(within(card(/Well Execution Readiness/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
       "href",
-      "/projects/p1/readiness?lens=projects&view=projects&horizon=12&focus=behind",
+      "/projects/p1/readiness?lens=projects&view=projects&focus=behind",
     );
   });
 

@@ -212,7 +212,7 @@ def _key(well: str, project: str = FP) -> tuple[str, str, str]:
 
 
 async def _dashboard(client: AsyncClient, pid: str) -> dict:
-    r = await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=0")
+    r = await client.get(f"/api/projects/{pid}/dashboard?readiness_from_year=2026&readiness_years=3")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -563,7 +563,7 @@ async def test_the_tab_adds_up_to_the_tile_with_equipment(
     # wells: Bonga = core (On Track) · PSV (On Track on W-1, unticked on W-2) ·
     # CR (Behind on both) · LBT (Completed on W-2, the only well with it). LONE-1
     # has no field project, so its RW isn't on the tile.
-    figs = [r["figures_by_window"]["0"] for r in lens["project_rows"]]
+    figs = [r["figures"] for r in lens["project_rows"]]
     assert [(f["counted"], f["done"], f["in_progress"], f["behind"]) for f in figs] == [(9, 1, 7, 1)]
     tile = _logistics_tile(await _dashboard(client, pid))
     assert (tile["unit"], tile["focus_count"]) == ("projects", 1)

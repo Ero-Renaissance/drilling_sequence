@@ -4,7 +4,8 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { fetchDashboard, type DashboardResponse, type GateBreakdown } from "@/api/dashboard";
 import { getActivityColor } from "@/lib/chart-colors";
 import { readinessFiguresHint, readinessScope } from "@/lib/readiness-figures";
-import { HORIZON_DAYS } from "@/lib/readiness-window";
+import { defaultYearRange, rangePhrase, type YearRange } from "@/lib/readiness-window";
+import { ReadinessYearsPicker } from "@/components/readiness/ReadinessWindow";
 import { ALL_LENS, PROJECTS_TEAM } from "@/components/readiness/catalog";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
@@ -281,7 +282,7 @@ const HORIZON_OPTIONS = [
   { value: 0, label: "All duration" },
 ] as const;
 
-/** A readiness tile's door: the Readiness tab on that tile's lens and window, so
+/** A readiness tile's door: the Readiness tab on that tile's lens and years, so
  *  the tab lists exactly what the tile counted (spec §3.7) — for a team, the
  *  view of what its tile counts (spec §8.8): its Projects view, or its Wells
  *  view for a team whose checks are all well-level, whatever view the browser
@@ -290,14 +291,17 @@ function readinessLink(
   base: string,
   lens: string,
   unit: "wells" | "projects",
-  months: number,
+  range: YearRange,
   focus?: "behind",
 ): string {
   const params = new URLSearchParams({ lens });
   // Always: the Project gates page has both views too, and its tile counts
   // field projects — a remembered Wells view mustn't change what the door shows.
   params.set("view", unit);
-  if (months in HORIZON_DAYS) params.set("horizon", String(months));
+  // The tab opens on the tile's years; the default range leaves the link bare.
+  const fallback = defaultYearRange();
+  if (range.from !== fallback.from) params.set("from", String(range.from));
+  if (range.years !== fallback.years) params.set("years", String(range.years));
   if (focus) params.set("focus", focus);
   return `${base}/readiness?${params.toString()}`;
 }
@@ -319,28 +323,10 @@ export function ProjectDashboard({
 }) {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Readiness focus window — a per-user viewing habit, persisted like the
-  // spud map. Drives the whole readiness block (tile + by-gate card).
-  const [horizon, setHorizon] = useState<number>(() => {
-    try {
-      // Read the raw string first: Number(null) is 0, which would silently
-      // turn a MISSING key into the "All projects" horizon instead of 12.
-      const raw = window.localStorage.getItem("ds.readiness-horizon");
-      if (raw === null) return 12;
-      const v = Number(raw);
-      return v === 0 || v === 6 || v === 12 || v === 24 ? v : 12;
-    } catch {
-      return 12;
-    }
-  });
-  function updateHorizon(next: number) {
-    setHorizon(next);
-    try {
-      window.localStorage.setItem("ds.readiness-horizon", String(next));
-    } catch {
-      // storage unavailable — the in-session choice still applies
-    }
-  }
+  // The years the readiness block covers (tiles + by-check card): 1–3 at a
+  // time, opening on this year and the next two. In-session only — a stored
+  // year would go stale.
+  const [range, setRange] = useState<YearRange>(() => defaultYearRange());
   // Activity-mix window — same viewing-habit treatment, own key. Defaults to
   // the whole plan (0), the card's historical behaviour.
   const [mixHorizon, setMixHorizon] = useState<number>(() => {
@@ -397,20 +383,20 @@ export function ProjectDashboard({
   // open by default, in-session only.
   const [breakdownOpen, setBreakdownOpen] = useState(true);
 
-  // Blank the page only when switching CAMPAIGN — a horizon change refetches
+  // Blank the page only when switching CAMPAIGN — a change of years refetches
   // in place, keeping the current numbers up instead of flashing "Loading".
   useEffect(() => setData(null), [projectId]);
 
   useEffect(() => {
     let active = true;
     setError(null);
-    fetchDashboard(projectId, horizon, mixHorizon)
+    fetchDashboard(projectId, range, mixHorizon)
       .then((d) => active && setData(d))
       .catch(() => active && setError("Couldn't load the dashboard."));
     return () => {
       active = false;
     };
-  }, [projectId, horizon, mixHorizon]);
+  }, [projectId, range, mixHorizon]);
 
   if (error) return <p className="py-12 text-center text-sm text-destructive">{error}</p>;
   if (!data) return <p className="py-12 text-center text-sm text-muted-foreground">Loading dashboard…</p>;
@@ -485,7 +471,7 @@ export function ProjectDashboard({
       <section aria-label="Readiness" className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Readiness · {horizonSuffix(horizon)}
+            Readiness · {rangePhrase(range)}
           </h2>
           <div className="flex items-center gap-2">
             {cards.length > 1 && (
@@ -503,18 +489,7 @@ export function ProjectDashboard({
                 ))}
               </select>
             )}
-            <select
-              aria-label="Readiness horizon"
-              value={String(horizon)}
-              onChange={(e) => updateHorizon(Number(e.target.value))}
-              className="rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-            >
-              {HORIZON_OPTIONS.map((h) => (
-                <option key={h.value} value={String(h.value)}>
-                  {h.label}
-                </option>
-              ))}
-            </select>
+            <ReadinessYearsPicker value={range} onChange={setRange} />
           </div>
         </div>
         {/* Say so when other teams are hidden — a focused screen must not pass
@@ -541,8 +516,8 @@ export function ProjectDashboard({
               onTrackPct={c.onTrackPct}
               behind={c.behind}
               scope={c.scope}
-              to={readinessLink(base, c.code, c.unit, horizon)}
-              behindTo={readinessLink(base, c.code, c.unit, horizon, "behind")}
+              to={readinessLink(base, c.code, c.unit, range)}
+              behindTo={readinessLink(base, c.code, c.unit, range, "behind")}
               projectGates={c.code === PROJECTS_TEAM}
             />
           ))}
@@ -577,7 +552,7 @@ export function ProjectDashboard({
             {/* Follows the Readiness group's window (picked in its header); a
                 Project gates card, so a focus on another team hides it. */}
             {(focus === ALL_LENS || focus === PROJECTS_TEAM) && (
-              <BreakdownCard title={`Well execution readiness by check · ${horizonSuffix(horizon)}`}>
+              <BreakdownCard title={`Well execution readiness by check · ${rangePhrase(range)}`}>
                 {readiness.by_gate.length ? (
                   <div className="space-y-1.5">
                     {readiness.by_gate.map((g) => (

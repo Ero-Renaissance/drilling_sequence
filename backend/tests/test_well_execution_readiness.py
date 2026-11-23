@@ -147,7 +147,7 @@ async def test_a_well_follows_its_field_project_until_it_has_its_own_value(
     assert row["checks"]["FID"]["status"] == "On Track"  # the project's OWN value
     # …but the field project's figures read the WORST of its wells: Behind.
     assert row["figures"]["behind"] == 1
-    assert row["wells_behind_by_window"]["0"] == 1
+    assert (row["wells_behind"], row["in_range"]) == (1, True)
 
     # Reset to project: W-1 follows again.
     reset = await client.post(f"/api/projects/{pid}/readiness/FID/reset", json=_well("W-1"))

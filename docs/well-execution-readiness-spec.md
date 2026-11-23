@@ -269,6 +269,15 @@ Oil          | Workover     | Forc151       | Jan       |      | (grey) | ...
 | D6 | Code for Well Permits | `WP`. |
 | D7 | The sheet's grey cells | Mean nothing — not a status. N/A stays available, drawn grey. |
 
+## 5a. Year range (2026-11-24)
+
+Agreed after Part B: the Spud date columns show **1 to 3 years at a time**, chosen
+by the user (default: the current year and the next two), and wells that spud
+outside them are hidden, with a count. The same picker replaces the "next
+6 / 12 / 24 months" window on every readiness page and on the Overview, so a
+tile and the page it opens always cover the same years. The server folds each
+field project's figures for exactly the years asked.
+
 ## 6. Out of scope
 
 - Moving these checks from N/A to the teams' tick list.

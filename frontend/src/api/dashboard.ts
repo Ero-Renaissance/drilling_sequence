@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import type { YearRange } from "@/lib/readiness-window";
 import { throwApiError } from "./http";
 
 export interface RigDetail {
@@ -53,6 +54,10 @@ export interface DashboardResponse {
   };
   /** The Project gates tile — the rollup of spec §3.7 (computed server-side). */
   readiness: {
+    /** The years these figures — and every team tile — cover, as the server
+     *  applied them (its own current year by default). */
+    from_year?: number;
+    years?: number;
     focus_count: number;
     /** Complete (the headline): done ÷ counted. */
     overall_pct: number | null;
@@ -115,13 +120,16 @@ async function authHeaders(): Promise<HeadersInit> {
 
 export async function fetchDashboard(
   projectId: string,
-  readinessHorizonMonths = 12, // 0 = no window (all duration); backend allow-lists 0/6/12/24
+  /** The years the readiness figures cover (1–3); omitted → the server's
+   *  default, its current year and the next two. */
+  readinessRange?: YearRange,
   mixHorizonMonths = 0, // activity-type mix window; 0 = whole plan
 ): Promise<DashboardResponse> {
+  const range = readinessRange
+    ? `readiness_from_year=${readinessRange.from}&readiness_years=${readinessRange.years}&`
+    : "";
   const resp = await fetch(
-    `/api/projects/${projectId}/dashboard` +
-      `?readiness_horizon_months=${readinessHorizonMonths}` +
-      `&mix_horizon_months=${mixHorizonMonths}`,
+    `/api/projects/${projectId}/dashboard?${range}mix_horizon_months=${mixHorizonMonths}`,
     { headers: await authHeaders() },
   );
   if (!resp.ok) await throwApiError(resp, "Failed to load dashboard");

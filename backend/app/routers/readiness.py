@@ -1,7 +1,7 @@
 import logging
 import uuid
 from collections.abc import Iterable
-from datetime import date, timedelta
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -66,12 +66,16 @@ from app.services.readiness_effective import (
     well_value,
 )
 from app.services.readiness_rollup import (
-    HORIZON_DAYS,
+    MAX_RANGE_YEARS,
+    carries_readiness,
     days_until,
     focus_start_of,
     fold_project_cells,
+    in_window,
     target_figures,
+    valid_year_range,
     well_level_statuses,
+    year_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,6 +86,23 @@ catalog_router = APIRouter(prefix="/api/readiness", tags=["readiness"])
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+# The first and last day of a requested year range.
+YearWindow = tuple[date, date]
+
+
+def _requested_window(from_year: int | None, years: int) -> YearWindow | None:
+    """The year range a read asked for (``?from_year=&years=``, 1–3 years), or
+    None when it asked for none. Anything off the allow-list is refused, never
+    coerced."""
+    if from_year is None:
+        return None
+    if not valid_year_range(from_year, years):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"A year range covers 1 to {MAX_RANGE_YEARS} years",
+        )
+    return year_window(from_year, years)
 
 # The 409 for a status write — or Reset to project — on a team check that doesn't
 # apply to the target (spec §5.1, §7.10): tick it first. A check that is not
@@ -176,7 +197,6 @@ async def list_readiness(
             focus_start=row.focus_start,
             focus_in_days=row.focus_in_days,
             figures=row.figures,
-            figures_by_window=row.figures_by_window,
         )
         for row in project_rows
     ]
@@ -368,16 +388,15 @@ def _project_window(
     wells: list[WellKey],
     cells_of: dict[WellKey, dict[str, str]],
     focus_of: dict[WellKey, date | None],
-    end: date | None,
+    window: YearWindow | None,
 ) -> tuple[RowFigures, int]:
-    """A field project in one window (spec §3.7): its figures — its wells whose
-    work left starts by ``end`` (None = All) folded with its own cells — and how
-    many of those wells are behind on a check enabled at well level (the row's
-    "N wells behind"; a project-only check is the project's, not each well's)."""
-    in_window = [
-        k for k in wells if end is None or (focus_of[k] is not None and focus_of[k] <= end)
-    ]
-    cells = [cells_of[k] for k in in_window]
+    """A field project in the year range (spec §3.7): its figures — its wells
+    whose work left starts within ``window`` (None = every one) folded with its
+    own cells — how many of those wells are behind on a check enabled at well
+    level (the row's "N wells behind"; a project-only check is the project's,
+    not each well's)."""
+    ranged = [k for k in wells if in_window(focus_of[k], window)]
+    cells = [cells_of[k] for k in ranged]
     folded = fold_project_cells(codes, own, cells, well_level)
     behind = sum(1 for c in cells if target_figures(c.values()).behind)
     return _row_figures(folded.values()), behind
@@ -417,6 +436,7 @@ async def _team_rows(
     checks: list[ReadinessCheck],
     db: AsyncSession,
     target: WellTarget | None = None,
+    window: YearWindow | None = None,
 ) -> tuple[list[TeamProjectRow], list[TeamWellRow]]:
     """One team's rows in a campaign — every row, or (``target``) only the rows
     one write affects: a field project's row plus every well row under it (they
@@ -435,9 +455,9 @@ async def _team_rows(
     project as the Overview tile counts it (spec §3.7, 2026-10-25): a check
     enabled at well level reads the worst of its wells, a project-only one the
     project's own cell (``fold_project_cells``) — over the wells with work left
-    starting within each window, so ``figures_by_window`` carries one per
-    window ("0" = All, as ``figures``), with ``wells_behind_by_window`` beside
-    it. A team whose checks are all well-level has no project rows.
+    starting within ``window`` (the requested year range; None = every one),
+    with ``in_range`` and ``wells_behind`` beside it. A team whose checks are all
+    well-level has no project rows.
     """
     index = await load_index(db, project_id, [c.code for c in checks])
     # A well's tick or status moves its field project's figures: widen a well
@@ -479,15 +499,11 @@ async def _team_rows(
     if project_checks and (target is None or target.scope == "project" or widen):
         codes = [c.code for c in checks]
         well_level = [c.code for c in checks if c.applies_well]
-        # Each pending well's well-level cells, once; folded per window below.
+        # Each pending well's well-level cells, once; folded for the range below.
         pending = {
             key: well_level_statuses(index, checks, key)
             for key, focus in well_focus.items()
             if key[0] and focus is not None
-        }
-        windows: dict[str, date | None] = {
-            "0": None,
-            **{str(m): today + timedelta(days=d) for m, d in HORIZON_DAYS.items()},
         }
         by_project: dict[str, list] = {}
         for a in activities:
@@ -497,11 +513,10 @@ async def _team_rows(
             values = {c.code: project_value(index, c, wp) for c in project_checks}
             own = {code: cell_status(v) for code, v in values.items() if not not_selected(v)}
             mine = [key for key in pending if key[0] == wp]
-            by_window = {
-                name: _project_window(codes, well_level, own, mine, pending, well_focus, end)
-                for name, end in windows.items()
-            }
-            # The window signal — the same scope rule as the tiles (spec §3.7).
+            figures, behind = _project_window(
+                codes, well_level, own, mine, pending, well_focus, window
+            )
+            # The range signal — the same scope rule as the tiles (spec §3.7).
             focus = focus_start_of(acts)
             project_rows.append(
                 TeamProjectRow(
@@ -510,9 +525,13 @@ async def _team_rows(
                     checks={code: _team_cell(v) for code, v in values.items()},
                     focus_start=focus,
                     focus_in_days=days_until(focus, today),
-                    figures=by_window["0"][0],
-                    figures_by_window={name: f for name, (f, _) in by_window.items()},
-                    wells_behind_by_window={name: n for name, (_, n) in by_window.items()},
+                    figures=figures,
+                    # In range exactly as its tile counts it: one of its
+                    # activities carries readiness and starts within the range.
+                    in_range=any(
+                        in_window(a.start_date, window) for a in acts if carries_readiness(a)
+                    ),
+                    wells_behind=behind,
                 )
             )
 
@@ -750,6 +769,8 @@ async def set_applicability(
     payload: ApplicabilityUpdate,
     current_user: CurrentUser,
     db: DB,
+    from_year: int | None = None,
+    years: int = MAX_RANGE_YEARS,
 ) -> ApplicabilityResult:
     """Which of a team's checks apply to one target — a field project or a well
     (spec §3.8, §4.4). Not for the Projects team: the Project gates use N/A
@@ -852,7 +873,9 @@ async def set_applicability(
             team.code,
             ",".join(changed),
         )
-    project_rows, well_rows = await _team_rows(project_id, team_checks, db, target=payload)
+    project_rows, well_rows = await _team_rows(
+        project_id, team_checks, db, target=payload, window=_requested_window(from_year, years)
+    )
     return ApplicabilityResult(project_rows=project_rows, well_rows=well_rows)
 
 
@@ -968,7 +991,14 @@ async def _set_well_choice(
 
 @router.get("/readiness/teams/{team_code}", response_model=TeamReadiness)
 async def get_team_readiness(
-    project_id: uuid.UUID, team_code: str, current_user: CurrentUser, db: DB
+    project_id: uuid.UUID,
+    team_code: str,
+    current_user: CurrentUser,
+    db: DB,
+    # The year range the field-project figures cover (1–3 years); none = every
+    # well with work left.
+    from_year: int | None = None,
+    years: int = MAX_RANGE_YEARS,
 ) -> TeamReadiness:
     """One team's readiness in this campaign — the Wells / Logistics… lens.
 
@@ -987,7 +1017,9 @@ async def get_team_readiness(
     # Reads are org-wide: any authenticated user may view campaign data.
     team = await _resolve_team(team_code, db)
     checks = await active_checks(db, team_code=team.code)
-    project_rows, well_rows = await _team_rows(project_id, checks, db)
+    project_rows, well_rows = await _team_rows(
+        project_id, checks, db, window=_requested_window(from_year, years)
+    )
     return TeamReadiness(
         team=CatalogTeam.model_validate(team),
         checks=[CatalogCheck.model_validate(c) for c in checks],

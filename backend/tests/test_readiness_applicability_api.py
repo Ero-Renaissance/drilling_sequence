@@ -822,12 +822,12 @@ async def test_the_tab_adds_up_to_the_tile_with_unticked_checks(
     # The tile counts FIELD PROJECTS (spec §3.7): LONE-1 has none, so it isn't
     # there. Bonga folds W-1 and W-2: PO done on both; NAV unticked on W-1 but
     # ticked on W-2 (its default, On Track); L-PRJ is project-only — its own.
-    figs = [r["figures_by_window"]["0"] for r in lens["project_rows"] if r["focus_start"]]
+    figs = [r["figures"] for r in lens["project_rows"] if r["focus_start"]]
     assert [(f["counted"], f["done"], f["in_progress"], f["na"]) for f in figs] == [(3, 1, 2, 0)]
     tile = next(
         t
         for t in (
-            await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=0")
+            await client.get(f"/api/projects/{pid}/dashboard?readiness_from_year=2026&readiness_years=3")
         ).json()["team_readiness"]
         if t["team_code"] == "logistics"
     )

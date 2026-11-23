@@ -1,3 +1,4 @@
+import type { YearRange } from "@/lib/readiness-window";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ListChecks, Loader2, Lock, Search, Undo2 } from "lucide-react";
 import {
@@ -76,7 +77,11 @@ export function ApplicabilityPicker({
   wellsWithOwnChoice,
   onSaved,
   className,
+  range,
 }: {
+  /** The years the page shows: the rows a save answers with carry each field
+   *  project's figures for them, so the page redraws without a reload. */
+  range?: YearRange;
   projectId: string;
   team: Pick<CatalogTeam, "code" | "name">;
   /** The definitions the view rendered from (the team rows' `checks`). */
@@ -127,6 +132,7 @@ export function ApplicabilityPicker({
       </button>
       {open && (
         <PickerDialog
+          range={range}
           projectId={projectId}
           team={team}
           target={target}
@@ -146,6 +152,7 @@ export function ApplicabilityPicker({
 }
 
 function PickerDialog({
+  range,
   projectId,
   team,
   target,
@@ -156,6 +163,7 @@ function PickerDialog({
   onClose,
   onSaved,
 }: {
+  range?: YearRange;
   projectId: string;
   team: Pick<CatalogTeam, "code" | "name">;
   target: ReadinessTarget;
@@ -228,7 +236,12 @@ function PickerDialog({
     setSaving(true);
     setError(null);
     try {
-      const result = await setApplicability(projectId, team.code, applicabilityBody(target, changes));
+      const result = await setApplicability(
+        projectId,
+        team.code,
+        applicabilityBody(target, changes),
+        range,
+      );
       await onSaved(result);
     } catch (err: unknown) {
       // All or nothing: nothing changed; keep the dialog so the choice isn't

@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { rangeQuery, type YearRange } from "@/lib/readiness-window";
 import { throwApiError } from "./http";
 
 /**
@@ -161,15 +162,16 @@ export interface TeamProjectRow {
   focus_in_days?: number | null;
   /** The field project as its Overview tile counts it (spec §3.7): a check at
    *  well level reads the worst of its wells with work left, a project-only
-   *  check the project's own cell — All windows. */
+   *  check the project's own cell — over the wells that spud within the years
+   *  the read asked for (every well with work left when it asked for none). */
   figures?: RowFigures;
-  /** The same per window ("0" All, "6", "12", "24" months): only wells with work
-   *  starting within the window fold in — `projectFigures` picks one. */
-  figures_by_window?: Partial<Record<string, RowFigures>>;
-  /** Per window, its wells in the window behind on a check enabled at well
-   *  level — the row's "N wells behind" (`wellsBehind`). A project-only check
-   *  is the project's own: a well behind only on that isn't counted. */
-  wells_behind_by_window?: Partial<Record<string, number>>;
+  /** Whether the field project is in those years, exactly as its tile counts
+   *  it: one of its activities with work left starts within them. */
+  in_range?: boolean;
+  /** Its wells in those years behind on a check enabled at well level — the
+   *  row's "N wells behind". A project-only check is the project's own: a well
+   *  behind only on that isn't counted. */
+  wells_behind?: number;
 }
 
 export interface TeamWellRow {
@@ -207,9 +209,17 @@ export type ReadinessTarget =
   | { scope: "project"; well_project: string }
   | { scope: "well"; well_project: string; well_name: string; activity_type: string };
 
-export async function getTeamReadiness(projectId: string, teamCode: string): Promise<TeamReadiness> {
+/** One team's rows. With `range` (the years a page shows) each field project's
+ *  `figures`, `in_range` and `wells_behind` cover the wells that spud within
+ *  it; without one, every well with work left (the chart, the dialogs). */
+export async function getTeamReadiness(
+  projectId: string,
+  teamCode: string,
+  range?: YearRange,
+): Promise<TeamReadiness> {
   const resp = await fetch(
-    `/api/projects/${projectId}/readiness/teams/${encodeURIComponent(teamCode)}`,
+    `/api/projects/${projectId}/readiness/teams/${encodeURIComponent(teamCode)}` +
+      (range ? `?${rangeQuery(range)}` : ""),
     { headers: await authHeaders() },
   );
   if (!resp.ok) await throwApiError(resp, "Failed to fetch readiness data");
@@ -298,9 +308,12 @@ export async function setApplicability(
   projectId: string,
   teamCode: string,
   body: ApplicabilityUpdate,
+  /** The years the page shows, so the rows returned carry figures for them. */
+  range?: YearRange,
 ): Promise<ApplicabilityResult> {
   const resp = await fetch(
-    `/api/projects/${projectId}/readiness/teams/${encodeURIComponent(teamCode)}/applicability`,
+    `/api/projects/${projectId}/readiness/teams/${encodeURIComponent(teamCode)}/applicability` +
+      (range ? `?${rangeQuery(range)}` : ""),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders()) },

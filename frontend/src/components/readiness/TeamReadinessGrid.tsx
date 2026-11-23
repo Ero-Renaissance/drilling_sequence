@@ -10,7 +10,6 @@ import {
   type ReadinessTarget,
   type RowFigures,
   type TeamCheckState,
-  type TeamProjectRow,
   type TeamReadiness,
   type TeamWellRow,
 } from "@/api/readiness";
@@ -18,7 +17,7 @@ import { PaginationFooter } from "@/components/ui/pagination-footer";
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { cn, formatDate } from "@/lib/utils";
-import { inWindow } from "@/lib/readiness-window";
+import { inYears, rangePhrase } from "@/lib/readiness-window";
 import { mergeApplicability, wellsWithOwnChoice } from "@/lib/readiness-applicability";
 import { lookAlikeCodes } from "@/lib/readiness-categories";
 import { ApplicabilityPicker } from "./ApplicabilityPicker";
@@ -48,7 +47,7 @@ import { checkIcon } from "./icon-registry";
 import { ReadinessLegend } from "./ReadinessLegend";
 import { DoneFigure, ReadinessSummary } from "./ReadinessSummary";
 import { ReadinessToolbar } from "./ReadinessToolbar";
-import { useReadinessWindow } from "./ReadinessWindow";
+import { OutsideYears, useReadinessYears } from "./ReadinessWindow";
 
 
 function wellKey(r: TeamWellRow): string {
@@ -150,19 +149,6 @@ function DoneCell({ figures }: { figures: RowFigures | undefined }) {
   );
 }
 
-/** A field project's figures for the window shown: the server folds in only the
- *  wells with work starting within it (spec §3.7), so the Projects view adds up
- *  to the team's Overview tile for that window. */
-export function projectFigures(row: TeamProjectRow, months: number): RowFigures | undefined {
-  return row.figures_by_window?.[String(months)] ?? row.figures;
-}
-
-/** How many of a field project's wells in the window shown are behind on a
- *  check enabled at well level — counted by the server, as the wells its
- *  figures fold in (a project-only check is the project's own). */
-export function wellsBehind(row: TeamProjectRow, months: number): number {
-  return row.wells_behind_by_window?.[String(months)] ?? 0;
-}
 // The header row is tinted (`bg-muted/30` over the card): an inset shadow
 // paints the same tint on the pinned header cell's opaque background.
 const PINNED_HEAD =
@@ -337,7 +323,9 @@ export function TeamReadinessGrid({
   const [search, setSearch] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(25);
-  const [months, setMonths] = useReadinessWindow();
+  // The years shown (1–3): wells that spud within them, and the field projects
+  // with work in them — whose figures the server folds for exactly this range.
+  const [range, setRange] = useReadinessYears();
   // Which categories are unfolded — every one starts folded; remembered per
   // browser (spec §8.8).
   const [openCategories, toggleCategory] = useOpenCategories(teamCode);
@@ -366,7 +354,7 @@ export function TeamReadinessGrid({
     setLoading(true);
     setError(null);
     try {
-      const next = await getTeamReadiness(projectId, teamCode);
+      const next = await getTeamReadiness(projectId, teamCode, range);
       if (seq === loadSeq.current) setData(next);
     } catch (err: unknown) {
       if (seq === loadSeq.current) {
@@ -378,7 +366,7 @@ export function TeamReadinessGrid({
         setLoading(false);
       }
     }
-  }, [projectId, teamCode]);
+  }, [projectId, teamCode, range]);
 
   useEffect(() => {
     load();
@@ -470,7 +458,7 @@ export function TeamReadinessGrid({
       },
       { replace: true },
     );
-  useEffect(() => setPageIndex(0), [search, teamCode, months, behindFocus, view, projectFilter]);
+  useEffect(() => setPageIndex(0), [search, teamCode, range, behindFocus, view, projectFilter]);
   const projectCellsOf = useMemo(
     () => new Map((data?.project_rows ?? []).map((r) => [r.well_project, r.checks])),
     [data],
@@ -481,7 +469,7 @@ export function TeamReadinessGrid({
     () =>
       (data?.well_rows ?? []).filter(
         (r) =>
-          inWindow(r, months) &&
+          inYears(r, range) &&
           (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
           (projectFilter === null || r.well_project === projectFilter) &&
           (!q ||
@@ -489,27 +477,34 @@ export function TeamReadinessGrid({
             r.well_project.toLowerCase().includes(q) ||
             r.activity_type.toLowerCase().includes(q)),
       ),
-    [data, q, months, behindFocus, projectFilter],
+    [data, q, range, behindFocus, projectFilter],
   );
   const projects = useMemo(
     () =>
       (data?.project_rows ?? []).filter(
         (r) =>
-          inWindow(r, months) &&
-          (!behindFocus || (projectFigures(r, months)?.behind ?? 0) > 0) &&
+          // In the years shown exactly as its tile counts it (the server says).
+          r.in_range !== false &&
+          !!r.focus_start &&
+          (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
           (!q || r.well_project.toLowerCase().includes(q)),
       ),
-    [data, q, months, behindFocus],
+    [data, q, behindFocus],
   );
   // How many of the view's targets the window covers, before the search and any
   // drill-through — the toolbar's "2 of 6", as on the Project gates page.
   const scopedCount = useMemo(
     () =>
-      (wellsView ? (data?.well_rows ?? []) : (data?.project_rows ?? [])).filter((r) =>
-        inWindow(r, months),
-      ).length,
-    [data, months, wellsView],
+      wellsView
+        ? (data?.well_rows ?? []).filter((r) => inYears(r, range)).length
+        : (data?.project_rows ?? []).filter((r) => r.in_range !== false && !!r.focus_start).length,
+    [data, range, wellsView],
   );
+  // Targets with work left that the years shown leave out.
+  const outside =
+    (wellsView
+      ? (data?.well_rows ?? []).filter((r) => !!r.focus_start).length
+      : (data?.project_rows ?? []).filter((r) => !!r.focus_start).length) - scopedCount;
   const shownCount = wellsView ? wells.length : projects.length;
   const pageCount = Math.max(1, Math.ceil(shownCount / pageSize));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -558,21 +553,6 @@ export function TeamReadinessGrid({
             </button>
           </div>
         )}
-        {months !== 0 && (
-          <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
-            <span>
-              <span className="font-semibold">{shown}</span> shown — {targets} with
-              readiness-required work starting in the next {months} months
-            </span>
-            <button
-              type="button"
-              onClick={() => setMonths(0)}
-              className="text-xs font-medium text-primary hover:underline"
-            >
-              Clear filter
-            </button>
-          </div>
-        )}
         {projectFilter !== null && (
           <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
             <span>
@@ -593,11 +573,7 @@ export function TeamReadinessGrid({
           onRefresh={load}
           locked={plannerEdited && data.locked}
           viewSwitch={bothViews ? <TeamViewSwitch value={view} onChange={setView} /> : undefined}
-          window={{
-            value: months,
-            onChange: setMonths,
-            allLabel: wellsView ? "All wells" : "All field projects",
-          }}
+          years={{ value: range, onChange: setRange }}
           search={
             wellsView
               ? {
@@ -616,6 +592,7 @@ export function TeamReadinessGrid({
           count={filtering ? `${shown} of ${scopedCount}` : `${scopedCount} ${scopedCount === 1 ? one : many}`}
         />
 
+        <OutsideYears count={outside} unit={wellsView ? "well" : "field project"} />
         {!canEdit && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="h-3.5 w-3.5" />
@@ -646,10 +623,10 @@ export function TeamReadinessGrid({
               rows={
                 wellsView
                   ? wells.map((r) => r.figures)
-                  : projects.map((r) => projectFigures(r, months))
+                  : projects.map((r) => r.figures)
               }
               unit={wellsView ? ["well", "wells"] : ["field project", "field projects"]}
-              windowMonths={months}
+              scope={rangePhrase(range)}
               projectGates={!hasTickList}
             />
             {!wellsView && (
@@ -670,9 +647,7 @@ export function TeamReadinessGrid({
                       ? "No field projects match."
                       : behindFocus
                         ? "No field projects with a check behind."
-                        : months
-                        ? `No field projects have readiness-required work starting in the next ${months} months.`
-                        : "No field projects have readiness work left."}
+                        : `No field projects have readiness-required work starting in ${rangePhrase(range)}.`}
                   </p>
                 ) : (
                   <GridTable columns={projectColumns}>
@@ -711,7 +686,7 @@ export function TeamReadinessGrid({
                             />,
                           );
                         };
-                        const behindWells = wellsBehind(row, months);
+                        const behindWells = row.wells_behind ?? 0;
                         return (
                           <tr key={row.well_project} className="border-b border-border/40">
                             <td className={cn("px-3 py-2", PINNED_CELL)} data-pinned="">
@@ -720,6 +695,7 @@ export function TeamReadinessGrid({
                                   <div className="min-w-0 font-medium">{row.well_project}</div>
                                   {hasTickList && (
 <ApplicabilityPicker
+ range={range}
                                     projectId={projectId}
                                     team={data.team}
                                     checks={data.checks}
@@ -763,7 +739,7 @@ export function TeamReadinessGrid({
                                 </div>
                               </div>
                             </td>
-                            <DoneCell figures={projectFigures(row, months)} />
+                            <DoneCell figures={row.figures} />
                             {rowCells(projectColumns, row.checks, lookAlikes, cellOf)}
                           </tr>
                         );
@@ -803,13 +779,11 @@ export function TeamReadinessGrid({
                     {q ? (
                       <>No wells match &ldquo;{search}&rdquo;.</>
                     ) : projectFilter !== null ? (
-                      `No wells of ${projectFilter || "no field project"} in this window.`
+                      `No wells of ${projectFilter || "no field project"} in ${rangePhrase(range)}.`
                     ) : behindFocus ? (
                       "No wells with a check behind."
-                    ) : months ? (
-                      `No wells have readiness-required work starting in the next ${months} months.`
                     ) : (
-                      "No wells with readiness work left in this campaign."
+                      `No wells have readiness-required work starting in ${rangePhrase(range)}.`
                     )}
                   </div>
                 ) : (
@@ -907,6 +881,7 @@ export function TeamReadinessGrid({
                                   </div>
                                   {hasTickList && (
 <ApplicabilityPicker
+ range={range}
                                     projectId={projectId}
                                     team={data.team}
                                     checks={data.checks}

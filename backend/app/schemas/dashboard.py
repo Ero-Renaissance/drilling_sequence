@@ -31,10 +31,16 @@ class GateBreakdown(BaseModel):
 
 
 class ReadinessStats(BaseModel):
-    """The Project gates tile — the rollup of spec §3.7 over the field projects
-    in the focus window (an unset gate reads On Track; N/A isn't counted)."""
+    """The Well Execution Readiness tile — the rollup of spec §3.7 over the field
+    projects in the YEAR RANGE (an unset check reads Not started; N/A isn't
+    counted)."""
 
-    focus_count: int  # field projects in the focus window (not-done activity within it)
+    # The range these figures — and every team tile — cover: ``years`` (1–3)
+    # calendar years from ``from_year``. Echoed so the browser shows the
+    # server's default (its current year) without guessing the server's clock.
+    from_year: int = 0
+    years: int = 3
+    focus_count: int  # field projects with work left starting within the range
     overall_pct: int | None  # COMPLETE (the headline): done / counted; None = nothing counts
     on_track_pct: int | None = None  # (done + on track) / counted — nothing behind
     behind_cells: int

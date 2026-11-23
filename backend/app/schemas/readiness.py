@@ -190,8 +190,6 @@ class ProjectReadiness(BaseModel):
     # The field project as its Overview tile counts it (spec §3.7): each check
     # the worst of its wells with work left (phase 8), else the project's own.
     figures: RowFigures | None = None
-    # The same per window ("0" All, "6", "12", "24" months), as the team rows.
-    figures_by_window: dict[str, RowFigures] = {}
 
 
 # ── Catalog (GET /api/readiness/catalog) ────────────────────────────────────
@@ -287,15 +285,17 @@ class TeamProjectRow(BaseModel):
     focus_in_days: int | None = None  # days from the server's today to focus_start
     # The field project as its Overview tile counts it (spec §3.7): a check at
     # well level the worst of its wells with work left, a project-only check its
-    # own cell — All windows.
+    # own cell — over the wells whose work left starts within the YEAR RANGE the
+    # request asked for (``from_year`` / ``years``), or every well without one.
     figures: RowFigures | None = None
-    # The same per window ("0" All, "6", "12", "24" months): only wells with work
-    # starting within the window fold in, so the tab matches the tile.
-    figures_by_window: dict[str, RowFigures] | None = None
-    # Per window, its wells in the window that are behind on a check enabled at
-    # well level — the row's "N wells behind" (a project-only check is the
-    # project's own, so a well that only inherits it behind isn't counted).
-    wells_behind_by_window: dict[str, int] | None = None
+    # Whether the field project is in that range: it has a well with work left
+    # starting within it — or, with no well in scope at all, its own work does.
+    # Always true without a range (while it has work left).
+    in_range: bool = True
+    # Its wells in the range that are behind on a check enabled at well level —
+    # the row's "N wells behind" (a project-only check is the project's own, so
+    # a well that only inherits it behind isn't counted).
+    wells_behind: int = 0
 
 
 class TeamWellRow(BaseModel):
