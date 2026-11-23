@@ -71,10 +71,10 @@ async def test_readiness_one_row_per_field_project(client: AsyncClient) -> None:
         ("Bonga Phase 3", 2),
         ("Egina North", 1),
     ]
-    # Defaults: every gate On Track.
+    # Defaults: every check Not started (phase 8).
     for row in rows:
-        assert all(c["status"] == "On Track" for c in row["checks"].values())
-        assert set(row["checks"].keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"}
+        assert all(c["status"] == "Not started" for c in row["checks"].values())
+        assert set(row["checks"].keys()) == {"FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD", "WP"}
 
 
 @pytest.mark.asyncio

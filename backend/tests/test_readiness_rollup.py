@@ -18,11 +18,14 @@ from app.services.readiness_rollup import (
     severity_of,
     snapshot_gate_targets,
     target_ready,
+    worst_status,
 )
 from app.services.revision_diff import diff_snapshots
 
 TODAY = date.today()
 SEVEN = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+# The well execution readiness checks (phase 8), in catalog order.
+EIGHT = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
 
 
 def _gates(**statuses: str) -> dict[str, str]:
@@ -66,10 +69,26 @@ def test_rollups_read_severity_not_status_text() -> None:
     assert severity_of("Not Started") == "in_progress"  # a retired legacy status
 
 
-def test_every_status_set_default_is_on_track() -> None:
-    for spec in STATUS_SETS.values():
-        assert spec["statuses"][spec["default"]] == "in_progress"
+def test_every_status_set_default_is_on_track_except_execution() -> None:
+    """Phase 8: the well execution readiness checks read Not started when unset —
+    counted, but neither done, on track nor behind. Every other set's default is
+    still on track."""
+    for name, spec in STATUS_SETS.items():
+        want = "not_started" if name == "execution" else "in_progress"
+        assert spec["statuses"][spec["default"]] == want
     assert STATUS_SETS["availability"]["default"] == "Pending"
+    assert STATUS_SETS["execution"]["default"] == "Not started"
+
+
+def test_not_started_is_counted_but_not_on_track() -> None:
+    f = rollup([{"FDP": "Not started", "FID": "Completed", "BUD": "On Track", "WP": "N/A"}])
+    assert (f.counted, f.done, f.in_progress, f.not_started, f.behind, f.na) == (3, 1, 1, 1, 0, 1)
+    assert (f.complete_pct, f.on_track_pct) == (33, 67)
+    assert f.ready == 0
+    # Folding a field project's wells: behind > not started > on track > done.
+    assert worst_status(["Completed", "On Track", "Not started"]) == "Not started"
+    assert worst_status(["Not started", "Behind"]) == "Behind"
+    assert worst_status(["N/A", "Completed"]) == "Completed"
 
 
 def test_percentages_round_half_up() -> None:
@@ -89,8 +108,12 @@ def test_target_ready_needs_a_counted_cell_all_done() -> None:
 
 def test_by_check_buckets_follow_severity() -> None:
     f = rollup([{"FDP": "Completed", "NEQ": "Pending"}, {"FDP": "N/A", "NEQ": "Not available"}], ["FDP", "NEQ"])
-    assert f.by_check["FDP"] == {"completed": 1, "on_track": 0, "behind": 0, "na": 1}
-    assert f.by_check["NEQ"] == {"completed": 0, "on_track": 1, "behind": 1, "na": 0}
+    assert f.by_check["FDP"] == {
+        "completed": 1, "on_track": 0, "not_started": 0, "behind": 0, "na": 1,
+    }
+    assert f.by_check["NEQ"] == {
+        "completed": 0, "on_track": 1, "not_started": 0, "behind": 1, "na": 0,
+    }
 
 
 # ── Frozen snapshots (pure) ─────────────────────────────────────────────────
@@ -173,7 +196,7 @@ async def _campaign(client: AsyncClient, name: str = "Rollup") -> str:
 
 
 async def _activity(
-    client: AsyncClient, pid: str, project: str | None, well: str, start: date
+    client: AsyncClient, pid: str, project: str | None, well: str | None, start: date
 ) -> dict:
     r = await client.post(
         f"/api/projects/{pid}/activities",
@@ -202,16 +225,16 @@ async def _gate(client: AsyncClient, pid: str, project: str, code: str, status: 
 
 
 @pytest.mark.asyncio
-async def test_overview_counts_unset_gates_as_on_track(client: AsyncClient) -> None:
-    """The bug this rollup fixes: with only BUD set, the tile used to read 100%
-    and "1/1 ready" while the Readiness tab showed 1/7."""
+async def test_overview_counts_unset_checks_as_not_started(client: AsyncClient) -> None:
+    """With only BUD set, the tile reads 1 of 8 complete — and, since phase 8, 1
+    of 8 on track: an unset check is Not started."""
     pid = await _campaign(client)
     await _activity(client, pid, "P1", "W1", TODAY + timedelta(days=10))
     await _gate(client, pid, "P1", "BUD", "Completed")
 
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     rd = d["readiness"]
-    assert (rd["overall_pct"], rd["on_track_pct"]) == (14, 100)
+    assert (rd["overall_pct"], rd["on_track_pct"]) == (13, 13)
     assert (rd["ready"], rd["ready_of"], rd["behind_cells"], rd["focus_count"]) == (0, 1, 0, 1)
     # The warning agrees: the field project isn't ready.
     assert d["watchlist"]["near_term_not_ready"] == 1
@@ -222,16 +245,17 @@ async def test_overview_ready_project_and_the_spec_example(client: AsyncClient) 
     pid = await _campaign(client)
     await _activity(client, pid, "Ready", "W1", TODAY + timedelta(days=10))
     await _activity(client, pid, "Mixed", "W2", TODAY + timedelta(days=20))
-    for code in SEVEN:
+    for code in EIGHT:
         await _gate(client, pid, "Ready", code, "N/A" if code == "BUD" else "Completed")
     for code, status in (("FDP", "Completed"), ("LLI", "Completed"), ("LOC", "Completed"),
-                         ("FID", "Behind"), ("BUD", "N/A")):
+                         ("FID", "Behind"), ("BUD", "N/A"), ("FE", "On Track"),
+                         ("EIA", "On Track")):
         await _gate(client, pid, "Mixed", code, status)
 
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     rd = d["readiness"]
-    # 6 + 3 done of 6 + 6 counted; on track: 6 + 5.
-    assert (rd["overall_pct"], rd["on_track_pct"], rd["behind_cells"]) == (75, 92, 1)
+    # 7 + 3 done of 7 + 7 counted; on track: 7 + 5 (Mixed's WP is Not started).
+    assert (rd["overall_pct"], rd["on_track_pct"], rd["behind_cells"]) == (71, 86, 1)
     assert (rd["ready"], rd["ready_of"]) == (1, 2)
     fid = next(g for g in rd["by_gate"] if g["code"] == "FID")
     assert (fid["completed"], fid["behind"]) == (1, 1)
@@ -256,13 +280,14 @@ async def test_completed_and_opted_out_work_drops_out(client: AsyncClient) -> No
 
 
 @pytest.mark.asyncio
-async def test_no_field_project_is_never_not_ready(client: AsyncClient) -> None:
-    """An activity with no field project carries no project gates (§3.7), so the
-    warning doesn't flag it and no "" project enters the tile."""
+async def test_a_well_with_no_field_project_has_its_own_checks(client: AsyncClient) -> None:
+    """Phase 8: every well has the execution readiness checks, so a well with no
+    field project is flagged when it starts soon and isn't ready — but it is on
+    no field-project tile (§3.7)."""
     pid = await _campaign(client)
     await _activity(client, pid, None, "W1", TODAY + timedelta(days=10))
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
-    assert d["watchlist"]["near_term_not_ready"] == 0
+    assert d["watchlist"]["near_term_not_ready"] == 1
     assert d["readiness"]["focus_count"] == 0
 
 
@@ -301,7 +326,8 @@ async def test_readiness_rows_carry_their_figures(client: AsyncClient) -> None:
 
     rows = {r["well_project"]: r for r in (await client.get(f"/api/projects/{pid}/readiness")).json()}
     assert rows["P1"]["figures"] == {
-        "counted": 6, "done": 1, "in_progress": 5, "behind": 0, "na": 1, "ready": False,
+        "counted": 7, "done": 1, "in_progress": 0, "not_started": 6, "behind": 0, "na": 1,
+        "ready": False,
     }
     # The window signal comes on the server's calendar.
     assert rows["P1"]["focus_in_days"] == 10
@@ -381,8 +407,10 @@ async def test_snapshot_records_no_gates_without_a_field_project(client: AsyncCl
     assert rev.status_code in (200, 201), rev.text
     detail = (await client.get(f"/api/projects/{pid}/revisions/{rev.json()['id']}")).json()
     by_well = {a["well_name"]: a for a in json.loads(detail["snapshot_json"])}
-    assert list(by_well["W1"]["readiness"]) == SEVEN
-    assert by_well["W2"]["readiness"] == {}  # no field project → no project gates
+    assert list(by_well["W1"]["readiness"]) == EIGHT
+    # Phase 8: a well with no field project carries its own checks.
+    assert by_well["W2"]["readiness"] == dict.fromkeys(EIGHT, "Not started")
+    assert {a["readiness_scope"] for a in by_well.values()} == {"well"}
 
 
 def test_compare_ignores_stored_defaults_for_activities_without_a_field_project() -> None:

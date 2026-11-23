@@ -19,6 +19,7 @@ from app.models.readiness import (
     BUILTIN_CHECKS,
     BUILTIN_TEAMS,
     ICON_KEYS,
+    LEGACY_BUILTIN_CHECKS,
     STATUS_SETS,
     ReadinessCheck,
     ReadinessEntry,
@@ -27,10 +28,13 @@ from app.models.readiness import (
 from app.models.revision import Revision
 from app.models.user import User
 
-SEVEN = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+# The well execution readiness checks (phase 8), in catalog order.
+EIGHT = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
+LEGACY_SEVEN = [c["code"] for c in LEGACY_BUILTIN_CHECKS]
 MIGRATION_034 = (
     Path(__file__).resolve().parents[1] / "alembic" / "versions" / "034_readiness_catalog.py"
 )
+MIGRATION_040 = MIGRATION_034.with_name("040_well_execution_readiness.py")
 
 
 async def _campaign_with_activity(client: AsyncClient) -> str:
@@ -84,16 +88,17 @@ async def test_catalog_serves_the_builtin_gates(client: AsyncClient) -> None:
 
     assert [t["code"] for t in body["teams"]] == ["projects"]
     assert body["teams"][0]["editor_source"] == "planner"
-    assert [c["code"] for c in body["checks"]] == SEVEN
+    assert [c["code"] for c in body["checks"]] == EIGHT
     by_code = {c["code"]: c for c in body["checks"]}
-    assert by_code["FID"]["label"] == "Final Inv. Decision"
+    assert by_code["FID"]["label"] == "Final Investment Decision"
+    assert by_code["WP"]["label"] == "Well Permits"
     assert by_code["LLI"]["icon_key"] == "rotary-table"
     assert all(
         c["team_code"] == "projects"
         and c["applies_project"]
-        and not c["applies_well"]
+        and c["applies_well"]
         and c["locks_with_plan"]
-        and c["status_set"] == "standard"
+        and c["status_set"] == "execution"
         for c in body["checks"]
     )
     standard = body["status_sets"]["standard"]
@@ -125,14 +130,38 @@ def test_migration_seed_matches_the_model_seed() -> None:
     spec.loader.exec_module(module)
 
     assert [dict(t) for t in module.SEED_TEAMS] == [dict(t) for t in BUILTIN_TEAMS]
-    assert module.seed_checks() == [dict(c) for c in BUILTIN_CHECKS]
+    # 034 seeded the original seven gates — kept as the catalog of revisions that
+    # predate ``catalog_json``.
+    assert module.seed_checks() == [dict(c) for c in LEGACY_BUILTIN_CHECKS]
+
+
+def test_migration_040_leaves_the_model_seed() -> None:
+    """Phase 8: migrations 034 + 040 leave exactly what ``create_all`` seeds — the
+    eight well execution readiness checks, their labels, order, scope and set."""
+    spec = importlib.util.spec_from_file_location("migration_040", MIGRATION_040)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fields = ("code", "label", "sort_order", "applies_project", "applies_well",
+              "status_set", "locks_with_plan")
+    want = sorted(
+        ({f: c[f] for f in fields} for c in BUILTIN_CHECKS), key=lambda c: c["sort_order"]
+    )
+    got = sorted(module.execution_checks(), key=lambda c: c["sort_order"])
+    assert got == want
+    # Icons: the seven keep 034's; Well Permits brings its own.
+    legacy_icons = {c["code"]: c["icon_key"] for c in LEGACY_BUILTIN_CHECKS}
+    for c in BUILTIN_CHECKS:
+        assert c["icon_key"] == legacy_icons.get(c["code"], module.WELL_PERMITS["icon_key"])
+    assert module.WELL_PERMITS["icon_key"] in ICON_KEYS
 
 
 @pytest.mark.asyncio
 async def test_catalog_read_is_open_to_non_planners(noplan_client: AsyncClient) -> None:
     resp = await noplan_client.get("/api/readiness/catalog")
     assert resp.status_code == 200
-    assert [c["code"] for c in resp.json()["checks"]] == SEVEN
+    assert [c["code"] for c in resp.json()["checks"]] == EIGHT
 
 
 # ── The catalog decides which checks exist ──────────────────────────────────
@@ -150,7 +179,7 @@ async def test_retired_check_drops_out_but_its_entry_survives(
     assert "LOC" not in [c["code"] for c in catalog["checks"]]
 
     rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    assert list(rows[0]["checks"]) == [c for c in SEVEN if c != "LOC"]
+    assert list(rows[0]["checks"]) == [c for c in EIGHT if c != "LOC"]
 
     # Retired → no new writes.
     assert (await _put_gate(client, pid, "LOC")).status_code == 422
@@ -241,7 +270,7 @@ async def test_non_project_team_checks_stay_off_the_project_gates_grid(
     pid = await _campaign_with_activity(client)
     await _add_team_grant_check(db)
     rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
-    assert list(rows[0]["checks"]) == SEVEN
+    assert list(rows[0]["checks"]) == EIGHT
 
 
 @pytest.mark.asyncio
@@ -271,9 +300,9 @@ async def test_snapshot_readiness_shape_is_unchanged(client: AsyncClient) -> Non
     rev_id = await _create_revision(client, pid)
     detail = (await client.get(f"/api/projects/{pid}/revisions/{rev_id}")).json()
     readiness = json.loads(detail["snapshot_json"])[0]["readiness"]
-    assert list(readiness) == SEVEN
+    assert list(readiness) == EIGHT
     assert readiness["FID"] == "Behind"
-    assert all(readiness[c] == "On Track" for c in SEVEN if c != "FID")
+    assert all(readiness[c] == "Not started" for c in EIGHT if c != "FID")
 
 
 @pytest.mark.asyncio
@@ -288,8 +317,8 @@ async def test_revision_freezes_its_catalog(client: AsyncClient, db: AsyncSessio
 
     detail = (await client.get(f"/api/projects/{pid}/revisions/{rev_id}")).json()
     frozen = {c["code"]: c["label"] for c in detail["readiness_catalog"]}
-    assert list(frozen) == SEVEN
-    assert frozen["LOC"] == "Location"  # as at submit, not the live rename
+    assert list(frozen) == EIGHT
+    assert frozen["LOC"] == "Location Readiness"  # as at submit, not the live rename
     live = (await client.get("/api/readiness/catalog")).json()
     assert {c["code"]: c["label"] for c in live["checks"]}["LOC"] == "Location Prep"
 
@@ -304,7 +333,8 @@ async def test_pre_catalog_revision_falls_back_to_the_builtin_gates(
     await db.commit()
 
     detail = (await client.get(f"/api/projects/{pid}/revisions/{rev_id}")).json()
-    assert [c["code"] for c in detail["readiness_catalog"]] == SEVEN
+    # A revision that predates the catalog reads the ORIGINAL seven gates.
+    assert [c["code"] for c in detail["readiness_catalog"]] == LEGACY_SEVEN
     assert detail["readiness_catalog"][0]["label"] == "Field Development Plan"
 
 
@@ -325,7 +355,7 @@ def test_snapshot_kpis_use_the_frozen_gate_codes() -> None:
 
     # Default (pre-catalog revisions): the built-in seven.
     legacy = compute_snapshot_kpis(snapshot, date(2026, 1, 1)).by_gate
-    assert [g.code for g in legacy] == SEVEN
+    assert [g.code for g in legacy] == LEGACY_SEVEN
 
 
 def test_no_is_true_boolean_filters_in_app_code() -> None:

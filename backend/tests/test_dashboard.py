@@ -196,19 +196,20 @@ async def test_dashboard_readiness_pct(client: AsyncClient) -> None:
         json={"well_project": "Field Project A", "status": "Completed"},
     )
     assert r.status_code == 200, r.text
-    # BUD is the only stored gate; the six unset gates read On Track (spec §3.7),
-    # so the PROJECT is 1 of 7 complete, all on track, and not ready.
+    # BUD is the only stored check; the seven unset ones read Not started (phase
+    # 8) — counted, not on track — so the PROJECT is 1 of 8 complete and on track
+    # (12.5 rounds half up), and not ready.
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
-    assert d["readiness"]["overall_pct"] == 14
-    assert d["readiness"]["on_track_pct"] == 100
+    assert d["readiness"]["overall_pct"] == 13
+    assert d["readiness"]["on_track_pct"] == 13
     assert (d["readiness"]["ready"], d["readiness"]["ready_of"]) == (0, 1)
     assert d["watchlist"]["near_term_not_ready"] == 1
 
-    # Phase-2 breakdowns: 7 gates; BUD Completed, unset gates read as On Track.
+    # Breakdowns: 8 checks; BUD Completed, unset checks read Not started.
     by_gate = {g["code"]: g for g in d["readiness"]["by_gate"]}
-    assert len(by_gate) == 7
+    assert len(by_gate) == 8
     assert by_gate["BUD"]["completed"] == 1
-    assert by_gate["LLI"]["on_track"] == 1  # unset gate reads as On Track
+    assert (by_gate["LLI"]["not_started"], by_gate["LLI"]["on_track"]) == (1, 0)
     assert d["activities"]["by_activity_type"]["Oil Development"] == 1
 
 
@@ -292,8 +293,10 @@ async def test_readiness_horizon_widens_and_narrows_the_focus_set(
         )
         assert r.status_code == 200, r.text
         rd = r.json()["readiness"]
-        on_track_fdp = next(g for g in rd["by_gate"] if g["code"] == "FDP")["on_track"]
-        return rd["focus_count"], on_track_fdp
+        # An unset check reads Not started (phase 8).
+        fdp = next(g for g in rd["by_gate"] if g["code"] == "FDP")
+        assert fdp["on_track"] == 0
+        return rd["focus_count"], fdp["not_started"]
 
     assert await focus(6) == (1, 1)     # Near only
     assert await focus(12) == (2, 2)    # + Mid

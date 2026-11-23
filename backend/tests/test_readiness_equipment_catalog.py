@@ -29,7 +29,7 @@ from tests.readiness_seed import (
     seed_equipment_checks,
 )
 
-GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+GATES = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
 CHECK = {
     "code": "SWB",
     "label": "Swamp Buggy",
@@ -46,7 +46,8 @@ GATE = {
     "code": "PRM",
     "label": "Permits",
     "team_code": "projects",
-    "applies_well": False,
+    "applies_well": True,
+    "status_set": "execution",
     "locks_with_plan": True,
     "icon_key": "stamp",
 }
@@ -406,7 +407,7 @@ async def test_a_project_gate_takes_no_category_on_edit(
     assert resp.json()["detail"] == "A check that locks with the plan takes no category"
     fid = (await db.execute(select(ReadinessCheck).where(ReadinessCheck.code == "FID"))).scalar_one()
     await db.refresh(fid)
-    assert fid.category == "" and fid.label == "Final Inv. Decision"
+    assert fid.category == "" and fid.label == "Final Investment Decision"
     assert await _catalog_events(db, "readiness_check_updated") == []
     # "" is what a gate has: sending it (a form that posts every field) is fine.
     ok = await client.patch(
@@ -415,7 +416,7 @@ async def test_a_project_gate_takes_no_category_on_edit(
     assert ok.status_code == 200, ok.text
     assert ok.json()["category"] == "" and ok.json()["label"] == "FID 2"
     (event,) = await _catalog_events(db, "readiness_check_updated")
-    assert event.new_value == "Updated readiness check FID: label: Final Inv. Decision -> FID 2"
+    assert event.new_value == "Updated readiness check FID: label: Final Investment Decision -> FID 2"
 
 
 @pytest.mark.asyncio
@@ -479,7 +480,10 @@ async def test_catalogs_frozen_before_039_read_as_starting_ticked_with_no_catego
     await db.execute(update(Revision).values(catalog_json=json.dumps(phase6)))
     await db.commit()
     served = (await client.get(f"/api/projects/{pid}/revisions/{rev_id}")).json()
-    assert [c["code"] for c in served["readiness_catalog"]] == GATES
+    # ``builtin_definitions`` is the ORIGINAL seven (pre-catalog revisions).
+    assert [c["code"] for c in served["readiness_catalog"]] == [
+        "FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD",
+    ]
     assert all(
         c["category"] == "" and c["applies_by_default"] is True
         for c in served["readiness_catalog"]
@@ -489,7 +493,9 @@ async def test_catalogs_frozen_before_039_read_as_starting_ticked_with_no_catego
     await db.execute(update(Revision).values(catalog_json=None))
     await db.commit()
     served = (await client.get(f"/api/projects/{pid}/revisions/{rev_id}")).json()
-    assert [c["code"] for c in served["readiness_catalog"]] == GATES
+    assert [c["code"] for c in served["readiness_catalog"]] == [
+        "FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD",
+    ]
     assert all(
         c["category"] == "" and c["applies_by_default"] is True
         for c in served["readiness_catalog"]

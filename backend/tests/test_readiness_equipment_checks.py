@@ -52,7 +52,7 @@ FP = "Bonga Phase 3"
 ACT = "Oil Development"
 PROJECT = {"scope": "project", "well_project": FP}
 CORE = ["L-BUD", "CTR", "FFP", "CTS", "PO", "NAV"]
-GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+GATES = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
 # A cell that is not selected, as the team rows send it.
 NOT_SELECTED = (False, "default")
 
@@ -388,8 +388,12 @@ async def test_live_cells_leave_out_what_is_not_selected(
 
     f = rollup(cells.values(), codes=["PSV", "CR"])
     assert (f.targets, f.counted, f.na) == (3, 6 * 3 + 1, 1)
-    assert f.by_check["CR"] == {"completed": 0, "on_track": 0, "behind": 0, "na": 0}
-    assert f.by_check["PSV"] == {"completed": 0, "on_track": 1, "behind": 0, "na": 1}
+    assert f.by_check["CR"] == {
+        "completed": 0, "on_track": 0, "not_started": 0, "behind": 0, "na": 0,
+    }
+    assert f.by_check["PSV"] == {
+        "completed": 0, "on_track": 1, "not_started": 0, "behind": 0, "na": 1,
+    }
 
     # The field-project branch (a team counted per field project) too.
     by_project = await _logistics_cells(db, pid, unit="projects")
@@ -429,7 +433,8 @@ async def test_a_target_whose_only_checks_are_not_selected_reads_nothing_applies
     row = _project_row(lens)
     assert _tick(row["checks"]["S-EQ"]) == NOT_SELECTED
     assert row["figures"] == {
-        "counted": 0, "done": 0, "in_progress": 0, "behind": 0, "na": 0, "ready": False,
+        "counted": 0, "done": 0, "in_progress": 0, "not_started": 0, "behind": 0, "na": 0,
+        "ready": False,
     }
     tile = next(t for t in (await _dashboard(client, pid))["team_readiness"] if t["team_code"] == "supply")
     assert (tile["unit"], tile["focus_count"], tile["ready_of"]) == ("projects", 1, 0)
@@ -854,7 +859,7 @@ async def test_the_project_gates_are_unchanged(client: AsyncClient, db: AsyncSes
     rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
     assert list(rows[0]["checks"]) == GATES
     assert set(rows[0]["checks"]["FID"]) == {"status", "notes", "updated_at"}
-    assert rows[0]["figures"]["counted"] == 7
+    assert rows[0]["figures"]["counted"] == 8
     gates = await _lens(client, pid, "projects")
     assert [c["code"] for c in gates["checks"]] == GATES
     assert all(c["category"] == "" and c["applies_by_default"] is True for c in gates["checks"])
