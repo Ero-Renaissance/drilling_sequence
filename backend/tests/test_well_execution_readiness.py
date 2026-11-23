@@ -341,6 +341,21 @@ def test_a_per_well_snapshot_folds_each_field_project_to_the_worst_of_its_wells(
     assert snapshot_gate_targets(late, EIGHT)[0]["FID"] == "Behind"
 
 
+def test_an_unnamed_activity_speaks_for_its_project_only_when_no_named_well_does() -> None:
+    """As the live rollup: named wells fold; an activity with no well name holds
+    the field project's own value, which counts only where no named well is in
+    scope — so it can't lower a project whose wells are all done."""
+    unnamed = {**_snap("", "P1", FID="Not started"), "well_name": None}
+    (p1,) = snapshot_gate_targets([_snap("W-1", "P1"), unnamed], EIGHT)
+    assert set(p1.values()) == {"Completed"}
+    # No named well in scope: the project's own value is all there is.
+    (alone,) = snapshot_gate_targets([unnamed, dict(unnamed)], EIGHT)
+    assert alone["FID"] == "Not started" and alone["BUD"] == "Completed"
+    # Outside the window the named well drops out, and the fallback speaks.
+    late = [_snap("W-1", "P1", "2030-01-01"), unnamed]
+    assert snapshot_gate_targets(late, EIGHT, date(2026, 12, 31))[0]["FID"] == "Not started"
+
+
 def test_a_snapshot_from_before_phase_8_still_reads_per_field_project() -> None:
     old = [
         {**_snap("W-1", "P1"), "readiness": {"FID": "Completed"}},

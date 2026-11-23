@@ -116,7 +116,9 @@ describe("legendStatuses — a legend lists what its icons can show (spec §8.4)
   it("the Project gates' legend, and the All lens's, keep N/A", () => {
     expect(legendStatuses(BUILTIN_PROJECT_GATES)).toContain("N/A");
     const all = lensChecksOf(BUILTIN_PROJECT_GATES, "all", [...BUILTIN_TEAMS, LOGISTICS]);
-    expect(legendStatuses(all)).toEqual(["On Track", "Behind", "Completed", "N/A"]);
+    // The Well Execution Readiness badge can read Not started, so the All
+    // lens's legend lists it (its summary check is on the execution set).
+    expect(legendStatuses(all)).toEqual(["Not started", "On Track", "Behind", "Completed", "N/A"]);
     // …because the Project gates badge locks with the plan.
     expect(all.find((c) => c.code === "projects")?.locks_with_plan).toBe(true);
     expect(all.find((c) => c.code === "logistics")?.locks_with_plan).toBe(false);

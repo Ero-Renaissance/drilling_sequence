@@ -224,6 +224,33 @@ describe("revision print through a lens", () => {
     expect(r3.readiness).toEqual({ FDP: "N/A", FID: "N/A" });
   });
 
+  it("a per-well snapshot prints one strip per well, and keeps a projectless well's checks", () => {
+    // Phase 8: the snapshot recorded each WELL's own checks (`readiness_scope`).
+    const perWell: PrintRow[] = [
+      { ...rows[0], readiness_scope: "well", readiness: { FDP: "Completed", FID: "Behind" } },
+      { ...rows[1], readiness_scope: "well", readiness: { FDP: "Completed", FID: "Completed" } },
+      { ...rows[2], id: "r4", well_name: "LONE", well_project: null, readiness_scope: "well",
+        readiness: { FDP: "Not started" }, readiness_at_submission: {} },
+    ];
+    const [w1, w2, lone] = snapshotRowsForLens(perWell, "projects", frozen, TEAMS);
+    // Two wells of one field project each print their own strip…
+    expect(w1.readiness_key).toBe("Bonga Phase 3\u0001W-1\u0001Oil Development");
+    expect(w2.readiness_key).toBe("Bonga Phase 3\u0001W-2\u0001Oil Development");
+    expect(w1.readiness_key).not.toBe(w2.readiness_key);
+    expect(lone.readiness_key).toBe("\u0001LONE\u0001Oil Development");
+    // …while an older, per-project snapshot keeps its one strip per project.
+    expect(snapshotRowsForLens(rows, "projects", frozen, TEAMS)[0].readiness_key).toBeUndefined();
+
+    // All lens: the projectless well keeps its Well Execution Readiness badge.
+    const all = snapshotRowsForLens(perWell, "all", frozen, TEAMS);
+    expect(all[2].readiness).toEqual({ projects: "Not started" });
+    // An older snapshot's stored defaults for a projectless well are still ignored.
+    const old = snapshotRowsForLens(
+      [{ ...perWell[2], readiness_scope: undefined, readiness: { FDP: "On Track" } }], "all", frozen, TEAMS,
+    );
+    expect(old[0].readiness).toBeUndefined();
+  });
+
   it("knows when a revision predates team readiness", () => {
     expect(hasTeamReadiness(rows)).toBe(true);
     expect(hasTeamReadiness([{ ...rows[0], readiness_at_submission: undefined }])).toBe(false);

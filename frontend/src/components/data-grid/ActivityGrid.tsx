@@ -355,18 +355,21 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
         }
         case "not-ready":
           // Mirrors the Overview warning (spec §3.7): the well execution
-          // readiness checks only, at the WELL's value (phase 8).
-          return (
-            a.readiness_required !== false &&
-            !!a.well_name &&
-            isNearTerm(a.start_date) &&
-            !checksReady(readinessFor(a))
+          // readiness checks only, at the WELL's value (phase 8). An activity
+          // with a field project but no well name reads its field project, as
+          // the server counts it; with neither, there is nothing to be ready for.
+          if (a.readiness_required === false || !isNearTerm(a.start_date)) return false;
+          if (a.well_name) return !checksReady(readinessFor(a));
+          if (!a.well_project) return false;
+          return !(
+            gateData?.project_rows.find((r) => r.well_project === a.well_project)?.figures
+              ?.ready ?? false
           );
         default:
           return true;
       }
     });
-  }, [focus, activities, conflictMeta, sessionIds, contractEndByRig, readinessFor]);
+  }, [focus, activities, conflictMeta, sessionIds, contractEndByRig, readinessFor, gateData]);
 
   function clearFocus() {
     searchParams.delete("focus");
