@@ -11,14 +11,20 @@ from pydantic import (
     model_validator,
 )
 
-from app.models.readiness import ICON_KEYS, STATUS_SETS, is_history_only, is_withdrawn
+from app.models.readiness import (
+    ICON_KEYS,
+    STATUS_SETS,
+    is_history_only,
+    is_withdrawn,
+    status_set_allowed,
+)
 
 # Check codes and statuses are no longer fixed enums here: codes come from the
 # admin-curated catalog and statuses from each check's code-defined status set
 # (app/models/readiness.py). The router validates both against those allow-lists;
 # the schema bounds the raw strings.
 Status = Annotated[str, StringConstraints(min_length=1, max_length=32)]
-Severity = Literal["done", "in_progress", "blocked", "not_counted"]
+Severity = Literal["done", "in_progress", "not_started", "blocked", "not_counted"]
 
 
 class CheckState(BaseModel):
@@ -150,6 +156,8 @@ class RowFigures(BaseModel):
     counted: int  # cells that count (not N/A, and the check applies)
     done: int
     in_progress: int  # on track
+    # Counted, but neither done, on track nor behind (phase 8: "Not started").
+    not_started: int = 0
     behind: int  # blocked (Behind, Not available)
     # Not counted (N/A, or a team check that doesn't apply because of a row). A
     # cell that is not selected (phase 7) isn't here either: it carries nothing.
@@ -158,8 +166,8 @@ class RowFigures(BaseModel):
 
 
 class ProjectReadiness(BaseModel):
-    """Readiness for one field-development project (the "Project" column) — the
-    seven gates shared by every well/activity under it."""
+    """One field project's own values for the well execution readiness checks —
+    what its wells follow until they have their own (phase 8)."""
 
     well_project: str
     checks: dict[str, CheckState]
@@ -179,8 +187,11 @@ class ProjectReadiness(BaseModel):
     # Days from the SERVER's today to focus_start, so the browser windows rows on
     # the server's calendar — exactly as the Overview tile does (spec §3.7).
     focus_in_days: int | None = None
-    # The row's rollup (spec §3.7) over its gates at their effective values.
+    # The field project as its Overview tile counts it (spec §3.7): each check
+    # the worst of its wells with work left (phase 8), else the project's own.
     figures: RowFigures | None = None
+    # The same per window ("0" All, "6", "12", "24" months), as the team rows.
+    figures_by_window: dict[str, RowFigures] = {}
 
 
 # ── Catalog (GET /api/readiness/catalog) ────────────────────────────────────
@@ -351,6 +362,8 @@ SortOrder = Annotated[int, Field(ge=0, le=10_000)]
 # Shared by create and edit (phase 7, spec §3.9): the Project gates have no tick
 # list and keep their seven icons (decision 31).
 GOVERNED_NO_CATEGORY = "A check that locks with the plan takes no category"
+# Phase 8: every well has every well execution readiness check.
+GOVERNED_BOTH_LEVELS = "A check that locks with the plan applies at project and well level"
 
 
 def _check_icon_key(value: str | None) -> str | None:
@@ -432,10 +445,17 @@ class CheckCreate(BaseModel):
     def _scope_rules(self) -> "CheckCreate":
         if not (self.applies_project or self.applies_well):
             raise ValueError("A check must apply at project level, well level, or both")
-        # Governed checks are frozen into the snapshot's field-project readiness
-        # block — they exist only at field-project level (spec §3.2).
-        if self.locks_with_plan and (self.applies_well or not self.applies_project):
-            raise ValueError("A check that locks with the plan is set at project level only")
+        # Governed checks are recorded in the snapshot's readiness block per
+        # well, each well following its field project until it has its own value
+        # (phase 8) — so they are always enabled at BOTH levels.
+        if self.locks_with_plan and not (self.applies_project and self.applies_well):
+            raise ValueError(GOVERNED_BOTH_LEVELS)
+        # "Not started" stays with the checks that lock with the plan.
+        if not status_set_allowed(self.status_set, self.locks_with_plan):
+            raise ValueError(
+                "A check that locks with the plan uses the execution status set, "
+                "and only such a check does"
+            )
         # It has no tick list (decision 31), so it can't start unticked; and the
         # Project gates take no category (spec §3.9).
         if self.locks_with_plan and not self.applies_by_default:

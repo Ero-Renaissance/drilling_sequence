@@ -24,7 +24,7 @@ SCHEDULE_HEADER = [
     "Market", "Well Name", "Start Date", "End Date", "Rig Contract Expiry Date",
     "HWU Contract Expiry Date", "Risk", "Comment",
 ]
-GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+GATES = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
 
 
 async def _create_project(client: AsyncClient, name: str = "Schedule") -> dict:
@@ -120,7 +120,7 @@ async def test_legacy_per_gate_rows_still_collapse(client: AsyncClient) -> None:
         ("PROJECT_X", 1), ("PROJECT_Y", 1),
     ]
     assert all(
-        c["status"] == "On Track" for r in readiness for c in r["checks"].values()
+        c["status"] == "Not started" for r in readiness for c in r["checks"].values()
     )
 
     # Rig contract upserted with its expiry (a contract IS its end date).
@@ -150,7 +150,7 @@ async def test_legacy_readiness_tab_is_ignored(client: AsyncClient) -> None:
 
     readiness = (await client.get(f"/api/projects/{pid}/readiness")).json()
     assert [r["well_project"] for r in readiness] == ["Bonga Phase 3"]
-    assert all(c["status"] == "On Track" for c in readiness[0]["checks"].values())
+    assert all(c["status"] == "Not started" for c in readiness[0]["checks"].values())
 
 @pytest.mark.asyncio
 async def test_long_schedule_imports_hwu_contract(client: AsyncClient) -> None:

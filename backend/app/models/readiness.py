@@ -18,10 +18,15 @@ What stays code-defined (a reviewed code change, not admin data):
   upload SVG: the icons are embedded in the HTML/PDF export.
 - ``SCOPES`` / ``EDITOR_SOURCES``.
 
-``BUILTIN_TEAMS`` / ``BUILTIN_CHECKS`` are the original seven field-project
-gates. They seed the catalog (migration 034 for PostgreSQL/SQL Server, the
-``after_create`` hooks below for ``create_all`` on SQLite/tests), and they are
-the fallback catalog for revisions snapshotted before the catalog existed.
+``BUILTIN_TEAMS`` / ``BUILTIN_CHECKS`` are the Projects team and its checks as a
+migrated database holds them — since phase 8 (migration 040,
+docs/well-execution-readiness-spec.md) the eight WELL EXECUTION READINESS
+checks: enabled at field-project AND well level, on the ``execution`` status
+set. They seed the catalog for ``create_all`` on SQLite/tests (the
+``after_create`` hooks below; PostgreSQL/SQL Server get there through migrations
+034 and 040). ``LEGACY_BUILTIN_CHECKS`` are the original seven field-project
+gates exactly as migration 034 seeded them: the fallback catalog for revisions
+snapshotted before the catalog existed. Never edit them.
 Codes are immutable and never reused, even after retirement.
 """
 import uuid
@@ -46,12 +51,19 @@ from app.database import Base
 # ── Code-defined allow-lists ────────────────────────────────────────────────
 
 # Shared severity scale every status maps onto (spec §3.3).
-SEVERITIES: Final = ("done", "in_progress", "blocked", "not_counted")
+# ``not_started`` (phase 8): counted, but neither done, on track nor behind.
+SEVERITIES: Final = ("done", "in_progress", "not_started", "blocked", "not_counted")
+
+# The status set of the checks that lock with the plan (phase 8) — and of no
+# other check: "Not started" is not offered to Logistics or any other team.
+EXECUTION_STATUS_SET: Final = "execution"
 
 # status_set -> its statuses (in picker order) with their severity, plus the value
-# an unset entry reads as. Every default is ON TRACK (in_progress): an unset check
-# means nobody has reported a problem — how planners work (spec §3.3, §3.7).
-# Status names are unique across sets, so a status alone fixes its severity.
+# an unset entry reads as. A default is ON TRACK (in_progress) — an unset check
+# means nobody has reported a problem (spec §3.3, §3.7) — except ``execution``
+# (phase 8), whose default is NOT STARTED: nobody has said the work is moving.
+# A status name means the same severity in every set that has it, so a status
+# alone fixes its severity.
 # "history_only" (phase 6): kept so revisions that recorded it still render, but
 # refused for new checks. Mirrored in frontend check-meta.ts (parity-tested).
 STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
@@ -63,6 +75,19 @@ STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
             "N/A": "not_counted",
         },
         "default": "On Track",
+    },
+    # Well execution readiness (phase 8, docs/well-execution-readiness-spec.md
+    # §A4): the Projects team's checks, and only they (``status_set_allowed``).
+    # The standard statuses plus "Not started", which is also the default.
+    EXECUTION_STATUS_SET: {
+        "statuses": {
+            "Not started": "not_started",
+            "On Track": "in_progress",
+            "Completed": "done",
+            "Behind": "blocked",
+            "N/A": "not_counted",
+        },
+        "default": "Not started",
     },
     # Nominated Equipment (decided 2026-10-13): is the equipment available?
     # "Pending" (2026-10-16) is the on-track default, so equipment nobody has
@@ -108,6 +133,14 @@ def is_withdrawn(check: CheckDefinition) -> bool:
     only, or it carries a tag list. A rule in code, not a column. It is retired
     (migration 038) and can't be restored, re-created or written."""
     return is_history_only(check.status_set) or check.tag_list != ""
+
+
+def status_set_allowed(status_set: str, locks_with_plan: bool) -> bool:
+    """Which status set a NEW check may use (phase 8): a check that locks with
+    the plan — a Projects-team check — uses ``execution``; every other check
+    uses any other set. So "Not started" stays with the well execution readiness
+    checks."""
+    return (status_set == EXECUTION_STATUS_SET) == locks_with_plan
 
 
 def pickable_statuses(check: CheckDefinition) -> list[str]:
@@ -238,7 +271,9 @@ def _gate(code: str, label: str, icon_key: str, sort_order: int) -> dict[str, An
     }
 
 
-BUILTIN_CHECKS: Final[tuple[dict[str, Any], ...]] = (
+# The original seven field-project gates, as migration 034 seeded them — the
+# catalog of revisions that predate ``catalog_json``. History: never edit.
+LEGACY_BUILTIN_CHECKS: Final[tuple[dict[str, Any], ...]] = (
     _gate("FDP", "Field Development Plan", "land-plot", 10),
     _gate("LLI", "Long Lead Items", "rotary-table", 20),
     _gate("LOC", "Location", "map-pin", 30),
@@ -246,6 +281,33 @@ BUILTIN_CHECKS: Final[tuple[dict[str, Any], ...]] = (
     _gate("FID", "Final Inv. Decision", "gavel", 50),
     _gate("EIA", "Env. Assessment", "leaf", 60),
     _gate("BUD", "Budget", "banknote", 70),
+)
+
+
+def _execution_check(code: str, label: str, icon_key: str, sort_order: int) -> dict[str, Any]:
+    return {
+        **_gate(code, label, icon_key, sort_order),
+        "applies_well": True,
+        "status_set": EXECUTION_STATUS_SET,
+    }
+
+
+# The well execution readiness checks (phase 8) — what migration 040 leaves in a
+# migrated database: the seven gates relabelled and reordered as the "Well
+# Execution Readiness" sheet has them, enabled at well level too, on the
+# ``execution`` set, plus Well Permits. FID and LLI keep a spelled-out label —
+# the sheet heads them by their codes, which every view already shows beside it.
+# tests/test_migration_040_sqlite.py pins this list to the migration's own
+# literals.
+BUILTIN_CHECKS: Final[tuple[dict[str, Any], ...]] = (
+    _execution_check("FDP", "Approved FDP/IP", "land-plot", 10),
+    _execution_check("FID", "Final Investment Decision", "gavel", 20),
+    _execution_check("BUD", "Budget Supported by Partners", "banknote", 30),
+    _execution_check("FE", "Well Proposal", "drafting-compass", 40),
+    _execution_check("EIA", "EIA/Waiver", "leaf", 50),
+    _execution_check("LLI", "Long Lead Items", "rotary-table", 60),
+    _execution_check("LOC", "Location Readiness", "map-pin", 70),
+    _execution_check("WP", "Well Permits", "stamp", 80),
 )
 
 

@@ -88,12 +88,12 @@ async def test_last_approved_kpis(client: AsyncClient, other_client: AsyncClient
     assert k["planned_rigs"] == 0  # the unit was marked procured before approval
     assert k["planned_hwus"] == 0
     assert k["contracts_at_risk"] == 0  # contract ends +200d → healthy
-    # The snapshot materialises all 7 gates (unset → On Track), so BUD Completed
-    # out of 7 applicable = 14%.
-    assert k["readiness_pct"] == 14
+    # The snapshot materialises all 8 checks (unset → Not started), so BUD
+    # Completed out of 8 applicable = 13% (12.5 rounds half up).
+    assert k["readiness_pct"] == 13
     by_gate = {g["code"]: g for g in k["by_gate"]}
     assert by_gate["BUD"]["completed"] == 1
-    assert by_gate["LLI"]["on_track"] == 1
+    assert (by_gate["LLI"]["not_started"], by_gate["LLI"]["on_track"]) == (1, 0)
 
 
 @pytest.mark.asyncio

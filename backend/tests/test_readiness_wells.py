@@ -134,7 +134,8 @@ async def test_check_must_apply_at_the_requested_level(client: AsyncClient, db: 
     await _setup(client, db)
     pid = await _campaign(client)
     await _activity(client, pid)
-    assert (await _put(client, pid, "FID", _well())).status_code == 422  # project-only
+    # Phase 8: the execution readiness checks are enabled at well level too.
+    assert (await _put(client, pid, "FID", _well())).status_code == 200
     project_target = {"well_project": "Bonga Phase 3"}
     assert (await _put(client, pid, "LPR", project_target)).status_code == 422  # well-only
 
@@ -299,7 +300,8 @@ async def test_reset_only_applies_to_two_level_checks_at_well_scope(
     await _activity(client, pid)
     base = f"/api/projects/{pid}/readiness"
     assert (await client.post(f"{base}/LPR/reset", json=_well())).status_code == 422  # well-only
-    assert (await client.post(f"{base}/FID/reset", json=_well())).status_code == 422  # project-only
+    # Phase 8: an execution readiness check has both levels, so a well resets.
+    assert (await client.post(f"{base}/FID/reset", json=_well())).status_code == 200
     project = {"well_project": "Bonga Phase 3"}
     assert (await client.post(f"{base}/L-BUD/reset", json=project)).status_code == 422
 
@@ -345,10 +347,12 @@ async def test_lens_rows_and_shapes(
     assert wells["project_rows"] == []  # Wells has no project-level checks
     assert [(r["well_name"], r["activity_count"]) for r in wells["well_rows"]] == [("W-1", 2)]
 
-    # The built-in team through the same endpoint: project rows only.
+    # The built-in team through the same endpoint: since phase 8 its checks are
+    # enabled at both levels, so it has project rows AND well rows.
     projects = await _lens(client, pid, "projects")
-    assert projects["well_rows"] == []
-    assert list(projects["project_rows"][0]["checks"]) == ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+    eight = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
+    assert list(projects["project_rows"][0]["checks"]) == eight
+    assert [(r["well_name"], list(r["checks"])) for r in projects["well_rows"]] == [("W-1", eight)]
 
     assert (await client.get(f"/api/projects/{pid}/readiness/teams/nope")).status_code == 404
 
@@ -389,7 +393,7 @@ async def test_project_values_follow_the_last_activity_out(client: AsyncClient, 
     await _patch(client, pid, a1["id"], well_project="Bonga Phase 3B")
     rows = {r["well_project"]: r for r in (await client.get(f"/api/projects/{pid}/readiness")).json()}
     assert rows["Bonga Phase 3"]["checks"]["FID"]["status"] == "Behind"
-    assert rows["Bonga Phase 3B"]["checks"]["FID"]["status"] == "On Track"
+    assert rows["Bonga Phase 3B"]["checks"]["FID"]["status"] == "Not started"
 
     # The last one leaves: the gates go with it.
     await _patch(client, pid, a2["id"], well_project="Bonga Phase 3B")

@@ -418,7 +418,7 @@ async def test_a_snapshot_records_an_unticked_team_check_as_n_a(
     assert all(set(item) == {"status", "source"} for item in (*w1.values(), *w2.values()))
     # The governed block is unchanged: an N/A gate is recorded as N/A.
     assert rows["W-1"]["readiness"]["FID"] == NA_STATUS
-    assert rows["W-1"]["readiness"]["BUD"] == "On Track"
+    assert rows["W-1"]["readiness"]["BUD"] == "Not started"
 
 
 # ── Re-key: a status and its tick move as a pair (§4.4) ─────────────────────

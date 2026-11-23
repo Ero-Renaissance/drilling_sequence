@@ -43,7 +43,7 @@ MIGRATION_036 = (
 )
 # The Logistics checks still in use once NEQ is withdrawn, in catalog order.
 LIVE_CODES = ["L-BUD", "CTR", "FFP", "CTS", "PO", "NAV"]
-GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+GATES = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
 
 
 def _migration():

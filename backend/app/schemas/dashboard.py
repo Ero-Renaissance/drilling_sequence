@@ -24,6 +24,8 @@ class GateBreakdown(BaseModel):
     code: str
     completed: int
     on_track: int
+    # Counted but not yet moving (phase 8, "Not started").
+    not_started: int = 0
     behind: int
     na: int
 

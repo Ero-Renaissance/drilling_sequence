@@ -47,7 +47,6 @@ from app.services.audit import ENTITY_READINESS, governance_event
 from app.services.readiness_catalog import (
     active_checks,
     active_teams,
-    default_status,
     is_valid_status,
     project_gate_checks,
 )
@@ -103,6 +102,7 @@ def _row_figures(statuses: Iterable[str]) -> RowFigures:
         counted=f.counted,
         done=f.done,
         in_progress=f.in_progress,
+        not_started=f.not_started,
         behind=f.behind,
         na=f.na,
         ready=f.ready == 1,
@@ -146,70 +146,40 @@ async def get_catalog(current_user: CurrentUser, db: DB) -> ReadinessCatalog:
 async def list_readiness(
     project_id: uuid.UUID, current_user: CurrentUser, db: DB
 ) -> list[ProjectReadinessSchema]:
-    """Readiness per FIELD-DEVELOPMENT PROJECT (the "Project" column). One entry
-    per distinct ``well_project`` in the campaign, each with the catalog's active
-    project gates. Activities with no project have no gates and are omitted.
-    The Project gates have no tick list (decision 31): a gate that doesn't apply
-    reads N/A, so this shape is unchanged by phase 6.
+    """The well execution readiness checks per FIELD PROJECT (the "Project"
+    column): one entry per distinct ``well_project`` in the campaign, with the
+    field project's OWN value for each of the Projects team's checks — what its
+    wells follow until they have their own (phase 8). Activities with no field
+    project are omitted. These checks have no tick list (decision 31): one that
+    doesn't apply reads N/A.
+
+    ``figures`` are the field project as its Overview tile counts it — each check
+    the worst of its wells with work left (``fold_project_cells``) — the same
+    figures, per window too, as the team read's Projects rows
+    (``GET /readiness/teams/projects``), which also carries the wells.
     """
     # Reads are org-wide: any authenticated user may view campaign data.
-    # The campaign's activities per field project (exact names, as readiness
-    # entries and the Overview tile key them), in the database's name order.
-    activity_rows = (
-        await db.execute(
-            select(
-                Activity.well_project,
-                Activity.start_date,
-                Activity.completed_at,
-                Activity.readiness_required,
-            )
-            .where(Activity.project_id == project_id, Activity.well_project.is_not(None))
-            .order_by(Activity.well_project)
-        )
-    ).all()
-    by_project: dict[str, list] = {}
-    for a in activity_rows:
-        if a.well_project:
-            by_project.setdefault(a.well_project, []).append(a)
-    if not by_project:
-        return []
-
     checks = await project_gate_checks(db)
-    gates_result = await db.execute(
-        select(ReadinessEntry).where(
-            ReadinessEntry.project_id == project_id,
-            ReadinessEntry.scope == "project",
-        )
-    )
-    by_gate: dict[tuple[str, str], ReadinessEntry] = {
-        (g.well_project, g.check_code): g for g in gates_result.scalars().all()
-    }
+    project_rows, _ = await _team_rows(project_id, checks, db)
+    if not project_rows:
+        return []
     locked = await _campaign_locked(project_id, db)
-    today = date.today()
-
-    def _state(well_project: str, check: ReadinessCheck) -> CheckState:
-        gate = by_gate.get((well_project, check.code))
-        if gate is not None:
-            return CheckState(status=gate.status, notes=gate.notes, updated_at=gate.updated_at)
-        return CheckState(status=default_status(check.status_set), notes=None, updated_at=None)
-
-    rows = []
-    for wp, acts in by_project.items():
-        states = {c.code: _state(wp, c) for c in checks}
-        # The window signal (spec §3.7): the same scope rule as the Overview tile.
-        focus = focus_start_of(acts)
-        rows.append(
-            ProjectReadinessSchema(
-                well_project=wp,
-                checks=states,
-                activity_count=len(acts),
-                locked=locked,
-                focus_start=focus,
-                focus_in_days=days_until(focus, today),
-                figures=_row_figures(s.status for s in states.values()),
-            )
+    return [
+        ProjectReadinessSchema(
+            well_project=row.well_project,
+            checks={
+                code: CheckState(status=c.status, notes=c.notes, updated_at=c.updated_at)
+                for code, c in row.checks.items()
+            },
+            activity_count=row.activity_count,
+            locked=locked,
+            focus_start=row.focus_start,
+            focus_in_days=row.focus_in_days,
+            figures=row.figures,
+            figures_by_window=row.figures_by_window,
         )
-    return rows
+        for row in project_rows
+    ]
 
 
 # ── Writes: shared helpers ──────────────────────────────────────────────────

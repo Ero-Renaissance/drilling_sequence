@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.readiness import (
-    BUILTIN_CHECKS,
+    LEGACY_BUILTIN_CHECKS,
     PROJECTS_TEAM,
     STATUS_SETS,
     ReadinessCheck,
@@ -47,8 +47,8 @@ _DEFINITION_FIELDS = (
     "applies_by_default",
 )
 
-# What a definition field reads as where the source predates it: the built-in
-# gates (``BUILTIN_CHECKS`` keeps migration 034's shape) have no category and
+# What a definition field reads as where the source predates it: the original
+# gates (``LEGACY_BUILTIN_CHECKS`` keeps migration 034's shape) have no category and
 # start ticked — as every check did before migration 039.
 _DEFINITION_DEFAULTS: dict[str, Any] = {"category": "", "applies_by_default": True}
 
@@ -107,6 +107,14 @@ async def active_teams(db: AsyncSession) -> list[ReadinessTeam]:
     return list((await db.execute(stmt)).scalars().all())
 
 
+def gates_at_well_level(definitions: list[dict[str, Any]]) -> bool:
+    """Whether frozen definitions hold governed checks enabled at WELL level
+    (phase 8) — a revision whose ``readiness`` blocks are each well's own."""
+    return any(
+        d.get("locks_with_plan", True) and d.get("applies_well", False) for d in definitions
+    )
+
+
 def gate_codes_of(definitions: list[dict[str, Any]]) -> list[str]:
     """The governed field-project gate codes among frozen definitions — what a
     snapshot's ``readiness`` block holds. Pre-Phase-4 definitions only ever held
@@ -138,7 +146,7 @@ def builtin_definitions() -> list[dict[str, Any]]:
     the seed doesn't carry read as their defaults (no category, starts ticked)."""
     return [
         {f: c[f] if f in c else _DEFINITION_DEFAULTS[f] for f in _DEFINITION_FIELDS}
-        for c in BUILTIN_CHECKS
+        for c in LEGACY_BUILTIN_CHECKS
     ]
 
 

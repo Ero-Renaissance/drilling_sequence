@@ -8,9 +8,9 @@ moved/renamed activity reads as "modified", not add+remove.
 from datetime import date
 
 from app.services.readiness_rollup import (
-    per_activity_readiness,
     rollup,
     snapshot_gate_targets,
+    snapshot_readiness_scope,
 )
 
 # Scalar activity fields compared field-for-field, with human labels.
@@ -69,13 +69,14 @@ def _readiness_pct(snapshot: list[dict]) -> int | None:
     return rollup(snapshot_gate_targets(snapshot)).complete_pct
 
 
-def _gates(activity: dict, per_activity: bool) -> dict:
+def _gates(activity: dict, own_values: bool) -> dict:
     """An activity's governed gates. In a per-field-project snapshot one with no
     field project carries none (spec §3.7) — those snapshots stored defaults for
     it, so ignore them rather than report "On Track → (none)" against a newer one.
-    A per-activity snapshot (``per_activity_readiness``) recorded real gates on
-    every activity, and they are kept."""
-    if not per_activity and not activity.get("well_project"):
+    A snapshot that recorded each activity's or each well's OWN values
+    (``snapshot_readiness_scope``: "activity", or "well" since phase 8) has real
+    gates on every activity, and they are kept."""
+    if not own_values and not activity.get("well_project"):
         return {}
     return activity.get("readiness") or {}
 
@@ -244,9 +245,10 @@ def diff_snapshots(
     side, `target` the newer one. `match_by` selects how rows are paired —
     "id" for revision history, "lineage" for cross-project (Q1 vs Q2)."""
     matched, added_acts, removed_acts = _match_pairs(base, target, match_by)
-    # How each side recorded its gates (per activity before 2026-07-16).
-    base_per_activity = per_activity_readiness(base)
-    target_per_activity = per_activity_readiness(target)
+    # How each side recorded its gates: per activity before 2026-07-16, per
+    # field project until phase 8, per well since.
+    base_per_activity = snapshot_readiness_scope(base) != "project"
+    target_per_activity = snapshot_readiness_scope(target) != "project"
 
     activities: list[dict] = []
     added = removed = modified = unchanged = 0

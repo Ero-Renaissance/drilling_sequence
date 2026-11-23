@@ -49,7 +49,8 @@ def test_project_gates_keep_n_a_and_team_checks_lose_it() -> None:
     doesn't lock with the plan. Picker order is the set's order."""
     gate = ReadinessCheck(**BUILTIN_CHECKS[0])
     assert gate.locks_with_plan
-    assert pickable_statuses(gate) == ["On Track", "Completed", "Behind", "N/A"]
+    # Phase 8: the execution set — Not started first, and still N/A.
+    assert pickable_statuses(gate) == ["Not started", "On Track", "Completed", "Behind", "N/A"]
     assert pickable_statuses(_check(governed=False)) == ["On Track", "Completed", "Behind"]
 
 

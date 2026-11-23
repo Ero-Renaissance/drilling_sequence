@@ -101,12 +101,23 @@ async def build_dashboard(
     # On Track. A retired check's entry keeps its row but drops out.
     gate_checks = await project_gate_checks(db)
     gate_codes = [c.code for c in gate_checks]
-    _, gate_cells = await live_cells(
+    # Per WELL (phase 8) — what the "starting soon, not ready" warning reads:
+    # each well's effective value, its field project's unless it has its own.
+    _, well_gate_cells = await live_cells(
         db,
         project_id,
         gate_checks,
         [a for a in activities if in_scope(a, None)],
-        unit="projects",  # the Project gates are always per field project
+        unit="wells",
+    )
+    # An activity with a field project but no well name is no well target: it
+    # reads its field project (folded over the project's wells in scope).
+    _, project_gate_cells = await live_cells(
+        db,
+        project_id,
+        gate_checks,
+        [a for a in activities if in_scope(a, None)],
+        unit="projects",
     )
 
     contracts = (
@@ -152,13 +163,18 @@ async def build_dashboard(
         return today <= a.start_date <= near_term_end
 
     def ready(a: Activity) -> bool:
-        # The "starting soon, not ready" warning reads the Project gates only
-        # (§3.7): ready = ≥1 counted gate and every counted gate Completed. An
-        # unset gate reads On Track, so it isn't ready. An activity with no field
-        # project carries no project gates — nothing to be not ready about.
-        if not a.well_project:
-            return True
-        return target_ready(gate_cells.get((a.well_project,), {}))
+        # The "starting soon, not ready" warning reads the well execution
+        # readiness checks only (§3.7), at the WELL's effective value (phase 8):
+        # ready = ≥1 counted check and every counted check Completed. An unset
+        # check reads Not started, so it isn't ready. An activity with no well
+        # name reads its field project; with neither, there is nothing to be not
+        # ready about.
+        if not a.well_name:
+            if not a.well_project:
+                return True
+            return target_ready(project_gate_cells.get((a.well_project,), {}))
+        key = (a.well_project or "", a.well_name, a.activity_type)
+        return target_ready(well_gate_cells.get(key, {}))
 
     # ── activities ─────────────────────────────────────────────────────────────
     # Completed YTD across the clone lineage. A completed activity lives in the
@@ -212,10 +228,10 @@ async def build_dashboard(
     # not-done, readiness-required activity starting within the window; opt-out
     # activities (readiness_required=False) don't pull their project into focus.
     focus = [a for a in activities if in_scope(a, focus_end)]
-    focus_projects = {(a.well_project,) for a in focus if a.well_project}
-    gates = rollup(
-        [cells for key, cells in gate_cells.items() if key in focus_projects], gate_codes
-    )
+    # Each field project folds in its WELLS IN FOCUS (phase 8) — a check enabled
+    # at well level reads the worst of them — exactly as the team tiles do.
+    _, gate_cells = await live_cells(db, project_id, gate_checks, focus, unit="projects")
+    gates = rollup(gate_cells.values(), gate_codes)
     readiness_stats = ReadinessStats(
         focus_count=gates.targets,
         overall_pct=gates.complete_pct,

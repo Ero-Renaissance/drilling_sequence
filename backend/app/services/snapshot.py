@@ -11,15 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.hwu_contract import HwuContract
-from app.models.readiness import ReadinessEntry
 from app.models.resource_registry import ResourceRecord, normalize_resource_name
 from app.models.rig_contract import RigContract
 from app.services.readiness import resolve_activity_contract
-from app.services.readiness_catalog import (
-    active_checks,
-    default_status,
-    governed_project_checks,
-)
+from app.services.readiness_catalog import active_checks, governed_project_checks
 from app.services.readiness_effective import (
     cell_status,
     load_index,
@@ -27,12 +22,15 @@ from app.services.readiness_effective import (
     project_value,
     well_value,
 )
+from app.services.readiness_rollup import WELL_SCOPE
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
     """Return the current activities of a project as snapshot dicts, ordered by
-    start date. ``readiness`` carries the catalog's GOVERNED field-project gates;
-    an unset gate reads as its status set's default ("On Track")."""
+    start date. ``readiness`` carries the catalog's GOVERNED checks — the well
+    execution readiness checks — at the value each activity's WELL shows (phase
+    8): its own, else its field project's, else the default ("Not started").
+    ``readiness_scope: "well"`` marks the format for readers."""
     act_result = await db.execute(
         select(Activity)
         .where(Activity.project_id == project_id)
@@ -42,11 +40,27 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     if not activities:
         return []
 
-    # Readiness is per FIELD-DEVELOPMENT PROJECT (well_project); denormalise each
-    # project's gates onto every activity under it, so the snapshot stays a flat
-    # activity list and existing readers (diff, dashboard, print) keep parsing —
-    # the values are now the project's shared gates, not per-activity ones.
+    # The governed checks are per WELL since phase 8: each activity records what
+    # its well shows — the well's own value, else its field project's. The
+    # snapshot stays a flat activity list, so existing readers (diff, dashboard,
+    # print) keep parsing.
     governed = await governed_project_checks(db)
+    governed_index = await load_index(db, project_id, [c.code for c in governed])
+
+    def governed_block(a: Activity) -> dict[str, str]:
+        block: dict[str, str] = {}
+        for c in governed:
+            if c.applies_well and a.well_name:
+                v = well_value(
+                    governed_index, c, (a.well_project or "", a.well_name, a.activity_type)
+                )
+            elif a.well_project:
+                v = project_value(governed_index, c, a.well_project)
+            else:
+                continue  # no well name and no field project: nothing to read
+            block[c.code] = cell_status(v)
+        return block
+
     # Live (operational) checks — Wells, Logistics… — are recorded too, as they
     # stood at submission, for the revision print; they never lock or diff.
     # Withdrawn checks (NEQ) are not active, so new snapshots don't carry them.
@@ -80,16 +94,6 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # Equipment is withdrawn.
             values[c.code] = {"status": cell_status(v), "source": v.source}
         return values
-    gates_result = await db.execute(
-        select(ReadinessEntry).where(
-            ReadinessEntry.project_id == project_id,
-            ReadinessEntry.scope == "project",
-        )
-    )
-    readiness_by_project: dict[str, dict[str, str]] = {}
-    for gate in gates_result.scalars().all():
-        readiness_by_project.setdefault(gate.well_project, {})[gate.check_code] = gate.status
-
     # Resource contracts (rig or HWU) drive the contract-expiry marker and are a
     # material part of the plan under approval, so capture each activity's contract
     # state.
@@ -180,17 +184,11 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # Lets the diff tell a finished activity (dropped on clone) apart
             # from one that was genuinely deleted while still open.
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
-            # No field project → no project gates (spec §3.7): an empty block.
-            "readiness": (
-                {
-                    c.code: readiness_by_project.get(a.well_project, {}).get(
-                        c.code, default_status(c.status_set)
-                    )
-                    for c in governed
-                }
-                if a.well_project
-                else {}
-            ),
+            # Each well's own value (phase 8); empty with neither a well name
+            # nor a field project. The marker tells readers the block is the
+            # well's, so the gate KPIs fold a field project's wells (worst of).
+            "readiness": governed_block(a),
+            "readiness_scope": WELL_SCOPE,
             "resource_planned": resource_planned(a),
             **contract_fields(a),
             # Only once live checks exist, so snapshots without them are unchanged.

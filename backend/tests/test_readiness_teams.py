@@ -265,27 +265,51 @@ async def test_create_check_validation(
 
 
 @pytest.mark.asyncio
-async def test_a_governed_check_is_set_at_project_level_only(
+async def test_a_governed_check_applies_at_both_levels_on_the_execution_set(
     client: AsyncClient, db: AsyncSession
 ) -> None:
-    """The admin catalog's wording matches the status PUT's (spec §5.1)."""
+    """Phase 8: every well has every well execution readiness check, so a check
+    that locks with the plan is enabled at project AND well level; and it uses
+    the execution status set, which no other check may ("Not started" stays with
+    these checks)."""
     await _make_admin(client, db)
-    body = {**LOGISTICS_CHECK, "code": "PRW", "team_code": "projects", "locks_with_plan": True}
-    resp = await client.post("/api/admin/readiness/checks", json=body)
-    assert resp.status_code == 422
-    assert any(
-        "A check that locks with the plan is set at project level only" in e["msg"]
-        for e in resp.json()["detail"]
+    await _setup_logistics(client)
+    base = {
+        **LOGISTICS_CHECK,
+        "code": "PRW",
+        "team_code": "projects",
+        "locks_with_plan": True,
+        "applies_project": True,
+        "applies_well": True,
+        "status_set": "execution",
+    }
+
+    async def refused(body: dict, message: str) -> None:
+        resp = await client.post("/api/admin/readiness/checks", json=body)
+        assert resp.status_code == 422, resp.text
+        assert any(message in e["msg"] for e in resp.json()["detail"]), resp.json()
+
+    await refused({**base, "applies_well": False}, "applies at project and well level")
+    await refused({**base, "applies_project": False}, "applies at project and well level")
+    await refused({**base, "status_set": "standard"}, "uses the execution status set")
+    # …and a team check can't take the execution set.
+    await refused(
+        {**LOGISTICS_CHECK, "code": "L-NEW", "status_set": "execution"},
+        "uses the execution status set",
     )
+    assert (await client.post("/api/admin/readiness/checks", json=base)).status_code == 201
 
 
 @pytest.mark.asyncio
 async def test_project_gates_must_lock_with_the_plan(client: AsyncClient, db: AsyncSession) -> None:
     await _make_admin(client, db)
     base = {**LOGISTICS_CHECK, "code": "PRM", "label": "Permits", "team_code": "projects"}
-    live = {**base, "applies_well": False, "locks_with_plan": False}
+    live = {**base, "applies_well": True, "locks_with_plan": False}
     assert (await client.post("/api/admin/readiness/checks", json=live)).status_code == 422
-    governed = {**base, "applies_well": False, "locks_with_plan": True}
+    governed = {
+        **base, "applies_project": True, "applies_well": True, "locks_with_plan": True,
+        "status_set": "execution",
+    }
     assert (await client.post("/api/admin/readiness/checks", json=governed)).status_code == 201
     # A new project gate shows up on the project-gates grid without a code change.
     pid = await _campaign(client)
@@ -320,7 +344,7 @@ async def test_check_edit_is_audited_and_immutable_fields_are_refused(
         )
     ).scalar_one()
     assert event.user_id == admin.id and event.project_id is None
-    assert "label: Location -> Location Prep" in event.new_value
+    assert "label: Location Readiness -> Location Prep" in event.new_value
 
     # Team, status set, scope and lock behaviour are fixed at creation.
     for field, value in (
@@ -445,8 +469,8 @@ async def test_readiness_changes_are_audited_in_the_campaign_feed(
     events = await _readiness_events(db, pid)
     assert len(events) == 1
     assert events[0].field == "readiness_updated"
-    assert events[0].old_value == "On Track"
-    assert events[0].new_value == "FID for Bonga Phase 3: On Track -> Behind"
+    assert events[0].old_value == "Not started"
+    assert events[0].new_value == "FID for Bonga Phase 3: Not started -> Behind"
 
     feed = (await client.get(f"/api/projects/{pid}/audit")).json()
     assert any(e["field"] == "readiness_updated" for e in feed)
@@ -457,13 +481,13 @@ async def test_no_audit_noise_for_unchanged_saves(client: AsyncClient, db: Async
     """The chart edit dialog saves every gate on Save — unchanged gates (including
     an unset gate saved as its default) must not flood the trail."""
     pid = await _campaign(client)
-    await _put(client, pid, "FDP", "On Track")  # unset → its default: no change
+    await _put(client, pid, "FDP", "Not started")  # unset → its default: no change
     await _put(client, pid, "FID", "Behind")
     await _put(client, pid, "FID", "Behind")  # same again: no change
     await _put(client, pid, "FID", "Behind", notes="Board slipped to Q3")
 
     events = await _readiness_events(db, pid)
     assert [e.new_value for e in events] == [
-        "FID for Bonga Phase 3: On Track -> Behind",
+        "FID for Bonga Phase 3: Not started -> Behind",
         "FID for Bonga Phase 3: Behind -> Behind; notes changed",
     ]

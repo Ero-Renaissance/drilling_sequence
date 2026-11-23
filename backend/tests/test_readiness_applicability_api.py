@@ -22,7 +22,7 @@ from app.models.user import User
 FP = "Bonga Phase 3"
 ACT = "Oil Development"
 PROJECT = {"scope": "project", "well_project": FP}
-GATES = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
+GATES = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
 
 # Logistics: two two-level checks and a project-only one; Wells: a well-only one.
 CHECKS = (

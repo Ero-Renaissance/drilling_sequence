@@ -91,7 +91,7 @@ async def test_template_round_trips_through_the_importer(client: AsyncClient) ->
     assert set(by_project) == {"Project Alpha", "Project Beta"}
     assert by_project["Project Alpha"]["activity_count"] == 2  # Well-1 + Well-2
     assert all(
-        c["status"] == "On Track"
+        c["status"] == "Not started"
         for row in by_project.values()
         for c in row["checks"].values()
     )

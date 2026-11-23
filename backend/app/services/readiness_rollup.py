@@ -5,7 +5,9 @@ module, never a local formula:
 
 - A *cell* is one check for one *target* (a field project, or a well = field
   project + well + activity type). Its value is the effective status (§3.6); an
-  unset cell reads its status set's default, and every default is on track.
+  unset cell reads its status set's default — on track, except the well
+  execution readiness checks (phase 8), which read Not started: counted, but
+  neither done, on track nor behind.
 - Cells roll up by their shared severity, never by status text: N/A is not
   counted, and neither is a team check that doesn't apply (unticked, §3.8 — the
   live cells read it as N/A). A check that is NOT SELECTED (phase 7, §3.9: it
@@ -28,7 +30,8 @@ module, never a local formula:
   it is done for every well that needs it, and behind when any of them is
   behind. A project-only check, or a field project with no well in scope, reads
   the project's own value (``fold_project_cells``). A well with no field project
-  has no field-project target. The Project gates have no well level.
+  has no field-project target. Since phase 8 the well execution readiness
+  checks (the Projects team) have a well level like every other team's.
 - Nothing counted → ``None`` (shown "—", never 0%). Percentages round half up.
 """
 import uuid
@@ -40,7 +43,7 @@ from typing import Literal, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
-from app.models.readiness import STATUS_SETS, ReadinessCheck
+from app.models.readiness import EXECUTION_STATUS_SET, STATUS_SETS, ReadinessCheck
 from app.services.readiness_effective import (
     cell_status,
     load_index,
@@ -62,6 +65,7 @@ SEVERITY_OF: dict[str, str] = {
 BUCKET_OF_SEVERITY = {
     "done": "completed",
     "in_progress": "on_track",
+    "not_started": "not_started",
     "blocked": "behind",
     "not_counted": "na",
 }
@@ -69,6 +73,10 @@ BUCKET_OF_SEVERITY = {
 # What a governed gate missing from a frozen snapshot block reads as: the standard
 # default (governed gates are the Projects team's, all `standard`).
 SNAPSHOT_GATE_DEFAULT = STATUS_SETS["standard"]["default"]
+# …and in a snapshot that records each well's own checks (phase 8): Not started.
+SNAPSHOT_WELL_DEFAULT = STATUS_SETS[EXECUTION_STATUS_SET]["default"]
+# The marker such a snapshot carries on every activity (``readiness_scope``).
+WELL_SCOPE = "well"
 
 
 def severity_of(status: str) -> str:
@@ -94,6 +102,7 @@ class Figures:
     counted: int = 0  # cells that count (not N/A, and the check applies)
     done: int = 0
     in_progress: int = 0
+    not_started: int = 0  # counted, not yet moving (phase 8)
     behind: int = 0  # blocked cells
     na: int = 0  # not-counted cells (N/A, or a team check that doesn't apply)
     ready: int = 0  # targets with ≥1 counted cell, every counted cell done
@@ -120,6 +129,7 @@ def target_figures(statuses: Iterable[str]) -> Figures:
         counted=len(counted),
         done=counted.count("done"),
         in_progress=counted.count("in_progress"),
+        not_started=counted.count("not_started"),
         behind=counted.count("blocked"),
         na=len(severities) - len(counted),
         ready=1 if counted and all(s == "done" for s in counted) else 0,
@@ -134,9 +144,22 @@ def rollup(targets: Iterable[Mapping[str, str]], codes: Sequence[str] = ()) -> F
     ``codes`` (optional) names the checks to break down per check — the "by gate"
     card — in display order."""
     totals = dict.fromkeys(
-        ("targets", "counted", "done", "in_progress", "behind", "na", "ready", "ready_of"), 0
+        (
+            "targets",
+            "counted",
+            "done",
+            "in_progress",
+            "not_started",
+            "behind",
+            "na",
+            "ready",
+            "ready_of",
+        ),
+        0,
     )
-    by_check = {c: {"completed": 0, "on_track": 0, "behind": 0, "na": 0} for c in codes}
+    by_check = {
+        c: {"completed": 0, "on_track": 0, "not_started": 0, "behind": 0, "na": 0} for c in codes
+    }
     for cells in targets:
         one = target_figures(cells.values())
         for name in totals:
@@ -197,9 +220,9 @@ def days_until(day: date | None, today: date) -> int | None:
 
 # ── A field project's cells (2026-10-25) ────────────────────────────────────
 
-# Which status of a check's cells under one field project wins: blocked over in
-# progress over done; not counted (N/A) only when nothing counts.
-_SEVERITY_RANK = {"not_counted": 0, "done": 1, "in_progress": 2, "blocked": 3}
+# Which status of a check's cells under one field project wins: blocked over not
+# started over in progress over done; not counted (N/A) only when nothing counts.
+_SEVERITY_RANK = {"not_counted": 0, "done": 1, "in_progress": 2, "not_started": 3, "blocked": 4}
 
 
 def worst_status(statuses: Iterable[str]) -> str:
@@ -339,6 +362,20 @@ async def live_cells(
 # ── Frozen snapshots ────────────────────────────────────────────────────────
 
 
+def snapshot_readiness_scope(snapshot: Sequence[Mapping]) -> Literal["activity", "project", "well"]:
+    """How a frozen snapshot recorded its governed checks:
+
+    - ``"well"`` (phase 8): each activity carries its WELL's effective value and
+      the marker ``readiness_scope == "well"``;
+    - ``"activity"``: revisions from before readiness became per field project
+      (``per_activity_readiness``);
+    - ``"project"``: one copy of the field project's gates on each activity."""
+    snapshot = list(snapshot)
+    if any(a.get("readiness_scope") == WELL_SCOPE for a in snapshot):
+        return "well"
+    return "activity" if per_activity_readiness(snapshot) else "project"
+
+
 def per_activity_readiness(snapshot: Sequence[Mapping]) -> bool:
     """Whether a frozen snapshot carries PER-ACTIVITY gates (revisions from before
     readiness became per field project on 2026-07-16 — migration 029 kept their
@@ -376,24 +413,49 @@ def snapshot_gate_targets(
     Per-field-project snapshots denormalise each field project's gates onto every
     activity under it: the target is the FIELD PROJECT (the first activity in
     scope speaks for it), and an activity with no field project carries no gates.
+    Per-WELL snapshots (phase 8, ``snapshot_readiness_scope``) record each well's
+    own value: the target is still the FIELD PROJECT, each check the worst of its
+    activities in scope; a well with no field project is on no target.
     Per-activity snapshots (``per_activity_readiness``) recorded gates per
     ACTIVITY: each activity is its own target, as they were aggregated then."""
     snapshot = list(snapshot)
-    per_activity = per_activity_readiness(snapshot)
+    scope = snapshot_readiness_scope(snapshot)
     by_target: dict[object, Mapping[str, str]] = {}
+    # Phase 8: a field project's activities in scope, to fold (worst of) below.
+    wells_of: dict[str, list[Mapping[str, str]]] = {}
     for i, a in enumerate(snapshot):
         if a.get("completed_at") or not a.get("readiness_required", True):
             continue
         start = _snap_date(a.get("start_date"))
         if start is None or (window_end is not None and start > window_end):
             continue
-        if per_activity:
+        if scope == "activity":
             key: object = ("activity", i)
         elif a.get("well_project"):
             key = a["well_project"]
         else:
-            continue  # no field project → no project gates (§3.7)
-        by_target.setdefault(key, a.get("readiness") or {})
+            continue  # no field project → no field-project target (§3.7)
+        if scope == "well":
+            wells_of.setdefault(a["well_project"], []).append(a.get("readiness") or {})
+        else:
+            by_target.setdefault(key, a.get("readiness") or {})
+    if scope == "well":
+        # The field project reads the WORST of its activities in scope, check by
+        # check — as the live tile folds its wells (``fold_project_cells``).
+        targets: list[dict[str, str]] = []
+        for blocks in wells_of.values():
+            codes = (
+                list(gate_codes)
+                if gate_codes is not None
+                else list(dict.fromkeys(c for b in blocks for c in b))
+            )
+            targets.append(
+                {
+                    c: worst_status([b.get(c, SNAPSHOT_WELL_DEFAULT) for b in blocks])
+                    for c in codes
+                }
+            )
+        return targets
     if gate_codes is None:
         return [dict(readiness) for readiness in by_target.values()]
     return [
