@@ -174,8 +174,9 @@ function readinessTone(pct: number | null): Tone {
 const GATE_COLORS = {
   completed: "#16a34a",
   on_track: "#f59e0b",
+  not_started: "#94a3b8",
   behind: "#ef4444",
-  na: "#cbd5e1",
+  na: "#e2e8f0",
 } as const;
 
 function BreakdownCard({
@@ -234,7 +235,8 @@ function BarList({
 /** A gate's status split as a single stacked bar, each segment carrying its
  *  PROJECT count (a thin segment keeps the count in its tooltip). */
 function GateRow({ gate }: { gate: GateBreakdown }) {
-  const total = gate.completed + gate.on_track + gate.behind + gate.na;
+  const notStarted = gate.not_started ?? 0;
+  const total = gate.completed + gate.on_track + notStarted + gate.behind + gate.na;
   const seg = (value: number, color: string, label: string, textColor = "#ffffff") => {
     if (value <= 0) return null;
     const pct = (value / total) * 100;
@@ -260,6 +262,7 @@ function GateRow({ gate }: { gate: GateBreakdown }) {
           <>
             {seg(gate.completed, GATE_COLORS.completed, "Completed")}
             {seg(gate.on_track, GATE_COLORS.on_track, "On track")}
+            {seg(notStarted, GATE_COLORS.not_started, "Not started")}
             {seg(gate.behind, GATE_COLORS.behind, "Behind")}
             {seg(gate.na, GATE_COLORS.na, "N/A", "#334155")}
           </>
@@ -421,7 +424,7 @@ export function ProjectDashboard({
   const cards = [
     {
       code: PROJECTS_TEAM,
-      label: "Project gates",
+      label: "Well Execution Readiness",
       completePct: readiness.overall_pct,
       onTrackPct: readiness.on_track_pct,
       behind: readiness.behind_cells,
@@ -574,7 +577,7 @@ export function ProjectDashboard({
             {/* Follows the Readiness group's window (picked in its header); a
                 Project gates card, so a focus on another team hides it. */}
             {(focus === ALL_LENS || focus === PROJECTS_TEAM) && (
-              <BreakdownCard title={`Readiness by gate · ${horizonSuffix(horizon)}`}>
+              <BreakdownCard title={`Well execution readiness by check · ${horizonSuffix(horizon)}`}>
                 {readiness.by_gate.length ? (
                   <div className="space-y-1.5">
                     {readiness.by_gate.map((g) => (
@@ -583,6 +586,7 @@ export function ProjectDashboard({
                     <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[10px] text-muted-foreground">
                       <span><span style={{ color: GATE_COLORS.completed }}>●</span> Completed</span>
                       <span><span style={{ color: GATE_COLORS.on_track }}>●</span> On track</span>
+                      <span><span style={{ color: GATE_COLORS.not_started }}>●</span> Not started</span>
                       <span><span style={{ color: GATE_COLORS.behind }}>●</span> Behind</span>
                     </div>
                   </div>

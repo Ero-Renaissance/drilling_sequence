@@ -467,6 +467,7 @@ export const LUCIDE_PATHS: Record<IconKey, string> = {
 
 /** Hex colors (not Tailwind classes — these go inside SVG strings, not className). */
 export const STATUS_STROKE: Record<CheckStatus, string> = {
+  "Not started": "#94a3b8", // slate-400 — severity "not_started"
   "On Track": "#f59e0b", // amber-500
   Completed: "#10b981", // emerald-500
   Behind: "#ef4444", // red-500

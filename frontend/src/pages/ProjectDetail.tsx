@@ -13,13 +13,11 @@ import { cn } from "@/lib/utils";
 import { useProjectsStore } from "@/store/projects";
 import { useAuthStore } from "@/store/auth";
 import { listActivities, exportActivities, type Activity } from "@/api/activities";
-import { listReadiness, type CheckCode, type CheckStatus } from "@/api/readiness";
 import { listContracts, type RigContract } from "@/api/contracts";
 import { listHwuContracts, type HwuContract } from "@/api/hwu-contracts";
 import { ResourceRegistryPanel } from "@/components/resources/ResourceRegistryPanel";
 import { FleetDemandChart } from "@/components/resources/FleetDemandChart";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
-import type { ReadinessMap } from "@/lib/chart-utils";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { SequencePrintControl } from "@/components/chart/SequencePrintControl";
@@ -32,7 +30,6 @@ import { EditProjectDialog } from "@/components/data-grid/EditProjectDialog";
 import { projectReadOnlyReason } from "@/components/data-grid/project-dialog-shared";
 import { detectResourceConflicts, type ResourceConflict } from "@/lib/conflicts";
 import { rigLaneKey } from "@/lib/resource-identity";
-import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { KeyNotesCard } from "@/components/dashboard/KeyNotesCard";
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
 import { PlannersPanel } from "@/components/projects/PlannersPanel";
@@ -395,8 +392,6 @@ function presentTo(
 export function ChartTab() {
   const { projectId } = useParams<{ projectId: string }>();
   const [activities, setActivities] = useState<Activity[] | null>(null);
-  // Project gates — always loaded: the activity edit dialog edits them.
-  const [readinessMap, setReadinessMap] = useState<ReadinessMap | undefined>(undefined);
   // The chart's readiness lens (Project gates · Wells · Logistics…) and its data.
   const [lens, setLens] = useReadinessLens();
   const teams = useReadinessTeams();
@@ -458,21 +453,14 @@ export function ChartTab() {
     setLoading(true);
     setError(null);
     try {
-      const [acts, readiness, contracts, hwuContracts, changeNotes] =
+      const [acts, contracts, hwuContracts, changeNotes] =
         await Promise.all([
           listActivities(projectId),
-          listReadiness(projectId).catch(() => []), // readiness is best-effort
           listContracts(projectId).catch(() => []), // contracts are best-effort
           listHwuContracts(projectId).catch(() => []), // HWU contracts are best-effort
           listChangeNotes(projectId).catch(() => []), // change notes are best-effort
         ]);
       setActivities(acts);
-      // Readiness is per field project — key the map by `well_project` so the
-      // chart can resolve each activity's gates from its project.
-      const map: ReadinessMap = new Map(
-        readiness.map((r) => [r.well_project, r.checks as Record<CheckCode, { status: CheckStatus }>]),
-      );
-      setReadinessMap(map);
       setContractsByRig(new Map(contracts.map((c) => [c.rig_name, c])));
       // Lane keys are normalized (rigLaneKey) so an activity typed "10k rig 1"
       // still finds the contract saved as "10K Rig 1" — registry identity is
@@ -491,10 +479,11 @@ export function ChartTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // A team lens loads that team's readiness (well rows with inherited values);
-  // the project-gates lens reuses the map `load` already fetched.
+  // Every lens loads its team's readiness (well rows with inherited values) —
+  // the well execution readiness checks included (phase 8). Re-runs when the
+  // activities reload, so a save in the edit dialog refreshes the icons.
   useEffect(() => {
-    if (!projectId || lens === PROJECTS_TEAM) {
+    if (!projectId) {
       setLensReadiness(null);
       return;
     }
@@ -648,8 +637,8 @@ export function ChartTab() {
             <DrillChart
               stickyScale
               activities={activities}
-              readinessMap={lens === PROJECTS_TEAM ? readinessMap : lensReadiness?.map}
-              readinessKeyOf={lens === PROJECTS_TEAM ? undefined : lensReadiness?.keyOf}
+              readinessMap={lensReadiness?.map}
+              readinessKeyOf={lensReadiness?.keyOf}
               rigContractsByLane={rigContractsByLane}
               contractsByHwu={contractsByHwu}
               conflictIds={conflictIds}
@@ -701,16 +690,10 @@ export function ChartTab() {
         (() => {
           const activity = activities.find((a) => a.id === editActivityId);
           if (!activity) return null;
-          // Gates live on the field project, so look them up by the activity's
-          // `well_project` (none → no gates to show/edit).
-          const readiness = activity.well_project
-            ? readinessMap?.get(activity.well_project) ?? null
-            : null;
           return (
             <ActivityChartEditDialog
               projectId={projectId!}
               activity={activity}
-              readiness={readiness}
               allActivities={activities}
               contractsByRig={contractsByRig}
               contractsByHwu={contractsByHwu}
@@ -845,6 +828,8 @@ export function FleetTab() {
 
 export function ReadinessTab() {
   const { projectId } = useParams<{ projectId: string }>();
+  // Rendered under the campaign's outlet; without one (a bare test) view-only.
+  const canEditPlan = useOutletContext<CampaignOutletContext | null>()?.canEditPlan ?? false;
   const [searchParams, setSearchParams] = useSearchParams();
   const teams = useReadinessTeams();
   // The lens: a ?lens= deep link wins, else the user's remembered/default lens.
@@ -865,15 +850,21 @@ export function ReadinessTab() {
     <div className="space-y-3">
       <LensPicker value={lens} onChange={chooseLens} />
       <ErrorBoundary label="readiness table">
-        {lens === PROJECTS_TEAM ? (
-          <ReadinessGrid projectId={projectId} />
-        ) : lens === ALL_LENS ? (
+        {lens === ALL_LENS ? (
           <AllReadinessGrid
             projectId={projectId}
             onOpenLens={(code) => chooseLens(code, "wells")}
           />
         ) : (
-          <TeamReadinessGrid key={lens} projectId={projectId} teamCode={lens} />
+          // Every team — the well execution readiness checks included (phase
+          // 8) — through the one grid: Projects | Wells, each well following
+          // its field project until it has its own value.
+          <TeamReadinessGrid
+            key={lens}
+            projectId={projectId}
+            teamCode={lens}
+            canEditPlan={canEditPlan}
+          />
         )}
       </ErrorBoundary>
     </div>

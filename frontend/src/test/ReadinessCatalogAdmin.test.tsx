@@ -50,6 +50,17 @@ function catalog(): AdminReadinessCatalog {
         default: "On Track",
         history_only: false,
       },
+      execution: {
+        statuses: [
+          { status: "Not started", severity: "not_started" },
+          { status: "On Track", severity: "in_progress" },
+          { status: "Completed", severity: "done" },
+          { status: "Behind", severity: "blocked" },
+          { status: "N/A", severity: "not_counted" },
+        ],
+        default: "Not started",
+        history_only: false,
+      },
     },
     icon_keys: ["land-plot", "banknote", "map-pin"],
   };
@@ -67,7 +78,7 @@ describe("ReadinessCatalogAdmin", () => {
   it("lists each team's checks, marks retired ones, and protects the project gates team", () => {
     render(<ReadinessCatalogAdmin catalog={catalog()} loading={false} onChanged={vi.fn()} />);
     const projects = section("Projects");
-    expect(within(projects).getByText("Field Development Plan")).toBeInTheDocument();
+    expect(within(projects).getByText("Approved FDP/IP")).toBeInTheDocument();
     expect(within(projects).getByText("Retired")).toBeInTheDocument();
     expect(within(projects).getByText("Updated by campaign planners")).toBeInTheDocument();
     // The built-in team can't be deactivated; other teams can.
@@ -81,22 +92,24 @@ describe("ReadinessCatalogAdmin", () => {
     retireCheck.mockResolvedValue({});
     restoreCheck.mockResolvedValue({});
     render(<ReadinessCatalogAdmin catalog={catalog()} loading={false} onChanged={onChanged} />);
-    const fid = screen.getByText("Final Inv. Decision").closest("tr")!;
+    const fid = screen.getByText("Final Investment Decision").closest("tr")!;
     fireEvent.click(within(fid).getByRole("button", { name: /retire/i }));
     await waitFor(() => expect(retireCheck).toHaveBeenCalledWith("FID"));
-    const eia = screen.getByText("Env. Assessment").closest("tr")!;
+    const eia = screen.getByText("EIA/Waiver").closest("tr")!;
     fireEvent.click(within(eia).getByRole("button", { name: /restore/i }));
     await waitFor(() => expect(restoreCheck).toHaveBeenCalledWith("EIA"));
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
   });
 
-  it("a new project gate always locks with the plan at project level", async () => {
+  it("a new well execution readiness check is in the approval record, at both levels", async () => {
     render(<ReadinessCatalogAdmin catalog={catalog()} loading={false} onChanged={vi.fn()} />);
     fireEvent.click(within(section("Projects")).getByRole("button", { name: /add check/i }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("checkbox", { name: /locks with the plan/i })).toBeChecked();
-    expect(within(dialog).getByRole("checkbox", { name: /locks with the plan/i })).toBeDisabled();
-    expect(within(dialog).getByRole("checkbox", { name: /^well$/i })).not.toBeChecked();
+    const record = within(dialog).getByRole("checkbox", { name: /part of the approval record/i });
+    expect(record).toBeChecked();
+    expect(record).toBeDisabled();
+    // Phase 8: every well has every one of these checks.
+    expect(within(dialog).getByRole("checkbox", { name: /^well$/i })).toBeChecked();
     expect(within(dialog).getByRole("checkbox", { name: /^well$/i })).toBeDisabled();
   });
 
@@ -107,13 +120,14 @@ describe("ReadinessCatalogAdmin", () => {
     fireEvent.click(within(section("Logistics")).getByRole("button", { name: /add check/i }));
     const dialog = await screen.findByRole("dialog");
 
-    // Codes are upper-cased as typed; a well-level check can't lock with the plan.
+    // Codes are upper-cased as typed; only the Projects team's checks are part
+    // of the approval record.
     fireEvent.change(within(dialog).getByLabelText("Code"), { target: { value: "l-bud" } });
     fireEvent.change(within(dialog).getByLabelText("Label"), {
       target: { value: "Budget Availability" },
     });
     fireEvent.click(within(dialog).getByRole("radio", { name: "banknote" }));
-    expect(within(dialog).getByRole("checkbox", { name: /locks with the plan/i })).toBeDisabled();
+    expect(within(dialog).getByRole("checkbox", { name: /part of the approval record/i })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: /add check/i }));
 
     await waitFor(() =>
@@ -176,7 +190,7 @@ describe("ReadinessCatalogAdmin", () => {
     expect(within(neq).getByText("Withdrawn")).toBeInTheDocument();
     expect(within(neq).queryByRole("button", { name: /restore/i })).not.toBeInTheDocument();
     // A merely retired check still offers Restore.
-    const eia = screen.getByText("Env. Assessment").closest("tr")!;
+    const eia = screen.getByText("EIA/Waiver").closest("tr")!;
     expect(within(eia).getByRole("button", { name: /restore/i })).toBeInTheDocument();
   });
 
@@ -206,7 +220,7 @@ describe("ReadinessCatalogAdmin", () => {
     render(<ReadinessCatalogAdmin catalog={c} loading={false} onChanged={vi.fn()} />);
     const statusesOf = (label: string) =>
       within(screen.getByText(label).closest("tr")!).getAllByRole("cell")[2].textContent;
-    expect(statusesOf("Field Development Plan")).toBe("On Track / Completed / Behind / N/A");
+    expect(statusesOf("Approved FDP/IP")).toBe("Not started / On Track / Completed / Behind / N/A");
     expect(statusesOf("Budget Availability")).toBe("On Track / Completed / Behind");
   });
 
@@ -229,8 +243,9 @@ describe("ReadinessCatalogAdmin", () => {
     fireEvent.click(within(section("Projects")).getByRole("button", { name: /add check/i }));
     const create = await screen.findByRole("dialog");
     const select = within(create).getByLabelText("Statuses");
+    // The execution set, and only it — "Not started" stays with these checks.
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "On Track / Completed / Behind / N/A",
+      "Not started / On Track / Completed / Behind / N/A",
     ]);
   });
 

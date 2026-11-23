@@ -8,7 +8,13 @@
  */
 import { Fragment, useMemo } from "react";
 import { AlarmClock, Droplet } from "lucide-react";
-import { ALL_LENS, PROJECTS_TEAM, useLens, useLensChecks } from "@/components/readiness/catalog";
+import {
+  ALL_LENS,
+  PROJECTS_TEAM,
+  readinessHeading,
+  useLens,
+  useLensChecks,
+} from "@/components/readiness/catalog";
 import {
   STATUS_DOT,
   STATUS_ICON_COLOR,
@@ -1133,7 +1139,7 @@ export function RevisionPrintDoc({
           </p>
           {isReadiness && readinessLabel && (
             <p className="mt-0.5 text-[10px] font-medium" data-testid="print-readiness-lens">
-              Readiness: {readinessLabel} — status at submission
+              {readinessHeading(readinessLabel)} — status at submission
             </p>
           )}
           {/* Wet-ink forms are standalone (no system references). Recorded-signature
@@ -1278,7 +1284,7 @@ export function WorkingCopyPrintDoc({
           <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground">As of {stamp}</p>
           {isReadiness && readinessLabel && (
             <p className="mt-0.5 text-[10px] font-medium" data-testid="print-readiness-lens">
-              Readiness: {readinessLabel} — live status
+              {readinessHeading(readinessLabel)} — live status
             </p>
           )}
         </div>

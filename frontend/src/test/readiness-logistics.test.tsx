@@ -31,7 +31,6 @@ import type {
   TeamReadiness,
 } from "@/api/readiness";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
-import { ReadinessGrid } from "@/components/readiness/ReadinessGrid";
 import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
 import { Toaster } from "@/components/ui/toaster";
 import { FrozenCatalogProvider } from "@/components/readiness/catalog";
@@ -45,6 +44,7 @@ import {
 } from "@/components/readiness/check-meta";
 import { worstCheck } from "@/lib/chart-layout";
 import { server } from "./mocks/server";
+import { mockGateTeam } from "./mocks/handlers";
 
 /** Nominated Equipment as a revision froze it (migration 036's literals) — the
  *  check is withdrawn since phase 6 (spec §3.5); only history carries it. */
@@ -85,10 +85,11 @@ describe("the availability status set — history only (phase 6)", () => {
     ]);
   });
 
-  it("every default is on track — an unset check means no reported problem", () => {
-    for (const set of Object.values(STATUS_SETS)) {
-      expect(STATUS_SEVERITY[set.default]).toBe("in_progress");
+  it("every default is on track — except the execution set, which reads Not started", () => {
+    for (const [name, set] of Object.entries(STATUS_SETS)) {
+      expect(STATUS_SEVERITY[set.default]).toBe(name === "execution" ? "not_started" : "in_progress");
     }
+    expect(defaultStatusOf("execution")).toBe("Not started");
     expect(defaultStatusOf("availability")).toBe("Pending");
   });
 
@@ -506,15 +507,23 @@ describe("status menus (spec §3.3, §8.7)", () => {
     expect(await items()).toEqual(["On Track", "Behind", "Completed"]);
   });
 
-  it("a Project gate's menu still offers N/A (decision 31)", async () => {
+  it("a well execution readiness check's menu offers Not started and still N/A (decision 31)", async () => {
+    currentUser = { id: "u1", is_admin: true, teams: [] };
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json(
+          mockGateTeam({ wells: [{ well_project: "Bonga Phase 3", well_name: "W-1" }] }),
+        ),
+      ),
+    );
     render(
       <MemoryRouter>
-        <ReadinessGrid projectId={PID} />
+        <TeamReadinessGrid projectId={PID} teamCode="projects" canEditPlan />
       </MemoryRouter>,
     );
     await screen.findByText("Bonga Phase 3");
-    await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);
-    expect(await items()).toEqual(["On Track", "Behind", "Completed", "N/A"]);
+    await userEvent.click(screen.getAllByTitle(/: Not started$/)[0]);
+    expect(await items()).toEqual(["Not started", "On Track", "Behind", "Completed", "N/A"]);
   });
 });
 

@@ -19,6 +19,8 @@ vi.mock("@/components/ui/toaster", () => ({
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
 import { isFocusFilter } from "@/lib/watchlist";
 import { server } from "./mocks/server";
+import { mockGateTeam } from "./mocks/handlers";
+import { BUILTIN_PROJECT_GATES } from "@/components/readiness/catalog";
 
 const PROJECT_ID = "cccccccc-0000-0000-0000-000000000001";
 
@@ -439,10 +441,11 @@ describe("?focus= from the URL", () => {
 });
 
 describe("Not-ready drill-through", () => {
-  it("lists near-term work whose project gates aren't all done — never work with no field project", async () => {
-    // Mirrors the Overview warning (spec §3.7): project gates only; an unset
-    // gate arrives as On Track (not ready); opt-outs and work with no field
-    // project carry no project gates.
+  it("lists near-term wells whose execution readiness checks aren't all done", async () => {
+    // Mirrors the Overview warning (spec §3.7): the well execution readiness
+    // checks only, at each WELL's value (phase 8). An unset check reads Not
+    // started (not ready); a well with no field project has its own checks;
+    // an opt-out carries none.
     const soon = new Date();
     soon.setDate(soon.getDate() + 10);
     const start = soon.toISOString().slice(0, 10);
@@ -463,17 +466,25 @@ describe("Not-ready drill-through", () => {
           act("a4", "W-OPTED-OUT", "P1", false),
         ]),
       ),
-      http.get("/api/projects/:projectId/readiness", () =>
-        HttpResponse.json([
-          {
-            well_project: "P1", activity_count: 2, locked: false, focus_start: start,
-            checks: { FDP: { status: "Completed" }, BUD: { status: "On Track" } },
-          },
-          {
-            well_project: "P2", activity_count: 1, locked: false, focus_start: start,
-            checks: { FDP: { status: "Completed" }, BUD: { status: "N/A" } },
-          },
-        ]),
+      // W-READY has every check done (N/A isn't counted); W-NOT-READY follows
+      // P1, whose FDP is done and the rest unset; W-NO-PROJECT has nothing set.
+      // The server sends no row for the opted-out W-OPTED-OUT.
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json(
+          mockGateTeam({
+            wells: [
+              { well_project: "P1", well_name: "W-NOT-READY" },
+              { well_project: "P2", well_name: "W-READY" },
+              { well_project: "", well_name: "W-NO-PROJECT" },
+            ],
+            projectStatuses: {
+              P1: { FDP: "Completed" },
+              P2: Object.fromEntries(
+                BUILTIN_PROJECT_GATES.map((g) => [g.code, g.code === "BUD" ? "N/A" : "Completed"]),
+              ),
+            },
+          }),
+        ),
       ),
     );
     render(
@@ -485,8 +496,8 @@ describe("Not-ready drill-through", () => {
     );
 
     expect(await screen.findByText("W-NOT-READY")).toBeInTheDocument();
+    expect(screen.getByText("W-NO-PROJECT")).toBeInTheDocument();
     expect(screen.queryByText("W-READY")).not.toBeInTheDocument();
-    expect(screen.queryByText("W-NO-PROJECT")).not.toBeInTheDocument();
     expect(screen.queryByText("W-OPTED-OUT")).not.toBeInTheDocument();
   });
 });

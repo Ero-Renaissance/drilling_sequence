@@ -127,7 +127,7 @@ export function RevisionPrintControl({
         printLens !== PROJECTS_TEAM &&
         !hasTeamReadiness(JSON.parse(d.snapshot_json))
       ) {
-        toast.info("This revision predates team readiness — printing the project gates.");
+        toast.info("This revision predates team readiness — printing its well execution readiness checks.");
         setPrintLens(PROJECTS_TEAM);
       }
       setPrinting(mode);

@@ -10,6 +10,9 @@ import { throwApiError } from "./http";
 export type CheckCode = string;
 export type CheckStatus =
   | "On Track"
+  // The well execution readiness checks' default (phase 8, the `execution`
+  // status set): counted, but neither done, on track nor behind.
+  | "Not started"
   | "Completed"
   | "Behind"
   | "N/A"
@@ -18,7 +21,7 @@ export type CheckStatus =
   | "Available"
   | "Pending"
   | "Not available";
-export type Severity = "done" | "in_progress" | "blocked" | "not_counted";
+export type Severity = "done" | "in_progress" | "not_started" | "blocked" | "not_counted";
 
 export interface CatalogTeam {
   code: string;
@@ -96,6 +99,9 @@ export interface RowFigures {
   done: number;
   /** On track (On Track, Pending). */
   in_progress: number;
+  /** Counted, but not yet moving (phase 8: "Not started"). Optional: rows from
+   *  before it read 0. */
+  not_started?: number;
   /** Behind or Not available. */
   behind: number;
   /** Not counted (N/A, or a team check that doesn't apply because of a row). A
@@ -103,27 +109,6 @@ export interface RowFigures {
   na?: number;
   /** At least one counted cell, and every counted cell done. */
   ready: boolean;
-}
-
-export interface ProjectReadiness {
-  well_project: string;
-  /** Keyed by catalog check code — the active project gates, in catalog order. */
-  checks: Record<CheckCode, CheckState>;
-  /** Number of activities under this field project (shown as the row subtitle). */
-  activity_count: number;
-  /** Frozen while a revision is awaiting approval — the dots are disabled. */
-  locked?: boolean;
-  /** Earliest start (ISO date) of a not-done, readiness-required activity under
-   *  this field project — the same signal the Overview readiness KPI uses. Drives
-   *  the page's time filter: a project is "in the next N months" iff
-   *  `focus_start <= today + N`. Null when the project has no pending readiness
-   *  work (all done or opt-out), so it never falls inside a window. */
-  focus_start?: string | null;
-  /** Days from the SERVER's today to `focus_start` — the window is applied on the
-   *  server's calendar, exactly as the Overview tile applies it. */
-  focus_in_days?: number | null;
-  /** The row's rollup over its gates (server-computed). */
-  figures?: RowFigures;
 }
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -135,36 +120,6 @@ export async function fetchReadinessCatalog(): Promise<ReadinessCatalog> {
   const resp = await fetch("/api/readiness/catalog", { headers: await authHeaders() });
   if (!resp.ok) await throwApiError(resp, "Failed to fetch the readiness catalog");
   return resp.json();
-}
-
-export async function listReadiness(projectId: string): Promise<ProjectReadiness[]> {
-  const resp = await fetch(`/api/projects/${projectId}/readiness`, {
-    headers: await authHeaders(),
-  });
-  if (!resp.ok) await throwApiError(resp, "Failed to fetch readiness data");
-  return resp.json();
-}
-
-/**
- * Set ONE readiness gate for a whole field project. `wellProject` is free-form
- * (e.g. "Gbaran 31/30", "Egbema Node FOD + IOGD"), so it travels in the JSON
- * body — never the URL path, where IIS request filtering rejects '+'/'%2B'
- * before the request reaches the API (ticket DS-001). The path carries only the
- * fixed check code.
- */
-export async function upsertCheck(
-  projectId: string,
-  wellProject: string,
-  checkCode: CheckCode,
-  status: CheckStatus,
-  notes?: string | null,
-): Promise<void> {
-  const resp = await fetch(`/api/projects/${projectId}/readiness/${checkCode}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({ well_project: wellProject, status, notes: notes ?? null }),
-  });
-  if (!resp.ok) await throwApiError(resp, `Failed to update ${checkCode} status`);
 }
 
 // ── Team lenses (Phase 3) ──────────────────────────────────────────────────

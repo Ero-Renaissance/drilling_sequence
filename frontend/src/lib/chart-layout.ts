@@ -98,7 +98,8 @@ export interface CategoryCell extends ReadinessCell {
 }
 
 const SEVERITY_RANK: Record<Severity, number> = {
-  blocked: 3,
+  blocked: 4,
+  not_started: 3,
   in_progress: 2,
   done: 1,
   not_counted: 0,
@@ -181,10 +182,11 @@ export function worstCheck(
   defs: readonly StripCheck[],
 ): { code: CheckCode; status: CheckStatus } | null {
   if (!checks) return null;
-  // By shared severity: blocked > in progress > done > not counted.
+  // By shared severity: blocked > not started > in progress > done > not counted.
   const rank: Record<CheckStatus, number> = {
-    Behind: 3,
-    "Not available": 3,
+    Behind: 4,
+    "Not available": 4,
+    "Not started": 3,
     "On Track": 2,
     Pending: 2,
     Completed: 1,

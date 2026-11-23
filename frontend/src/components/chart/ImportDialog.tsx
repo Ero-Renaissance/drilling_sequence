@@ -377,7 +377,7 @@ export function ImportDialog({ projectId, onImported, locked }: ImportDialogProp
                 Upload the drilling schedule (CSV or Excel), one row per activity — the
                 importer reads Project, Market, plan type, risk and rig-contract expiry. Readiness
                 is managed on the Readiness tab in the app, not in the upload, so
-                re-importing never resets gate statuses. (Older file layouts still import.)
+                re-importing never resets readiness statuses. (Older file layouts still import.)
               </DialogDescription>
             </DialogHeader>
 

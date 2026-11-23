@@ -25,6 +25,7 @@ import {
   ReadinessCatalogProvider,
 } from "@/components/readiness/catalog";
 import { server } from "./mocks/server";
+import { mockGateTeam } from "./mocks/handlers";
 
 const PID = "cccccccc-0000-0000-0000-000000000001";
 const LOGISTICS: CatalogTeam = { code: "logistics", name: "Logistics", editor_source: "team_grant", icon_key: "truck", sort_order: 20 };
@@ -53,13 +54,16 @@ beforeEach(() => {
     http.get("/api/readiness/catalog", () =>
       HttpResponse.json({ teams: [...BUILTIN_TEAMS, LOGISTICS], checks: [...BUILTIN_PROJECT_GATES, LBUD], status_sets: {} }),
     ),
-    http.get("/api/projects/:projectId/readiness", () =>
-      HttpResponse.json([
-        {
-          well_project: "Bonga Phase 3", activity_count: 2, locked,
-          checks: Object.fromEntries(BUILTIN_PROJECT_GATES.map((g) => [g.code, st("On Track")])),
-        },
-      ]),
+    // The well execution readiness checks, per well (phase 8): W-1 follows
+    // Bonga Phase 3, every check On Track.
+    http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+      HttpResponse.json(
+        mockGateTeam({
+          wells: [{ well_project: "Bonga Phase 3", well_name: "W-1" }],
+          status: "On Track",
+          locked,
+        }),
+      ),
     ),
     http.get("/api/projects/:projectId/readiness/teams/:team", () =>
       HttpResponse.json({
@@ -97,13 +101,13 @@ function renderPanel(props: Partial<Parameters<typeof ActivityReadinessPanel>[0]
 describe("ActivityReadinessPanel", () => {
   it("shows every team; a logistics grantee edits logistics, views the project gates", async () => {
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     expect(within(logistics).getByText("You can edit")).toBeInTheDocument();
     // This well follows its field project — faded and labelled.
     const row = within(logistics).getByText("Budget Availability").closest("tr")!;
     expect(within(row).getByTitle("Budget Availability: Completed (from field project)")).toBeInTheDocument();
 
-    const gates = screen.getByRole("region", { name: "Project gates" });
+    const gates = screen.getByRole("region", { name: "Well Execution Readiness" });
     expect(within(gates).getByText("View only")).toBeInTheDocument();
     expect(within(gates).getByText("View only — campaign planners update these.")).toBeInTheDocument();
     expect(within(gates).queryAllByRole("button", { name: /click to change/i })).toHaveLength(0);
@@ -112,7 +116,7 @@ describe("ActivityReadinessPanel", () => {
   it("sets this well's own value, or the whole field project's", async () => {
     const onChanged = vi.fn();
     renderPanel({ onChanged });
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     const row = within(logistics).getByText("Budget Availability").closest("tr")!;
     const [wellDot, projectDot] = within(row).getAllByRole("button", { name: /click to change/i });
 
@@ -142,7 +146,7 @@ describe("ActivityReadinessPanel", () => {
   it("the Project gates' menus keep N/A", async () => {
     currentUser = { id: "p1", is_admin: false, teams: [] };
     renderPanel({ canEditProjectGates: true });
-    const gates = await screen.findByRole("region", { name: "Project gates" });
+    const gates = await screen.findByRole("region", { name: "Well Execution Readiness" });
     await waitFor(() =>
       expect(within(gates).getAllByRole("button", { name: /click to change/i }).length).toBeGreaterThan(0),
     );
@@ -157,7 +161,7 @@ describe("ActivityReadinessPanel", () => {
     currentUser = { id: "p1", is_admin: false, teams: [] };
     locked = true;
     renderPanel({ canEditProjectGates: true });
-    const gates = await screen.findByRole("region", { name: "Project gates" });
+    const gates = await screen.findByRole("region", { name: "Well Execution Readiness" });
     expect(within(gates).getByText("You can edit")).toBeInTheDocument();
     // Readiness is live (2026-11-23): the plan lock doesn't freeze the gates.
     await waitFor(() =>
@@ -167,15 +171,15 @@ describe("ActivityReadinessPanel", () => {
     );
     // …while the live logistics checks are view-only only for lack of the grant
     // (the Logistics section waits for the live catalog).
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     expect(await within(logistics).findByText(/needs the Logistics grant/)).toBeInTheDocument();
   });
 
   it("opens on the chosen team and links back to the activity's details", async () => {
     const onEditActivity = vi.fn();
     renderPanel({ focusTeam: "logistics", onEditActivity });
-    await screen.findByRole("region", { name: "Logistics" });
-    expect(screen.getByRole("button", { name: /^project gates/i })).toHaveAttribute("aria-expanded", "false");
+    await screen.findByRole("region", { name: "Logistics Execution Readiness" });
+    expect(screen.getByRole("button", { name: /^well execution readiness/i })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /^logistics/i })).toHaveAttribute("aria-expanded", "true");
     await userEvent.click(screen.getByRole("button", { name: /activity details/i }));
     expect(onEditActivity).toHaveBeenCalled();
@@ -184,7 +188,7 @@ describe("ActivityReadinessPanel", () => {
   it("says so when readiness is switched off for the activity", () => {
     renderPanel({ activity: { ...ACTIVITY, readiness_required: false } as Activity });
     expect(screen.getByText(/Readiness is switched off for this activity/)).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Logistics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Logistics Execution Readiness" })).not.toBeInTheDocument();
   });
 });
 
@@ -228,7 +232,7 @@ describe("ActivityReadinessPanel — checks that apply", () => {
 
   it("folds the checks that don't apply under 'Not applicable (N)' — no dot, no status", async () => {
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await waitFor(() => expect(within(logistics).getByText("Budget Availability")).toBeInTheDocument());
     // NAV is listed only in the folded list, never as a dot in the table.
     expect(within(logistics).queryByTitle(/Naval Clearance/)).not.toBeInTheDocument();
@@ -245,7 +249,7 @@ describe("ActivityReadinessPanel — checks that apply", () => {
   it("Checks… edits this well: one request with the changed ticks", async () => {
     const onChanged = vi.fn();
     renderPanel({ onChanged });
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await userEvent.click(await within(logistics).findByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     // L-BUD follows its field project (ticked); NAV follows it too (unticked).
@@ -269,7 +273,7 @@ describe("ActivityReadinessPanel — checks that apply", () => {
   it("a view-only reader sees the ticks but can't change them", async () => {
     currentUser = { id: "v1", is_admin: false, teams: [] };
     renderPanel();
-    const logistics = await screen.findByRole("region", { name: "Logistics" });
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
     await userEvent.click(await within(logistics).findByRole("button", { name: /^Checks…/ }));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     for (const box of within(dialog).getAllByRole("checkbox")) expect(box).toBeDisabled();

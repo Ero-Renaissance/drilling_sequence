@@ -36,7 +36,6 @@ describe("ActivityChartEditDialog — project field", () => {
       <ActivityChartEditDialog
         projectId="proj-001"
         activity={ACTIVITY}
-        readiness={null}
         allActivities={[ACTIVITY, { ...ACTIVITY, id: "a2", well_project: "Bonga Phase 3" }]}
         open
         onOpenChange={() => {}}
@@ -73,7 +72,6 @@ describe("ActivityChartEditDialog — warning severity colours", () => {
       <ActivityChartEditDialog
         projectId="proj-001"
         activity={ACTIVITY}
-        readiness={null}
         allActivities={[ACTIVITY]}
         contractsByRig={new Map([["Rig A", CONTRACT]])}
         open
@@ -98,7 +96,6 @@ describe("ActivityChartEditDialog — warning severity colours", () => {
       <ActivityChartEditDialog
         projectId="proj-001"
         activity={ACTIVITY}
-        readiness={null}
         allActivities={[ACTIVITY, overlapping]}
         open
         onOpenChange={() => {}}
@@ -119,7 +116,6 @@ describe("ActivityChartEditDialog — which well is being edited", () => {
       <ActivityChartEditDialog
         projectId="proj-001"
         activity={ACTIVITY}
-        readiness={null}
         allActivities={[ACTIVITY]}
         open
         onOpenChange={() => {}}
@@ -152,7 +148,6 @@ describe("ActivityChartEditDialog — readiness while the plan is locked", () =>
       <ActivityChartEditDialog
         projectId="proj-001"
         activity={{ ...ACTIVITY, locked_by_revision_id: "rev-1" } as Activity}
-        readiness={null}
         allActivities={[ACTIVITY]}
         open
         onOpenChange={() => {}}
@@ -164,13 +159,23 @@ describe("ActivityChartEditDialog — readiness while the plan is locked", () =>
     const save = screen.getByRole("button", { name: "Save readiness" });
     expect(save).toBeDisabled(); // nothing changed yet
 
-    await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);
+    // W-1 has no value of its own yet: every check reads Not started. The
+    // dots enable once the well's checks have loaded.
+    await waitFor(() => expect(screen.getAllByTitle(/: Not started$/)[0]).toBeEnabled());
+    await userEvent.click(screen.getAllByTitle(/: Not started$/)[0]);
     await userEvent.click(await screen.findByRole("menuitem", { name: /Completed/ }));
     await userEvent.click(save);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(puts).toHaveLength(1);
-    expect(puts[0].body).toMatchObject({ well_project: "Old Project", status: "Completed" });
+    // Saved on THIS well (phase 8) — not on its whole field project.
+    expect(puts[0].body).toMatchObject({
+      scope: "well",
+      well_project: "Old Project",
+      well_name: "W-1",
+      activity_type: "Oil Development",
+      status: "Completed",
+    });
     expect(patched).toBe(false);
   });
 });
@@ -181,7 +186,6 @@ describe("ActivityChartEditDialog — field order and the Project field", () => 
       <ActivityChartEditDialog
         projectId="proj-001"
         activity={activity}
-        readiness={null}
         allActivities={[activity]}
         open
         onOpenChange={() => {}}

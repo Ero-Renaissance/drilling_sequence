@@ -28,6 +28,8 @@ import { cn } from "@/lib/utils";
 import { IconPicker } from "./IconPicker";
 
 // Mirrors the server's patterns (the API stays the authority).
+/** The well execution readiness checks' status set (backend `EXECUTION_STATUS_SET`). */
+const EXECUTION_SET = "execution";
 const CHECK_CODE_RE = /^[A-Z][A-Z0-9-]{1,7}$/;
 const TEAM_CODE_RE = /^[a-z][a-z0-9-]{1,31}$/;
 // A category is free text, trimmed by the server, at most 64 characters, and
@@ -203,8 +205,12 @@ function CheckDialog({
   const isProjectGate = team.code === PROJECTS_TEAM;
   // A history-only set (`availability`, Nominated Equipment's — withdrawn, spec
   // §3.5) is kept so past revisions render; a new check can't use it (422).
+  // The `execution` set ("Not started") is the well execution readiness
+  // checks' — the Projects team's — and no other team's (phase 8; the server
+  // refuses any other pairing, 422).
   const statusSets = Object.keys(catalog.status_sets).filter(
-    (name) => !catalog.status_sets[name]?.history_only,
+    (name) =>
+      !catalog.status_sets[name]?.history_only && (name === EXECUTION_SET) === isProjectGate,
   );
   const [code, setCode] = useState(check?.code ?? "");
   const [label, setLabel] = useState(check?.label ?? "");
@@ -213,18 +219,18 @@ function CheckDialog({
   const [appliesProject, setAppliesProject] = useState(check?.applies_project ?? true);
   const [appliesWell, setAppliesWell] = useState(check?.applies_well ?? !isProjectGate);
   const [statusSet, setStatusSet] = useState(check?.status_set ?? statusSets[0] ?? "standard");
-  const [locks, setLocks] = useState(check?.locks_with_plan ?? isProjectGate);
   const [category, setCategory] = useState(check?.category ?? "");
   const [startsUnticked, setStartsUnticked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const categoryListId = useId();
 
-  // Project gates live at project level and always lock with the plan; a check
-  // that locks with the plan can't apply per well (server rules, mirrored here).
+  // The well execution readiness checks (the Projects team's) apply at BOTH
+  // levels — every well has each one, following its field project — and are the
+  // only checks recorded in the approval snapshot (server rules, mirrored here).
   const effAppliesProject = isProjectGate ? true : appliesProject;
-  const effAppliesWell = isProjectGate ? false : appliesWell;
-  const effLocks = isProjectGate ? true : locks && !effAppliesWell;
+  const effAppliesWell = isProjectGate ? true : appliesWell;
+  const effLocks = isProjectGate;
   // Phase 7 (spec §3.9, §8.8): a category and "starts unticked" are for checks
   // that DON'T lock with the plan — a Project gate takes neither (the server
   // refuses both, 422), so the fields hide for one.
@@ -280,7 +286,8 @@ function CheckDialog({
           team_code: team.code,
           applies_project: effAppliesProject,
           applies_well: effAppliesWell,
-          status_set: statusSet,
+          // Always the execution set for a well execution readiness check.
+          status_set: isProjectGate ? EXECUTION_SET : statusSet,
           icon_key: icon,
           locks_with_plan: effLocks,
           sort_order: sortOrder,
@@ -349,8 +356,12 @@ function CheckDialog({
               <dd>{scopeLabel(check)}</dd>
               <dt className="text-muted-foreground">Statuses</dt>
               <dd>{statusSetLabel(catalog, check.status_set, check.locks_with_plan)}</dd>
-              <dt className="text-muted-foreground">Plan lock</dt>
-              <dd>{check.locks_with_plan ? "Locks with the plan" : "Stays editable after approval"}</dd>
+              <dt className="text-muted-foreground">Approval record</dt>
+              <dd>
+                {check.locks_with_plan
+                  ? "Recorded in each revision — what approvers sign"
+                  : "Live status only"}
+              </dd>
               {!check.locks_with_plan && (
                 <>
                   <dt className="text-muted-foreground">Starts</dt>
@@ -415,17 +426,15 @@ function CheckDialog({
                   type="checkbox"
                   className="mt-0.5 h-4 w-4 accent-primary"
                   checked={effLocks}
-                  disabled={isProjectGate || effAppliesWell}
-                  onChange={(e) => setLocks(e.target.checked)}
+                  disabled
+                  readOnly
                 />
                 <span>
-                  Locks with the plan
+                  Part of the approval record
                   <span className="block text-xs text-muted-foreground">
                     {isProjectGate
-                      ? "Project gates are part of what approvers sign, so they always lock."
-                      : effAppliesWell
-                        ? "Well-level checks stay editable after approval."
-                        : "Frozen while a revision is pending or approved. Leave off for checks that change day to day."}
+                      ? "Well execution readiness checks are recorded in each revision — what approvers sign. They stay editable after approval."
+                      : "Only the well execution readiness checks are. This team's checks are live status, shown on a revision as they stood at submission."}
                   </span>
                 </span>
               </label>
@@ -582,7 +591,7 @@ export function ReadinessCatalogAdmin({
       }
     >
       <p className="px-4 pt-3 text-xs text-muted-foreground">
-        Each team owns its readiness checks. The project gates are updated by campaign planners;
+        Each team owns its readiness checks. The well execution readiness checks are updated by campaign planners;
         other teams by the users given that team&apos;s grant above. Retire a check instead of
         deleting it — its saved values and past revisions are kept.
       </p>
@@ -666,7 +675,7 @@ export function ReadinessCatalogAdmin({
                           <th className="py-1.5 pr-3 font-semibold">Check</th>
                           <th className="py-1.5 pr-3 font-semibold">Applies to</th>
                           <th className="py-1.5 pr-3 font-semibold">Statuses</th>
-                          <th className="py-1.5 pr-3 font-semibold">Plan lock</th>
+                          <th className="py-1.5 pr-3 font-semibold">Approval record</th>
                           <th className="py-1.5 pr-3 font-semibold">Order</th>
                           <th className="py-1.5" />
                         </tr>
@@ -737,7 +746,7 @@ export function ReadinessCatalogAdmin({
                                 {statusSetLabel(catalog, check.status_set, check.locks_with_plan)}
                               </td>
                               <td className="py-1.5 pr-3 text-xs">
-                                {check.locks_with_plan ? "Locks" : "Live"}
+                                {check.locks_with_plan ? "Signed" : "Live"}
                               </td>
                               <td className="py-1.5 pr-3 text-xs tabular-nums">{check.sort_order}</td>
                               <td className="py-1.5">

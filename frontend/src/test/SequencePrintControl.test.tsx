@@ -171,7 +171,7 @@ describe("SequencePrintControl", () => {
       expect(document.body.querySelector(":scope > .ds-print-doc")).not.toBeNull();
     });
     const bundle = document.body.querySelector<HTMLElement>(":scope > .ds-print-doc")!;
-    expect(bundle.textContent).toContain("Readiness: Logistics — live status");
+    expect(bundle.textContent).toContain("Logistics Execution Readiness — live status");
     const strip = bundle.querySelector<HTMLElement>('[data-testid="gantt-readiness-strip"]')!;
     // Two of the lens's three checks applied — packed left in a three-column strip.
     expect(strip.querySelectorAll("svg")).toHaveLength(2);

@@ -1,7 +1,6 @@
 import type { Activity } from "@/api/activities";
 import {
   getTeamReadiness,
-  listReadiness,
   type CatalogCheck,
   type CatalogTeam,
   type CheckStatus,
@@ -83,24 +82,23 @@ async function loadAll(
   teams: readonly CatalogTeam[],
   projectGateDefs: readonly CatalogCheck[],
 ): Promise<LensReadiness> {
-  const [gates, ...teamData] = await Promise.all([
-    listReadiness(projectId),
+  // Every team through the same read (phase 8): the well execution readiness
+  // checks are per well too, each well following its field project.
+  const [gateData, ...teamData] = await Promise.all([
+    getTeamReadiness(projectId, PROJECTS_TEAM),
     ...teams
       .filter((t) => t.code !== PROJECTS_TEAM)
       .map((t) => getTeamReadiness(projectId, t.code)),
   ]);
-  const gatesByProject = new Map(gates.map((r) => [r.well_project, r.checks]));
   const map: ReadinessMap = new Map();
   for (const a of activities) {
     if (a.readiness_required === false) continue; // opt-out: no readiness at all
     const summary: Record<string, ChartCheckState> = {};
-    const projectGates = a.well_project ? gatesByProject.get(a.well_project) : undefined;
+    const projectGates = teamValuesFor(gateData, a);
     if (projectGates) {
-      // Catalog order; without definitions, the row's own (every gate locks
+      // Catalog order; without definitions, the read's own (every one locks
       // with the plan, so each one applies).
-      const defs = projectGateDefs.length
-        ? projectGateDefs
-        : Object.keys(projectGates).map((code) => ({ code, label: code, locks_with_plan: true }));
+      const defs = projectGateDefs.length ? projectGateDefs : gateData.checks;
       const badge = teamBadge(teamDetails(defs, projectGates));
       if (badge) summary[PROJECTS_TEAM] = badge;
     }
@@ -120,8 +118,8 @@ async function loadAll(
 
 /**
  * Load one lens's readiness for a campaign, shaped for the chart and the print:
- * - project gates → the field-project rows, keyed by field project;
- * - a team with well-level checks → its well rows (every check's EFFECTIVE
+ * - a team with well-level checks — the well execution readiness checks
+ *   included, since phase 8 → its well rows (every check's EFFECTIVE
  *   value, inherited where it applies), keyed by well;
  * - a team with only project-level checks → its project rows;
  * - a team's cells keep `applies` as served: the chart drops the ones that
@@ -153,13 +151,6 @@ export async function loadLensReadiness(
       context.teams ?? [],
       context.projectGates ?? [],
     );
-  }
-  if (lens === PROJECTS_TEAM) {
-    const rows = await listReadiness(projectId);
-    return {
-      map: new Map(rows.map((r) => [r.well_project, r.checks])),
-      keyOf: projectKeyOf,
-    };
   }
   const team = await getTeamReadiness(projectId, lens);
   const rolled = (cells: Record<string, TeamCheckState>): Record<string, ChartCheckState> =>
