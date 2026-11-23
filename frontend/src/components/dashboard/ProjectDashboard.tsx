@@ -291,7 +291,9 @@ function readinessLink(
   focus?: "behind",
 ): string {
   const params = new URLSearchParams({ lens });
-  if (lens !== PROJECTS_TEAM) params.set("view", unit);
+  // Always: the Project gates page has both views too, and its tile counts
+  // field projects — a remembered Wells view mustn't change what the door shows.
+  params.set("view", unit);
   if (months in HORIZON_DAYS) params.set("horizon", String(months));
   if (focus) params.set("focus", focus);
   return `${base}/readiness?${params.toString()}`;

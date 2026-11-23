@@ -96,7 +96,7 @@ describe("ProjectDashboard", () => {
       screen.getByRole("link", { name: label }).getAttribute("href");
     expect(href(/Completed YTD/)).toBe("/projects/p1/data");
     // The tile opens the tab on its own lens and window (spec §3.7).
-    expect(href(/Project gates/)).toBe("/projects/p1/readiness?lens=projects&horizon=12");
+    expect(href(/Project gates/)).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=12");
     expect(href(/Fleet status/)).toBe("/projects/p1/fleet");
     expect(href(/Contracts at risk/)).toBe("/projects/p1/fleet?focus=contracts");
   });
@@ -142,14 +142,14 @@ describe("ProjectDashboard", () => {
     expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 12, 0);
     expect(screen.getByText(/Readiness · next 12 months/i)).toBeInTheDocument();
     // The tile deep-links into the readiness page pre-filtered to its window.
-    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&horizon=12");
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=12");
 
     fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "6" } });
     await waitFor(() =>
       expect(vi.mocked(fetchDashboard)).toHaveBeenLastCalledWith("p1", 6, 0),
     );
     expect(await screen.findByText(/Readiness · next 6 months/i)).toBeInTheDocument();
-    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&horizon=6");
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects&horizon=6");
 
     fireEvent.change(screen.getByLabelText("Readiness horizon"), { target: { value: "0" } });
     await waitFor(() =>
@@ -157,7 +157,7 @@ describe("ProjectDashboard", () => {
     );
     expect(await screen.findByText(/Readiness · all duration/i)).toBeInTheDocument();
     // "All duration" is not a finite window — the tile links to the unfiltered page.
-    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects");
+    expect(readinessHref()).toBe("/projects/p1/readiness?lens=projects&view=projects");
   });
 
   it("activity-mix horizon select refetches with its own window and relabels", async () => {
@@ -228,7 +228,7 @@ describe("ProjectDashboard", () => {
         .getAllByTestId("readiness-card")
         .map((c) => c.querySelector("a")!.getAttribute("href")),
     ).toEqual([
-      "/projects/p1/readiness?lens=projects&horizon=12",
+      "/projects/p1/readiness?lens=projects&view=projects&horizon=12",
       "/projects/p1/readiness?lens=logistics&view=projects&horizon=12",
     ]);
     // …with the window stated once, and its picker, in the group header.
@@ -248,7 +248,7 @@ describe("ProjectDashboard", () => {
     );
     expect(within(card(/Project gates/)).getByRole("link", { name: "1 behind" })).toHaveAttribute(
       "href",
-      "/projects/p1/readiness?lens=projects&horizon=12&focus=behind",
+      "/projects/p1/readiness?lens=projects&view=projects&horizon=12&focus=behind",
     );
   });
 
