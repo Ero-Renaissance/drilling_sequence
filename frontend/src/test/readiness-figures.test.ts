@@ -6,7 +6,16 @@ import {
   readinessSubline,
   sumFigures,
 } from "@/lib/readiness-figures";
-import { focusStartOf, inWindow, parseWindow } from "@/lib/readiness-window";
+import {
+  clampYearRange,
+  defaultYearRange,
+  focusStartOf,
+  inYears,
+  parseYearRange,
+  rangePhrase,
+  rangeQuery,
+  yearsOf,
+} from "@/lib/readiness-window";
 import { checksReady } from "@/lib/watchlist";
 
 // docs/readiness-framework-spec.md §3.7 — the frontend formats the backend's
@@ -91,23 +100,44 @@ describe("adding up the rows shown", () => {
   });
 });
 
-describe("the window", () => {
-  const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+describe("the year range", () => {
+  const NOW = new Date("2026-11-24T12:00:00");
 
-  it("needs work left, and a start inside the window", () => {
-    expect(inWindow({ focus_start: null }, 0)).toBe(false); // completed / opted out
-    expect(inWindow({ focus_start: inDays(-30) }, 6)).toBe(true); // overdue work still counts
-    expect(inWindow({ focus_start: inDays(100) }, 6)).toBe(true);
-    expect(inWindow({ focus_start: inDays(400) }, 12)).toBe(false);
-    expect(inWindow({ focus_start: inDays(4000) }, 0)).toBe(true); // All
+  it("opens on this year and the next two", () => {
+    expect(defaultYearRange(NOW)).toEqual({ from: 2026, years: 3 });
+    expect(yearsOf({ from: 2026, years: 3 })).toEqual([2026, 2027, 2028]);
+    expect(yearsOf({ from: 2030, years: 1 })).toEqual([2030]);
   });
 
-  it("prefers the server's days-to-start (its calendar, as the tile uses)", () => {
-    // The browser's date would say 366 days; the server says 365 — the server wins.
-    expect(inWindow({ focus_start: inDays(366), focus_in_days: 365 }, 12)).toBe(true);
-    expect(inWindow({ focus_start: inDays(300), focus_in_days: 366 }, 12)).toBe(false);
-    expect(inWindow({ focus_in_days: -10 }, 6)).toBe(true);
-    expect(inWindow({ focus_in_days: null, focus_start: null }, 0)).toBe(false);
+  it("needs work left, and a spud inside the years shown", () => {
+    const range = { from: 2026, years: 2 };
+    expect(inYears({ focus_start: null }, range)).toBe(false); // completed / opted out
+    expect(inYears({ focus_start: "2026-01-01" }, range)).toBe(true);
+    expect(inYears({ focus_start: "2027-12-31" }, range)).toBe(true);
+    expect(inYears({ focus_start: "2028-01-01" }, range)).toBe(false);
+    // Work that spud before the range is hidden until the range is moved back.
+    expect(inYears({ focus_start: "2025-12-31" }, range)).toBe(false);
+    expect(inYears({ focus_start: "2025-12-31" }, { from: 2025, years: 1 })).toBe(true);
+  });
+
+  it("shows one to three years, never more", () => {
+    expect(clampYearRange({ from: 2026, years: 5 })).toEqual({ from: 2026, years: 3 });
+    expect(clampYearRange({ from: 2026, years: 0 })).toEqual({ from: 2026, years: 1 });
+    expect(clampYearRange({ from: 1200, years: 2 })).toEqual({ from: 2000, years: 2 });
+    expect(clampYearRange({ from: 2100, years: 3 })).toEqual({ from: 2098, years: 3 });
+  });
+
+  it("reads ?from= and ?years=, falling back to the default for anything invalid", () => {
+    expect(parseYearRange("2028", "1", NOW)).toEqual({ from: 2028, years: 1 });
+    expect(parseYearRange(null, null, NOW)).toEqual({ from: 2026, years: 3 });
+    expect(parseYearRange("abc", "7", NOW)).toEqual({ from: 2026, years: 3 });
+    expect(parseYearRange("2027", null, NOW)).toEqual({ from: 2027, years: 3 });
+  });
+
+  it("words a range and builds its query", () => {
+    expect(rangePhrase({ from: 2026, years: 1 })).toBe("2026");
+    expect(rangePhrase({ from: 2026, years: 3 })).toBe("2026–2028");
+    expect(rangeQuery({ from: 2027, years: 2 })).toBe("from_year=2027&years=2");
   });
 
   it("derives a focus start like the backend: unfinished, readiness-required work", () => {
@@ -122,8 +152,5 @@ describe("the window", () => {
     expect(focusStartOf([{ start_date: "2026-01-01", completed_at: "2026-02-01T00:00:00Z" }])).toBeNull();
   });
 
-  it("only accepts the tiles' windows", () => {
-    expect([parseWindow("6"), parseWindow("12"), parseWindow("24")]).toEqual([6, 12, 24]);
-    expect([parseWindow(null), parseWindow("7"), parseWindow("abc")]).toEqual([0, 0, 0]);
-  });
 });
+

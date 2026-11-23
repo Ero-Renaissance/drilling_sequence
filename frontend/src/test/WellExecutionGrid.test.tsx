@@ -146,6 +146,51 @@ describe("WellExecutionGrid — the layout", () => {
   });
 });
 
+describe("WellExecutionGrid — the years shown", () => {
+  it("shows a spud column per year — three at most — and hides wells that spud outside them", async () => {
+    renderGrid();
+    const t = await table();
+    // Opens on this year and the next two (the suite's date is in 2026).
+    const yearHeaders = () =>
+      within(screen.getByRole("table", { name: "Well execution readiness" }))
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent)
+        .filter((text) => /^\d{4}$/.test(text ?? ""));
+    expect(yearHeaders()).toEqual(["2026", "2027", "2028"]);
+    expect(within(t).getAllByTestId("well-name")).toHaveLength(4);
+
+    // One year only: 2026 has no spud, so nothing is listed — and the page says
+    // how many wells the years leave out.
+    await userEvent.selectOptions(screen.getByLabelText("How many years to show"), "1");
+    await waitFor(() =>
+      expect(screen.getByTestId("outside-years")).toHaveTextContent("4 more wells"),
+    );
+    expect(screen.queryByRole("table", { name: "Well execution readiness" })).not.toBeInTheDocument();
+
+    // Step to 2027: its three wells, one column.
+    await userEvent.click(screen.getByRole("button", { name: "Later years" }));
+    await table();
+    expect(yearHeaders()).toEqual(["2027"]);
+    expect(
+      screen.getAllByTestId("well-name").map((el) => el.textContent).sort(),
+    ).toEqual(["Forc151", "OGBO ADTU-1", "OGBO BATP-1"]);
+    expect(screen.getByTestId("outside-years")).toHaveTextContent("1 more well");
+  });
+
+  it("asks the server for the years shown", async () => {
+    const asked: string[] = [];
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", ({ request }) => {
+        asked.push(new URL(request.url).search);
+        return HttpResponse.json(team());
+      }),
+    );
+    renderGrid(true, "/?from=2027&years=2");
+    await table();
+    expect(asked).toEqual(["?from_year=2027&years=2"]);
+  });
+});
+
 describe("WellExecutionGrid — editing", () => {
   it("a cell's menu sets the status on that well, without sending a note", async () => {
     renderGrid();

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,6 +10,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.dashboard import DashboardResponse
 from app.services.dashboard import build_dashboard
+from app.services.readiness_rollup import MAX_RANGE_YEARS, valid_year_range
 
 router = APIRouter(prefix="/api/projects/{project_id}/dashboard", tags=["dashboard"])
 
@@ -21,8 +23,10 @@ async def get_dashboard(
     project_id: uuid.UUID,
     current_user: CurrentUser,
     db: DB,
-    # Readiness focus window in months; 0 = all projects.
-    readiness_horizon_months: int = 12,
+    # The readiness YEAR RANGE: 1–3 calendar years from ``readiness_from_year``
+    # (default: the server's current year, three years).
+    readiness_from_year: int | None = None,
+    readiness_years: int = MAX_RANGE_YEARS,
     # Activity-type mix window in months; 0 = the whole plan (historical view).
     mix_horizon_months: int = 0,
 ) -> DashboardResponse:
@@ -31,10 +35,12 @@ async def get_dashboard(
     # Allow-listed horizons only — anything else is refused, never coerced.
     # (A plain int + explicit check because Literal[] won't coerce the query
     # string, and an int Enum obscures the 422 message.)
-    if readiness_horizon_months not in (0, 6, 12, 24):
+    if readiness_from_year is None:
+        readiness_from_year = date.today().year
+    if not valid_year_range(readiness_from_year, readiness_years):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="readiness_horizon_months must be one of 0, 6, 12, 24",
+            detail=f"The readiness range covers 1 to {MAX_RANGE_YEARS} years",
         )
     if mix_horizon_months not in (0, 6, 12, 24):
         raise HTTPException(
@@ -45,6 +51,7 @@ async def get_dashboard(
     return await build_dashboard(
         project_id,
         db,
-        readiness_horizon_months=readiness_horizon_months,
+        readiness_from_year=readiness_from_year,
+        readiness_years=readiness_years,
         mix_horizon_months=mix_horizon_months,
     )

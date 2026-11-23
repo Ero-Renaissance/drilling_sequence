@@ -276,9 +276,17 @@ logic against these active business rules:
   is behind; a project-only check,
   or a project with no well in scope, reads the project's own value
   (`readiness_rollup.py::fold_project_cells`); a well with no field project is on
-  no tile. The team grid's Projects rows carry the same figures per window
-  (`figures_by_window`), so the tab adds up to the tile, and the server's count
-  of wells behind on a well-level check (`wells_behind_by_window`). Nothing
+  no tile. **Readiness covers a YEAR RANGE** (2026-11-24): every tile,
+  readiness page and the Overview show 1–3 calendar years at a time (default:
+  the current year and the next two; `?from=&years=` in the page link,
+  `from_year` / `years` on the reads, `readiness_from_year` / `readiness_years`
+  on the dashboard — allow-listed, 422 otherwise). A target is in range when its
+  work left STARTS within those years, so work that spud before the range is
+  hidden until the range is moved back; each page says how many it leaves out.
+  The range replaced the "next 6/12/24 months" window (the activity-type mix
+  card keeps its own months picker). The team read folds each field project's
+  figures for exactly the range asked (`figures`, `in_range`, `wells_behind`),
+  so the tab adds up to the tile. Nothing
   counted → `None` ("—", never 0%); percentages round half up. The "starting soon,
   not ready" warning reads the well execution readiness checks only, at each
   WELL's effective value.

@@ -3,12 +3,13 @@ import { Lock, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { cn } from "@/lib/utils";
-import { ReadinessWindowSelect } from "./ReadinessWindow";
+import type { YearRange } from "@/lib/readiness-window";
+import { ReadinessYearsPicker } from "./ReadinessWindow";
 
 /**
  * The toolbar above a readiness grid — the same on the Project gates page and
  * every team's grid: its title (and a team grid's Projects | Wells switch) and
- * Refresh, then the window, the search and how many targets are listed
+ * Refresh, then the years shown, the search and how many targets are listed
  * ("6 wells", or "2 of 6" while filtering).
  */
 export function ReadinessToolbar({
@@ -16,7 +17,7 @@ export function ReadinessToolbar({
   onRefresh,
   locked = false,
   viewSwitch,
-  window,
+  years,
   search,
   count,
 }: {
@@ -27,7 +28,8 @@ export function ReadinessToolbar({
   locked?: boolean;
   /** The Projects | Wells switch (spec §8.8) — the Project gates page has one too. */
   viewSwitch?: ReactNode;
-  window: { value: number; onChange: (months: number) => void; allLabel: string };
+  /** The years shown (1–3 at a time) — the page lists what spuds within them. */
+  years: { value: YearRange; onChange: (next: YearRange) => void };
   search: {
     value: string;
     onChange: (value: string) => void;
@@ -64,11 +66,7 @@ export function ReadinessToolbar({
       )}
 
       <div className="ml-auto flex items-center gap-3">
-        <ReadinessWindowSelect
-          value={window.value}
-          onChange={window.onChange}
-          allLabel={window.allLabel}
-        />
+        <ReadinessYearsPicker value={years.value} onChange={years.onChange} />
         <SearchInput
           value={search.value}
           onChange={search.onChange}

@@ -263,13 +263,13 @@ def test_placeholder_filter_compiles_on_sql_server() -> None:
 
 
 @pytest.mark.asyncio
-async def test_readiness_horizon_widens_and_narrows_the_focus_set(
-    client: AsyncClient,
-) -> None:
-    """The readiness_horizon_months filter decides which field projects the
-    readiness KPIs and by-gate PROJECT counts consider; 0 = no window. Values
-    off the allow-list are refused."""
+async def test_readiness_year_range_decides_the_focus_set(client: AsyncClient) -> None:
+    """The readiness year range (1–3 calendar years from ``readiness_from_year``)
+    decides which field projects the readiness KPIs and by-check PROJECT counts
+    consider. The default is the current year and the next two; anything off the
+    allow-list is refused."""
     pid = await _project(client)
+    year = TODAY.year
 
     async def proj_activity(project: str, start: date) -> None:
         r = await client.post(
@@ -283,32 +283,43 @@ async def test_readiness_horizon_widens_and_narrows_the_focus_set(
         )
         assert r.status_code == 201, r.text
 
-    await proj_activity("Near", TODAY + timedelta(days=30))     # inside 6 months
-    await proj_activity("Mid", TODAY + timedelta(days=300))     # inside 12, outside 6
-    await proj_activity("Far", TODAY + timedelta(days=900))     # outside 24
+    await proj_activity("Last", date(year - 1, 6, 1))    # still open, spud last year
+    await proj_activity("This", date(year, 12, 31))      # the range's first year
+    await proj_activity("Next", date(year + 1, 1, 1))
+    await proj_activity("Third", date(year + 2, 7, 1))
+    await proj_activity("Far", date(year + 3, 1, 1))     # beyond the default range
 
-    async def focus(horizon: int) -> tuple[int, int]:
-        r = await client.get(
-            f"/api/projects/{pid}/dashboard?readiness_horizon_months={horizon}"
-        )
+    async def focus(query: str) -> tuple[int, int, int, int]:
+        r = await client.get(f"/api/projects/{pid}/dashboard{query}")
         assert r.status_code == 200, r.text
         rd = r.json()["readiness"]
         # An unset check reads Not started (phase 8).
         fdp = next(g for g in rd["by_gate"] if g["code"] == "FDP")
-        assert fdp["on_track"] == 0
-        return rd["focus_count"], fdp["not_started"]
+        assert fdp["not_started"] == rd["focus_count"]
+        return rd["focus_count"], rd["from_year"], rd["years"], fdp["on_track"]
 
-    assert await focus(6) == (1, 1)     # Near only
-    assert await focus(12) == (2, 2)    # + Mid
-    assert await focus(0) == (3, 3)     # everything, incl. Far
-
-    # Default stays the 12-month window.
-    default = (await client.get(f"/api/projects/{pid}/dashboard")).json()["readiness"]
-    assert default["focus_count"] == 2
+    # Default: the current year and the next two — the server says which.
+    assert await focus("") == (3, year, 3, 0)
+    # One year at a time; both ends of a year are inside it.
+    assert await focus(f"?readiness_from_year={year}&readiness_years=1") == (1, year, 1, 0)
+    assert await focus(f"?readiness_from_year={year + 1}&readiness_years=1") == (1, year + 1, 1, 0)
+    # Moving the range back shows work that spud last year; forward, the far one.
+    assert await focus(f"?readiness_from_year={year - 1}&readiness_years=2") == (2, year - 1, 2, 0)
+    assert await focus(f"?readiness_from_year={year + 1}&readiness_years=3") == (3, year + 1, 3, 0)
 
     # Off the allow-list → refused by validation, not silently coerced.
-    bad = await client.get(f"/api/projects/{pid}/dashboard?readiness_horizon_months=7")
-    assert bad.status_code == 422
+    for bad in ("readiness_years=4", "readiness_years=0", "readiness_from_year=1800",
+                "readiness_from_year=2099&readiness_years=3"):
+        r = await client.get(f"/api/projects/{pid}/dashboard?{bad}")
+        assert r.status_code == 422, bad
+    # The team read takes the same range, and refuses the same way.
+    lens = f"/api/projects/{pid}/readiness/teams/projects"
+    assert (await client.get(f"{lens}?from_year={year}&years=4")).status_code == 422
+    rows = (await client.get(f"{lens}?from_year={year}&years=1")).json()["project_rows"]
+    assert {r["well_project"] for r in rows if r["in_range"]} == {"This"}
+    # No range asked for: every field project with work left is in.
+    rows = (await client.get(lens)).json()["project_rows"]
+    assert all(r["in_range"] for r in rows) and len(rows) == 5
 
 
 async def test_activity_mix_horizon_filters_the_type_counts(client: AsyncClient) -> None:

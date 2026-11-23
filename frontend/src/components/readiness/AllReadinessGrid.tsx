@@ -16,7 +16,7 @@ import { teamValuesFor } from "@/lib/readiness-lens";
 import { lookAlikeCodes } from "@/lib/readiness-categories";
 import { summariseTeam, summaryLine, teamDetails } from "@/lib/team-summary";
 import { cn, formatDate } from "@/lib/utils";
-import { focusStartOf, inWindow } from "@/lib/readiness-window";
+import { focusStartOf, inYears, rangePhrase } from "@/lib/readiness-window";
 import { ReadinessDot } from "./ReadinessDot";
 import {
   PROJECTS_TEAM,
@@ -36,7 +36,7 @@ import {
 } from "./category-columns";
 import { NOTHING_APPLIES, NOT_APPLICABLE, STATUS_ICON_COLOR, applies, notSelected } from "./check-meta";
 import { checkIcon } from "./icon-registry";
-import { ReadinessWindowSelect, useReadinessWindow } from "./ReadinessWindow";
+import { OutsideYears, ReadinessYearsPicker, useReadinessYears } from "./ReadinessWindow";
 
 interface WellRow {
   key: string;
@@ -108,8 +108,8 @@ export function AllReadinessGrid({
   useEffect(() => {
     load();
   }, [load]);
-  const [months, setMonths] = useReadinessWindow();
-  useEffect(() => setPageIndex(0), [search, months]);
+  const [range, setRange] = useReadinessYears();
+  useEffect(() => setPageIndex(0), [search, range]);
 
   // One row per well activity (project + well + activity type) with readiness
   // work left (spec §3.7): opt-outs carry no readiness from any team, and
@@ -143,7 +143,7 @@ export function AllReadinessGrid({
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(
     (r) =>
-      inWindow({ focus_start: r.start_date }, months) &&
+      inYears({ focus_start: r.start_date }, range) &&
       (!q ||
         r.well_name.toLowerCase().includes(q) ||
         r.well_project.toLowerCase().includes(q) ||
@@ -209,7 +209,7 @@ export function AllReadinessGrid({
           changes.
         </p>
         <div className="ml-auto flex items-center gap-2">
-          <ReadinessWindowSelect value={months} onChange={setMonths} allLabel="All wells" />
+          <ReadinessYearsPicker value={range} onChange={setRange} />
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -222,12 +222,17 @@ export function AllReadinessGrid({
         </div>
       </div>
 
+      <OutsideYears
+        count={rows.filter((r) => !inYears({ focus_start: r.start_date }, range)).length}
+        unit="well"
+      />
+
       {filtered.length === 0 ? (
         <div className="flex h-32 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
           {q ? (
             <>No wells match &ldquo;{search}&rdquo;.</>
-          ) : months ? (
-            `No wells have readiness-required work starting in the next ${months} months.`
+          ) : rows.length > 0 ? (
+            `No wells have readiness-required work starting in ${rangePhrase(range)}.`
           ) : (
             "No wells with readiness work left in this campaign."
           )}

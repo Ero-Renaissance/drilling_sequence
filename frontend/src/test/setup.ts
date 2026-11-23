@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import "@testing-library/jest-dom";
 import { server } from "./mocks/server";
 import { savedGates } from "./mocks/handlers";
@@ -32,6 +33,12 @@ Element.prototype.scrollIntoView ??= () => {};
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};
 Element.prototype.releasePointerCapture ??= () => {};
+
+// The suite runs on a FIXED date. Readiness pages open on "this year and the
+// next two" and fixtures carry calendar dates, so with the real clock a test
+// that passes today would fail next January. Only `Date` is faked — timers,
+// promises and user events run for real.
+vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-24T12:00:00") });
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {

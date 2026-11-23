@@ -45,11 +45,14 @@ from app.services.readiness_catalog import (
 )
 from app.services.readiness_rollup import (
     HORIZON_DAYS,
+    MAX_RANGE_YEARS,
     in_scope,
     live_cells,
     rollup,
     snapshot_gate_targets,
     target_ready,
+    valid_year_range,
+    year_window,
 )
 from app.services.revision_diff import diff_snapshots
 from app.services.snapshot import build_project_snapshot
@@ -73,17 +76,18 @@ _PROCUREMENT_LOOKAHEAD_DAYS = 270
 async def build_dashboard(
     project_id: uuid.UUID,
     db: AsyncSession,
-    readiness_horizon_months: int = 12,
+    readiness_from_year: int | None = None,
+    readiness_years: int = MAX_RANGE_YEARS,
     mix_horizon_months: int = 0,
 ) -> DashboardResponse:
     today = date.today()
     near_term_end = today + timedelta(days=NEAR_TERM_DAYS)
-    # The focus windows — the router allow-lists both months values, and the
-    # .get() below fails closed to the 12-month default rather than open.
-    horizon_days = HORIZON_DAYS.get(readiness_horizon_months, FOCUS_WINDOW_DAYS)
-    focus_end = (
-        None if readiness_horizon_months == 0 else today + timedelta(days=horizon_days)
-    )
+    # The readiness YEAR RANGE (the router allow-lists it): by default the
+    # current year and the next two. A range the allow-list would refuse fails
+    # closed to that default rather than open.
+    if readiness_from_year is None or not valid_year_range(readiness_from_year, readiness_years):
+        readiness_from_year, readiness_years = today.year, MAX_RANGE_YEARS
+    focus_start, focus_end = year_window(readiness_from_year, readiness_years)
     # The activity-mix window (defaults to the whole plan, the historical view).
     mix_end = (
         None
@@ -227,7 +231,7 @@ async def build_dashboard(
     # because it has five activities. A project is in focus when it has a
     # not-done, readiness-required activity starting within the window; opt-out
     # activities (readiness_required=False) don't pull their project into focus.
-    focus = [a for a in activities if in_scope(a, focus_end)]
+    focus = [a for a in activities if in_scope(a, focus_end, focus_start)]
     # Each field project folds in its WELLS IN FOCUS (phase 8) — a check enabled
     # at well level reads the worst of them — exactly as the team tiles do.
     _, gate_cells = await live_cells(db, project_id, gate_checks, focus, unit="projects")
@@ -240,6 +244,8 @@ async def build_dashboard(
         ready=gates.ready,
         ready_of=gates.ready_of,
         by_gate=[GateBreakdown(code=c, **gates.by_check[c]) for c in gate_codes],
+        from_year=readiness_from_year,
+        years=readiness_years,
     )
 
     # ── rigs ───────────────────────────────────────────────────────────────────

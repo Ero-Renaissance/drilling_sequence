@@ -197,11 +197,48 @@ def carries_readiness(activity: ActivityLike) -> bool:
 HORIZON_DAYS: dict[int, int] = {6: 183, 12: 365, 24: 730}
 
 
-def in_scope(activity: ActivityLike, window_end: date | None) -> bool:
+# The readiness YEAR RANGE (2026-11-24): every readiness figure and page covers
+# 1–3 calendar years at a time, chosen by the user — the range replaced the
+# "next 6 / 12 / 24 months" window. A target is in range when its work left
+# starts within those years.
+MAX_RANGE_YEARS = 3
+MIN_RANGE_YEAR, MAX_RANGE_YEAR = 2000, 2100
+
+
+def year_window(from_year: int, years: int) -> tuple[date, date]:
+    """The first and last day of ``years`` calendar years from ``from_year``."""
+    return date(from_year, 1, 1), date(from_year + years - 1, 12, 31)
+
+
+def valid_year_range(from_year: int, years: int) -> bool:
+    """An allow-list check for a requested range: 1–3 years, sane bounds."""
+    return (
+        1 <= years <= MAX_RANGE_YEARS
+        and MIN_RANGE_YEAR <= from_year
+        and from_year + years - 1 <= MAX_RANGE_YEAR
+    )
+
+
+def in_window(day: date | None, window: tuple[date | None, date | None] | None) -> bool:
+    """Whether ``day`` falls in ``window`` — (first day, last day), either open
+    (None); no window = no date limit. ``None`` (nothing left to be ready for)
+    is in no window, not even an unlimited one."""
+    if day is None:
+        return False
+    if window is None:
+        return True
+    start, end = window
+    return (start is None or day >= start) and (end is None or day <= end)
+
+
+def in_scope(
+    activity: ActivityLike, window_end: date | None, window_start: date | None = None
+) -> bool:
     """An activity that puts its target in scope for a window: it carries
-    readiness and starts on/before the window's end (None = no date limit)."""
-    return carries_readiness(activity) and (
-        window_end is None or activity.start_date <= window_end
+    readiness and starts within it — on/before ``window_end`` and on/after
+    ``window_start`` (None = no limit on that side)."""
+    return carries_readiness(activity) and in_window(
+        activity.start_date, (window_start, window_end)
     )
 
 

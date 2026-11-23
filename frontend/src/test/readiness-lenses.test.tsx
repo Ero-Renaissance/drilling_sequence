@@ -121,6 +121,17 @@ function serveTeam(data: TeamReadiness) {
   server.use(http.get("/api/projects/:projectId/readiness/teams/:team", () => HttpResponse.json(data)));
 }
 
+/** A server that folds for the years asked: `byYears(years)` gets how many
+ *  years the page shows (`?years=`), as the real read computes field-project
+ *  figures for exactly that range. */
+function serveTeamByYears(byYears: (years: number) => TeamReadiness) {
+  server.use(
+    http.get("/api/projects/:projectId/readiness/teams/:team", ({ request }) =>
+      HttpResponse.json(byYears(Number(new URL(request.url).searchParams.get("years") ?? 3))),
+    ),
+  );
+}
+
 function act(id: string, over: Partial<Activity>): Activity {
   return {
     id,
@@ -335,19 +346,17 @@ describe("TeamReadinessGrid", () => {
     expect(within(dialog).queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
-  it("lists wells with work left in the window and sums exactly those (spec §3.7)", async () => {
-    const soon = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
-    const far = new Date(Date.now() + 600 * 86_400_000).toISOString().slice(0, 10);
+  it("lists wells that spud in the years shown and sums exactly those (spec §3.7)", async () => {
     const base = teamData().well_rows[0];
     serveTeam(
       teamData({
         well_rows: [
           {
-            ...base, well_name: "W-SOON", focus_start: soon,
+            ...base, well_name: "W-THIS", focus_start: "2026-12-10",
             figures: { counted: 2, done: 1, in_progress: 1, behind: 0, ready: false },
           },
           {
-            ...base, well_name: "W-FAR", focus_start: far,
+            ...base, well_name: "W-FAR", focus_start: "2029-03-01",
             figures: { counted: 2, done: 0, in_progress: 1, behind: 1, ready: false },
           },
           {
@@ -358,27 +367,34 @@ describe("TeamReadinessGrid", () => {
       }),
     );
     render(
-      <MemoryRouter initialEntries={["/?lens=logistics&view=wells&horizon=12"]}>
+      <MemoryRouter initialEntries={["/?lens=logistics&view=wells"]}>
         <TeamReadinessGrid projectId={PID} teamCode="logistics" />
       </MemoryRouter>,
     );
     const wells = await screen.findByRole("region", { name: "Wells" });
-    // Arriving from the Logistics tile: its 12-month window.
-    expect(within(wells).getByText("W-SOON")).toBeInTheDocument();
+    // Opens on this year and the next two (the suite's date is in 2026).
+    expect(screen.getByTestId("readiness-years")).toHaveTextContent("2026–2028");
+    expect(within(wells).getByText("W-THIS")).toBeInTheDocument();
     expect(within(wells).queryByText("W-FAR")).not.toBeInTheDocument();
     expect(within(wells).queryByText("W-DONE")).not.toBeInTheDocument();
     const summary = screen.getByTestId("readiness-summary");
     expect(summary).toHaveTextContent("50%complete");
     expect(summary).toHaveTextContent("100%on track");
-    expect(summary).toHaveTextContent("1 well · next 12 months");
+    expect(summary).toHaveTextContent("1 well · 2026–2028");
+    // The well it leaves out is counted, so the list never reads as everything
+    // — the completed one has no work left and isn't.
+    expect(screen.getByTestId("outside-years")).toHaveTextContent(
+      "1 more well with work left starts outside these years",
+    );
 
-    // All: the far well joins; the completed one never does.
-    await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "0");
-    await waitFor(() => expect(within(wells).getByText("W-FAR")).toBeInTheDocument());
-    expect(within(wells).queryByText("W-DONE")).not.toBeInTheDocument();
-    expect(summary).toHaveTextContent("25%complete");
-    expect(summary).toHaveTextContent("1behind");
-    expect(summary).toHaveTextContent("2 wells · all");
+    // A year later: the far well is in, this year's is out.
+    await userEvent.click(screen.getByRole("button", { name: "Later years" }));
+    await waitFor(() => expect(screen.getByTestId("readiness-years")).toHaveTextContent("2027–2029"));
+    const later = await screen.findByRole("region", { name: "Wells" });
+    await waitFor(() => expect(within(later).getByText("W-FAR")).toBeInTheDocument());
+    expect(within(later).queryByText("W-THIS")).not.toBeInTheDocument();
+    expect(within(later).queryByText("W-DONE")).not.toBeInTheDocument();
+    expect(screen.getByTestId("readiness-summary")).toHaveTextContent("1 well · 2027–2029");
   });
 
   it("?focus=behind shows only the wells with a check behind", async () => {
@@ -401,7 +417,7 @@ describe("TeamReadinessGrid", () => {
     expect(within(wells).queryByText("W-OK")).not.toBeInTheDocument();
     // Worded as on the Project gates page: how many are shown, and why.
     expect(screen.getByText(/shown — wells with a check behind/)).toHaveTextContent("1 shown — wells with a check behind");
-    expect(screen.getByTestId("readiness-summary")).toHaveTextContent("1 well · all");
+    expect(screen.getByTestId("readiness-summary")).toHaveTextContent("1 well · 2026–2028");
 
     await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
     await waitFor(() => expect(within(wells).getByText("W-OK")).toBeInTheDocument());
@@ -423,30 +439,35 @@ describe("TeamReadinessGrid", () => {
     expect(screen.getByTestId("readiness-count")).toHaveTextContent("1 of 2");
   });
 
-  it("says how many a window shows, and clears it, as the Project gates page does", async () => {
+  it("shows one year at a time when asked, and says what the years leave out", async () => {
     const base = teamData().well_rows[0];
     serveTeam(
       teamData({
         well_rows: [
-          { ...base, well_name: "W-SOON", focus_in_days: 10 },
-          { ...base, well_name: "W-LATER", focus_in_days: 400 },
+          { ...base, well_name: "W-THIS", focus_start: "2026-12-01" },
+          { ...base, well_name: "W-NEXT", focus_start: "2027-02-01" },
         ],
       }),
     );
     render(
-      <MemoryRouter initialEntries={["/?lens=logistics&view=wells&horizon=6"]}>
+      <MemoryRouter initialEntries={["/?lens=logistics&view=wells&years=1"]}>
         <TeamReadinessGrid projectId={PID} teamCode="logistics" />
       </MemoryRouter>,
     );
     const wells = await screen.findByRole("region", { name: "Wells" });
-    expect(within(wells).getByText("W-SOON")).toBeInTheDocument();
-    expect(within(wells).queryByText("W-LATER")).not.toBeInTheDocument();
-    expect(screen.getByText(/shown — wells with/)).toHaveTextContent(
-      "1 shown — wells with readiness-required work starting in the next 6 months",
-    );
-    await userEvent.click(screen.getByRole("button", { name: /clear filter/i }));
-    await waitFor(() => expect(within(wells).getByText("W-LATER")).toBeInTheDocument());
-    expect(screen.queryByText(/shown — wells with/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("readiness-years")).toHaveTextContent("2026");
+    expect(within(wells).getByText("W-THIS")).toBeInTheDocument();
+    expect(within(wells).queryByText("W-NEXT")).not.toBeInTheDocument();
+    expect(screen.getByTestId("outside-years")).toHaveTextContent("1 more well");
+    // Two years: both, and nothing is left out. Never more than three.
+    const count = screen.getByLabelText("How many years to show");
+    expect(within(count).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "1 year", "2 years", "3 years",
+    ]);
+    await userEvent.selectOptions(count, "2");
+    const both = await screen.findByRole("region", { name: "Wells" });
+    await waitFor(() => expect(within(both).getByText("W-NEXT")).toBeInTheDocument());
+    expect(screen.queryByTestId("outside-years")).not.toBeInTheDocument();
   });
 
   it("shows each row's Done figure from the server's figures, as the Project gates page does", async () => {
@@ -534,52 +555,55 @@ describe("TeamReadinessGrid", () => {
       await screen.findByRole("region", { name: "Field projects" });
       // The field projects' own figures: 1 of 4 done.
       const summary = () => screen.getByTestId("readiness-summary");
-      expect(summary()).toHaveTextContent("2 field projects · all");
+      expect(summary()).toHaveTextContent("2 field projects · 2026–2028");
       expect(summary()).toHaveTextContent("25%complete");
       expect(screen.getByTestId("readiness-count")).toHaveTextContent("2 projects");
-      expect(screen.getByRole("option", { name: "All field projects" })).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: "Years shown" })).toBeInTheDocument();
 
       await showWells();
       // The wells' figures (as the team's Overview tile counts): 2 of 6 done.
-      expect(summary()).toHaveTextContent("3 wells · all");
+      expect(summary()).toHaveTextContent("3 wells · 2026–2028");
       expect(summary()).toHaveTextContent("33%complete");
       expect(screen.getByTestId("readiness-count")).toHaveTextContent("3 wells");
-      expect(screen.getByRole("option", { name: "All wells" })).toBeInTheDocument();
     });
 
-    it("the Projects view reads each field project's figures for the window, and names its wells behind", async () => {
-      // The server folds in only the wells with work in each window (spec §3.7):
-      // W-2 (in 300 days) is behind; it's in Bonga's All figures, not its 6-month ones.
+    it("the Projects view reads each field project's figures for the years shown, and names its wells behind", async () => {
+      // The server folds in only the wells that spud in the years asked (spec
+      // §3.7): W-2 (2027) is behind; it's in Bonga's figures once 2027 is shown.
       const base = teamData();
       const row = (counted: number, done: number, behind: number) => ({
         counted, done, in_progress: counted - done - behind, behind, ready: counted > 0 && done === counted,
       });
-      serveTeam(
+      serveTeamByYears((years) =>
         teamData({
           project_rows: [
             {
               ...base.project_rows[0],
-              focus_in_days: 10,
-              figures: row(2, 0, 1),
-              figures_by_window: { "0": row(2, 0, 1), "6": row(2, 1, 0), "12": row(2, 0, 1), "24": row(2, 0, 1) },
-              wells_behind_by_window: { "0": 1, "6": 0, "12": 1, "24": 1 },
+              focus_start: "2026-12-01",
+              in_range: true,
+              figures: years === 1 ? row(2, 1, 0) : row(2, 0, 1),
+              wells_behind: years === 1 ? 0 : 1,
             },
           ],
           well_rows: [
-            { ...base.well_rows[0], focus_in_days: 10, figures: row(2, 1, 0) },
-            { ...base.well_rows[1], focus_in_days: 300, figures: row(2, 0, 1) },
+            { ...base.well_rows[0], focus_start: "2026-12-01", figures: row(2, 1, 0) },
+            { ...base.well_rows[1], focus_start: "2027-03-01", figures: row(2, 0, 1) },
           ],
         }),
       );
-      renderTeam("/?horizon=6");
+      renderTeam("/?years=1");
       const projects = await screen.findByRole("region", { name: "Field projects" });
-      const bonga = () => within(projects).getByText("Bonga Phase 3").closest("tr")!;
+      const bonga = () =>
+        within(screen.getByRole("region", { name: "Field projects" }))
+          .getByText("Bonga Phase 3")
+          .closest("tr")!;
+      expect(projects).toBeInTheDocument();
       expect(bonga().querySelector("[data-done]")).toHaveTextContent("1/2");
       expect(within(bonga()).queryByTestId("wells-behind")).not.toBeInTheDocument();
       expect(screen.getByTestId("readiness-summary")).toHaveTextContent("50%complete");
 
-      // All: W-2's Behind folds in — and the row says which wells.
-      await userEvent.selectOptions(screen.getByLabelText("Readiness time window"), "0");
+      // Two years: W-2's Behind folds in — and the row says which wells.
+      await userEvent.selectOptions(screen.getByLabelText("How many years to show"), "2");
       await waitFor(() => expect(bonga().querySelector("[data-done]")).toHaveTextContent("0/2"));
       expect(within(bonga()).getByTestId("wells-behind")).toHaveTextContent("1 well behind");
       expect(screen.getByTestId("readiness-summary")).toHaveTextContent("0%complete");
@@ -596,38 +620,46 @@ describe("TeamReadinessGrid", () => {
           project_rows: [
             {
               ...base.project_rows[0],
-              focus_in_days: 10,
               figures: behind,
-              figures_by_window: { "0": behind },
-              wells_behind_by_window: { "0": 0 },
+              wells_behind: 0,
             },
           ],
-          well_rows: base.well_rows.map((r) => ({ ...r, focus_in_days: 10, figures: behind })),
+          well_rows: base.well_rows.map((r) => ({ ...r, figures: behind })),
         }),
       );
-      renderTeam("/?horizon=0");
+      renderTeam();
       const projects = await screen.findByRole("region", { name: "Field projects" });
       const bonga = within(projects).getByText("Bonga Phase 3").closest("tr")!;
       expect(bonga.querySelector("[data-done]")).toHaveTextContent("0/2");
       expect(within(bonga).queryByTestId("wells-behind")).not.toBeInTheDocument();
     });
 
-    it("?focus=behind keeps the field projects behind in the window — by the window's figures", async () => {
+    it("?focus=behind keeps the field projects behind in the years shown — by those years' figures", async () => {
       const base = teamData();
       const row = (behind: number) => ({ counted: 2, done: 0, in_progress: 2 - behind, behind, ready: false });
-      serveTeam(
+      // Behind only once the second year is shown.
+      serveTeamByYears((years) =>
         teamData({
-          project_rows: [
-            { ...base.project_rows[0], focus_in_days: 10, figures: row(1), figures_by_window: { "0": row(1), "6": row(0) } },
-          ],
+          project_rows: [{ ...base.project_rows[0], in_range: true, figures: row(years === 1 ? 0 : 1) }],
         }),
       );
-      const first = renderTeam("/?focus=behind&horizon=6");
+      const first = renderTeam("/?focus=behind&years=1");
       const projects = await screen.findByRole("region", { name: "Field projects" });
       expect(within(projects).queryByText("Bonga Phase 3")).not.toBeInTheDocument();
       first.unmount();
       renderTeam("/?focus=behind");
-      expect(within(await screen.findByRole("region", { name: "Field projects" })).getByText("Bonga Phase 3")).toBeInTheDocument();
+      expect(
+        await within(await screen.findByRole("region", { name: "Field projects" })).findByText("Bonga Phase 3"),
+      ).toBeInTheDocument();
+    });
+
+    it("leaves out a field project the server says is outside the years shown", async () => {
+      const base = teamData();
+      serveTeam(teamData({ project_rows: [{ ...base.project_rows[0], in_range: false }] }));
+      renderTeam();
+      const projects = await screen.findByRole("region", { name: "Field projects" });
+      expect(within(projects).queryByText("Bonga Phase 3")).not.toBeInTheDocument();
+      expect(screen.getByTestId("outside-years")).toHaveTextContent("1 more field project");
     });
 
     it("'Wells →' on a project row opens the Wells view on that project's wells — for one visit", async () => {
