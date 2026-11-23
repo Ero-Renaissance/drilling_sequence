@@ -107,6 +107,12 @@ survive a re-import — the same reason `project_readiness` is keyed by name tod
   lock is audited with `; plan locked`, and the snapshot is never altered. Where
   this document still says a gate "freezes with the plan", read it as "is
   recorded in the snapshot".
+- **Phase 8 (2026-11-23), `docs/well-execution-readiness-spec.md`:** the Project
+  gates are the **well execution readiness checks** — eight of them, enabled at
+  field-project AND well level (each well follows its field project until it has
+  its own value), on the `execution` status set, whose default is **Not
+  started**. Where this document says the Project gates are "project level
+  only", "seven", or that "every default is on track", that spec supersedes it.
 - **Operational:** editable at any time, including after approval. The snapshot
   still records values **as at submission** for reference (§6), but they never lock.
 
