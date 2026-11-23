@@ -34,6 +34,16 @@ Three near-synonyms mean three different things here; keep them straight.
   kind="reviewer", `/reviewers` routes). Do NOT rename the stored enums, routes
   or audit vocabulary — UI copy only, same precedent as Campaign/`Project`.
   (Historical audit/comment rows may read "Reviewer"/"review" — leave them.)
+- **Well Execution Readiness** — the USER-FACING name (phase 8, 2026-11-23,
+  `docs/well-execution-readiness-spec.md`) for the readiness checks every well
+  carries: Approved FDP/IP, FID, Budget, Well Proposal, EIA/Waiver, LLI, Location
+  Readiness, Well Permits. They were the "Project gates"; user-facing copy now
+  says "check", never "gate". Every team's lens reads "<Team> Execution
+  Readiness" ("Logistics Execution Readiness") — the lens label only
+  (`catalog.tsx::lensLabel`); a team's own name is unchanged. In CODE and the
+  DATABASE the team stays **`projects`**, the flag **`locks_with_plan`**, and
+  the helpers `project_gate_checks` / `gate_codes_of` / `useProjectGates`. Do NOT
+  rename them — UI copy only, same precedent as Campaign/`Project`.
 Net: Campaign (the container, code=`Project`) · Project (the well's field group,
 code=`well_project`) · Sequence (the chart + print + product name).
 
@@ -115,8 +125,8 @@ logic against these active business rules:
   and a Project-gate change made under the lock is marked `; plan locked` in its
   `readiness_updated` detail. The revision's `snapshot_json` still holds the gates
   as submitted — that, not the live value, is what signers sign. `locks_with_plan`
-  now only marks the governed Project gates (snapshot gate block, diff, N/A,
-  project level only); it no longer refuses a write. **Approval keeps the
+  now only marks the governed well execution readiness checks (snapshot gate
+  block, diff, N/A, the `execution` status set); it no longer refuses a write. **Approval keeps the
   plan LOCKED** — the approved `snapshot_json` is the immutable record, so the live
   plan can't drift from it silently. Reject / request-changes / discard unlock it
   (the planner must edit to address feedback); approval does **not**. A planner
@@ -169,8 +179,11 @@ logic against these active business rules:
   plan types, and contract-expiry semantics are oil & gas specific — validate
   against the canonical enums, don't accept free-form equivalents.
 - **Readiness checks are an admin-curated catalog, not an enum**
-  (`docs/readiness-framework-spec.md`): `readiness_checks`, seeded with
-  FDP/LLI/LOC/FE/FID/EIA/BUD (the retired derived `CON` gate's code stays
+  (`docs/readiness-framework-spec.md`): `readiness_checks`, seeded with the eight
+  well execution readiness checks FDP/FID/BUD/FE/EIA/LLI/LOC/WP (phase 8,
+  migration 040: the seven gates relabelled and reordered, plus Well Permits;
+  `LEGACY_BUILTIN_CHECKS` keeps the original seven as the catalog of revisions
+  that predate `catalog_json` — never edit it; the retired derived `CON` gate's code stays
   reserved; team codes `all` / `none` are reserved too — the frontend's All /
   None lens names, `RESERVED_TEAM_CODES`). Still an allow-list — writes are validated server-side against
   ACTIVE catalog rows, never free-form; codes are immutable and never reused;
@@ -185,9 +198,17 @@ logic against these active business rules:
   are kept only so past revisions render. A check using either is **withdrawn**
   (`is_withdrawn` — today `NEQ`, retired by migration 038): it is retired, can't
   be restored (409) or created (422), every write treats it as retired, and its
-  code stays reserved like `CON`. **N/A is pickable only on the Project gates**
-  (checks flagged `locks_with_plan`) — drawn as the grey N/A icon; like every
-  readiness value it stays editable under the plan lock (2026-11-23). Every other team's checks use the **tick list** instead
+  code stays reserved like `CON`. **N/A is pickable only on the well execution
+  readiness checks** (checks flagged `locks_with_plan`) — drawn as the grey N/A
+  icon; like every readiness value it stays editable under the plan lock
+  (2026-11-23). **Those checks are per WELL (phase 8):** enabled at field-project
+  AND well level, so every well has each one, follows its field project until it
+  is given its own value, and "Reset to project" drops that value — the same
+  inheritance the team checks use; a well with no field project has only its
+  own. They use the **`execution`** status set (Not started / On Track /
+  Completed / Behind / N/A; an unset one reads **Not started**), and no other
+  check may (`status_set_allowed`: `execution` ⇔ `locks_with_plan`) — "Not
+  started" is not offered to Logistics or any other team. Every other team's checks use the **tick list** instead
   (`readiness_applicability`, `PUT .../readiness/teams/{team}/applicability`;
   422 for the Projects team or a check that locks with the plan): N/A isn't
   picked for them (status PUT 422s it), a status or Reset to project on an
@@ -217,25 +238,34 @@ logic against these active business rules:
   `readiness_required = false` carries NO readiness from ANY team (lens rows,
   snapshot `readiness_at_submission`, team tiles, chart). Live (non-locking) checks are recorded in the snapshot's
   `readiness_at_submission` but never lock or diff; only governed gates
-  (`gate_codes_of`) feed the snapshot gate KPIs. Revisions freeze their check definitions (`catalog_json`). A check's team,
+  (`gate_codes_of`) feed the snapshot gate KPIs. Since phase 8 a snapshot's
+  `readiness` block is each activity's WELL value, marked `readiness_scope:
+  "well"`; readers (`snapshot_readiness_scope`) fold a field project's
+  activities to the worst per check, and still read older snapshots per field
+  project (or per activity, before 2026-07-16) with On Track for a missing gate. Revisions freeze their check definitions (`catalog_json`). A check's team,
   status set, scope, lock behaviour and "starts unticked" are fixed at creation
   (only label, icon, order and category are editable); `projects` checks must lock with the plan, ONLY `projects`
   checks may (admin catalog 422s a governed check in any other team), and a check
-  that locks with the plan is enabled at project level only.
+  that locks with the plan is enabled at BOTH levels on the `execution` set
+  (422 otherwise; phase 8).
 - **Readiness rollups have ONE definition** (spec §3.7,
   `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,
   never a local formula; Readiness-tab grids add up the server's per-row
   `figures` of exactly the rows shown, they never decide what counts. Readiness = what is DONE: headline **Complete** = done ÷
   counted, with **On track** ((done + in progress) ÷ counted) and **Behind**
-  (blocked cells) beside it. Roll up by shared SEVERITY, never status text; N/A
+  (blocked cells) beside it. Roll up by shared SEVERITY, never status text
+  (`done` / `in_progress` / `not_started` / `blocked` / `not_counted`; phase 8's
+  `not_started` is counted but neither done, on track nor behind, and ranks
+  between blocked and in progress when a field project reads the worst of its
+  wells); N/A
   isn't counted, and neither is an unticked team check (the frontend drops cells
   that don't apply with `check-meta.ts::applies()` before it rolls up or draws);
   a not-selected check isn't even listed as not counted.
   A team where nothing applies draws NO icon, while the Project gates keep the
   grey N/A icon. On the chart and prints a category draws ONE icon — the worst of
   its types that apply (`chart-layout.ts` category strip checks), none if no type
-  applies. An unset check reads its default and every default is on track
-  (On Track). Ready = ≥1 counted cell, all done. Each target (field project /
+  applies. An unset check reads its default: on track (On Track) for every
+  status set except `execution`, whose default is Not started. Ready = ≥1 counted cell, all done. Each target (field project /
   well) counts once; opt-outs, completed work, no field
   project (project checks) and no well name (well checks) carry nothing. Tiles
   count FIELD PROJECTS for every team with project-level checks (2026-10-25; a
@@ -250,7 +280,8 @@ logic against these active business rules:
   (`figures_by_window`), so the tab adds up to the tile, and the server's count
   of wells behind on a well-level check (`wells_behind_by_window`). Nothing
   counted → `None` ("—", never 0%); percentages round half up. The "starting soon,
-  not ready" warning reads the Project gates only.
+  not ready" warning reads the well execution readiness checks only, at each
+  WELL's effective value.
 <!-- END OF BUSINESS CONSTRAINTS -->
 
 # DEPENDENCY & SUPPLY-CHAIN GOVERNANCE
