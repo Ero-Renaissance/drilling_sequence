@@ -44,6 +44,10 @@ describe("ActivityChartEditDialog — project field", () => {
       />,
     );
 
+    // Read-only until the user asks to move the well.
+    expect(screen.queryByPlaceholderText("e.g. Bonga Phase 3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("project-readonly")).toHaveTextContent("Old Project");
+    await userEvent.click(screen.getByRole("button", { name: "Move to another project" }));
     const project = screen.getByPlaceholderText("e.g. Bonga Phase 3");
     expect(project).toHaveValue("Old Project");
     await userEvent.clear(project);
@@ -106,5 +110,115 @@ describe("ActivityChartEditDialog — warning severity colours", () => {
     expect(warning).toHaveTextContent(/overlaps/i);
     expect(warning.className).toContain("red");
     expect(warning.className).not.toContain("amber");
+  });
+});
+
+describe("ActivityChartEditDialog — which well is being edited", () => {
+  it("heads the dialog with the well's name and where it sits", () => {
+    render(
+      <ActivityChartEditDialog
+        projectId="proj-001"
+        activity={ACTIVITY}
+        readiness={null}
+        allActivities={[ACTIVITY]}
+        open
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(screen.getByRole("dialog", { name: "W-1" })).toBeInTheDocument();
+    expect(screen.getByText("Editing well")).toBeInTheDocument();
+    const identity = screen.getByTestId("edit-dialog-identity");
+    expect(identity).toHaveTextContent("Oil Development · Old Project · Rig A ·");
+  });
+});
+
+describe("ActivityChartEditDialog — readiness while the plan is locked", () => {
+  it("keeps the gates editable and saves only what changed, without touching the activity", async () => {
+    const puts: { code: string; body: Record<string, unknown> }[] = [];
+    let patched = false;
+    server.use(
+      http.put("/api/projects/:projectId/readiness/:code", async ({ request, params }) => {
+        puts.push({ code: String(params.code), body: (await request.json()) as Record<string, unknown> });
+        return HttpResponse.json({});
+      }),
+      http.patch("/api/projects/:projectId/activities/:activityId", () => {
+        patched = true;
+        return HttpResponse.json({}, { status: 423 });
+      }),
+    );
+    const onSaved = vi.fn();
+    render(
+      <ActivityChartEditDialog
+        projectId="proj-001"
+        activity={{ ...ACTIVITY, locked_by_revision_id: "rev-1" } as Activity}
+        readiness={null}
+        allActivities={[ACTIVITY]}
+        open
+        onOpenChange={() => {}}
+        onSaved={onSaved}
+      />,
+    );
+    expect(screen.getByText("Viewing well")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move to another project" })).not.toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Save readiness" });
+    expect(save).toBeDisabled(); // nothing changed yet
+
+    await userEvent.click(screen.getAllByTitle(/: On Track$/)[0]);
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Completed/ }));
+    await userEvent.click(save);
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(puts).toHaveLength(1);
+    expect(puts[0].body).toMatchObject({ well_project: "Old Project", status: "Completed" });
+    expect(patched).toBe(false);
+  });
+});
+
+describe("ActivityChartEditDialog — field order and the Project field", () => {
+  const open = (activity: Activity, onSaved = () => {}) =>
+    render(
+      <ActivityChartEditDialog
+        projectId="proj-001"
+        activity={activity}
+        readiness={null}
+        allActivities={[activity]}
+        open
+        onOpenChange={() => {}}
+        onSaved={onSaved}
+      />,
+    );
+
+  it("starts with the well name and doesn't put the cursor in a field", () => {
+    open(ACTIVITY);
+    const fields = screen.getAllByRole("textbox");
+    expect(fields[0]).toHaveValue("W-1");
+    expect(screen.getByRole("dialog")).toHaveFocus();
+  });
+
+  it("'Keep' cancels a move: the well stays in its project", async () => {
+    let patched: Record<string, unknown> | null = null;
+    server.use(
+      http.patch("/api/projects/:projectId/activities/:activityId", async ({ request }) => {
+        patched = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...ACTIVITY, ...patched });
+      }),
+    );
+    open(ACTIVITY);
+    await userEvent.click(screen.getByRole("button", { name: "Move to another project" }));
+    const project = screen.getByPlaceholderText("e.g. Bonga Phase 3");
+    await userEvent.clear(project);
+    await userEvent.type(project, "Somewhere Else");
+    await userEvent.click(screen.getByRole("button", { name: "Keep Old Project" }));
+    expect(screen.getByTestId("project-readonly")).toHaveTextContent("Old Project");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(patched).not.toBeNull());
+    expect(patched).toMatchObject({ well_project: "Old Project" });
+  });
+
+  it("a well with no project can be given one directly", () => {
+    open({ ...ACTIVITY, well_project: null } as Activity);
+    expect(screen.getByPlaceholderText("e.g. Bonga Phase 3")).toBeEnabled();
+    expect(screen.queryByTestId("project-readonly")).not.toBeInTheDocument();
   });
 });

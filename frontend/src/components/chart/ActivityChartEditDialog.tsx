@@ -9,11 +9,12 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import {
   COMMENT_MAX_LENGTH,
   setActivityCompletion,
@@ -26,7 +27,7 @@ import type { HwuContract } from "@/api/hwu-contracts";
 import { LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { statusOf, useProjectGates } from "@/components/readiness/catalog";
-import { suggestedActivityTypes } from "@/lib/chart-colors";
+import { getActivityColor, suggestedActivityTypes } from "@/lib/chart-colors";
 import {
   ResourceContractSection,
   type ResourceContractHandle,
@@ -128,6 +129,9 @@ export function ActivityChartEditDialog({
   // nothing to attach them to, so the gates are shown disabled with a hint.
   const hasProject = !!activity.well_project;
   const [completing, setCompleting] = useState(false);
+  const [savingGates, setSavingGates] = useState(false);
+  // The Project field is read-only until the user asks to move the well.
+  const [movingProject, setMovingProject] = useState(false);
 
   const [checkStatuses, setCheckStatuses] = useState<Record<CheckCode, CheckStatus>>(
     () => Object.fromEntries(gates.map(({ code }) => [code, statusOf(readiness, code)])),
@@ -140,6 +144,7 @@ export function ActivityChartEditDialog({
     register,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
@@ -190,6 +195,7 @@ export function ActivityChartEditDialog({
       Object.fromEntries(gates.map(({ code }) => [code, statusOf(readiness, code)])),
     );
     setError(null);
+    setMovingProject(false);
   }, [activity, readiness, reset, gates]);
 
   // ── Derived: resource suggestions (existing rigs/HWUs of the chosen type) ────
@@ -268,6 +274,20 @@ export function ActivityChartEditDialog({
     return `Overlaps "${other.activity_type}" on ${watchedResourceName} (${other.start_date} – ${other.end_date}).`;
   }, [noResource, allActivities, activity, watchedResourceType, watchedResourceName, watchedStart, watchedEnd]);
 
+  const changedGates = gates.filter(
+    ({ code }) => checkStatuses[code] !== undefined && checkStatuses[code] !== statusOf(readiness, code),
+  );
+
+  // Who the dialog is about — the SAVED activity, so the heading stays put
+  // while the fields below are being edited.
+  const resourceName = activity.hwu_name ?? activity.rig_name;
+  const identity = [
+    activity.well_name ? activity.activity_type : null,
+    activity.well_project || "No field project",
+    resourceName || "No rig / HWU",
+    `${formatDate(activity.start_date)} – ${formatDate(activity.end_date)}`,
+  ].filter((part): part is string => !!part);
+
   async function onSubmit(values: FormValues) {
     setError(null);
     try {
@@ -289,21 +309,7 @@ export function ActivityChartEditDialog({
         readiness_required: values.readiness_required,
       });
 
-      // Persist the readiness gates. Gates belong to the FIELD PROJECT
-      // (well_project), so this updates every activity sharing it; an activity
-      // with no field project has no gates to save.
-      if (activity.well_project) {
-        await Promise.all(
-          gates.map(({ code }) =>
-            upsertCheck(
-              projectId,
-              activity.well_project!,
-              code,
-              checkStatuses[code] ?? statusOf(readiness, code),
-            ),
-          ),
-        );
-      }
+      await saveGates();
 
       // The resource's contract (only if the user edited it) saves with the
       // activity — one Save, not two.
@@ -313,6 +319,34 @@ export function ActivityChartEditDialog({
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save activity");
+    }
+  }
+
+  // Persist the readiness gates the user changed. Gates belong to the FIELD
+  // PROJECT (well_project), so this updates every activity sharing it; an
+  // activity with no field project has no gates to save.
+  async function saveGates() {
+    const wellProject = activity.well_project;
+    if (!wellProject) return;
+    await Promise.all(
+      changedGates.map(({ code }) => upsertCheck(projectId, wellProject, code, checkStatuses[code])),
+    );
+  }
+
+  // The plan is locked: the activity's fields are read-only, but readiness is
+  // live status and still saves (the server keeps it editable under the lock).
+  async function saveGatesOnly(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSavingGates(true);
+    try {
+      await saveGates();
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save readiness");
+    } finally {
+      setSavingGates(false);
     }
   }
 
@@ -332,10 +366,31 @@ export function ActivityChartEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            Edit Activity
+      {/* Focus lands on the dialog, not its first field: an opened dialog with a
+          field's text selected turns one stray key into a rename. */}
+      <DialogContent
+        className="sm:max-w-2xl max-h-[90vh] overflow-y-auto focus:outline-none"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement).focus();
+        }}
+      >
+        {/* Stays in view while the form scrolls, so it is always clear WHICH well
+            is being edited: the well's name is the heading, with the colour of
+            its bar on the sequence. */}
+        <DialogHeader className="sticky -top-6 z-10 -mx-6 -mt-6 border-b border-border/70 bg-background px-6 pb-3 pt-6 pr-12">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {locked ? "Viewing" : "Editing"} {activity.well_name ? "well" : "activity"}
+          </p>
+          <DialogTitle className="flex flex-wrap items-center gap-2 text-xl leading-tight">
+            <span
+              aria-hidden
+              className="h-5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: getActivityColor(activity.activity_type) }}
+            />
+            <span className="[overflow-wrap:anywhere]" data-testid="edit-dialog-subject">
+              {activity.well_name || activity.activity_type}
+            </span>
             {isCompleted && (
               <span className="flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/12 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 className="h-3 w-3" />
@@ -345,13 +400,16 @@ export function ActivityChartEditDialog({
             {locked && (
               <span className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/12 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                 <Lock className="h-3 w-3" />
-                Locked — pending revision
+                Plan locked
               </span>
             )}
           </DialogTitle>
+          <DialogDescription className="text-xs" data-testid="edit-dialog-identity">
+            {identity.join(" · ")}
+          </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 py-1">
+        <form onSubmit={locked ? saveGatesOnly : handleSubmit(onSubmit)} className="space-y-5 py-1">
           {/* ── Schedule fields ─────────────────────────────────── */}
           <div className="space-y-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -359,19 +417,13 @@ export function ActivityChartEditDialog({
             </p>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Project" error={errors.well_project?.message}>
+              <Field label="Well Name *" error={errors.well_name?.message}>
                 <Input
-                  {...register("well_project")}
-                  list="project-suggestions"
-                  placeholder="e.g. Bonga Phase 3"
+                  {...register("well_name")}
+                  placeholder="Well-A1"
                   spellCheck
                   disabled={locked}
                 />
-                <datalist id="project-suggestions">
-                  {projectSuggestions.map((pName) => (
-                    <option key={pName} value={pName} />
-                  ))}
-                </datalist>
               </Field>
               <Field label="Activity Type *" error={errors.activity_type?.message}>
                 <Input
@@ -386,6 +438,15 @@ export function ActivityChartEditDialog({
                     <option key={t} value={t} />
                   ))}
                 </datalist>
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Start Date *" error={errors.start_date?.message}>
+                <Input type="date" {...register("start_date")} disabled={locked} />
+              </Field>
+              <Field label="End Date *" error={errors.end_date?.message}>
+                <Input type="date" {...register("end_date")} disabled={locked} />
               </Field>
             </div>
 
@@ -439,23 +500,6 @@ export function ActivityChartEditDialog({
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Start Date *" error={errors.start_date?.message}>
-                <Input type="date" {...register("start_date")} disabled={locked} />
-              </Field>
-              <Field label="End Date *" error={errors.end_date?.message}>
-                <Input type="date" {...register("end_date")} disabled={locked} />
-              </Field>
-              <Field label="Well Name *" error={errors.well_name?.message}>
-                <Input
-                  {...register("well_name")}
-                  placeholder="Well-A1"
-                  spellCheck
-                  disabled={locked}
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
               <Field label="Location *" error={errors.location?.message}>
                 <select {...register("location")} className={selectClass} disabled={locked}>
                   <option value="">Select…</option>
@@ -487,6 +531,63 @@ export function ActivityChartEditDialog({
                 </select>
               </Field>
             </div>
+
+            {/* The field project is shown, not offered for typing: moving a well to
+                another project changes which gates it reads, so it takes a
+                deliberate "Move". A well with no project can simply be given one. */}
+            {activity.well_project && !movingProject ? (
+              <div className="space-y-1" data-testid="project-readonly">
+                <Label className="text-xs font-medium text-muted-foreground">Project</Label>
+                <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/30 px-3 py-1.5 text-sm">
+                  <span className="font-medium [overflow-wrap:anywhere]">{activity.well_project}</span>
+                  {!locked && (
+                    <button
+                      type="button"
+                      onClick={() => setMovingProject(true)}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Move to another project
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <Field
+                label={activity.well_project ? "Move to project" : "Project"}
+                error={errors.well_project?.message}
+                hint={
+                  activity.well_project ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      The well will read the new project&apos;s readiness gates.{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setValue("well_project", activity.well_project ?? "");
+                          setMovingProject(false);
+                        }}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        Keep {activity.well_project}
+                      </button>
+                    </p>
+                  ) : undefined
+                }
+              >
+                <Input
+                  {...register("well_project")}
+                  list="project-suggestions"
+                  placeholder="e.g. Bonga Phase 3"
+                  spellCheck
+                  disabled={locked}
+                  autoFocus={movingProject}
+                />
+                <datalist id="project-suggestions">
+                  {projectSuggestions.map((pName) => (
+                    <option key={pName} value={pName} />
+                  ))}
+                </datalist>
+              </Field>
+            )}
 
             {/* Warnings — both live and non-blocking HERE, but colour tracks what
                 happens at SUBMIT: amber = advisory (planning past a contract end
@@ -571,6 +672,13 @@ export function ActivityChartEditDialog({
                 Set a Project for this well to track its readiness gates.
               </p>
             )}
+            {locked && hasProject && (
+              <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <Lock className="h-3 w-3 shrink-0" />
+                The plan is locked, but readiness can still be updated. Changes don&apos;t alter
+                what the revision recorded.
+              </p>
+            )}
             {/* Opt-out — when off, this activity's gate icons are hidden on the
                 chart and print-out, and it drops out of the dashboard readiness KPIs. */}
             <label className="flex items-center gap-2 text-xs">
@@ -604,7 +712,7 @@ export function ActivityChartEditDialog({
                     <ReadinessDot
                       code={code}
                       status={status}
-                      disabled={locked || !hasProject}
+                      disabled={!hasProject}
                       onChange={(next) =>
                         setCheckStatuses((prev) => ({ ...prev, [code]: next }))
                       }
@@ -649,7 +757,13 @@ export function ActivityChartEditDialog({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               {locked ? "Close" : "Cancel"}
             </Button>
-            {!locked && (
+            {locked ? (
+              hasProject && (
+                <Button type="submit" disabled={savingGates || changedGates.length === 0}>
+                  {savingGates ? "Saving…" : "Save readiness"}
+                </Button>
+              )
+            ) : (
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Saving…" : "Save"}
               </Button>
