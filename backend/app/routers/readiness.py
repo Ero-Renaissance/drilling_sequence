@@ -448,6 +448,7 @@ async def _team_rows(
         Activity.well_name,
         Activity.activity_type,
         Activity.location,
+        Activity.market,
         Activity.start_date,
         Activity.completed_at,
         Activity.readiness_required,
@@ -528,6 +529,7 @@ async def _team_rows(
                 activity_type=key[2],
                 activity_count=len(acts),
                 location=acts[0].location,
+                market=acts[0].market,
                 start_date=acts[0].start_date,
                 focus_start=focus,
                 focus_in_days=days_until(focus, today),
@@ -605,7 +607,12 @@ async def upsert_readiness_check(
     # approved. Allowed (2026-11-23) — and marked in the audit trail below.
     under_lock = check.locks_with_plan and await _campaign_locked(project_id, db)
 
+    # A request that doesn't send ``notes`` keeps the note the target's own entry
+    # holds (a status picked from a menu must not wipe it); ``notes: null``
+    # clears it. A NEW entry starts with no note unless one is sent.
+    sets_notes = "notes" in payload.model_fields_set
     gate = _own_entry(index, check, payload)
+    gate_is_new = gate is None
     if gate is None:
         gate = ReadinessEntry(
             project_id=project_id,
@@ -621,14 +628,17 @@ async def upsert_readiness_check(
         db.add(gate)
     else:
         gate.status = payload.status
-        gate.notes = payload.notes
+        if sets_notes:
+            gate.notes = payload.notes
         gate.updated_by = current_user.id
     await _flush_or_409(db, project_id, current_user, [check.code])  # assigns gate.id
 
     # Every real change is audited — `updated_by` only remembers the LAST editor,
     # and team grants span every campaign, so the full history must be on record.
     # Same transaction as the write, so the trail can't miss a committed change.
-    notes_changed = shown.notes != payload.notes
+    notes_changed = (
+        shown.notes != payload.notes if sets_notes else gate_is_new and shown.notes is not None
+    )
     if shown.status != payload.status or notes_changed:
         db.add(
             governance_event(

@@ -306,6 +306,9 @@ class TeamWellRow(BaseModel):
     # (e.g. two workovers) and therefore share its readiness — the UI warns.
     activity_count: int
     location: str | None = None
+    # The well's value stream — its activity's Market (Oil / Domestic Gas / …);
+    # the Well Execution Readiness page groups by it (phase 8, Part B).
+    market: str | None = None
     start_date: date
     # Earliest start of a not-done, readiness-required activity (None: no pending
     # readiness work) — the same focus signal the project gates page uses.
