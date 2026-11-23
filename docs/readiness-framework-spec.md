@@ -100,8 +100,13 @@ survive a re-import — the same reason `project_readiness` is keyed by name tod
 | **Logistics** | 6 logistics checks (§3.4; `NEQ` withdrawn 2026-10-23); phase 7 adds 21 equipment checks that start unticked (§3.9) | **Logistics** team grant | **Operational** — stays live |
 | **Supply Chain** | Future | Supply Chain grant | Decided when defined |
 
-- **Governed:** part of what approvers sign; writes are refused with **423** while
-  the plan is locked (pending or approved), via `assert_project_not_locked`.
+- **Governed:** part of what approvers sign — the revision's snapshot records them
+  as submitted. **Changed 2026-11-23:** governed gates are no longer refused with
+  423 while the plan is locked; readiness is live status, so every check stays
+  editable under the lock (same editors as before). A gate change made under the
+  lock is audited with `; plan locked`, and the snapshot is never altered. Where
+  this document still says a gate "freezes with the plan", read it as "is
+  recorded in the snapshot".
 - **Operational:** editable at any time, including after approval. The snapshot
   still records values **as at submission** for reference (§6), but they never lock.
 

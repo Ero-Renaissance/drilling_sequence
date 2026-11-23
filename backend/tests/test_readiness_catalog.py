@@ -245,11 +245,11 @@ async def test_non_project_team_checks_stay_off_the_project_gates_grid(
 
 
 @pytest.mark.asyncio
-async def test_operational_check_ignores_the_plan_lock(
+async def test_readiness_writes_ignore_the_plan_lock(
     client: AsyncClient, db: AsyncSession
 ) -> None:
-    """Governed gates 423 while a revision is pending; an operational check
-    (locks_with_plan=False) stays writable."""
+    """Readiness is live (2026-11-23): a Project gate and an operational check
+    are both writable while a revision is pending."""
     pid = await _campaign_with_activity(client)
     await _add_team_grant_check(db)
     me = (await db.execute(select(User).where(User.email == "test@company.com"))).scalar_one()
@@ -257,7 +257,7 @@ async def test_operational_check_ignores_the_plan_lock(
     await db.commit()
     await _create_revision(client, pid)
 
-    assert (await _put_gate(client, pid, "FID")).status_code == 423
+    assert (await _put_gate(client, pid, "FID")).status_code == 200
     assert (await _put_gate(client, pid, "L-BUD")).status_code == 200
 
 

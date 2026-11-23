@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.locks import assert_project_not_locked, lock_campaign_writes
+from app.core.locks import lock_campaign_writes
 from app.core.rbac import assert_can_edit_check
 from app.database import get_db
 from app.models.activity import Activity
@@ -111,8 +111,10 @@ def _row_figures(statuses: Iterable[str]) -> RowFigures:
 
 async def _campaign_locked(project_id: uuid.UUID, db: AsyncSession) -> bool:
     """True while any activity in the campaign is locked by a revision, pending
-    or approved — the Project gates are part of the snapshot under approval (and
-    of the approved record), so they freeze with the plan."""
+    or approved. Readiness stays editable under the lock (decided 2026-11-23:
+    every check, the Project gates included — the revision's ``snapshot_json``
+    is the frozen record); the reads report it so the UI can say so, and a
+    Project-gate change made under it is marked in the audit trail."""
     result = await db.execute(
         select(Activity.id)
         .where(
@@ -571,11 +573,14 @@ async def _team_rows(
 # Every readiness write runs in the same order (spec §5.2, phase 6): body
 # validation (Pydantic, 422) → resolve the check or team (catalog, public) →
 # assert_can_edit_check → lock_campaign_writes → the remaining validation and
-# BOLA → the plan lock for checks that lock with the plan (423) → writes, audit,
-# one commit. The campaign write lock comes before anything the write decides on
-# is read, so a Project-gate write can't commit between a submit's snapshot and
-# its plan lock, and two first writes to one target can't collide on the unique
-# key.
+# BOLA → writes, audit, one commit. No readiness write is refused with 423
+# (decided 2026-11-23): readiness is live status, so every check — the Project
+# gates included — stays editable while the plan is locked, pending or approved.
+# What signers see and sign is the revision's frozen snapshot, which no write
+# here touches. The campaign write lock comes before anything the write decides
+# on is read, so a Project-gate write can't commit between a submit's snapshot
+# and its plan lock (it lands wholly before the snapshot or wholly after), and
+# two first writes to one target can't collide on the unique key.
 
 
 @router.put(
@@ -625,11 +630,10 @@ async def upsert_readiness_check(
     if not shown.applies:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_NOT_APPLICABLE_DETAIL)
 
-    # Governed checks are part of the snapshot under approval (and of the approved
-    # record) — they freeze with the plan. Operational checks (well, logistics…)
-    # stay editable.
-    if check.locks_with_plan:
-        await assert_project_not_locked(project_id, db)
+    # A Project gate is in the revision's frozen snapshot, so a change made while
+    # the plan is locked moves the live value away from what was submitted or
+    # approved. Allowed (2026-11-23) — and marked in the audit trail below.
+    under_lock = check.locks_with_plan and await _campaign_locked(project_id, db)
 
     gate = _own_entry(index, check, payload)
     if gate is None:
@@ -668,6 +672,7 @@ async def upsert_readiness_check(
                     f"{check.code} for {_target_label(payload)}: "
                     f"{shown.status} -> {payload.status}"
                     + ("; notes changed" if notes_changed else "")
+                    + ("; plan locked" if under_lock else "")
                 )[:512],
                 old_value=shown.status,
             )
@@ -713,8 +718,6 @@ async def reset_well_override(
     index = await _target_index(db, project_id, [check.code], payload)
     if not well_applies(index, check, key)[0]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_NOT_APPLICABLE_DETAIL)
-    if check.locks_with_plan:  # never true for a two-level check today; defensive
-        await assert_project_not_locked(project_id, db)
 
     override = index.well.pop((*key, check.code), None)
     # What the well shows once its own entry is gone: the field project's status
@@ -771,7 +774,7 @@ async def set_applicability(
     """Which of a team's checks apply to one target — a field project or a well
     (spec §3.8, §4.4). Not for the Projects team: the Project gates use N/A
     (decision 31), so no check that locks with the plan ever gets a row — and
-    this write is never refused with 423 (ticks stay live, like team statuses).
+    this write is never refused with 423 (ticks stay live, like every status).
 
     Each listed code is resolved under the campaign write lock against the
     target's CURRENT state (a client never decides from a value it read earlier):

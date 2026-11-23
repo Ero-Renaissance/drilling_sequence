@@ -199,7 +199,7 @@ async def test_operational_well_check_ignores_the_plan_lock(
     pid = await _campaign(client)
     await _activity(client, pid)
     assert (await client.post(f"/api/projects/{pid}/revisions", json={})).status_code in (200, 201)
-    assert (await _put(client, pid, "FID", {"well_project": "Bonga Phase 3"})).status_code == 423
+    assert (await _put(client, pid, "FID", {"well_project": "Bonga Phase 3"})).status_code == 200
     assert (await _put(client, pid, "LPR", _well())).status_code == 200
     assert (await _lens(client, pid, "wells"))["locked"] is True
 

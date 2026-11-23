@@ -379,7 +379,6 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
     !!data &&
     (user.is_admin ||
       (data.team.editor_source === "team_grant" && (user.teams ?? []).includes(data.team.code)));
-  const frozen = (check: CatalogCheck) => !!data?.locked && check.locks_with_plan;
 
   // A tick save answers with the target's new rows (a field project's plus its
   // wells', built as the read builds them): fold them in rather than reload.
@@ -677,7 +676,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                             return gridCell(c.code, className, <NotApplicableCell />);
                           }
                           const status = current?.status ?? defaultStatusOf(c.status_set);
-                          const disabled = !canEdit || saving === key || frozen(c);
+                          const disabled = !canEdit || saving === key;
                           return gridCell(
                             c.code,
                             className,
@@ -850,7 +849,7 @@ export function TeamReadinessGrid({ projectId, teamCode }: { projectId: string; 
                                 code={c.code}
                                 status={status}
                                 inherited={inherited}
-                                disabled={!canEdit || saving === key || frozen(c)}
+                                disabled={!canEdit || saving === key}
                                 statuses={pickableStatuses(c)}
                                 onChange={(next) =>
                                   write(key, () => setReadiness(projectId, c.code, target, next))
