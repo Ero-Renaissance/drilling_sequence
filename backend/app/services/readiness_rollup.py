@@ -423,6 +423,7 @@ def snapshot_gate_targets(
     by_target: dict[object, Mapping[str, str]] = {}
     # Phase 8: a field project's activities in scope, to fold (worst of) below.
     wells_of: dict[str, list[Mapping[str, str]]] = {}
+    unnamed_of: dict[str, list[Mapping[str, str]]] = {}
     for i, a in enumerate(snapshot):
         if a.get("completed_at") or not a.get("readiness_required", True):
             continue
@@ -436,14 +437,21 @@ def snapshot_gate_targets(
         else:
             continue  # no field project → no field-project target (§3.7)
         if scope == "well":
-            wells_of.setdefault(a["well_project"], []).append(a.get("readiness") or {})
+            # Named wells fold; an activity with no well name recorded its field
+            # project's own value, which speaks only when no named well is in
+            # scope — as the live rollup does (``fold_project_cells``).
+            group = wells_of if a.get("well_name") else unnamed_of
+            group.setdefault(a["well_project"], []).append(a.get("readiness") or {})
         else:
             by_target.setdefault(key, a.get("readiness") or {})
     if scope == "well":
         # The field project reads the WORST of its activities in scope, check by
         # check — as the live tile folds its wells (``fold_project_cells``).
         targets: list[dict[str, str]] = []
-        for blocks in wells_of.values():
+        projects = list(dict.fromkeys([*wells_of, *unnamed_of]))
+        for wp in projects:
+            # The project's own value is one copy on each unnamed activity.
+            blocks = wells_of.get(wp) or unnamed_of[wp][:1]
             codes = (
                 list(gate_codes)
                 if gate_codes is not None

@@ -5,6 +5,9 @@ import { applies, worstStatus } from "@/components/readiness/check-meta";
 import { stripChecksOf, withCategoryCells } from "./chart-layout";
 import { wellKeyOf } from "./readiness-lens";
 
+/** The marker a per-well snapshot carries (backend `WELL_SCOPE`). */
+const WELL_SCOPE = "well";
+
 /** Whether a revision recorded team (live) readiness at submission — revisions
  *  from before Phase 4 only carry the project gates. */
 export function hasTeamReadiness(rows: readonly PrintRow[]): boolean {
@@ -36,7 +39,14 @@ export function snapshotRowsForLens(
   frozen: readonly CatalogCheck[],
   teams: readonly CatalogTeam[],
 ): PrintRow[] {
-  if (lens === PROJECTS_TEAM) return [...rows];
+  // As stored — but a snapshot that recorded each WELL's own checks (phase 8)
+  // prints one strip per well, not one per field project; older snapshots keep
+  // their per-project strip.
+  if (lens === PROJECTS_TEAM) {
+    return rows.map((r) =>
+      r.readiness_scope === WELL_SCOPE ? { ...r, readiness_key: wellKeyOf(r) ?? r.id } : r,
+    );
+  }
 
   const defsOf = (team: string) => frozen.filter((c) => c.team_code === team);
   // The team's checks recorded for this row that applied, in catalog order.
@@ -49,7 +59,10 @@ export function snapshotRowsForLens(
   if (lens === ALL_LENS) {
     return rows.map((r) => {
       const summary: Record<string, CheckStatus> = {};
-      const gates = r.well_project ? Object.values(r.readiness ?? {}) : [];
+      // Older snapshots stored defaults for a well with no field project —
+      // ignored; a per-well snapshot (phase 8) recorded its real checks.
+      const gates =
+        r.well_project || r.readiness_scope === WELL_SCOPE ? Object.values(r.readiness ?? {}) : [];
       const gatesWorst = worstStatus(gates);
       if (gatesWorst) summary[PROJECTS_TEAM] = gatesWorst;
       for (const team of teams) {

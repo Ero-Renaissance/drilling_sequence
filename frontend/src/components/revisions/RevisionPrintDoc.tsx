@@ -104,6 +104,9 @@ export interface PrintRow {
   /** Which rows share one readiness strip (the strip prints once per key per
    *  page). Defaults to the field project; a well-level lens keys by well. */
   readiness_key?: string | null;
+  /** "well" on a snapshot that recorded each well's own checks (phase 8); older
+   *  snapshots, which recorded them per field project, don't carry it. */
+  readiness_scope?: string;
   /** Live (team) checks as they stood at submission — revision snapshots only.
    *  A team check that didn't apply is recorded as N/A (spec §6). */
   readiness_at_submission?: Record<string, { status: CheckStatus; source?: string }>;

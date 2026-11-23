@@ -320,7 +320,7 @@ export function ActivityChartEditDialog({
   async function onSubmit(values: FormValues) {
     setError(null);
     try {
-      await updateActivity(projectId, activity.id, {
+      const saved = await updateActivity(projectId, activity.id, {
         activity_type: values.activity_type,
         start_date: values.start_date,
         end_date: values.end_date,
@@ -338,14 +338,15 @@ export function ActivityChartEditDialog({
         readiness_required: values.readiness_required,
       });
 
-      // The checks are keyed by the well's NAMES: write them under the names
-      // just saved (a rename moved the well's values with it).
-      if (values.well_name) {
+      // The checks are keyed by the well's NAMES and must match exactly: write
+      // them under the names the server SAVED (it trims and canonicalises; a
+      // rename moved the well's values with it), never the raw form values.
+      if (saved.well_name) {
         await saveGates({
           scope: "well",
-          well_project: values.well_project?.trim() ?? "",
-          well_name: values.well_name,
-          activity_type: values.activity_type,
+          well_project: saved.well_project ?? "",
+          well_name: saved.well_name,
+          activity_type: saved.activity_type,
         });
       }
 

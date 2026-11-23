@@ -203,7 +203,9 @@ export function teamSummaryCheck(team: CatalogTeam): CatalogCheck {
     team_code: team.code,
     applies_project: true,
     applies_well: true,
-    status_set: "standard",
+    // The Well Execution Readiness badge can read Not started, so its legend
+    // must list it: the execution set for that team, standard for the others.
+    status_set: team.code === PROJECTS_TEAM ? "execution" : "standard",
     icon_key: team.icon_key,
     locks_with_plan: team.code === PROJECTS_TEAM,
     sort_order: team.sort_order,

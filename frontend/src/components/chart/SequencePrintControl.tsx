@@ -189,12 +189,12 @@ export function SequencePrintControl({
           plan_type: a.plan_type,
           risk: a.risk,
           readiness,
-          // Under a team lens a row with no entry (e.g. no well name for a
-          // well-level lens) prints no strip; the project-gates lens keeps the
-          // existing per-project behaviour (no explicit key).
-          readiness_required:
-            printLens !== PROJECTS_TEAM && !readiness ? false : a.readiness_required,
-          readiness_key: printLens === PROJECTS_TEAM ? undefined : key,
+          // A row with no entry under the lens (e.g. no well name for a
+          // well-level lens) prints no strip. Every lens keys its strip as its
+          // data is keyed — per well for the well execution readiness checks
+          // too (phase 8), so two wells of one project print their own.
+          readiness_required: !readiness ? false : a.readiness_required,
+          readiness_key: key,
           rig_contract_status: null,
           rig_contract_end: contract?.contract_end ?? null,
           completed_at: a.completed_at,
