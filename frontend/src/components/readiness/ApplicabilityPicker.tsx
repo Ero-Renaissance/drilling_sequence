@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ListChecks, Loader2, Lock, Search, Undo2 } from "lucide-react";
 import {
   setApplicability,
+  setQuantity,
   type ApplicabilityResult,
   type CatalogCheck,
   type CatalogTeam,
@@ -36,6 +37,13 @@ import {
   type PickerRow,
   type TickChoice,
 } from "@/lib/readiness-applicability";
+import {
+  MAX_QUANTITY,
+  MIN_QUANTITY,
+  ownQuantity,
+  parseQuantity,
+  quantityLabel,
+} from "@/lib/readiness-quantity";
 import { cn } from "@/lib/utils";
 import { checkIcon } from "./icon-registry";
 
@@ -76,6 +84,7 @@ export function ApplicabilityPicker({
   canEdit,
   wellsWithOwnChoice,
   onSaved,
+  onQuantitySaved,
   className,
   range,
 }: {
@@ -98,6 +107,9 @@ export function ApplicabilityPicker({
   wellsWithOwnChoice?: number;
   /** After a save, with the target's new rows; awaited before the dialog closes. */
   onSaved: (result: ApplicabilityResult) => void | Promise<void>;
+  /** After a quantity was saved (docs/equipment-quantity-spec.md §3): the page
+   *  reloads, since a field project's number reaches its wells. */
+  onQuantitySaved?: () => void | Promise<void>;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -138,8 +150,10 @@ export function ApplicabilityPicker({
           target={target}
           targetLabel={targetLabel}
           rows={rows}
+          cells={cells}
           canEdit={canEdit}
           wellsWithOwnChoice={wellsWithOwnChoice}
+          onQuantitySaved={onQuantitySaved}
           onClose={() => setOpen(false)}
           onSaved={async (result) => {
             await onSaved(result);
@@ -158,10 +172,12 @@ function PickerDialog({
   target,
   targetLabel,
   rows,
+  cells,
   canEdit,
   wellsWithOwnChoice,
   onClose,
   onSaved,
+  onQuantitySaved,
 }: {
   range?: YearRange;
   projectId: string;
@@ -169,11 +185,19 @@ function PickerDialog({
   target: ReadinessTarget;
   targetLabel: string;
   rows: PickerRow[];
+  cells: Cells | undefined;
   canEdit: boolean;
   wellsWithOwnChoice?: number;
   onClose: () => void;
   onSaved: (result: ApplicabilityResult) => Promise<void>;
+  onQuantitySaved?: () => void | Promise<void>;
 }) {
+  // How many of each type the target needs — its OWN number, as typed; a well
+  // that follows its field project shows that number as the field's hint.
+  const ownNumber = (code: CheckCode) => ownQuantity(cells?.[code], target.scope);
+  const [numbers, setNumbers] = useState<Record<CheckCode, string>>(() =>
+    Object.fromEntries(rows.map((r) => [r.check.code, String(ownNumber(r.check.code) ?? "")])),
+  );
   const [choices, setChoices] = useState<Record<CheckCode, TickChoice>>(() =>
     Object.fromEntries(rows.map((r) => [r.check.code, r.initial])),
   );
@@ -191,7 +215,15 @@ function PickerDialog({
       ),
   );
   const changes = changedChoices(rows, choices);
-  const unsaved = Object.keys(changes).length;
+  // A number counts only on a row that is ticked and takes one; a row being
+  // unticked keeps whatever is stored (the number survives deselecting).
+  const numberChanges = rows.flatMap((r): { code: CheckCode; value: number | null | "invalid" }[] => {
+    const code = r.check.code;
+    if (!r.check.takes_quantity || r.kind !== "edit" || !isTicked(r, choices[code] ?? null)) return [];
+    const value = parseQuantity(numbers[code] ?? "");
+    return value === ownNumber(code) ? [] : [{ code, value }];
+  });
+  const unsaved = Object.keys(changes).length + numberChanges.length;
   const dirty = unsaved > 0;
   const set = (code: CheckCode, choice: TickChoice) => {
     setError(null);
@@ -229,20 +261,49 @@ function PickerDialog({
       canEdit={canEdit}
       saving={saving}
       onChoose={(choice) => set(row.check.code, choice)}
+      cell={cells?.[row.check.code]}
+      number={numbers[row.check.code] ?? ""}
+      onNumber={(text) => {
+        setError(null);
+        setNumbers((prev) => ({ ...prev, [row.check.code]: text }));
+      }}
     />
   );
 
   async function save() {
+    const invalid = numberChanges.find((n) => n.value === "invalid");
+    if (invalid) {
+      setError(
+        `${invalid.code}: a quantity is a whole number from ${MIN_QUANTITY} to ${MAX_QUANTITY} — leave it empty for none.`,
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const result = await setApplicability(
-        projectId,
-        team.code,
-        applicabilityBody(target, changes),
-        range,
-      );
-      await onSaved(result);
+      // The ticks first — one request, all or nothing — so a type selected in
+      // this save applies before its number is stated.
+      const ticked = Object.keys(changes).length > 0;
+      const result = ticked
+        ? await setApplicability(projectId, team.code, applicabilityBody(target, changes), range)
+        : null;
+      let failed: string | null = null;
+      let stated = false;
+      for (const { code, value } of numberChanges) {
+        try {
+          await setQuantity(projectId, code, target, value as number | null);
+          stated = true;
+        } catch (err: unknown) {
+          failed = err instanceof Error ? err.message : `Failed to save the quantity of ${code}`;
+          break;
+        }
+      }
+      // What did save is on the page before the dialog goes: the ticks from
+      // their response, the numbers from a reload.
+      if (stated) await onQuantitySaved?.();
+      if (failed) toast.error(failed);
+      if (result) await onSaved(result);
+      else onClose();
     } catch (err: unknown) {
       // All or nothing: nothing changed; keep the dialog so the choice isn't
       // lost. The toast is the app's report; the line in the dialog is what a
@@ -388,23 +449,38 @@ function PickerDialog({
   );
 }
 
-/** One check's tick in the list. */
+/** One check's tick in the list — and, for a type that takes a quantity, how
+ *  many are needed while it is ticked. */
 function PickerItem({
   row,
   choice,
   canEdit,
   saving,
   onChoose,
+  cell,
+  number,
+  onNumber,
 }: {
   row: PickerRow;
   choice: TickChoice;
   canEdit: boolean;
   saving: boolean;
   onChoose: (choice: TickChoice) => void;
+  /** The target's cell as served — for the number it shows. */
+  cell: Cells[CheckCode];
+  /** The target's own number, as typed ("" = none). */
+  number: string;
+  onNumber: (text: string) => void;
 }) {
   const Icon = checkIcon(row.check.icon_key);
   const readOnly = !canEdit || row.kind === "project";
   const own = isOwnChoice(row, choice);
+  const ticked = isTicked(row, choice);
+  const takesNumber = row.check.takes_quantity === true && ticked;
+  // The number a well repeats while it has none of its own.
+  const followed =
+    typeof cell?.quantity === "number" && cell.quantity_source === "project" ? cell.quantity : null;
+  const shown = typeof cell?.quantity === "number" ? cell.quantity : null;
   return (
     <li className="flex items-center gap-2 px-3 py-2 text-sm">
       <input
@@ -419,6 +495,32 @@ function PickerItem({
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="font-mono text-xs font-semibold">{row.check.code}</span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">{row.check.label}</span>
+      {takesNumber &&
+        (readOnly ? (
+          shown !== null && (
+            <span className="shrink-0 text-xs font-semibold tabular-nums" data-testid="quantity">
+              {quantityLabel(shown)}
+            </span>
+          )
+        ) : (
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={3}
+            aria-label={`How many ${row.check.code}`}
+            title={
+              row.inherits
+                ? "How many this well needs — leave empty to follow its field project"
+                : "How many are needed — leave empty for none stated"
+            }
+            placeholder={row.inherits && followed !== null ? String(followed) : "Qty"}
+            value={number}
+            disabled={saving}
+            onChange={(e) => onNumber(e.target.value)}
+            className="h-6 w-12 shrink-0 rounded border border-input bg-background px-1 text-center text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        ))}
       {row.kind === "project" ? (
         <span className="shrink-0 text-[11px] text-muted-foreground">set on the field project</span>
       ) : own ? (

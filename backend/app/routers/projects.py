@@ -16,7 +16,7 @@ from app.models.approver import ProjectApprover
 from app.models.audit import AuditLog
 from app.models.hwu_contract import HwuContract
 from app.models.project import Project, ProjectMember, ProjectRole, ProjectStatus
-from app.models.readiness import ReadinessApplicability, ReadinessEntry
+from app.models.readiness import ReadinessApplicability, ReadinessEntry, ReadinessQuantity
 from app.models.resource_registry import ResourceRecord
 from app.models.revision import Revision, Signature
 from app.models.rig_contract import RigContract
@@ -290,6 +290,28 @@ async def clone_project(
                 well_name=choice.well_name,
                 activity_type=choice.activity_type,
                 applies=choice.applies,
+                updated_by=current_user.id,
+            )
+        )
+    # ...and how many of each equipment type a target needs (keyed the same
+    # way), so a quantity stated this quarter is still stated next quarter.
+    source_quantities = (
+        await db.execute(
+            select(ReadinessQuantity).where(ReadinessQuantity.project_id == project_id)
+        )
+    ).scalars().all()
+    for number in source_quantities:
+        if number.check_code in withdrawn:
+            continue
+        db.add(
+            ReadinessQuantity(
+                project_id=clone.id,
+                check_code=number.check_code,
+                scope=number.scope,
+                well_project=number.well_project,
+                well_name=number.well_name,
+                activity_type=number.activity_type,
+                quantity=number.quantity,
                 updated_by=current_user.id,
             )
         )

@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Hash,
   Lock,
   MessageSquareText,
   RefreshCw,
@@ -13,6 +14,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   getTeamReadiness,
   resetWellReadiness,
+  setQuantity,
   setReadiness,
   type ApplicabilityResult,
   type CatalogCheck,
@@ -43,6 +45,15 @@ import { toast } from "@/components/ui/toaster";
 import { categoryCell } from "@/lib/chart-layout";
 import { mergeApplicability, wellsWithOwnChoice } from "@/lib/readiness-applicability";
 import { codeWithLabel, lookAlikeCodes } from "@/lib/readiness-categories";
+import {
+  MAX_QUANTITY,
+  MIN_QUANTITY,
+  categoryQuantity,
+  ownQuantity,
+  parseQuantity,
+  quantityLabel,
+  quantityOf,
+} from "@/lib/readiness-quantity";
 import { inYears, rangePhrase, yearsOf } from "@/lib/readiness-window";
 import { categoryLine } from "@/lib/team-summary";
 import { cn } from "@/lib/utils";
@@ -144,6 +155,19 @@ const CHECK_TH = "min-w-[64px] normal-case tracking-normal";
  *  the check columns slide under it. */
 const PINNED = "sticky left-0 z-10 shadow-[1px_0_0_0_hsl(var(--border))]";
 
+/** The cell whose quantity is being edited: a well's, or a field project's. */
+interface QuantityTarget {
+  target: ReadinessTarget;
+  /** Names the target in the dialog. */
+  name: string;
+  check: CatalogCheck;
+  /** The target's own number (a number a well only follows isn't). */
+  own: number | null;
+  /** The number a well repeats from its field project, if it follows one. */
+  followed: number | null;
+  writeKey: string;
+}
+
 /** The cell whose note is being edited: a well's, or a field project's. */
 interface NoteTarget {
   target: ReadinessTarget;
@@ -218,6 +242,7 @@ export function ReadinessSheet({
   const [searchParams, setSearchParams] = useSearchParams();
   // The cell whose note is being edited, and the field project being set.
   const [noteFor, setNoteFor] = useState<NoteTarget | null>(null);
+  const [quantityFor, setQuantityFor] = useState<QuantityTarget | null>(null);
   const [projectFor, setProjectFor] = useState<string | null>(null);
 
   const behindFocus = searchParams.get("focus") === "behind";
@@ -425,8 +450,22 @@ export function ReadinessSheet({
             status={cell.status}
             note={note}
             origin="set on the field project — one value for its wells"
+            quantity={quantityOf(cell, c)}
             editable={canEdit}
             busy={saving === key}
+            onQuantity={
+              c.takes_quantity
+                ? () =>
+                    setQuantityFor({
+                      target,
+                      name,
+                      check: c,
+                      own: ownQuantity(cell, "project"),
+                      followed: null,
+                      writeKey: key,
+                    })
+                : undefined
+            }
             onStatus={(next) => {
               if (next !== cell.status) void write(key, () => setReadiness(projectId, c.code, target, next));
             }}
@@ -473,6 +512,21 @@ export function ReadinessSheet({
           ownTick={ownTick}
           origin={
             own ? "set on this well" : state?.source === "project" ? "from its field project" : "not set yet"
+          }
+          quantity={quantityOf(state, c)}
+          quantityOwn={state?.quantity_source === "well"}
+          onQuantity={
+            c.takes_quantity
+              ? () =>
+                  setQuantityFor({
+                    target: wellTarget(row),
+                    name: row.well_name,
+                    check: c,
+                    own: ownQuantity(state, "well"),
+                    followed: state?.quantity_source === "project" ? (state.quantity ?? null) : null,
+                    writeKey: key,
+                  })
+              : undefined
           }
           editable={canEdit}
           busy={saving === key}
@@ -737,6 +791,7 @@ export function ReadinessSheet({
                                     data.checks,
                                   )}
                                   onSaved={applyTicks}
+                                  onQuantitySaved={() => latestLoad.current()}
                                   className="-ml-1.5 mt-0.5"
                                 />
                               )}
@@ -778,6 +833,7 @@ export function ReadinessSheet({
                                 projectCells={projectCells.get(project)}
                                 canEdit={canEdit}
                                 onSaved={applyTicks}
+                                onQuantitySaved={() => latestLoad.current()}
                                 className="-ml-1.5"
                               />
                             )}
@@ -807,6 +863,7 @@ export function ReadinessSheet({
                   tickList={hasTickList}
                   categories={columns.some((c) => c.kind === "category")}
                   projectOnly={checks.some((c) => !c.applies_well)}
+                  quantity={checks.some((c) => c.takes_quantity)}
                 />
                 <PaginationFooter
                   pageIndex={safeIndex}
@@ -833,6 +890,18 @@ export function ReadinessSheet({
                 setReadiness(projectId, check.code, target, status, text),
               );
               if (ok) setNoteFor(null);
+            }}
+          />
+        )}
+
+        {quantityFor && (
+          <QuantityDialog
+            quantity={quantityFor}
+            onClose={() => setQuantityFor(null)}
+            onSave={async (value) => {
+              const { target, check, writeKey } = quantityFor;
+              const ok = await write(writeKey, () => setQuantity(projectId, check.code, target, value));
+              if (ok) setQuantityFor(null);
             }}
           />
         )}
@@ -869,6 +938,24 @@ export function ReadinessSheet({
                       </span>
                       {counted ? (
                         <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {c.takes_quantity && (
+                            <QuantityField
+                              key={`${c.code}:${ownQuantity(cell, "project") ?? ""}`}
+                              label={`How many ${c.code} for ${projectFor}`}
+                              value={ownQuantity(cell, "project")}
+                              disabled={saving === key}
+                              onCommit={(value) =>
+                                write(key, () =>
+                                  setQuantity(
+                                    projectId,
+                                    c.code,
+                                    { scope: "project", well_project: projectFor },
+                                    value,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
                           {sheetLabel(status)}
                           <ReadinessDot
                             code={c.code}
@@ -1026,7 +1113,12 @@ function CategoryCell({
 }) {
   const cell = categoryCell(column.items, row.checks);
   if (!cell) return <BlankCell />;
-  const title = categoryLine(column.name, cell.types, (t) => codeWithLabel(t, lookAlikes));
+  // How many are needed across the types selected here ("Vessels · 3") — this
+  // row's types added up, never wells.
+  const total = categoryQuantity(column.items, row.checks);
+  const title =
+    categoryLine(column.name, cell.types, (t) => codeWithLabel(t, lookAlikes)) +
+    (total !== null ? ` — ${total} needed` : "");
   return (
     <div
       className={cn("absolute inset-0 flex items-center justify-center", fillOf(cell.status))}
@@ -1039,6 +1131,7 @@ function CategoryCell({
       <span aria-hidden className="text-sm font-bold leading-none">
         {markOf(cell.status)}
       </span>
+      {total !== null && <QuantityMark quantity={total} />}
     </div>
   );
 }
@@ -1053,11 +1146,14 @@ function StatusCell({
   own = false,
   ownTick = false,
   origin,
+  quantity = null,
+  quantityOwn = false,
   editable,
   busy,
   onStatus,
   onReset,
   onNote,
+  onQuantity,
 }: {
   check: CatalogCheck;
   /** Who the cell is for: a well's name, or "<project> (field project)". */
@@ -1070,18 +1166,25 @@ function StatusCell({
   ownTick?: boolean;
   /** Where the value comes from, for the title. */
   origin: string;
+  /** How many are needed, where stated (a check that takes a quantity). */
+  quantity?: number | null;
+  /** The number is the well's own (not its field project's). */
+  quantityOwn?: boolean;
   editable: boolean;
   busy: boolean;
   onStatus: (next: CheckStatus) => void;
   /** Reset the well to its field project — only where there is one to follow. */
   onReset?: () => void;
   onNote: () => void;
+  /** Open the quantity editor — only for a check that takes a quantity. */
+  onQuantity?: () => void;
 }) {
   const label = sheetLabel(status);
   const title = [
     `${check.label} for ${subject}: ${label}`,
     origin,
     ownTick ? "applies — set on this well" : "",
+    quantity !== null ? `${quantity} needed${quantityOwn ? " (set on this well)" : ""}` : "",
     note ? `Note: ${note}` : "",
   ]
     .filter(Boolean)
@@ -1104,6 +1207,7 @@ function StatusCell({
           {markOf(status)}
         </span>
       )}
+      {quantity !== null && <QuantityMark quantity={quantity} />}
     </>
   );
   const cellClass = cn("absolute inset-0 flex items-center justify-center", fillOf(status));
@@ -1154,6 +1258,14 @@ function StatusCell({
           <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="flex-1">{note ? "Edit note…" : "Add note…"}</span>
         </DropdownMenuItem>
+        {onQuantity && (
+          <DropdownMenuItem onClick={onQuantity} className="gap-2.5 py-2">
+            <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="flex-1">
+              {quantity !== null ? `Quantity (${quantityLabel(quantity)})…` : "Set quantity…"}
+            </span>
+          </DropdownMenuItem>
+        )}
         {onReset && (
           <DropdownMenuItem onClick={onReset} className="gap-2.5 py-2">
             <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1162,6 +1274,143 @@ function StatusCell({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** "×2" in a cell's corner: how many are needed. */
+function QuantityMark({ quantity }: { quantity: number }) {
+  return (
+    <span
+      aria-hidden
+      className="absolute bottom-0.5 right-1 text-[10px] font-semibold leading-none tabular-nums"
+      data-quantity={quantity}
+    >
+      {quantityLabel(quantity)}
+    </span>
+  );
+}
+
+/** A small number field that saves when left (or on Enter): a whole number
+ *  1–999, or empty for none stated. Used where a field project's values are
+ *  set. Remount it (``key``) when the stored value changes. */
+function QuantityField({
+  label,
+  value,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  value: number | null;
+  disabled: boolean;
+  onCommit: (value: number | null) => void;
+}) {
+  const [text, setText] = useState(String(value ?? ""));
+  const parsed = parseQuantity(text);
+  const commit = () => {
+    if (parsed === "invalid") {
+      toast.error(`A quantity is a whole number from ${MIN_QUANTITY} to ${MAX_QUANTITY}.`);
+      setText(String(value ?? ""));
+    } else if (parsed !== value) {
+      onCommit(parsed);
+    }
+  };
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      maxLength={3}
+      aria-label={label}
+      title="How many are needed for the whole field project — leave empty for none stated"
+      placeholder="Qty"
+      value={text}
+      disabled={disabled}
+      aria-invalid={parsed === "invalid"}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      className="h-6 w-12 rounded border border-input bg-background px-1 text-center text-xs tabular-nums text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+    />
+  );
+}
+
+/** How many of one type a target needs: a whole number, or none. */
+function QuantityDialog({
+  quantity,
+  onClose,
+  onSave,
+}: {
+  quantity: QuantityTarget;
+  onClose: () => void;
+  onSave: (value: number | null) => Promise<void>;
+}) {
+  const { check, name, own, followed, target } = quantity;
+  const [text, setText] = useState(String(own ?? ""));
+  const [busy, setBusy] = useState(false);
+  const parsed = parseQuantity(text);
+  const forWell = target.scope === "well";
+  const follows = forWell && !!target.well_project;
+  const save = async (value: number | null) => {
+    setBusy(true);
+    await onSave(value);
+    setBusy(false);
+  };
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            Quantity — {check.label} · {name}
+          </DialogTitle>
+          <DialogDescription>
+            {forWell
+              ? follows
+                ? `How many ${name} needs. Leave it empty to follow its field project${followed !== null ? ` (${quantityLabel(followed)})` : ""}.`
+                : `How many ${name} needs. Leave it empty for none stated.`
+              : "How many the whole field project needs. Its wells show this number unless a well has its own; wells are not added together."}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (parsed !== "invalid") void save(parsed);
+          }}
+          className="space-y-3"
+        >
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={3}
+            autoFocus
+            aria-label="Quantity"
+            aria-invalid={parsed === "invalid"}
+            placeholder={followed !== null ? String(followed) : "None stated"}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="h-9 w-28 rounded-md border border-input bg-background/60 px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {parsed === "invalid" && (
+            <p className="text-xs text-red-500" role="alert">
+              A whole number from {MIN_QUANTITY} to {MAX_QUANTITY} — or leave it empty.
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || parsed === "invalid" || parsed === own}>
+              {busy ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1235,6 +1484,7 @@ function Legend({
   tickList,
   categories,
   projectOnly,
+  quantity,
 }: {
   statuses: readonly CheckStatus[];
   /** The team has a tick list: blank and dashed cells exist. */
@@ -1243,6 +1493,8 @@ function Legend({
   categories: boolean;
   /** The team has checks set on the field project only: merged cells. */
   projectOnly: boolean;
+  /** The team has checks that take a quantity: "×2" in a cell. */
+  quantity: boolean;
 }) {
   const shown = [
     ...LEGEND_ORDER.filter((s) => statuses.includes(s)),
@@ -1283,6 +1535,14 @@ function Legend({
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-foreground/70" />
         set on this well (otherwise it follows its field project)
       </span>
+      {quantity && (
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <span aria-hidden className="text-[10px] font-semibold tabular-nums text-foreground/80">
+            ×2
+          </span>
+          how many are needed (a group shows its total)
+        </span>
+      )}
       {categories && (
         <span className="text-muted-foreground">
           A group shows the worst of its selected types — click its heading to see each one.

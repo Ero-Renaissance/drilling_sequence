@@ -182,7 +182,9 @@ async def test_the_admin_detail_reads_like_the_migration_seed(
     come back starting ticked."""
     await _make_admin(client, db)
     await seed_core_logistics_checks(db)
-    seeded = next(d for d in equipment_definitions() if d["code"] == "PSV")
+    # As 039 seeded it — before migration 041 let it take a quantity, which the
+    # admin detail words ahead of the category (the ending is unchanged).
+    seeded = next(d for d in migration_039().seed_checks() if d["code"] == "PSV")
     body = {k: v for k, v in seeded.items() if k != "tag_list"} | {"code": "PSX"}
     resp = await client.post("/api/admin/readiness/checks", json=body)
     assert resp.status_code == 201, resp.text
@@ -505,4 +507,6 @@ async def test_catalogs_frozen_before_039_read_as_starting_ticked_with_no_catego
 def test_builtin_definitions_fill_the_phase_7_fields() -> None:
     for d in builtin_definitions():
         assert d["category"] == "" and d["applies_by_default"] is True
-        assert list(d)[-2:] == ["category", "applies_by_default"]
+        # ...and migration 041's: the original gates take no quantity.
+        assert d["takes_quantity"] is False
+        assert list(d)[-3:] == ["category", "applies_by_default", "takes_quantity"]

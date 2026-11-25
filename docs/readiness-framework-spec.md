@@ -1896,6 +1896,13 @@ Updated **in the same commit as the code that changes them**, not before:
     tiles still count field projects (decision 43), so tile and page read
     different units by design. The checks without a category are not called
     "core". Spec: `docs/equipment-quantity-spec.md` §2.
+45. **Equipment quantity (2026-11-25, migration 041):** a check may take a
+    quantity — how many of that type a target needs, 1–999, blank until stated.
+    Information only: no rollup reads it. A field project's number is the whole
+    field project's need; a well repeats it until it has its own; wells are
+    never added together. Its own table (`readiness_quantities`), so it survives
+    deselecting; it moves with the status and the tick on a rename. Spec and
+    as-built notes: `docs/equipment-quantity-spec.md` §3.
 
 ## 12. Open questions
 

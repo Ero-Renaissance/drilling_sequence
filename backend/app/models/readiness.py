@@ -35,12 +35,14 @@ from typing import Any, Final, Protocol
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
     event,
+    false,
     func,
     true,
 )
@@ -107,6 +109,11 @@ STATUS_SETS: Final[dict[str, dict[str, Any]]] = {
 # The status a Project gate is set to when it doesn't apply. Other teams' checks
 # never pick it since phase 6: they untick the check instead (spec §3.3, §3.8).
 NA_STATUS: Final = "N/A"
+
+# Equipment quantity (docs/equipment-quantity-spec.md §3.2): a whole number in
+# this range. Zero is not a quantity — the type is deselected instead.
+MIN_QUANTITY: Final = 1
+MAX_QUANTITY: Final = 999
 
 # Controlled multi-select lists a check may carry (its items are admin-managed
 # rows in readiness_tag_items). "equipment" = the nominated equipment types.
@@ -374,6 +381,14 @@ class ReadinessCheck(Base):
     applies_by_default: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
+    # Equipment quantity (docs/equipment-quantity-spec.md §3, migration 041).
+    # True = a target may state HOW MANY of this type it needs
+    # (``ReadinessQuantity``). Admin-editable: it affects no figure, so turning
+    # it off only hides the numbers, which are kept. Always False for a check
+    # that locks with the plan.
+    takes_quantity: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
 
 # ── Values ──────────────────────────────────────────────────────────────────
@@ -477,6 +492,62 @@ class ReadinessApplicability(Base):
     # False = doesn't apply; True = applies (a well's own choice, or a field
     # project nominating a check that starts unticked).
     applies: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ReadinessQuantity(Base):
+    """How many of one equipment type a target needs in one campaign
+    (docs/equipment-quantity-spec.md §3) — "2 PSVs". Only for a check that
+    ``takes_quantity``; information beside the status: no figure reads it.
+
+    - ``scope="project"``: the need of the WHOLE field project. Its wells show
+      it until a well is given its own; wells are never added together.
+    - ``scope="well"``: the well's own number, kept until it is cleared ("Reset
+      to project").
+    - No row: not stated — a field project shows no number, a well follows its
+      field project.
+
+    Stored apart from the status entry and the applicability row, so the number
+    survives deselecting the type (an applicability row is deleted when a choice
+    equals the check's default). Keyed exactly like them (names, "" sentinels):
+    it survives a CSV replace and follows a rename with them.
+    """
+
+    __tablename__ = "readiness_quantities"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "check_code",
+            "scope",
+            "well_project",
+            "well_name",
+            "activity_type",
+            name="uq_readiness_quantity",
+        ),
+        CheckConstraint(
+            f"quantity >= {MIN_QUANTITY} AND quantity <= {MAX_QUANTITY}",
+            name="ck_readiness_quantity_range",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # The CAMPAIGN (code: Project) this number belongs to.
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    check_code: Mapped[str] = mapped_column(
+        ForeignKey("readiness_checks.code"), nullable=False
+    )
+    scope: Mapped[str] = mapped_column(String(8), nullable=False, default="project")
+    well_project: Mapped[str] = mapped_column(String(256), nullable=False)
+    well_name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    activity_type: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

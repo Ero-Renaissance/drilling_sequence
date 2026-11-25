@@ -93,6 +93,11 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # that didn't apply (no icon, not counted). No tags: Nominated
             # Equipment is withdrawn.
             values[c.code] = {"status": cell_status(v), "source": v.source}
+            # How many of this type were needed at submission, where stated
+            # (docs/equipment-quantity-spec.md §3.2) — only on a check that
+            # applies. Recorded, never compared: it isn't part of the diff.
+            if v.applies and v.quantity is not None:
+                values[c.code]["quantity"] = v.quantity
         return values
     # Resource contracts (rig or HWU) drive the contract-expiry marker and are a
     # material part of the plan under approval, so capture each activity's contract

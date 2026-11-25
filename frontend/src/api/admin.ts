@@ -49,14 +49,18 @@ export interface CheckCreate {
   /** False = "starts unticked" — fixed at creation (never on a PATCH). A check
    *  that locks with the plan can't start unticked (422). Omitted = true. */
   applies_by_default?: boolean;
+  /** A target may state how many of this type it needs (equipment quantity).
+   *  Never on a check that locks with the plan (422). Omitted = false. */
+  takes_quantity?: boolean;
 }
 
-/** Only label, icon, order and category are editable — the rest (team, status
- *  set, scope, lock behaviour, "starts unticked") is fixed at creation; the
- *  server refuses any other field (422). `category: ""` clears it; a category on
- *  a check that locks with the plan is refused (422). */
+/** Only label, icon, order, category and "takes a quantity" are editable — the
+ *  rest (team, status set, scope, lock behaviour, "starts unticked") is fixed at
+ *  creation; the server refuses any other field (422). `category: ""` clears
+ *  it; a category — or a quantity — on a check that locks with the plan is
+ *  refused (422). */
 export type CheckUpdate = Partial<
-  Pick<AdminCatalogCheck, "label" | "icon_key" | "sort_order" | "category">
+  Pick<AdminCatalogCheck, "label" | "icon_key" | "sort_order" | "category" | "takes_quantity">
 >;
 
 export const adminApi = {

@@ -14,6 +14,11 @@ Phase 6 (spec §4.4): a check's value at a key is a PAIR — its status entry an
 its applicability row (whether it applies there). They move together: if the new
 key already has either one for that check, neither moves. The audit event names
 any choice that moved ("NAV: does not apply").
+
+Equipment quantity (docs/equipment-quantity-spec.md §3.2): the number a target
+states for a check is a third part of its value at a key. It moves with the
+other two, and none of the three moves when the new key already has any of them
+for that check. The audit event names a number that moved ("PSV: quantity 2").
 """
 import logging
 import uuid
@@ -22,7 +27,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
-from app.models.readiness import ReadinessApplicability, ReadinessEntry
+from app.models.readiness import ReadinessApplicability, ReadinessEntry, ReadinessQuantity
 from app.services.audit import ENTITY_READINESS, governance_event
 
 logger = logging.getLogger(__name__)
@@ -61,8 +66,9 @@ async def _others_use(
     return (await db.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
-# The two halves of a check's value at a key: its status and whether it applies.
-_PAIR = (ReadinessEntry, ReadinessApplicability)
+# The parts of a check's value at a key: its status, whether it applies, and
+# how many are needed. They move together or not at all.
+_PAIR = (ReadinessEntry, ReadinessApplicability, ReadinessQuantity)
 
 
 def _at(model, project_id: uuid.UUID, scope: str, key: WellKey):  # type: ignore[no-untyped-def]
@@ -83,12 +89,14 @@ async def _move(
     new: WellKey,
 ) -> tuple[list[str], list[str]]:
     """Re-key ``scope`` values from ``old`` to ``new``, per check: the status
-    entry and the applicability row move as a pair, and neither moves when the
-    new key already has either one for that check. Returns (what moved — each
-    code, naming any applicability choice that moved with it, e.g.
-    "NAV: does not apply"; the codes left behind because the new key had one)."""
-    at_old: dict[str, list[ReadinessEntry | ReadinessApplicability]] = {}
+    entry, the applicability row and the quantity move together, and none moves
+    when the new key already has any of them for that check. Returns (what moved
+    — each code, naming any applicability choice or quantity that moved with it,
+    e.g. "NAV: does not apply", "PSV: applies, quantity 2"; the codes left
+    behind because the new key had one)."""
+    at_old: dict[str, list[ReadinessEntry | ReadinessApplicability | ReadinessQuantity]] = {}
     choices: dict[str, bool] = {}
+    quantities: dict[str, int] = {}
     for model in _PAIR:
         for value in (
             await db.execute(select(model).where(*_at(model, project_id, scope, old)))
@@ -96,9 +104,11 @@ async def _move(
             at_old.setdefault(value.check_code, []).append(value)
             if isinstance(value, ReadinessApplicability):
                 choices[value.check_code] = bool(value.applies)
+            elif isinstance(value, ReadinessQuantity):
+                quantities[value.check_code] = value.quantity
     if not at_old:
         return [], []
-    # Either half at the new key keeps the whole pair where it is.
+    # Any part at the new key keeps the whole value where it is.
     taken: set[str] = set()
     for model in _PAIR:
         taken.update(
@@ -117,10 +127,12 @@ async def _move(
             continue
         for value in at_old[code]:
             value.well_project, value.well_name, value.activity_type = new
+        named = []
         if code in choices:
-            moved.append(f"{code}: {'applies' if choices[code] else 'does not apply'}")
-        else:
-            moved.append(code)
+            named.append("applies" if choices[code] else "does not apply")
+        if code in quantities:
+            named.append(f"quantity {quantities[code]}")
+        moved.append(f"{code}: {', '.join(named)}" if named else code)
     return moved, kept
 
 

@@ -46,6 +46,7 @@ from app.models.readiness import (
     STATUS_SETS,
     ReadinessApplicability,
     ReadinessEntry,
+    ReadinessQuantity,
 )
 
 WellKey = tuple[str, str, str]  # (well_project or "", well_name, activity_type)
@@ -63,6 +64,8 @@ class CheckLike(Protocol):
     locks_with_plan: bool
     # Phase 7: False = the check starts unticked (spec §3.9).
     applies_by_default: bool
+    # A target may state how many of this type it needs.
+    takes_quantity: bool
 
 
 @dataclass
@@ -74,6 +77,11 @@ class Effective:
     applies: bool = True  # False: the check doesn't apply here (unticked)
     # Where the TICK comes from; "default" = the check's own default (no row).
     applies_source: Source = "default"
+    # How many of this type the target needs (docs/equipment-quantity-spec.md
+    # §3); None = not stated. Information only — no rollup reads it.
+    quantity: int | None = None
+    # Where the NUMBER comes from; "default" = not stated anywhere.
+    quantity_source: Source = "default"
 
 
 @dataclass
@@ -89,10 +97,14 @@ class EntryIndex:
     well_applies: dict[tuple[str, str, str, str], ReadinessApplicability] = field(
         default_factory=dict
     )
+    project_quantity: dict[tuple[str, str], ReadinessQuantity] = field(default_factory=dict)
+    well_quantity: dict[tuple[str, str, str, str], ReadinessQuantity] = field(
+        default_factory=dict
+    )
 
 
 async def load_index(db: AsyncSession, project_id: uuid.UUID, codes: list[str]) -> EntryIndex:
-    """The campaign's entries and applicability rows for ``codes``."""
+    """The campaign's entries, applicability rows and quantities for ``codes``."""
     if not codes:
         return EntryIndex()
     entries = (
@@ -111,7 +123,23 @@ async def load_index(db: AsyncSession, project_id: uuid.UUID, codes: list[str]) 
             )
         )
     ).scalars().all()
+    quantities = (
+        await db.execute(
+            select(ReadinessQuantity).where(
+                ReadinessQuantity.project_id == project_id,
+                ReadinessQuantity.check_code.in_(codes),
+            )
+        )
+    ).scalars().all()
     return EntryIndex(
+        project_quantity={
+            (q.well_project, q.check_code): q for q in quantities if q.scope == "project"
+        },
+        well_quantity={
+            (q.well_project, q.well_name, q.activity_type, q.check_code): q
+            for q in quantities
+            if q.scope == "well"
+        },
         project={(e.well_project, e.check_code): e for e in entries if e.scope == "project"},
         well={
             (e.well_project, e.well_name, e.activity_type, e.check_code): e
@@ -138,9 +166,10 @@ async def load_target_index(
     activity_type: str = "",
 ) -> EntryIndex:
     """``load_index`` for ONE write's target: the campaign's rows for ``codes``,
-    with the target's OWN status entries and applicability rows found by SQL
-    equality — the database's comparison, the one its unique keys
-    (``uq_readiness_entry``, ``uq_readiness_applicability``) use — and keyed
+    with the target's OWN status entries, applicability rows and quantities
+    found by SQL equality — the database's comparison, the one its unique keys
+    (``uq_readiness_entry``, ``uq_readiness_applicability``,
+    ``uq_readiness_quantity``) use — and keyed
     under the target's names as given.
 
     So a write decides update vs insert the way the unique key will judge it: on
@@ -156,11 +185,16 @@ async def load_target_index(
         return index
     names = (well_project, well_name, activity_type)
     if scope == "project":
-        maps: tuple[dict, dict] = (index.project, index.project_applies)
+        maps: tuple[dict, dict, dict] = (
+            index.project,
+            index.project_applies,
+            index.project_quantity,
+        )
     else:
-        maps = (index.well, index.well_applies)
+        maps = (index.well, index.well_applies, index.well_quantity)
 
-    for model, mapping in zip((ReadinessEntry, ReadinessApplicability), maps, strict=True):
+    models = (ReadinessEntry, ReadinessApplicability, ReadinessQuantity)
+    for model, mapping in zip(models, maps, strict=True):
         rows = (
             await db.execute(
                 select(model).where(
@@ -230,12 +264,60 @@ def well_applies(index: EntryIndex, check: CheckLike, key: WellKey) -> tuple[boo
     return project_applies(index, check, wp)
 
 
+# ── How many? ───────────────────────────────────────────────────────────────
+
+
+def _takes_quantity(check: CheckLike) -> bool:
+    """Whether ``check`` takes a quantity. A check object from before migration
+    041 (a frozen definition, a not-yet-flushed row) has no such setting and
+    reads as the column's default: it takes none."""
+    return bool(getattr(check, "takes_quantity", False))
+
+
+def project_quantity(
+    index: EntryIndex, check: CheckLike, well_project: str
+) -> tuple[int | None, Source]:
+    """How many of ``check`` a field project needs — the need of the WHOLE field
+    project — and where the number comes from: its own row ("project"), else
+    not stated (None, "default"). Only for a check that takes a quantity and is
+    enabled at project level."""
+    if not _takes_quantity(check) or not check.applies_project or not well_project:
+        return None, "default"
+    row = index.project_quantity.get((well_project, check.code))
+    return (None, "default") if row is None else (row.quantity, "project")
+
+
+def well_quantity(index: EntryIndex, check: CheckLike, key: WellKey) -> tuple[int | None, Source]:
+    """How many of ``check`` a well shows: its own number ("well", checks
+    enabled at well level), else its field project's ("project") — inherited,
+    like the status, only while the check applies to the field project — else
+    not stated. Wells are never added together: a well following its field
+    project just repeats the project's number."""
+    if not _takes_quantity(check):
+        return None, "default"
+    wp, wn, at = key
+    if check.applies_well:
+        own = index.well_quantity.get((wp, wn, at, check.code))
+        if own is not None:
+            return own.quantity, "well"
+    if check.applies_project and wp and project_applies(index, check, wp)[0]:
+        return project_quantity(index, check, wp)
+    return None, "default"
+
+
 # ── Effective cells ─────────────────────────────────────────────────────────
 
 
 def project_value(index: EntryIndex, check: CheckLike, well_project: str) -> Effective:
-    """A field project's cell: its own entry, else the default; and whether the
-    check applies to it."""
+    """A field project's cell: its own entry, else the default; whether the
+    check applies to it; and how many it needs, where stated."""
+    cell = _project_status(index, check, well_project)
+    cell.quantity, cell.quantity_source = project_quantity(index, check, well_project)
+    return cell
+
+
+def _project_status(index: EntryIndex, check: CheckLike, well_project: str) -> Effective:
+    """``project_value`` without the quantity."""
     applies, applies_source = project_applies(index, check, well_project)
     entry = index.project.get((well_project, check.code)) if well_project else None
     if entry is None:
@@ -259,7 +341,15 @@ def well_value(index: EntryIndex, check: CheckLike, key: WellKey) -> Effective:
     """A well's cell for ``check`` (any scope — a project-only check reads its
     field project's value). Status: the well's own entry, else the field
     project's entry while the check applies to the field project, else the
-    default (spec §3.8 table)."""
+    default (spec §3.8 table). The quantity inherits on the same rule
+    (``well_quantity``)."""
+    cell = _well_status(index, check, key)
+    cell.quantity, cell.quantity_source = well_quantity(index, check, key)
+    return cell
+
+
+def _well_status(index: EntryIndex, check: CheckLike, key: WellKey) -> Effective:
+    """``well_value`` without the quantity."""
     wp, wn, at = key
     applies, applies_source = well_applies(index, check, key)
     own = index.well.get((wp, wn, at, check.code)) if check.applies_well else None
