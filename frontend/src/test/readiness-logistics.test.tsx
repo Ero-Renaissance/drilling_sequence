@@ -31,7 +31,7 @@ import type {
   TeamReadiness,
 } from "@/api/readiness";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
-import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
+import { ReadinessSheet } from "@/components/readiness/ReadinessSheet";
 import { Toaster } from "@/components/ui/toaster";
 import { FrozenCatalogProvider } from "@/components/readiness/catalog";
 import {
@@ -203,60 +203,66 @@ beforeEach(() => {
   );
 });
 
-/** The grid at `path` — `?view=wells` opens the Wells view (spec §8.8: one view
- *  at a time, Projects by default). */
+/** The Logistics page — the one sheet every team uses: a row per well. */
 function renderGrid(path = "/") {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <TeamReadinessGrid projectId={PID} teamCode="logistics" />
+      <ReadinessSheet projectId={PID} teamCode="logistics" />
       <Toaster />
     </MemoryRouter>,
   );
 }
 
-const rowOf = (region: HTMLElement, name: string) => within(region).getByText(name).closest("tr")!;
+const sheet = () => screen.findByRole("table", { name: "Logistics execution readiness" });
+const rowOf = (table: HTMLElement, well: string) => within(table).getByText(well).closest("tr")!;
+/** A target's **Checks…** — a well's, or "<project> (field project)". The first
+ *  well row of a field project also holds the project's merged cell, so the
+ *  button is always found by the target it names. */
+const checksButton = (target: string) =>
+  screen.getByRole("button", { name: new RegExp(`^Checks… for ${target.replace(/[()]/g, "\\$&")}`) });
+const BONGA = "Bonga Phase 3 (field project)";
 
-describe("Logistics grid — checks that apply", () => {
-  it("draws an unticked check as a muted '—' — never the status kept underneath", async () => {
+describe("Logistics page — checks that apply", () => {
+  it("draws an unticked check as a dashed '—' — never the status kept underneath", async () => {
     renderGrid();
-    const projects = await screen.findByRole("region", { name: "Field projects" });
-    const bonga = rowOf(projects, "Bonga Phase 3");
-    expect(within(bonga).getByTitle("Not applicable")).toHaveTextContent("—");
-    expect(within(bonga).queryByTitle(/Naval Clearance: Completed/)).not.toBeInTheDocument();
-    // The inheritance rule is said once, over the Field projects table — not in every row.
-    expect(
-      within(projects).getByText("A field project's ticks apply to its wells unless a well has its own choice."),
-    ).toBeInTheDocument();
-    expect(within(bonga).queryByText(/apply to its wells|applies to its wells/)).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("radio", { name: "Wells" }));
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    // W-1 follows the untick.
-    expect(within(rowOf(wells, "W-1")).getByTitle("Not applicable")).toBeInTheDocument();
+    const table = await sheet();
+    // W-1 follows its field project's untick.
+    const w1 = rowOf(table, "W-1");
+    expect(within(w1).getByTitle("Not applicable")).toHaveTextContent("—");
+    expect(within(w1).queryByLabelText(/^Naval Clearance for W-1/)).not.toBeInTheDocument();
     // W-2 made its own choice: NAV applies there, marked "set on this well".
-    const w2 = rowOf(wells, "W-2");
-    expect(within(w2).getByTitle("Naval Clearance: On Track")).toBeInTheDocument();
-    expect(within(w2).getByTitle("Applies — set on this well")).toBeInTheDocument();
-    // LONE-1 unticked L-BUD itself (a plain tick — nothing to follow), and the
-    // project-only PRM carries nothing without a field project: both "—".
-    const lone = rowOf(wells, "LONE-1");
-    expect(within(lone).getAllByTitle("Not applicable")).toHaveLength(2);
-    expect(within(lone).queryByTitle(/Permit/)).not.toBeInTheDocument();
+    expect(
+      within(rowOf(table, "W-2")).getByLabelText(
+        /^Naval Clearance for W-2: On track \/ Progressing — not set yet — applies — set on this well/,
+      ),
+    ).toBeInTheDocument();
+    // LONE-1 unticked L-BUD itself (a plain tick — nothing to follow): "—". The
+    // project-only PRM carries nothing without a field project: blank.
+    const lone = rowOf(table, "LONE-1");
+    expect(within(lone).getAllByTitle("Not applicable")).toHaveLength(1);
+    expect(lone.querySelectorAll("[data-not-selected]")).toHaveLength(1);
+    expect(within(lone).queryByLabelText(/^Permit/)).not.toBeInTheDocument();
+    // Bonga's PRM is one cell for both its wells.
+    const permit = within(table).getAllByLabelText(/^Permit for Bonga Phase 3 \(field project\): Behind schedule/);
+    expect(permit).toHaveLength(1);
+    expect(permit[0].closest("td")).toHaveAttribute("rowspan", "2");
   });
 
-  it("names the not-counted cells 'not applicable', not N/A, and keys the dash", async () => {
-    renderGrid("/?view=wells");
-    await screen.findByRole("region", { name: "Wells" });
+  it("names the not-counted cells 'not applicable', not N/A, and keys the dashed and blank cells", async () => {
+    renderGrid();
+    await sheet();
     expect(screen.getByTestId("readiness-summary")).toHaveAttribute(
       "title",
       expect.stringContaining("a check that doesn't apply isn't counted"),
     );
     expect(screen.getByTestId("readiness-summary").getAttribute("title")).not.toMatch(/N\/A/);
-    // The legend: no N/A for team checks, a "—" key instead.
-    const key = screen.getByTestId("status-key");
-    expect(within(key).queryByText("N/A")).not.toBeInTheDocument();
-    expect(within(key).getByText("Not applicable")).toBeInTheDocument();
-    expect(key).toHaveTextContent("On TrackBehindCompleted—Not applicable");
+    // The key: three statuses for team checks — no N/A, no Not started — then
+    // the dashed "Not applicable" and the blank "Not selected".
+    const key = screen.getByLabelText("Key");
+    expect(key).toHaveTextContent(
+      "✓Completed / In place•On track / Progressing!Behind schedule—Not applicableNot selected",
+    );
+    expect(within(key).queryByText("Not started")).not.toBeInTheDocument();
   });
 
   it("sums the server's figures: an unticked check, Behind underneath, is never counted", async () => {
@@ -285,9 +291,9 @@ describe("Logistics grid — checks that apply", () => {
       },
     ];
     server.use(http.get("/api/projects/:projectId/readiness/teams/:team", () => HttpResponse.json(data)));
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    expect(within(rowOf(wells, "W-1")).queryByTitle(/Naval Clearance: Behind/)).not.toBeInTheDocument();
+    renderGrid();
+    const table = await sheet();
+    expect(within(rowOf(table, "W-1")).queryByLabelText(/^Naval Clearance for W-1/)).not.toBeInTheDocument();
     const summary = screen.getByTestId("readiness-summary");
     expect(summary).toHaveTextContent("100%complete");
     expect(summary).toHaveTextContent("0behind");
@@ -297,26 +303,17 @@ describe("Logistics grid — checks that apply", () => {
     expect(summary).toHaveTextContent("2 wells · 2026–2028");
   });
 
-  it("offers On Track, Behind and Completed in a team check's menu — no N/A", async () => {
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    await userEvent.click(within(rowOf(wells, "W-1")).getByTitle(/Budget Availability/));
-    const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
-      "On Track",
-      "Behind",
-      "Completed",
-    ]);
-  });
-
   it("a field project's picker: one request with the changed ticks; the rows redraw from the response", async () => {
     const after = grid();
     after.project_rows[0].checks["L-BUD"] = cell("Completed", false);
     after.project_rows[0].checks.NAV = cell("Completed", true);
+    // W-1 follows its field project: NAV applies again, L-BUD doesn't.
+    after.well_rows[0].checks["L-BUD"] = wcell("Completed", false, "project", "project");
+    after.well_rows[0].checks.NAV = wcell("Completed", true, "project", "project");
     tickResponse = { project_rows: after.project_rows, well_rows: after.well_rows.slice(0, 2) };
     renderGrid();
-    const projects = await screen.findByRole("region", { name: "Field projects" });
-    await userEvent.click(within(rowOf(projects, "Bonga Phase 3")).getByRole("button", { name: /^Checks…/ }));
+    await sheet();
+    await userEvent.click(checksButton(BONGA));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     expect(dialog).toHaveTextContent("Applies to its wells unless a well has its own choice.");
     expect(dialog).toHaveTextContent("1 well has its own choice.");
@@ -340,15 +337,15 @@ describe("Logistics grid — checks that apply", () => {
       },
     ]);
     // Re-ticked NAV brings back the Completed kept underneath; L-BUD is "—".
-    const bonga = rowOf(screen.getByRole("region", { name: "Field projects" }), "Bonga Phase 3");
-    expect(within(bonga).getByTitle("Naval Clearance: Completed")).toBeInTheDocument();
-    expect(within(bonga).queryByTitle(/Budget Availability/)).not.toBeInTheDocument();
+    const w1 = rowOf(await sheet(), "W-1");
+    expect(within(w1).getByLabelText(/^Naval Clearance for W-1: Completed \/ In place/)).toBeInTheDocument();
+    expect(within(w1).queryByLabelText(/^Budget Availability for W-1/)).not.toBeInTheDocument();
   });
 
   it("a well's picker: ticks 'from project', its own choice with Follow project, project-only checks read-only", async () => {
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
+    renderGrid();
+    await sheet();
+    await userEvent.click(checksButton("W-2"));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
 
     const item = (code: string) =>
@@ -379,9 +376,9 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("a box click sends the explicit tick — never null, even where it matches the field project as loaded", async () => {
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
+    renderGrid();
+    await sheet();
+    await userEvent.click(checksButton("W-2"));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     const item = (code: string) =>
       within(dialog).getByRole("checkbox", { name: new RegExp(`^${code}`) }).closest("li")!;
@@ -414,9 +411,9 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("only Follow project sends null", async () => {
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
+    renderGrid();
+    await sheet();
+    await userEvent.click(checksButton("W-2"));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Follow project for NAV" }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -425,9 +422,9 @@ describe("Logistics grid — checks that apply", () => {
   });
 
   it("a well with no field project ticks plainly — no 'from project', no Follow project", async () => {
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    await userEvent.click(within(rowOf(wells, "LONE-1")).getByRole("button", { name: /^Checks…/ }));
+    renderGrid();
+    await sheet();
+    await userEvent.click(checksButton("LONE-1"));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     expect(within(dialog).getAllByRole("checkbox").map((b) => b.getAttribute("aria-label"))).toEqual([
       "L-BUD — Budget Availability",
@@ -451,8 +448,8 @@ describe("Logistics grid — checks that apply", () => {
       ),
     );
     renderGrid();
-    const projects = await screen.findByRole("region", { name: "Field projects" });
-    await userEvent.click(within(rowOf(projects, "Bonga Phase 3")).getByRole("button", { name: /^Checks…/ }));
+    await sheet();
+    await userEvent.click(checksButton(BONGA));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     await userEvent.click(within(dialog).getByRole("checkbox", { name: /^L-BUD/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -464,16 +461,15 @@ describe("Logistics grid — checks that apply", () => {
       screen.getByRole("region", { name: "Notifications", hidden: true }),
     ).toHaveTextContent("Insufficient role for this action");
     expect(screen.getByRole("dialog", { name: "Logistics checks that apply" })).toBeInTheDocument();
-    // The grid (behind the modal) is as it was.
-    const bonga = rowOf(screen.getByRole("region", { name: "Field projects", hidden: true }), "Bonga Phase 3");
-    expect(within(bonga).getByTitle("Budget Availability: Completed")).toBeInTheDocument();
+    // The page (behind the modal) is as it was.
+    expect(screen.getByLabelText(/^Budget Availability for W-1: Completed \/ In place/)).toBeInTheDocument();
   });
 
   it("is read-only without the Logistics grant — the ticks show, nothing changes", async () => {
     currentUser = { id: "u2", is_admin: false, teams: ["wells"] };
-    renderGrid("/?view=wells");
-    const wells = await screen.findByRole("region", { name: "Wells" });
-    await userEvent.click(within(rowOf(wells, "W-2")).getByRole("button", { name: /^Checks…/ }));
+    renderGrid();
+    await sheet();
+    await userEvent.click(checksButton("W-2"));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     for (const box of within(dialog).getAllByRole("checkbox")) expect(box).toBeDisabled();
     expect(within(dialog).getByText("set on this well")).toBeInTheDocument();
@@ -486,8 +482,8 @@ describe("Logistics grid — checks that apply", () => {
   it("admins may tick any team's checks", async () => {
     currentUser = { id: "a1", is_admin: true, teams: [] };
     renderGrid();
-    const projects = await screen.findByRole("region", { name: "Field projects" });
-    await userEvent.click(within(rowOf(projects, "Bonga Phase 3")).getByRole("button", { name: /^Checks…/ }));
+    await sheet();
+    await userEvent.click(checksButton(BONGA));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     expect(within(dialog).getByRole("checkbox", { name: /^NAV/ })).toBeEnabled();
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeInTheDocument();
@@ -500,10 +496,27 @@ describe("status menus (spec §3.3, §8.7)", () => {
   const items = async () =>
     within(await screen.findByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent);
 
-  it("a team check on a FIELD-PROJECT row offers On Track, Behind and Completed — no N/A", async () => {
+  it("a team check's cell offers three statuses and a note — no N/A, no Not started", async () => {
     renderGrid();
-    const projects = await screen.findByRole("region", { name: "Field projects" });
-    await userEvent.click(within(rowOf(projects, "Bonga Phase 3")).getByTitle("Budget Availability: Completed"));
+    await userEvent.click(within(rowOf(await sheet(), "W-1")).getByLabelText(/^Budget Availability for W-1/));
+    expect(await items()).toEqual([
+      "On track / Progressing",
+      "Behind schedule",
+      "Completed / In place",
+      "Add note…",
+    ]);
+  });
+
+  it("'Set for all wells' offers the same three for a field project — and nothing for an unticked check", async () => {
+    renderGrid();
+    await sheet();
+    await userEvent.click(screen.getByRole("button", { name: "Set checks for all wells of Bonga Phase 3" }));
+    const list = await screen.findByRole("list", { name: "Checks of Bonga Phase 3" });
+    // NAV is unticked on Bonga: named, with no status to set.
+    const nav = within(list).getByText("NAV").closest("li")!;
+    expect(nav).toHaveTextContent("Not applicable");
+    expect(within(nav).queryByRole("button")).not.toBeInTheDocument();
+    await userEvent.click(within(list).getByRole("button", { name: /Budget Availability/ }));
     expect(await items()).toEqual(["On Track", "Behind", "Completed"]);
   });
 
@@ -518,25 +531,38 @@ describe("status menus (spec §3.3, §8.7)", () => {
     );
     render(
       <MemoryRouter>
-        <TeamReadinessGrid projectId={PID} teamCode="projects" canEditPlan />
+        <ReadinessSheet projectId={PID} teamCode="projects" canEditPlan />
       </MemoryRouter>,
     );
-    await screen.findByText("Bonga Phase 3");
-    await userEvent.click(screen.getAllByTitle(/: Not started$/)[0]);
-    expect(await items()).toEqual(["Not started", "On Track", "Behind", "Completed", "N/A"]);
+    const table = await screen.findByRole("table", { name: "Well execution readiness" });
+    await userEvent.click(within(table).getByLabelText(/^Well Permits for W-1: Not started/));
+    expect(await items()).toEqual([
+      "Not started",
+      "On track / Progressing",
+      "Behind schedule",
+      "Completed / In place",
+      "Not applicable",
+      "Add note…",
+    ]);
+    // No tick list on this page: these checks use N/A.
+    expect(screen.queryByRole("button", { name: /^Checks…/ })).not.toBeInTheDocument();
   });
 });
 
 // ── A tick save racing a status write's reload ───────────────────────────────
 
-describe("Logistics grid — a tick save while a status write's reload is in flight", () => {
+describe("Logistics page — a tick save while a status write's reload is in flight", () => {
   it("keeps the status just set AND the tick just saved", async () => {
-    // A small server: Bonga's L-BUD status and Egbema's NAV tick, read at
-    // request time. The reload after the status PUT (the 2nd read) is slow.
-    let bongaLbud: CheckStatus = "Completed";
+    // A small server: B-1's L-BUD status and Egbema's NAV tick, read at request
+    // time. The reload after the status PUT (the 2nd read) is slow.
+    let b1Lbud: CheckStatus = "Completed";
     let egbemaNav = true;
     let gets = 0;
     let releaseReload: () => void = () => {};
+    const well = (well_project: string, well_name: string, checks: TeamReadiness["well_rows"][number]["checks"]) => ({
+      well_project, well_name, activity_type: "Oil Development", activity_count: 1,
+      location: "LAND", start_date: "2026-01-01", focus_start: "2026-01-01", checks,
+    });
     const snapshot = (): TeamReadiness => ({
       team: LOGISTICS,
       checks: [LBUD, NAV],
@@ -544,7 +570,7 @@ describe("Logistics grid — a tick save while a status write's reload is in fli
       project_rows: [
         {
           well_project: "Bonga Phase 3", activity_count: 1, focus_start: "2026-01-01",
-          checks: { "L-BUD": cell(bongaLbud), NAV: cell("On Track") },
+          checks: { "L-BUD": cell("Completed"), NAV: cell("On Track") },
         },
         {
           well_project: "Egbema", activity_count: 1, focus_start: "2026-01-01",
@@ -552,14 +578,14 @@ describe("Logistics grid — a tick save while a status write's reload is in fli
         },
       ],
       well_rows: [
-        {
-          well_project: "Egbema", well_name: "E-1", activity_type: "Oil Development", activity_count: 1,
-          location: "LAND", start_date: "2026-01-01", focus_start: "2026-01-01",
-          checks: {
-            "L-BUD": wcell("On Track", true, "default", "project"),
-            NAV: wcell("On Track", egbemaNav, egbemaNav ? "default" : "project", "default"),
-          },
-        },
+        well("Bonga Phase 3", "B-1", {
+          "L-BUD": wcell(b1Lbud, true, "default", b1Lbud === "Behind" ? "well" : "project"),
+          NAV: wcell("On Track", true, "default", "default"),
+        }),
+        well("Egbema", "E-1", {
+          "L-BUD": wcell("On Track", true, "default", "project"),
+          NAV: wcell("On Track", egbemaNav, egbemaNav ? "default" : "project", "default"),
+        }),
       ],
     });
     server.use(
@@ -570,45 +596,45 @@ describe("Logistics grid — a tick save while a status write's reload is in fli
         return HttpResponse.json(body);
       }),
       http.put("/api/projects/:projectId/readiness/:code", () => {
-        bongaLbud = "Behind";
+        b1Lbud = "Behind";
         return HttpResponse.json({ ok: true });
       }),
       http.put("/api/projects/:projectId/readiness/teams/:team/applicability", () => {
         egbemaNav = false;
         const after = snapshot();
-        return HttpResponse.json({ project_rows: [after.project_rows[1]], well_rows: after.well_rows });
+        return HttpResponse.json({
+          project_rows: [after.project_rows[1]],
+          well_rows: after.well_rows.filter((r) => r.well_project === "Egbema"),
+        });
       }),
     );
     renderGrid();
-    const projects = await screen.findByRole("region", { name: "Field projects" });
-    const bonga = () => rowOf(screen.getByRole("region", { name: "Field projects" }), "Bonga Phase 3");
-    const egbema = () => rowOf(screen.getByRole("region", { name: "Field projects" }), "Egbema");
+    const table = await sheet();
+    const b1 = () => rowOf(screen.getByRole("table", { name: "Logistics execution readiness" }), "B-1");
+    const e1 = () => rowOf(screen.getByRole("table", { name: "Logistics execution readiness" }), "E-1");
 
-    // Set Bonga's L-BUD to Behind: saved, and its reload is now in flight.
-    await userEvent.click(within(rowOf(projects, "Bonga Phase 3")).getByTitle("Budget Availability: Completed"));
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Behind" }));
+    // Set B-1's L-BUD to Behind: saved, and its reload is now in flight.
+    await userEvent.click(within(rowOf(table, "B-1")).getByLabelText(/^Budget Availability for B-1/));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
     await waitFor(() => expect(gets).toBe(2));
 
     // Meanwhile, untick NAV on Egbema.
-    await userEvent.click(within(egbema()).getByRole("button", { name: /^Checks…/ }));
+    await userEvent.click(checksButton("Egbema (field project)"));
     const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
     await userEvent.click(within(dialog).getByRole("checkbox", { name: /^NAV/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     // Instant feedback from the response.
-    expect(within(egbema()).getByTitle("Not applicable")).toBeInTheDocument();
+    expect(within(e1()).getByTitle("Not applicable")).toBeInTheDocument();
 
     // The slow reload (L-BUD Behind, but NAV still ticked: it predates the
     // tick) lands now. Neither write may be lost.
     releaseReload();
     await new Promise((resolve) => setTimeout(resolve, 50));
     await waitFor(() =>
-      expect(within(bonga()).getByTitle(/^Budget Availability: /)).toHaveAttribute(
-        "title",
-        "Budget Availability: Behind",
-      ),
+      expect(within(b1()).getByLabelText(/^Budget Availability for B-1: Behind schedule/)).toBeInTheDocument(),
     );
-    expect(within(egbema()).getByTitle("Not applicable")).toBeInTheDocument();
-    expect(within(egbema()).queryByTitle(/^Naval Clearance: /)).not.toBeInTheDocument();
+    expect(within(e1()).getByTitle("Not applicable")).toBeInTheDocument();
+    expect(within(e1()).queryByLabelText(/^Naval Clearance for E-1/)).not.toBeInTheDocument();
   });
 });

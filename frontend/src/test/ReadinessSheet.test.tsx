@@ -23,7 +23,7 @@ vi.mock("@/store/auth", () => ({
     selector({ user: currentUser }),
 }));
 
-import { WellExecutionGrid } from "@/components/readiness/WellExecutionGrid";
+import { ReadinessSheet } from "@/components/readiness/ReadinessSheet";
 import { Toaster } from "@/components/ui/toaster";
 import { server } from "./mocks/server";
 import { mockGateTeam } from "./mocks/handlers";
@@ -83,7 +83,7 @@ beforeEach(() => {
 function renderGrid(canEditPlan = true, path = "/") {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <WellExecutionGrid projectId={PID} canEditPlan={canEditPlan} />
+      <ReadinessSheet projectId={PID} teamCode="projects" canEditPlan={canEditPlan} />
       <Toaster />
     </MemoryRouter>,
   );
@@ -93,7 +93,7 @@ const table = () => screen.findByRole("table", { name: "Well execution readiness
 const rowOf = (t: HTMLElement, well: string) => within(t).getByText(well).closest("tr")!;
 const cell = (row: HTMLElement, label: RegExp) => within(row).getByLabelText(label);
 
-describe("WellExecutionGrid — the layout", () => {
+describe("ReadinessSheet (Well Execution Readiness) — the layout", () => {
   it("groups wells by value stream, then field project, with the spud month under its year", async () => {
     renderGrid();
     const t = await table();
@@ -146,7 +146,7 @@ describe("WellExecutionGrid — the layout", () => {
   });
 });
 
-describe("WellExecutionGrid — the years shown", () => {
+describe("ReadinessSheet (Well Execution Readiness) — the years shown", () => {
   it("shows a spud column per year — three at most — and hides wells that spud outside them", async () => {
     renderGrid();
     const t = await table();
@@ -191,7 +191,7 @@ describe("WellExecutionGrid — the years shown", () => {
   });
 });
 
-describe("WellExecutionGrid — review fixes (PR 35)", () => {
+describe("ReadinessSheet (Well Execution Readiness) — review fixes (PR 35)", () => {
   it("shows the spud date the row is listed by, not an earlier completed activity's", async () => {
     // Completed work in 2025, work left from June 2027: listed for 2026–2028.
     const data = team();
@@ -246,7 +246,7 @@ describe("WellExecutionGrid — review fixes (PR 35)", () => {
   });
 });
 
-describe("WellExecutionGrid — editing", () => {
+describe("ReadinessSheet (Well Execution Readiness) — editing", () => {
   it("a cell's menu sets the status on that well, without sending a note", async () => {
     renderGrid();
     const t = await table();

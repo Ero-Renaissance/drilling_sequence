@@ -7,8 +7,8 @@ import type { YearRange } from "@/lib/readiness-window";
 import { ReadinessYearsPicker } from "./ReadinessWindow";
 
 /**
- * The toolbar above a readiness grid — the same on the Project gates page and
- * every team's grid: its title (and a team grid's Projects | Wells switch) and
+ * The toolbar above a readiness page — the same for every team's sheet and the
+ * All view: its title, an optional filter (the sheet's value stream) and
  * Refresh, then the years shown, the search and how many targets are listed
  * ("6 wells", or "2 of 6" while filtering).
  */
@@ -26,7 +26,7 @@ export function ReadinessToolbar({
   /** The campaign's plan is locked. Readiness stays editable — the chip says
    *  so, and that changes don't alter the revision's frozen record. */
   locked?: boolean;
-  /** The Projects | Wells switch (spec §8.8) — the Project gates page has one too. */
+  /** A control beside the title — the sheet's value-stream filter. */
   viewSwitch?: ReactNode;
   /** The years shown (1–3 at a time) — the page lists what spuds within them. */
   years: { value: YearRange; onChange: (next: YearRange) => void };

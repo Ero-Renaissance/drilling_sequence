@@ -309,7 +309,7 @@ describe("AllReadinessGrid", () => {
   });
 });
 
-describe("ReadinessTab — a team's view (spec §8.8)", () => {
+describe("ReadinessTab — one sheet for every team", () => {
   // The tab remembers its lens per browser.
   afterEach(() => window.localStorage.removeItem("ds.readiness-lens"));
 
@@ -317,9 +317,9 @@ describe("ReadinessTab — a team's view (spec §8.8)", () => {
     return <output data-testid="location">{useLocation().search}</output>;
   }
 
-  it("the All grid's Open lands on the team's Wells view; a lens change drops the view", async () => {
+  it("the All grid's Open lands on the team's sheet; a lens change keeps the years and drops the rest", async () => {
     render(
-      <MemoryRouter initialEntries={[`/projects/${PID}/readiness?lens=all`]}>
+      <MemoryRouter initialEntries={[`/projects/${PID}/readiness?lens=all&years=2&view=wells&project=Bonga`]}>
         <Routes>
           <Route
             path="/projects/:projectId/readiness"
@@ -333,18 +333,21 @@ describe("ReadinessTab — a team's view (spec §8.8)", () => {
         </Routes>
       </MemoryRouter>,
     );
-    // The All grid's rows are wells, so Open shows the team's wells.
+    // Open shows the team's page — the same sheet as every team's.
     await userEvent.click(await screen.findByRole("button", { name: "Unfold Logistics Execution Readiness" }));
     const header = screen.getByRole("button", { name: "Fold Logistics Execution Readiness" }).closest("th")!;
     await userEvent.click(within(header).getByRole("button", { name: "Open" }));
-    expect(await screen.findByRole("region", { name: "Wells" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("lens=logistics&view=wells");
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("lens=logistics"));
+    // No Projects | Wells switch on a team's page any more.
+    expect(screen.queryByRole("radiogroup", { name: "Show" })).not.toBeInTheDocument();
+    // The years stay; a view or project narrowing from an old link is dropped.
+    const query = screen.getByTestId("location").textContent ?? "";
+    expect(query).toContain("years=2");
+    expect(query).not.toContain("view=");
+    expect(query).not.toContain("project=");
 
-    // A lens change drops the view — it belonged to that team…
+    // The built-in team's page is the same sheet.
     await userEvent.click(screen.getByRole("radio", { name: "Well Execution Readiness" }));
-    await waitFor(() => expect(screen.getByTestId("location").textContent).not.toContain("view="));
-    // …so the team opens on its own view next time: Projects by default.
-    await userEvent.click(screen.getByRole("radio", { name: "Logistics Execution Readiness" }));
-    expect(await screen.findByRole("region", { name: "Field projects" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("lens=projects"));
   });
 });
