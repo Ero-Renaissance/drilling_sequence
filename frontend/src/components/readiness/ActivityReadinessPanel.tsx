@@ -369,6 +369,12 @@ export function ActivityReadinessPanel({
                           await load();
                           onChanged?.();
                         }}
+                        // A number saved on its own sends no tick request, so
+                        // it needs its own refresh.
+                        onQuantitySaved={async () => {
+                          await load();
+                          onChanged?.();
+                        }}
                       />
                     )
                   }

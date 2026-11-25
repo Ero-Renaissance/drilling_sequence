@@ -715,6 +715,46 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
     expect(within(po).queryByTestId("quantity")).not.toBeInTheDocument();
   });
 
+  it("a number saved on its own from the panel's Checks… shows at once", async () => {
+    // No tick changed, so no tick request: the panel must still reload (PR 37
+    // review) — and a reopened Checks… must hold the new number.
+    team = { ...team, checks: team.checks.map((c) => ({ ...c, takes_quantity: !!c.category })) };
+    server.use(
+      http.put("/api/projects/:projectId/readiness/:code/quantity", async ({ request }) => {
+        const quantity = ((await request.json()) as { quantity: number }).quantity;
+        team = {
+          ...team,
+          well_rows: team.well_rows.map((r) =>
+            r.well_name === "W-1"
+              ? {
+                  ...r,
+                  checks: { ...r.checks, PSV: { ...r.checks.PSV, quantity, quantity_source: "well" as const } },
+                }
+              : r,
+          ),
+        };
+        return HttpResponse.json({ quantity, quantity_source: "well" });
+      }),
+    );
+    renderPanel();
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
+    await userEvent.click(await within(logistics).findByRole("button", { name: /^Checks…/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
+    await userEvent.type(within(dialog).getByLabelText("How many PSV"), "4");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Logistics checks that apply" })).not.toBeInTheDocument(),
+    );
+    expect(ticks).toEqual([]);
+    await userEvent.click(await within(logistics).findByRole("button", { name: "Vessels · 2 selected · 1 behind" }));
+    const psv = within(logistics).getByText("Platform Support Vessel").closest("tr")!;
+    expect(await within(psv).findByTestId("quantity")).toHaveTextContent("×4");
+    // Reopened: the field holds what was saved.
+    await userEvent.click(within(logistics).getByRole("button", { name: /^Checks…/ }));
+    const again = await screen.findByRole("dialog", { name: "Logistics checks that apply" });
+    expect(within(again).getByLabelText("How many PSV")).toHaveValue("4");
+  });
+
   it("the field-project column is blank where the field project didn't select the type", async () => {
     renderPanel();
     const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });

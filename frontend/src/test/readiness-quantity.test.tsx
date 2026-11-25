@@ -315,6 +315,40 @@ describe("Checks… — how many, beside the tick", () => {
     expect(gets).toBe(2);
   });
 
+  it("after a save of ticks AND numbers the page shows the new numbers, not the tick response's", async () => {
+    // The tick response is built before the numbers are written, so its rows
+    // still carry the old number; the reload after it must win (PR 37 review).
+    let psv = 2;
+    const current = (): TeamReadiness => {
+      const data = team();
+      const set = <T extends { checks: Record<string, { quantity?: number | null }> }>(row: T): T => ({
+        ...row,
+        checks: { ...row.checks, PSV: { ...row.checks.PSV, quantity: psv } },
+      });
+      return { ...data, project_rows: data.project_rows.map(set), well_rows: data.well_rows.map(set) };
+    };
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/:team", () => HttpResponse.json(current())),
+      http.put("/api/projects/:projectId/readiness/teams/:team/applicability", () => {
+        const stale = current(); // PSV still 2
+        return HttpResponse.json({ project_rows: stale.project_rows, well_rows: stale.well_rows });
+      }),
+      http.put("/api/projects/:projectId/readiness/:code/quantity", async ({ request }) => {
+        psv = ((await request.json()) as { quantity: number }).quantity;
+        return HttpResponse.json({ quantity: psv, quantity_source: "project" });
+      }),
+    );
+    const dialog = await open(/^Checks… for Bonga Phase 3 \(field project\)/);
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /^PC/ }));
+    await userEvent.clear(within(dialog).getByLabelText("How many PSV"));
+    await userEvent.type(within(dialog).getByLabelText("How many PSV"), "5");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // W-2's only vessel is PSV: its group's total is the new number.
+    const vessels = rowOf(await sheet(), "W-2").querySelector<HTMLElement>('[data-category="Vessels"]')!;
+    await waitFor(() => expect(vessels.querySelector("[data-quantity]")).toHaveTextContent("×5"));
+  });
+
   it("a number alone is a change: no tick request, just the quantity", async () => {
     const dialog = await open(/^Checks… for W-1/);
     // W-1 follows Bonga's 2 PSVs: the field is empty, hinting what it follows.
