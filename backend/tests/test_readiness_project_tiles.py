@@ -444,3 +444,55 @@ async def test_a_bad_range_is_refused_with_or_without_a_first_year_and_before_a_
     r = await client.put(f"{lens}/applicability?from_year={YEAR}&years=1", json=body)
     assert r.status_code == 200, r.text
     assert r.json()["project_rows"][0]["checks"]["PO"]["applies"] is False
+
+
+# ── A team whose checks are all project-level (PR 36 review) ────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_project_level_checks_only_still_lists_its_wells(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The page is one row per well for every team, so the team read returns
+    well rows even when no check is enabled at well level: each well under a
+    field project, reading that project's values. A well with no field project
+    carries nothing from such a team and has no row."""
+    await _admin(client, db)
+    r = await client.post(
+        "/api/admin/readiness/teams", json={"code": "contracts", "name": "Contracts", "icon_key": "receipt"}
+    )
+    assert r.status_code == 201, r.text
+    await _check(client, "C-AWD", project=True, well=False, order=10, team="contracts")
+    await _check(client, "C-SIG", project=True, well=False, order=20, team="contracts")
+    pid = await _campaign(client, [("W-1", FP, 30), ("W-2", FP, 60), ("LONE-1", None, 30)])
+    lens_url = f"/api/projects/{pid}/readiness/teams/contracts"
+    r = await client.put(f"/api/projects/{pid}/readiness/C-AWD", json={**PROJECT, "status": "Behind"})
+    assert r.status_code == 200, r.text
+
+    lens = (await client.get(lens_url)).json()
+    wells = {w["well_name"]: w for w in lens["well_rows"]}
+    assert set(wells) == {"W-1", "W-2"}  # LONE-1: no field project, nothing to carry
+    for well in wells.values():
+        cells = well["checks"]
+        assert set(cells) == {"C-AWD", "C-SIG"}
+        assert (cells["C-AWD"]["status"], cells["C-AWD"]["source"]) == ("Behind", "project")
+        f = well["figures"]
+        assert (f["counted"], f["behind"], f["in_progress"]) == (2, 1, 1)
+        assert well["focus_start"] is not None
+    # The field project's own figures are unchanged by having well rows: its
+    # checks are its own, and no well is "behind" on a check of its own.
+    (bonga,) = lens["project_rows"]
+    assert (bonga["figures"]["counted"], bonga["figures"]["behind"], bonga["wells_behind"]) == (2, 1, 0)
+    # The tile still counts the field project once.
+    t = await _tile(client, pid, team="contracts")
+    assert (t["unit"], t["focus_count"], t["behind_cells"]) == ("projects", 1, 1)
+
+    # A tick save on the field project answers with its wells' rows too.
+    r = await client.put(
+        f"{lens_url}/applicability", json={"scope": "project", "well_project": FP, "applies": {"C-SIG": False}}
+    )
+    assert r.status_code == 200, r.text
+    saved = r.json()
+    assert {w["well_name"] for w in saved["well_rows"]} == {"W-1", "W-2"}
+    assert all(w["checks"]["C-SIG"]["applies"] is False for w in saved["well_rows"])
+    assert all(w["figures"]["counted"] == 1 for w in saved["well_rows"])

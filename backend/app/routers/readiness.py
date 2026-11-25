@@ -459,7 +459,10 @@ async def _team_rows(
     project's own cell (``fold_project_cells``) — over the wells with work left
     starting within ``window`` (the requested year range; None = every one),
     with ``in_range`` and ``wells_behind`` beside it. A team whose checks are all
-    well-level has no project rows.
+    well-level has no project rows. A team whose checks are all PROJECT-level
+    still has well rows — each well under a field project, reading that
+    project's values — so its page lists its wells like every team's; a well
+    with no field project carries nothing from it and has no row.
     """
     index = await load_index(db, project_id, [c.code for c in checks])
     # A well's tick or status moves its field project's figures: widen a well
@@ -483,15 +486,17 @@ async def _team_rows(
 
     today = date.today()
 
-    # The wells first: a field project's figures fold them in.
+    # The wells first: a field project's figures fold them in. Every team has
+    # well rows — the page is one row per well for every team (2026-11-25) — a
+    # team whose checks are all project-level included: its wells read their
+    # field project's values.
     groups: dict[WellKey, list] = {}
-    if any(c.applies_well for c in checks):
-        for a in activities:
-            # No well name → no well gates; readiness opt-out → no readiness at all
-            # (from any team — decided 2026-10-14).
-            if a.well_name and a.readiness_required:
-                key = (a.well_project or "", a.well_name, a.activity_type)
-                groups.setdefault(key, []).append(a)
+    for a in activities:
+        # No well name → no well target; readiness opt-out → no readiness at all
+        # (from any team — decided 2026-10-14).
+        if a.well_name and a.readiness_required:
+            key = (a.well_project or "", a.well_name, a.activity_type)
+            groups.setdefault(key, []).append(a)
     for acts in groups.values():
         acts.sort(key=lambda a: a.start_date)
     well_focus = {key: focus_start_of(acts) for key, acts in groups.items()}
@@ -541,6 +546,10 @@ async def _team_rows(
         # A project-only check carries nothing on a well with no field project
         # (spec §3.7, §7.12) — it is absent from the row, not drawn at its default.
         values = well_cells(index, checks, key)
+        if not values:
+            # Only where every check is project-level and the well has no field
+            # project: it carries nothing from this team, so it has no row.
+            continue
         well_rows.append(
             TeamWellRow(
                 well_project=key[0],
@@ -1009,13 +1018,14 @@ async def get_team_readiness(
     project, with the team's project-level checks; its figures are the field
     project as the Overview tile counts it, folding in its wells for a check
     enabled at well level (spec §3.7), per window.
-    ``well_rows`` (only when the team has well-level checks): one per well
+    ``well_rows``: one per well
     activity (project + well + activity type), with every team check the well
     carries at its effective value — the well's own entry, else the field
     project's (inherited while the check applies there), else the default — so a
     chart bar or print row reads one complete strip. Each cell says whether the
     check applies (``applies`` / ``applies_source``, spec §3.8); a Project gate
-    always applies — it uses N/A.
+    always applies — it uses N/A. A well that carries no check of this team (no
+    field project, and every check project-level) has no row.
     """
     # Reads are org-wide: any authenticated user may view campaign data.
     team = await _resolve_team(team_code, db)

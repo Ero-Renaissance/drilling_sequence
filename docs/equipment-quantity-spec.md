@@ -1,7 +1,8 @@
 # Equipment quantity and one page layout for every team
 
 **Status:** AGREED 2026-11-25. Decisions are in §4; nothing is open. **§2 (the
-layout) is built** — `ReadinessSheet.tsx`, frontend only. §3 (quantity) is not.
+layout) is built** — `ReadinessSheet.tsx`, plus one change to the team read
+(below). §3 (quantity) is not.
 **Source:** two requests — (1) every team's readiness page uses the sheet layout
 of Well Execution Readiness; (2) for equipment (Aviation, Vessels, Barges, Land
 transport, Lifting) there is a way to say **how many** of an item are needed.
@@ -48,6 +49,12 @@ Execution Readiness: the grouped table shows both levels.
 As built: the page's summary adds up the wells shown, so it reads wells where
 the team's Overview tile reads field projects. The Wells column stays pinned
 while the sheet scrolls sideways. Links carry no `?view=` any more.
+
+One backend change came with it: the team read returns well rows for EVERY
+team. A team whose checks are all project-level used to get none (it had only
+the Projects view); now each of its wells under a field project has a row
+reading that project's values, so its page is not empty. A well with no field
+project carries nothing from such a team and has no row.
 
 ## 3. Quantity needed
 
@@ -124,5 +131,5 @@ while the sheet scrolls sideways. Links carry no `?view=` any more.
 
 ## 5. Order
 
-1. The sheet layout for every team (frontend only) — one PR.
+1. The sheet layout for every team — one PR (built).
 2. Quantity needed (database, admin form, API, audit, page) — a second PR.

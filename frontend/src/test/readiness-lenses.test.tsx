@@ -374,6 +374,55 @@ describe("ReadinessSheet — a team's page", () => {
     );
   });
 
+  it("a team whose checks are all project-level still lists its wells — each check one cell per field project", async () => {
+    // The team read returns well rows for such a team (PR 36 review): each well
+    // reads its field project's values.
+    const BUD = { ...LBUD, applies_well: false };
+    const base = teamData();
+    const cells = {
+      "L-BUD": { ...st("Completed"), source: "project" as const },
+      CTS: { ...st("On Track"), source: "default" as const },
+    };
+    serveTeam(
+      teamData({
+        checks: [BUD, CTS],
+        well_rows: base.well_rows.map((r) => ({
+          ...r,
+          checks: cells,
+          figures: { counted: 2, done: 1, in_progress: 1, behind: 0, ready: false },
+        })),
+      }),
+    );
+    let body: unknown = null;
+    server.use(
+      http.put("/api/projects/:projectId/readiness/:checkCode", async ({ request, params }) => {
+        body = { code: params.checkCode, ...((await request.json()) as object) };
+        return HttpResponse.json({});
+      }),
+    );
+    renderTeam();
+    const table = await sheet();
+    expect(within(table).getAllByTestId("well-name").map((el) => el.textContent)).toEqual(["W-1", "W-2"]);
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("2 wells");
+    expect(screen.getByTestId("readiness-summary")).toHaveTextContent("50%complete");
+    // Both checks are the field project's: one merged, editable cell each.
+    for (const label of [/^Budget Availability for Bonga Phase 3 \(field project\)/, /^Community Trust for Bonga Phase 3 \(field project\)/]) {
+      const merged = within(table).getAllByLabelText(label);
+      expect(merged).toHaveLength(1);
+      expect(merged[0].closest("td")).toHaveAttribute("rowspan", "2");
+    }
+    await userEvent.click(within(table).getByLabelText(/^Budget Availability for Bonga Phase 3/));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+    await waitFor(() =>
+      expect(body).toEqual({ code: "L-BUD", scope: "project", well_project: "Bonga Phase 3", status: "Behind" }),
+    );
+    // Ticks are the field project's too: Checks… sits there, not on each well.
+    const pickers = within(table).getAllByRole("button", { name: /^Checks…/ });
+    expect(pickers).toHaveLength(1);
+    expect(pickers[0]).toHaveAccessibleName(/^Checks… for Bonga Phase 3 \(field project\)/);
+    expect(screen.getByRole("button", { name: "Set checks for all wells of Bonga Phase 3" })).toBeInTheDocument();
+  });
+
   it("a team with well-level checks only has nothing to set on a field project", async () => {
     serveTeam(teamData({ checks: [{ ...LBUD, applies_project: false }], project_rows: [] }));
     renderTeam();
