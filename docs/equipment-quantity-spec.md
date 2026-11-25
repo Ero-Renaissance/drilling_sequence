@@ -137,6 +137,11 @@ project carries nothing from such a team and has no row.
   (**Quantity…**), and in **Set for all wells** for a field project.
 - **Where it shows:** "×2" in the cell; a folded category shows the total of its
   selected types on that row; the well dialog names it beside the type.
+- **Sequence chart (added 2026-11-25):** the hover over a bar, under a team
+  lens, names the number beside each type — "PSV ×3" for the well's own,
+  "PSV ×2 (project)" for a number the well only repeats from its field project,
+  so nobody adds five wells' "×2" into 10. Hover only: nothing is drawn on the
+  chart or the prints, and the All lens's summary doesn't list it.
 - **Admin:** "Takes a quantity" in the check form — pre-ticked for a new check
   when its category's other checks take one; editable afterwards.
 - **Downgrade** drops the table: stated numbers are lost.

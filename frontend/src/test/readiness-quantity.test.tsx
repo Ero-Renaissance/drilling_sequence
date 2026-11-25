@@ -33,6 +33,7 @@ import {
   ownQuantity,
   parseQuantity,
   quantityLabel,
+  quantityNote,
   quantityOf,
 } from "@/lib/readiness-quantity";
 import { LOGISTICS_CHECKS, PID, equipmentTeam, pcell, wcell } from "./equipment-fixtures";
@@ -146,6 +147,20 @@ describe("quantity rules", () => {
     expect(quantityOf({ ...two, applies: false, applies_source: "project" }, PSV)).toBeNull();
     expect(quantityOf({ ...pcell("On Track") }, PSV)).toBeNull();
     expect(quantityOf(undefined, PSV)).toBeNull();
+  });
+
+  it("away from the sheet a number says when it is the field project's, so wells aren't added up", () => {
+    const cell = pcell("On Track");
+    // A well repeating its field project's number: the whole project's need.
+    expect(quantityNote({ ...cell, quantity: 2, quantity_source: "project" }, PSV)).toBe("×2 (project)");
+    // The well's own number stands alone.
+    expect(quantityNote({ ...cell, quantity: 3, quantity_source: "well" }, PSV)).toBe("×3");
+    // Nothing to say where no number shows.
+    expect(quantityNote(cell, PSV)).toBe("");
+    expect(quantityNote({ ...cell, quantity: 2, quantity_source: "project" }, PO)).toBe("");
+    expect(
+      quantityNote({ ...cell, applies: false, applies_source: "well", quantity: 2, quantity_source: "well" }, PSV),
+    ).toBe("");
   });
 
   it("a number is the target's own only where it was set there", () => {

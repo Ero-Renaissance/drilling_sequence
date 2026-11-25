@@ -269,7 +269,10 @@ logic against these active business rules:
   enabled at; 409 where the check doesn't apply; never 423). No rollup, tile or
   % reads it. A revision records it in `readiness_at_submission` (where the
   check applies) and never diffs it; a clone copies it. Shown as "×2" on the
-  Readiness page, in Checks… and in the well dialog — not on the chart or the
+  Readiness page, in Checks… and in the well dialog, and named in the Sequence
+  chart's HOVER under a team lens ("PSV ×2 (project)" when the well only
+  repeats its field project's number, "PSV ×3" for its own —
+  `readiness-quantity.ts::quantityNote`). Nothing is drawn on the chart or the
   prints. Turning `takes_quantity` off hides the numbers and keeps them.
 - **Readiness rollups have ONE definition** (spec §3.7,
   `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,

@@ -179,6 +179,56 @@ describe("the team-lens tooltip names a category's types", () => {
     expect(html).not.toMatch(/JUB|CBG|Personnel Carrier/);
   });
 
+  it("names how many of each type are needed — and marks a number that is the field project's", async () => {
+    // As a migrated catalog holds them: the categories take a quantity; CTR is
+    // a check on its own that an admin let take one; PO takes none.
+    server.use(
+      http.get("/api/readiness/catalog", () =>
+        HttpResponse.json({
+          teams: [...BUILTIN_TEAMS, LOGISTICS],
+          checks: [
+            ...BUILTIN_PROJECT_GATES,
+            ...LOGISTICS_CHECKS.map((c) => ({ ...c, takes_quantity: !!c.category || c.code === "CTR" })),
+          ],
+          status_sets: {},
+        }),
+      ),
+    );
+    await renderChart(
+      "logistics",
+      {
+        ...W1_CELLS,
+        // The field project needs 2 PSVs: this well only repeats that.
+        PSV: { ...W1_CELLS.PSV, quantity: 2, quantity_source: "project" },
+        // This well's own number.
+        DSV: { ...W1_CELLS.DSV, quantity: 3, quantity_source: "well" },
+        CTR: { ...W1_CELLS.CTR, quantity: 4, quantity_source: "well" },
+        // Served, but PO takes no quantity: never shown.
+        PO: { ...W1_CELLS.PO, quantity: 7, quantity_source: "well" },
+        // Unticked on this well: the number kept underneath stays hidden.
+        NAV: { ...W1_CELLS.NAV, quantity: 9, quantity_source: "well" },
+      },
+      "×2 (project)",
+    );
+    const html = tooltipOf();
+    expect(html).toContain("Vessels (2): PSV ×2 (project) Behind · DSV ×3 On Track");
+    // CR is selected with no number stated: just its status.
+    expect(html).toContain("Lifting (1): CR (Crane) Completed");
+    expect(html).toContain(">CTR ×4<");
+    expect(html).toContain(">PO<");
+    expect(html).not.toContain("×7");
+    expect(html).not.toContain("×9");
+    // The hover only: the bar draws the same icons as without a quantity —
+    // L-BUD, CTR, PO, Vessels and Lifting (NAV is unticked).
+    expect(stripImages()).toEqual([
+      icon(LBUD, "Completed"),
+      icon(CTR, "On Track"),
+      icon(PO, "On Track"),
+      buildCheckSvgDataUri("anchor", "Behind"),
+      buildCheckSvgDataUri("construction", "Completed"),
+    ]);
+  });
+
   it("caps 'Not applicable' at 6 codes, then '+N more'", async () => {
     // Eight checks a row unticked.
     const cells: Record<string, ChartCheckState> = Object.fromEntries(
