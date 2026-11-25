@@ -155,10 +155,7 @@ export function ApplicabilityPicker({
           wellsWithOwnChoice={wellsWithOwnChoice}
           onQuantitySaved={onQuantitySaved}
           onClose={() => setOpen(false)}
-          onSaved={async (result) => {
-            await onSaved(result);
-            setOpen(false);
-          }}
+          onSaved={onSaved}
         />
       )}
     </>
@@ -188,8 +185,9 @@ function PickerDialog({
   cells: Cells | undefined;
   canEdit: boolean;
   wellsWithOwnChoice?: number;
+  /** Closes the dialog — also after a save, once the page shows it. */
   onClose: () => void;
-  onSaved: (result: ApplicabilityResult) => Promise<void>;
+  onSaved: (result: ApplicabilityResult) => void | Promise<void>;
   onQuantitySaved?: () => void | Promise<void>;
 }) {
   // How many of each type the target needs — its OWN number, as typed; a well
@@ -298,12 +296,13 @@ function PickerDialog({
           break;
         }
       }
-      // What did save is on the page before the dialog goes: the ticks from
-      // their response, the numbers from a reload.
-      if (stated) await onQuantitySaved?.();
+      // What did save is on the page before the dialog goes. The ticks first,
+      // from their response — it was built BEFORE the numbers were written, so
+      // the reload for the numbers must come after it and win.
       if (failed) toast.error(failed);
       if (result) await onSaved(result);
-      else onClose();
+      if (stated) await onQuantitySaved?.();
+      onClose();
     } catch (err: unknown) {
       // All or nothing: nothing changed; keep the dialog so the choice isn't
       // lost. The toast is the app's report; the line in the dialog is what a
