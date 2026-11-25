@@ -269,8 +269,7 @@ logic against these active business rules:
   well) counts once; opt-outs, completed work, no field
   project (project checks) and no well name (well checks) carry nothing. Tiles
   count FIELD PROJECTS for every team with project-level checks (2026-10-25; a
-  team whose checks are all well-level counts wells — it has only the Wells
-  view): for a check enabled at well level a field project reads the WORST of
+  team whose checks are all well-level counts wells): for a check enabled at well level a field project reads the WORST of
   its in-scope wells (each well's effective value, the project's unless it has
   its own) — done only when done for every well that needs it, behind when any
   is behind; a project-only check,
@@ -285,8 +284,14 @@ logic against these active business rules:
   hidden until the range is moved back; each page says how many it leaves out.
   The range replaced the "next 6/12/24 months" window (the activity-type mix
   card keeps its own months picker). The team read folds each field project's
-  figures for exactly the range asked (`figures`, `in_range`, `wells_behind`),
-  so the tab adds up to the tile. Nothing
+  figures for exactly the range asked (`figures`, `in_range`, `wells_behind`)
+  — the tiles' rule. **Every team's Readiness page is ONE sheet** (2026-11-25,
+  `ReadinessSheet.tsx`, `docs/equipment-quantity-spec.md` §2): one row per
+  well, grouped by value stream and field project; its summary adds up the
+  WELLS shown, so it reads wells where a tile reads field projects — by design.
+  There is no Projects | Wells switch and no `?view=`; a project-only check is
+  one cell merged across its field project's wells; a check without a category
+  is never called "core" in user-facing copy. Nothing
   counted → `None` ("—", never 0%); percentages round half up. The "starting soon,
   not ready" warning reads the well execution readiness checks only, at each
   WELL's effective value.

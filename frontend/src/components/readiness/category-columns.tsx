@@ -1,4 +1,3 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { CatalogCheck } from "@/api/readiness";
 import { categoryCell } from "@/lib/chart-layout";
 import { codeWithLabel, groupByCategory } from "@/lib/readiness-categories";
@@ -71,43 +70,6 @@ export function columnSpan(columns: readonly GridColumn[]): number {
  *  each with its label ("Vessels: DSV Diving Support Vessel · …"). */
 export function categoryTitle(name: string, items: readonly CatalogCheck[]): string {
   return `${name}: ${items.map((c) => `${c.code} ${c.label}`).join(" · ")}`;
-}
-
-/** A category's header button: unfolds it into one column per type, or folds
- *  it back. Folded, it's as narrow as a check's column — the category's icon and
- *  type count; its name is in the key's chip, the hover and the button's label.
- *  Unfolded over two or more types, it names the category. */
-export function CategoryToggle({
-  name,
-  items,
-  iconKey,
-  open,
-  onToggle,
-}: {
-  name: string;
-  items: readonly CatalogCheck[];
-  /** The category's icon (`GridColumn.icon_key`). */
-  iconKey: string;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const Icon = checkIcon(iconKey);
-  return (
-    <button
-      type="button"
-      aria-expanded={open}
-      aria-label={`${open ? "Fold" : "Unfold"} ${name}`}
-      title={categoryTitle(name, items)}
-      data-icon={iconKey}
-      onClick={onToggle}
-      className="inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground/80 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {open ? <ChevronLeft className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={2} />
-      {open && items.length > 1 && <span className="min-w-0 truncate">{name}</span>}
-      {!open && <span className="font-normal normal-case text-muted-foreground">{items.length}</span>}
-    </button>
-  );
 }
 
 /** A folded category on one target: its icon in the worst status of its types

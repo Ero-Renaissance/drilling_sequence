@@ -411,11 +411,13 @@ the window (All: no date limit).
   calendar as the tile (no time-zone drift at midnight).
 - A summary above a grid describes exactly the rows shown, after every filter
   including search, and says what it covers: "12 field projects · next 12 months".
-  A team grid shows one view at a time (§8.8): its Projects view sums field
-  projects, its Wells view sums wells — the Projects view reads as the team's
-  Overview tile, which counts field projects, so the tile's links open the
-  Projects view. A team whose checks are all well-level has only the Wells view;
-  its tile counts wells and opens it.
+  Since 2026-11-25 every team's page is the one sheet (§8.8, decision 44): it
+  lists WELLS, so its summary sums the wells shown — where the team's Overview
+  tile counts field projects (each folding in its wells), the two figures differ
+  by design. The team read still returns each field project's figures
+  (`figures`, `in_range`, `wells_behind`) for the tiles' rule; the page no
+  longer draws them. (Before: a Projects | Wells switch, whose Projects view
+  read as the tile.)
 
 **"Starting soon, not ready."** Activities starting within 90 days whose
 **Project gates** are not ready (an unset gate reads On Track, so it is not
@@ -1494,7 +1496,28 @@ against the fetched catalog; `CHECK_META` becomes catalog + icon registry.
     not selected never count against the total (decision 37). A row with nothing
     unticked and nothing nominated reads just "Checks…", so no row shows a count
     on deploy.
-- **Team grids:**
+- **One sheet for every team (2026-11-25, decision 44)** —
+  `ReadinessSheet.tsx`, the Well Execution Readiness layout
+  (`docs/well-execution-readiness-spec.md` Part B) for every team's page. It
+  supersedes the "Team grids" bullets below wherever they differ (the Projects |
+  Wells switch, the Done column, icon headings, the two-section key):
+  - one row per well, grouped by value stream and field project; the spud month
+    under its year; the year picker; one solid coloured cell per check, with its
+    note; a cell's menu sets the status, the note, or resets the well to its
+    project; "Set for all wells" on the project cell;
+  - a check without a category is an ordinary column headed by its label —
+    never called "core"; each category is ONE column headed by its name and type
+    count, showing the worst of its selected types (read-only), unfolded by a
+    click on its heading into one column per type (remembered per browser);
+  - a check enabled at project level only is drawn ONCE, as a cell merged across
+    the field project's wells, and is set on the field project; a well with no
+    field project shows it blank;
+  - **Checks…** sits on each well and on each field project (teams with a tick
+    list); not selected = blank cell, unticked = dashed "Not applicable" cell;
+  - the Wells column stays pinned while the sheet scrolls sideways;
+  - no `?view=` — the Overview's tiles and the All grid's Open link to the lens
+    only; `?project=` and `?focus=behind` still narrow the page.
+- **Team grids (superseded where the sheet differs):**
   - **Frame (layout update, 2026-10-25):** the Project gates page's, so the lenses
     read as one page — the drill-through banners (now "N shown — wells with a
     check behind" / "… with readiness-required work starting in the next N
@@ -1867,6 +1890,12 @@ Updated **in the same commit as the code that changes them**, not before:
     The Projects view carries the same figures per window, so tile and tab agree.
     A team whose checks are all well-level keeps counting wells — it has no
     Projects view to agree with.
+44. **One page design for every team (2026-11-25):** every team's Readiness page
+    is the Well Execution Readiness sheet (§8.8) — one row per well. Decision 42
+    (Projects | Wells) is withdrawn. The page's summary sums the wells shown; the
+    tiles still count field projects (decision 43), so tile and page read
+    different units by design. The checks without a category are not called
+    "core". Spec: `docs/equipment-quantity-spec.md` §2.
 
 ## 12. Open questions
 

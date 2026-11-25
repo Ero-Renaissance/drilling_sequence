@@ -462,7 +462,7 @@ function CheckDialog({
               )}
               <p className="text-xs text-muted-foreground">
                 Groups the check in its team&apos;s tick list, grids and legend; on the chart and
-                prints a category draws one icon. Leave empty for a core check. It can&apos;t
+                prints a category draws one icon. Leave empty for a check that stands on its own. It can&apos;t
                 contain a semicolon (;).
               </p>
             </div>

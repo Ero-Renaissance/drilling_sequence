@@ -19,7 +19,7 @@ import { ResourceRegistryPanel } from "@/components/resources/ResourceRegistryPa
 import { FleetDemandChart } from "@/components/resources/FleetDemandChart";
 import { listChangeNotes, type ChangeNote } from "@/api/change-notes";
 import { ActivityGrid } from "@/components/data-grid/ActivityGrid";
-import { WellExecutionGrid } from "@/components/readiness/WellExecutionGrid";
+import { ReadinessSheet } from "@/components/readiness/ReadinessSheet";
 import { DrillChart } from "@/components/chart/DrillChart";
 import { SequencePrintControl } from "@/components/chart/SequencePrintControl";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -52,10 +52,9 @@ import {
   useReadinessTeams,
 } from "@/components/readiness/catalog";
 import { AllReadinessGrid } from "@/components/readiness/AllReadinessGrid";
-import { TeamReadinessGrid } from "@/components/readiness/TeamReadinessGrid";
 import { ActivityReadinessPanel } from "@/components/readiness/ActivityReadinessPanel";
 import { LensPicker } from "@/components/readiness/LensPicker";
-import { lensChangeParams, type TeamView } from "@/components/readiness/team-view";
+import { lensChangeParams } from "@/components/readiness/team-view";
 import { loadLensReadiness, type LensReadiness } from "@/lib/readiness-lens";
 
 const tabs = [
@@ -840,30 +839,23 @@ export function ReadinessTab() {
     !!urlLens &&
     (teams.some((t) => t.code === urlLens) || (urlLens === ALL_LENS && teams.length > 1));
   const lens = urlValid ? urlLens : savedLens;
-  // A lens change drops the old team's view and project narrowing (each team
-  // opens on its own remembered view) unless a view is asked for.
-  const chooseLens = (next: string, view?: TeamView) => {
+  // A lens change drops the old team's project narrowing; the years stay.
+  const chooseLens = (next: string) => {
     setSavedLens(next);
-    setSearchParams((prev) => lensChangeParams(prev, next, view), { replace: true });
+    setSearchParams((prev) => lensChangeParams(prev, next), { replace: true });
   };
   if (!projectId) return null;
   return (
     <div className="space-y-3">
       <LensPicker value={lens} onChange={chooseLens} />
       <ErrorBoundary label="readiness table">
-        {lens === PROJECTS_TEAM ? (
-          // The well execution readiness checks, laid out as the sheet (phase 8,
-          // Part B): wells grouped by value stream and field project.
-          <WellExecutionGrid projectId={projectId} canEditPlan={canEditPlan} />
-        ) : lens === ALL_LENS ? (
-          <AllReadinessGrid
-            projectId={projectId}
-            onOpenLens={(code) => chooseLens(code, "wells")}
-          />
+        {lens === ALL_LENS ? (
+          <AllReadinessGrid projectId={projectId} onOpenLens={chooseLens} />
         ) : (
-          // Every other team through the one grid: Projects | Wells, each well
+          // Every team through the one sheet (docs/equipment-quantity-spec.md
+          // §2): wells grouped by value stream and field project, each well
           // following its field project until it has its own value.
-          <TeamReadinessGrid
+          <ReadinessSheet
             key={lens}
             projectId={projectId}
             teamCode={lens}

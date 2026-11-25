@@ -282,22 +282,16 @@ const HORIZON_OPTIONS = [
   { value: 0, label: "All duration" },
 ] as const;
 
-/** A readiness tile's door: the Readiness tab on that tile's lens and years, so
- *  the tab lists exactly what the tile counted (spec §3.7) — for a team, the
- *  view of what its tile counts (spec §8.8): its Projects view, or its Wells
- *  view for a team whose checks are all well-level, whatever view the browser
- *  last remembered. */
+/** A readiness tile's door: the Readiness tab on that tile's lens and years.
+ *  Every team's page lists wells (one sheet for every team), so the link
+ *  carries no view. */
 function readinessLink(
   base: string,
   lens: string,
-  unit: "wells" | "projects",
   range: YearRange,
   focus?: "behind",
 ): string {
   const params = new URLSearchParams({ lens });
-  // Always: the Project gates page has both views too, and its tile counts
-  // field projects — a remembered Wells view mustn't change what the door shows.
-  params.set("view", unit);
   // The tab opens on the tile's years; the default range leaves the link bare.
   const fallback = defaultYearRange();
   if (range.from !== fallback.from) params.set("from", String(range.from));
@@ -516,8 +510,8 @@ export function ProjectDashboard({
               onTrackPct={c.onTrackPct}
               behind={c.behind}
               scope={c.scope}
-              to={readinessLink(base, c.code, c.unit, range)}
-              behindTo={readinessLink(base, c.code, c.unit, range, "behind")}
+              to={readinessLink(base, c.code, range)}
+              behindTo={readinessLink(base, c.code, range, "behind")}
               projectGates={c.code === PROJECTS_TEAM}
             />
           ))}
