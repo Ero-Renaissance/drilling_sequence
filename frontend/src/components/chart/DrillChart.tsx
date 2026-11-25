@@ -38,6 +38,7 @@ import {
   type CategoryCell,
 } from "@/lib/chart-layout";
 import { codeWithLabel, lookAlikeCodes } from "@/lib/readiness-categories";
+import { quantityNote } from "@/lib/readiness-quantity";
 import {
   categoryLine,
   notApplicableCodesLine,
@@ -585,6 +586,16 @@ export function DrillChart({
     // Codes a tooltip line words with their label ("PC (Personnel Carrier)",
     // spec §3.4) — look-alikes among the lens's own checks.
     const lookAlikes = lookAlikeCodes(gates.map((g) => g.code));
+    // How many of a type a bar's well needs, for the hover (equipment
+    // quantity): " ×3", or " ×2 (project)" for a number the well only repeats
+    // from its field project — the whole project's need, not one per well.
+    // Hover only: nothing is drawn on the chart or the prints.
+    const defByCode = new Map(gates.map((g) => [g.code, g]));
+    const quantityText = (cells: Record<string, ChartCheckState>, code: CheckCode) => {
+      const def = defByCode.get(code);
+      const note = def ? quantityNote(ownValue(cells, code), def) : "";
+      return note ? ` ${note}` : "";
+    };
     // A team lens lists each check on its own line (code, name, status);
     // the project gates keep their compact two-column tooltip.
     const detailedTooltip = lens !== PROJECTS_TEAM && lens !== ALL_LENS;
@@ -1269,8 +1280,11 @@ export function DrillChart({
               const types = isCategoryCode(code) ? (ownValue(barChecks, code) as CategoryCell).types : null;
               if (types) {
                 // A category: one line, its icon in its worst status.
-                const line = categoryLine(labelByCode.get(code) ?? "", types, (ty) =>
-                  codeWithLabel(ty, lookAlikes),
+                // Each type with how many are needed, where stated.
+                const line = categoryLine(
+                  labelByCode.get(code) ?? "",
+                  types,
+                  (ty) => codeWithLabel(ty, lookAlikes) + quantityText(t.checks ?? {}, ty.code),
                 );
                 return `<div style="display:flex;align-items:flex-start;gap:6px;font-size:11px" data-category-line="">
                   <img src="${buildCheckSvgDataUri(iconKeyOf(code), status)}" width="13" height="13" style="display:block;flex-shrink:0;margin-top:1px" alt="" />
@@ -1288,7 +1302,7 @@ export function DrillChart({
                 : `<span style="color:${theme.tooltipMuted}">${STATUS_LABEL[status] ?? esc(status)}</span>`;
               return `<div style="display:flex;align-items:center;gap:6px;font-size:11px">
                 <img src="${iconSrc}" width="13" height="13" style="display:block;flex-shrink:0" alt="" />
-                <span style="color:${theme.tooltipText};font-weight:600">${esc(tooltipName.get(code) ?? code)}</span>
+                <span style="color:${theme.tooltipText};font-weight:600">${esc((tooltipName.get(code) ?? code) + quantityText(t.checks ?? {}, code))}</span>
                 ${detail}
               </div>`;
             }).join("");

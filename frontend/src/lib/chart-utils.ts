@@ -28,6 +28,10 @@ export interface ChartCheckState {
    *  from `"default"` is NOT SELECTED (phase 7, `notSelected()`), which no list
    *  names. */
   applies_source?: CheckSource;
+  /** A team lens's cell as served: how many of this type are needed, and where
+   *  the number comes from (equipment quantity) — named in the hover only. */
+  quantity?: number | null;
+  quantity_source?: CheckSource;
   /** All lens only: the team's checks behind this badge, each marked with
    *  `applies` — the ones that don't apply are never summarised (and the ones
    *  that are not selected aren't listed at all). */

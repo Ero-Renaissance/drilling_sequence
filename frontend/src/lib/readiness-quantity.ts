@@ -58,6 +58,21 @@ export function categoryQuantity(
   return total > 0 ? total : null;
 }
 
+/**
+ * A cell's quantity as a line of text words it, away from the Readiness sheet
+ * (the sequence chart's hover): "×3" for a well's own number, "×2 (project)"
+ * for one the well only repeats from its field project — the need of the WHOLE
+ * project, which every one of its wells shows, so it must not be read as "2 per
+ * well" and added up. "" where no number shows (`quantityOf`).
+ */
+export function quantityNote(cell: Cell | null | undefined, check: Check): string {
+  const quantity = quantityOf(cell, check);
+  if (quantity === null) return "";
+  return cell?.quantity_source === "project"
+    ? `${quantityLabel(quantity)} (project)`
+    : quantityLabel(quantity);
+}
+
 /** "×2" — how every view writes a quantity. */
 export function quantityLabel(quantity: number): string {
   return `×${quantity}`;
