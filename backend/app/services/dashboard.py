@@ -46,6 +46,7 @@ from app.services.readiness_catalog import (
 from app.services.readiness_rollup import (
     HORIZON_DAYS,
     MAX_RANGE_YEARS,
+    activities_in_range,
     in_scope,
     live_cells,
     rollup,
@@ -231,7 +232,10 @@ async def build_dashboard(
     # because it has five activities. A project is in focus when it has a
     # not-done, readiness-required activity starting within the window; opt-out
     # activities (readiness_required=False) don't pull their project into focus.
-    focus = [a for a in activities if in_scope(a, focus_end, focus_start)]
+    # In focus by TARGET, the rule the team read and its Wells view use
+    # (``activities_in_range``): a well whose work left starts before the range
+    # is out of it, later activities included.
+    focus = activities_in_range(activities, (focus_start, focus_end))
     # Each field project folds in its WELLS IN FOCUS (phase 8) — a check enabled
     # at well level reads the worst of them — exactly as the team tiles do.
     _, gate_cells = await live_cells(db, project_id, gate_checks, focus, unit="projects")

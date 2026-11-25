@@ -191,6 +191,61 @@ describe("WellExecutionGrid — the years shown", () => {
   });
 });
 
+describe("WellExecutionGrid — review fixes (PR 35)", () => {
+  it("shows the spud date the row is listed by, not an earlier completed activity's", async () => {
+    // Completed work in 2025, work left from June 2027: listed for 2026–2028.
+    const data = team();
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json({
+          ...data,
+          well_rows: data.well_rows.map((r) =>
+            r.well_name === "OGBO BATP-1"
+              ? { ...r, start_date: "2025-05-01", focus_start: "2027-06-01" }
+              : r,
+          ),
+        }),
+      ),
+    );
+    renderGrid();
+    const row = rowOf(await table(), "OGBO BATP-1");
+    expect(within(row).getByText("Jun")).toBeInTheDocument();
+    expect(within(row).queryByText("May")).not.toBeInTheDocument();
+  });
+
+  it("a save that settles after the years changed reloads the years now shown", async () => {
+    const asked: string[] = [];
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", ({ request }) => {
+        asked.push(new URL(request.url).search);
+        return HttpResponse.json(team());
+      }),
+      http.put("/api/projects/:projectId/readiness/:checkCode", async () => {
+        await held;
+        return HttpResponse.json({});
+      }),
+    );
+    renderGrid();
+    const t = await table();
+    await userEvent.click(cell(rowOf(t, "OGBO BATP-1"), /^Well Permits for OGBO BATP-1/));
+    await userEvent.click(
+      within(await screen.findByRole("menu")).getByRole("menuitem", { name: /On track/ }),
+    );
+    // The save is still pending when the years move on.
+    await userEvent.click(screen.getByRole("button", { name: "Later years" }));
+    await waitFor(() => expect(asked).toHaveLength(2));
+    release();
+    await waitFor(() => expect(asked).toHaveLength(3));
+    expect(asked).toEqual([
+      "?from_year=2026&years=3",
+      "?from_year=2027&years=3",
+      "?from_year=2027&years=3",
+    ]);
+  });
+});
+
 describe("WellExecutionGrid — editing", () => {
   it("a cell's menu sets the status on that well, without sending a note", async () => {
     renderGrid();

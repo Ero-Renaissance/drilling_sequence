@@ -88,6 +88,9 @@ const wellKey = (row: TeamWellRow) =>
   `${row.well_project}\u0001${row.well_name}\u0001${row.activity_type}`;
 
 const streamOf = (row: TeamWellRow) => row.market?.trim() || NO_STREAM;
+/** The spud date a row is listed and filtered by: when its work left starts
+ *  (its earliest activity may be completed, and in a year not shown). */
+const spudOf = (row: TeamWellRow) => row.focus_start ?? row.start_date;
 
 /** How many rows from `index` share `keyOf` with it — the cell's row span — or
  *  0 when the row above already opened that group. */
@@ -174,6 +177,10 @@ export function WellExecutionGrid({
     }
   }, [projectId, range]);
 
+  // A write that settles after the years changed must reload the years shown
+  // NOW, not the ones it started under — it calls the newest `load`.
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
   useEffect(() => {
     load();
   }, [load]);
@@ -186,7 +193,7 @@ export function WellExecutionGrid({
       setSaving(key);
       try {
         await action();
-        await load();
+        await latestLoad.current();
         return true;
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : "Failed to save readiness");
@@ -195,7 +202,7 @@ export function WellExecutionGrid({
         setSaving(null);
       }
     },
-    [load],
+    [],
   );
 
   const checks = useMemo(() => data?.checks ?? [], [data]);
@@ -226,7 +233,7 @@ export function WellExecutionGrid({
           (x, y) =>
             byStream(streamOf(x), streamOf(y)) ||
             byProject(x.well_project, y.well_project) ||
-            x.start_date.localeCompare(y.start_date) ||
+            spudOf(x).localeCompare(spudOf(y)) ||
             x.well_name.localeCompare(y.well_name),
         ),
     [scoped, stream, behindFocus, projectFilter, q],
@@ -389,8 +396,11 @@ export function WellExecutionGrid({
               <tbody>
                 {visible.map((row, i) => {
                   const wk = wellKey(row);
-                  const month = MONTHS[Number(row.start_date.slice(5, 7)) - 1];
-                  const year = row.start_date.slice(0, 4);
+                  // The spud date shown is the one the row is listed by: when
+                  // its work left starts, not an earlier completed activity's.
+                  const spud = spudOf(row);
+                  const month = MONTHS[Number(spud.slice(5, 7)) - 1];
+                  const year = spud.slice(0, 4);
                   return (
                     <tr key={wk}>
                       {streamSpans[i] > 0 && (

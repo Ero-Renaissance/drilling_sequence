@@ -67,7 +67,7 @@ from app.services.readiness_effective import (
 )
 from app.services.readiness_rollup import (
     MAX_RANGE_YEARS,
-    carries_readiness,
+    activities_in_range,
     days_until,
     focus_start_of,
     fold_project_cells,
@@ -95,14 +95,16 @@ def _requested_window(from_year: int | None, years: int) -> YearWindow | None:
     """The year range a read asked for (``?from_year=&years=``, 1–3 years), or
     None when it asked for none. Anything off the allow-list is refused, never
     coerced."""
-    if from_year is None:
-        return None
-    if not valid_year_range(from_year, years):
+    # ``years`` is checked on its own too: without a starting year it is still
+    # off the allow-list, not an unlimited read.
+    if not 1 <= years <= MAX_RANGE_YEARS or (
+        from_year is not None and not valid_year_range(from_year, years)
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"A year range covers 1 to {MAX_RANGE_YEARS} years",
         )
-    return year_window(from_year, years)
+    return None if from_year is None else year_window(from_year, years)
 
 # The 409 for a status write — or Reset to project — on a team check that doesn't
 # apply to the target (spec §5.1, §7.10): tick it first. A check that is not
@@ -527,10 +529,8 @@ async def _team_rows(
                     focus_in_days=days_until(focus, today),
                     figures=figures,
                     # In range exactly as its tile counts it: one of its
-                    # activities carries readiness and starts within the range.
-                    in_range=any(
-                        in_window(a.start_date, window) for a in acts if carries_readiness(a)
-                    ),
+                    # targets has work left starting within the range.
+                    in_range=bool(activities_in_range(acts, window)),
                     wells_behind=behind,
                 )
             )
@@ -792,6 +792,9 @@ async def set_applicability(
     ``readiness_applicability_changed``. All codes change, or none: every code
     is validated before the first write, and there is one commit.
     """
+    # The response's year range is refused BEFORE anything is written: a 422
+    # after the commit would report a failed save that had happened.
+    window = _requested_window(from_year, years)
     team = await _resolve_team(team_code, db)
     if team.code == PROJECTS_TEAM:
         raise HTTPException(
@@ -874,7 +877,7 @@ async def set_applicability(
             ",".join(changed),
         )
     project_rows, well_rows = await _team_rows(
-        project_id, team_checks, db, target=payload, window=_requested_window(from_year, years)
+        project_id, team_checks, db, target=payload, window=window
     )
     return ApplicabilityResult(project_rows=project_rows, well_rows=well_rows)
 
