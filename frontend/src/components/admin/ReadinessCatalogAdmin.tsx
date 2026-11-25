@@ -221,6 +221,11 @@ function CheckDialog({
   const [statusSet, setStatusSet] = useState(check?.status_set ?? statusSets[0] ?? "standard");
   const [category, setCategory] = useState(check?.category ?? "");
   const [startsUnticked, setStartsUnticked] = useState(false);
+  // Equipment quantity (docs/equipment-quantity-spec.md §3): null = not chosen
+  // yet, so a new check follows its category's other checks (below).
+  const [takesQuantity, setTakesQuantity] = useState<boolean | null>(
+    check ? (check.takes_quantity ?? false) : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const categoryListId = useId();
@@ -238,6 +243,19 @@ function CheckDialog({
   // Existing categories of this team, so spellings stay one (checks group by
   // exact text).
   const suggestions = categoriesOf(catalog.checks.filter((c) => c.team_code === team.code));
+  // A new check is pre-ticked when the other checks of its category take a
+  // quantity (a new vessel type is counted like the rest) — until the admin
+  // ticks or unticks the box.
+  const categoryTakesQuantity =
+    !!category.trim() &&
+    catalog.checks.some(
+      (c) =>
+        c.team_code === team.code &&
+        c.code !== check?.code &&
+        (c.category ?? "") === category.trim() &&
+        c.takes_quantity === true,
+    );
+  const effTakesQuantity = !locksWithPlan && (takesQuantity ?? categoryTakesQuantity);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -277,6 +295,9 @@ function CheckDialog({
           sort_order: sortOrder,
           // Sent only when it changed (an edit is audited); "" clears it.
           ...(!check.locks_with_plan && cat !== (check.category ?? "") ? { category: cat } : {}),
+          ...(!check.locks_with_plan && effTakesQuantity !== (check.takes_quantity ?? false)
+            ? { takes_quantity: effTakesQuantity }
+            : {}),
         });
         onSaved(`Check ${check.code} updated`);
       } else {
@@ -294,6 +315,7 @@ function CheckDialog({
           // Never for a check that locks with the plan (422).
           ...(!effLocks && cat ? { category: cat } : {}),
           ...(!effLocks && startsUnticked ? { applies_by_default: false } : {}),
+          ...(effTakesQuantity ? { takes_quantity: true } : {}),
         });
         onSaved(`Check ${code} added to ${team.name}`);
       }
@@ -316,7 +338,7 @@ function CheckDialog({
               {check
                 ? check.locks_with_plan
                   ? "Only the label, icon and order can change. Code, team, scope, statuses and plan lock are fixed once a check exists — retire it and add a new one instead."
-                  : "Only the label, icon, order and category can change. Code, team, scope, statuses, plan lock and whether it starts unticked are fixed once a check exists — retire it and add a new one instead."
+                  : "Only the label, icon, order, category and whether it takes a quantity can change. Code, team, scope, statuses, plan lock and whether it starts unticked are fixed once a check exists — retire it and add a new one instead."
                 : "The code, scope, statuses, plan lock and whether it starts unticked can't be changed later, and a code is never reused — even after the check is retired."}
             </DialogDescription>
           </DialogHeader>
@@ -480,6 +502,25 @@ function CheckDialog({
                 <span className="block text-xs text-muted-foreground">
                   Applies nowhere until a team ticks it for a field project or well (like the
                   equipment types). Fixed once the check exists.
+                </span>
+              </span>
+            </label>
+          )}
+
+          {!locksWithPlan && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-primary"
+                checked={effTakesQuantity}
+                onChange={(e) => setTakesQuantity(e.target.checked)}
+              />
+              <span>
+                Takes a quantity
+                <span className="block text-xs text-muted-foreground">
+                  A team can say how many are needed (&ldquo;PSV ×2&rdquo;) for a field project
+                  or a well. It doesn&apos;t change any readiness figure. Turning it off later
+                  hides the numbers and keeps them.
                 </span>
               </span>
             </label>
@@ -722,6 +763,15 @@ export function ReadinessCatalogAdmin({
                                       title="Applies nowhere until a team ticks it — fixed at creation"
                                     >
                                       Starts unticked
+                                    </Badge>
+                                  )}
+                                  {check.takes_quantity === true && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px]"
+                                      title="A team can say how many are needed"
+                                    >
+                                      Quantity
                                     </Badge>
                                   )}
                                   {withdrawn ? (

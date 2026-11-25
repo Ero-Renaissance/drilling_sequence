@@ -39,9 +39,19 @@ def migration_039() -> ModuleType:
     return _load("039_equipment_checks.py")
 
 
+def migration_041() -> ModuleType:
+    return _load("041_equipment_quantity.py")
+
+
 def equipment_definitions() -> list[dict[str, Any]]:
-    """The 21 seeded definitions (no ids), in catalog order."""
-    return migration_039().seed_checks()
+    """The 21 seeded definitions (no ids), in catalog order — as a database
+    migrated to head holds them: 039's seed, with 041's ``takes_quantity`` on
+    the counted categories."""
+    counted = set(migration_041().QUANTITY_CATEGORIES)
+    return [
+        {**row, "takes_quantity": row["category"] in counted}
+        for row in migration_039().seed_checks()
+    ]
 
 
 # The 21 codes in catalog order (§3.4), and each one's category.

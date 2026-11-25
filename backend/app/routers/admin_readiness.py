@@ -45,6 +45,7 @@ from app.models.readiness import (
 from app.models.user import User
 from app.schemas.readiness import (
     GOVERNED_NO_CATEGORY,
+    GOVERNED_NO_QUANTITY,
     AdminCatalogCheck,
     AdminCatalogTeam,
     AdminReadinessCatalog,
@@ -278,6 +279,7 @@ async def create_check(payload: CheckCreate, admin: CurrentAdmin, db: DB) -> Adm
         sort_order=payload.sort_order,
         category=payload.category,
         applies_by_default=payload.applies_by_default,
+        takes_quantity=payload.takes_quantity,
     )
     db.add(check)
     await db.flush()
@@ -290,6 +292,8 @@ async def create_check(payload: CheckCreate, admin: CurrentAdmin, db: DB) -> Adm
     # ';' (schemas/readiness.py ``Category``), so it can't fake that ending.
     category = f"; category {check.category}" if check.category else ""
     unticked = "; starts unticked" if not check.applies_by_default else ""
+    # Before the category: "; starts unticked" must stay the detail's ending.
+    quantity = "; takes a quantity" if check.takes_quantity else ""
     db.add(
         _audit(
             admin,
@@ -298,7 +302,7 @@ async def create_check(payload: CheckCreate, admin: CurrentAdmin, db: DB) -> Adm
             f"Created readiness check {check.code} ({check.label}) for team {team.code}; "
             f"scope {scope}; status set {check.status_set}; "
             f"{'locks with the plan' if check.locks_with_plan else 'stays live'}"
-            f"{category}{unticked}",
+            f"{quantity}{category}{unticked}",
         )
     )
     await db.commit()
@@ -318,6 +322,12 @@ async def update_check(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=GOVERNED_NO_CATEGORY
         )
+    # Nor a quantity (docs/equipment-quantity-spec.md §3.1): they are not
+    # equipment. Sending false (what they have) changes nothing.
+    if payload.takes_quantity and check.locks_with_plan:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=GOVERNED_NO_QUANTITY
+        )
     changes = _changes(
         check,
         {
@@ -327,6 +337,11 @@ async def update_check(
             "category": payload.category,
         },
     )
+    # Worded, not "takes_quantity: False -> True". Turning it off keeps every
+    # stated number (``readiness_quantities``); they are just no longer shown.
+    if payload.takes_quantity is not None and payload.takes_quantity != check.takes_quantity:
+        check.takes_quantity = payload.takes_quantity
+        changes.append("takes a quantity" if check.takes_quantity else "no longer takes a quantity")
     if changes:
         db.add(
             _audit(

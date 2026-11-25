@@ -13,6 +13,8 @@ from pydantic import (
 
 from app.models.readiness import (
     ICON_KEYS,
+    MAX_QUANTITY,
+    MIN_QUANTITY,
     STATUS_SETS,
     is_history_only,
     is_withdrawn,
@@ -57,6 +59,12 @@ class TeamCheckState(CheckState):
 
     applies: bool = True
     applies_source: CellSource = "default"
+    # How many of this type the target needs (docs/equipment-quantity-spec.md
+    # §3) — only a check that takes a quantity ever has one; None = not stated.
+    # ``quantity_source``: the well's own number, its field project's, or
+    # "default" when none is stated. Information only: no figure reads it.
+    quantity: int | None = None
+    quantity_source: CellSource = "default"
 
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=256)]
@@ -116,6 +124,29 @@ class CheckUpsertResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class QuantityUpdate(WellTarget):
+    """How many of one equipment type a target needs — the body of
+    ``PUT /readiness/{check_code}/quantity`` (docs/equipment-quantity-spec.md
+    §3). Names travel in the body, as for the status PUT (DS-001).
+
+    ``quantity`` is a whole number 1–999 (strict: "2" or 2.0 is a 422, never
+    coerced), or ``null`` to clear the target's own number — a field project
+    then states none, a well follows its field project again. Zero is not a
+    quantity: deselect the type instead."""
+
+    model_config = {"extra": "forbid"}
+
+    quantity: Annotated[int, Field(strict=True, ge=MIN_QUANTITY, le=MAX_QUANTITY)] | None
+
+
+class QuantityState(BaseModel):
+    """What the target shows after a quantity write: the effective number and
+    where it comes from (``TeamCheckState.quantity``)."""
+
+    quantity: int | None = None
+    quantity_source: CellSource = "default"
 
 
 # Bounded like the String(16) code column; the router validates each code
@@ -227,6 +258,10 @@ class CatalogCheck(BaseModel):
     # earlier reads as recorded.
     category: str = ""
     applies_by_default: bool = True
+    # A target may state how many of this type it needs (migration 041). False
+    # is what every check had before, so an earlier frozen catalog reads as
+    # recorded.
+    takes_quantity: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -365,6 +400,7 @@ SortOrder = Annotated[int, Field(ge=0, le=10_000)]
 # Shared by create and edit (phase 7, spec §3.9): the Project gates have no tick
 # list and keep their seven icons (decision 31).
 GOVERNED_NO_CATEGORY = "A check that locks with the plan takes no category"
+GOVERNED_NO_QUANTITY = "A check that locks with the plan takes no quantity"
 # Phase 8: every well has every well execution readiness check.
 GOVERNED_BOTH_LEVELS = "A check that locks with the plan applies at project and well level"
 
@@ -424,6 +460,9 @@ class CheckCreate(BaseModel):
     # StrictBool: "false" or 0 is a 422, never coerced into a setting.
     category: Category = ""
     applies_by_default: StrictBool = True
+    # Equipment quantity (docs/equipment-quantity-spec.md §3): a target may
+    # state how many of this type it needs. Editable later (CheckUpdate).
+    takes_quantity: StrictBool = False
 
     _icon = field_validator("icon_key")(_check_icon_key)
 
@@ -465,6 +504,8 @@ class CheckCreate(BaseModel):
             raise ValueError("A check that locks with the plan can't start unticked")
         if self.locks_with_plan and self.category:
             raise ValueError(GOVERNED_NO_CATEGORY)
+        if self.locks_with_plan and self.takes_quantity:
+            raise ValueError(GOVERNED_NO_QUANTITY)
         return self
 
 
@@ -478,13 +519,24 @@ class CheckUpdate(BaseModel):
     # "" clears it. A non-empty category on a check that locks with the plan is
     # refused in the router (422), which knows the check.
     category: Category | None = None
+    # Whether a target may state how many of this type it needs. Turning it off
+    # hides the numbers and keeps them. True on a check that locks with the plan
+    # is refused in the router (422).
+    takes_quantity: StrictBool | None = None
 
     _icon = field_validator("icon_key")(_check_icon_key)
 
     @model_validator(mode="after")
     def _at_least_one(self) -> "CheckUpdate":
         if all(
-            v is None for v in (self.label, self.icon_key, self.sort_order, self.category)
+            v is None
+            for v in (
+                self.label,
+                self.icon_key,
+                self.sort_order,
+                self.category,
+                self.takes_quantity,
+            )
         ):
             raise ValueError("Provide at least one field to change")
         return self

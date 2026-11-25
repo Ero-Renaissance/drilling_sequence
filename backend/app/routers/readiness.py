@@ -19,6 +19,7 @@ from app.models.readiness import (
     ReadinessApplicability,
     ReadinessCheck,
     ReadinessEntry,
+    ReadinessQuantity,
     ReadinessTeam,
     is_withdrawn,
     pickable_statuses,
@@ -33,6 +34,8 @@ from app.schemas.readiness import (
     CheckUpsert,
     CheckUpsertResponse,
     EffectiveCheckState,
+    QuantityState,
+    QuantityUpdate,
     ReadinessCatalog,
     RowFigures,
     TeamCheckState,
@@ -419,6 +422,8 @@ def _team_cell(value: Effective) -> TeamCheckState:
         updated_at=value.updated_at,
         applies=value.applies,
         applies_source=value.applies_source,
+        quantity=value.quantity,
+        quantity_source=value.quantity_source,
     )
 
 
@@ -429,6 +434,8 @@ def _well_cell(value: Effective) -> EffectiveCheckState:
         updated_at=value.updated_at,
         applies=value.applies,
         applies_source=value.applies_source,
+        quantity=value.quantity,
+        quantity_source=value.quantity_source,
         source=value.source,
     )
 
@@ -750,6 +757,129 @@ async def reset_well_override(
         )
         await db.commit()
     return _well_cell(now)
+
+
+# ── How many (docs/equipment-quantity-spec.md §3) ───────────────────────────
+
+_NO_QUANTITY_DETAIL = "This readiness check takes no quantity"
+
+
+def _quantity_label(quantity: int | None) -> str:
+    return "not stated" if quantity is None else str(quantity)
+
+
+@router.put(
+    # DS-001: the path carries only the check code; the target's names travel in
+    # the body.
+    "/readiness/{check_code}/quantity",
+    response_model=QuantityState,
+)
+async def set_quantity(
+    project_id: uuid.UUID,
+    check_code: str,
+    payload: QuantityUpdate,
+    current_user: CurrentUser,
+    db: DB,
+) -> QuantityState:
+    """How many of one equipment type a field project or a well needs — a whole
+    number 1–999, or ``null`` to clear the target's own number (a field project
+    then states none; a well follows its field project again).
+
+    Who may write is who may write the check (``assert_can_edit_check``). Only a
+    check that takes a quantity has one (422), at a level it is enabled at
+    (422), and only where it applies to the target (409 — select it first, as
+    for a status). Never refused with 423: like every readiness value it stays
+    live under the plan lock. A field project's number is the need of the WHOLE
+    field project; wells are never added together. No figure reads it."""
+    check, editor_source = await _resolve_check(check_code, db)
+    await assert_can_edit_check(
+        project_id,
+        team_code=check.team_code,
+        editor_source=editor_source,
+        user=current_user,
+        db=db,
+    )
+    await lock_campaign_writes(project_id, db)
+    if not check.takes_quantity:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_NO_QUANTITY_DETAIL
+        )
+    _assert_enabled_at(check, payload.scope)
+    await _assert_target_exists(project_id, payload, db)
+
+    # The target's own stored row, by the database's comparison — so a case
+    # variant of a stored name updates that row instead of inserting a duplicate.
+    index = await _target_index(db, project_id, [check.code], payload)
+    shown = _shown(index, check, payload)
+    if not shown.applies:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_NOT_APPLICABLE_DETAIL)
+
+    if payload.scope == "project":
+        own_rows, own_key = index.project_quantity, (payload.well_project, check.code)
+    else:
+        own_rows, own_key = index.well_quantity, (*_well_key(payload), check.code)
+    own = own_rows.get(own_key)
+
+    changed = False
+    entity_id: uuid.UUID | None = None
+    if payload.quantity is None:
+        if own is not None:
+            entity_id = own.id
+            await db.delete(own)
+            del own_rows[own_key]
+            changed = True
+    elif own is None:
+        own = ReadinessQuantity(
+            project_id=project_id,
+            check_code=check.code,
+            scope=payload.scope,
+            well_project=payload.well_project,
+            well_name=payload.well_name or "",
+            activity_type=payload.activity_type or "",
+            quantity=payload.quantity,
+            updated_by=current_user.id,
+        )
+        db.add(own)
+        own_rows[own_key] = own
+        changed = True
+    elif own.quantity != payload.quantity:
+        own.quantity = payload.quantity
+        own.updated_by = current_user.id
+        changed = True
+
+    # What the target shows now (the index holds the write).
+    now = _shown(index, check, payload)
+    if changed:
+        await _flush_or_409(db, project_id, current_user, [check.code])  # assigns own.id
+        on_well = payload.scope == "well"
+        follows = on_well and payload.quantity is None and bool(payload.well_project)
+        own_now = on_well and payload.quantity is not None
+        db.add(
+            governance_event(
+                project_id=project_id,
+                user_id=current_user.id,
+                entity_type=ENTITY_READINESS,
+                entity_id=entity_id or own.id,
+                action="readiness_quantity_changed",
+                # ASCII "->": audit columns may be VARCHAR on SQL Server.
+                detail=(
+                    f"{check.code} for {_target_label(payload)}: quantity "
+                    f"{_quantity_label(shown.quantity)} -> {_quantity_label(now.quantity)}"
+                    + (" (now follows the field project)" if follows else "")
+                    + (" (set on this well)" if own_now else "")
+                )[:512],
+                old_value=_quantity_label(shown.quantity),
+            )
+        )
+        await db.commit()
+        # Ids only — no names or emails in logs.
+        logger.info(
+            "readiness_quantity_changed actor_id=%s project_id=%s check=%s",
+            current_user.id,
+            project_id,
+            check.code,
+        )
+    return QuantityState(quantity=now.quantity, quantity_source=now.quantity_source)
 
 
 # ── Checks that apply (phase 6, spec §3.8, §5.1) ────────────────────────────

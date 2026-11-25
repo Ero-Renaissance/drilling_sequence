@@ -2,7 +2,7 @@
 
 **Status:** AGREED 2026-11-25. Decisions are in §4; nothing is open. **§2 (the
 layout) is built** — `ReadinessSheet.tsx`, plus one change to the team read
-(below). §3 (quantity) is not.
+(below). **§3 (quantity) is built** — migration 041; §3.3 says how.
 **Source:** two requests — (1) every team's readiness page uses the sheet layout
 of Well Execution Readiness; (2) for equipment (Aviation, Vessels, Barges, Land
 transport, Lifting) there is a way to say **how many** of an item are needed.
@@ -115,6 +115,32 @@ project carries nothing from such a team and has no row.
 - **API:** the team read returns the effective number with each cell and whether
   it is the target's own; one write sets or clears it.
 
+### 3.3 As built (2026-11-25)
+
+- **Migration 041:** `readiness_checks.takes_quantity` and the table
+  `readiness_quantities` (a whole number 1–999, one per campaign + check +
+  target). The Logistics checks in the five counted categories are flagged, each
+  with a catalog audit event; no number is stated for anything.
+- **Write:** `PUT /api/projects/{id}/readiness/{check_code}/quantity` with the
+  target and `quantity` (a number, or `null` to clear the target's own). 422 for
+  a check that takes none, a level it isn't enabled at, or a number out of
+  range; 409 where the check doesn't apply; 403 without the right to edit the
+  check; never 423.
+- **Read:** each cell of the team read carries `quantity` and
+  `quantity_source` (the well's own, its field project's, or none).
+- **A well follows its field project's number** only while the type is selected
+  on the field project — as for a status.
+- **Audit:** `readiness_quantity_changed`, "PSV for Bonga: quantity 2 -> 3";
+  the catalog change reads "takes a quantity" / "no longer takes a quantity".
+- **Where it is set:** beside the tick in **Checks…** (a number field on each
+  ticked type; one Save sends the ticks, then the numbers), in a cell's menu
+  (**Quantity…**), and in **Set for all wells** for a field project.
+- **Where it shows:** "×2" in the cell; a folded category shows the total of its
+  selected types on that row; the well dialog names it beside the type.
+- **Admin:** "Takes a quantity" in the check form — pre-ticked for a new check
+  when its category's other checks take one; editable afterwards.
+- **Downgrade** drops the table: stated numbers are lost.
+
 ## 4. Decisions (2026-11-25)
 
 | # | Question | Decision |
@@ -132,4 +158,5 @@ project carries nothing from such a team and has no row.
 ## 5. Order
 
 1. The sheet layout for every team — one PR (built).
-2. Quantity needed (database, admin form, API, audit, page) — a second PR.
+2. Quantity needed (database, admin form, API, audit, page) — a second PR
+   (built).

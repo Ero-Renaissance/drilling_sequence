@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
+import { quantityLabel, quantityOf } from "@/lib/readiness-quantity";
 import { formatDate } from "@/lib/utils";
 import { categoryCell } from "@/lib/chart-layout";
 import { categoryOf, groupByCategory } from "@/lib/readiness-categories";
@@ -249,6 +250,13 @@ export function ActivityReadinessPanel({
                 // Team views offer the check's pickable statuses — never
                 // N/A (untick it instead); the Project gates keep N/A.
                 const statuses = pickableStatuses(c);
+                // How many this activity needs (equipment quantity): its well's
+                // number — its own, or its field project's — else the field
+                // project's for a check set there only. Shown, not edited here.
+                const needed = quantityOf(
+                  c.applies_well && wellKey ? well?.[c.code] : project?.[c.code],
+                  c,
+                );
                 return (
                   <tr key={c.code} className="border-t border-border/40">
                     <td className="px-4 py-1.5">
@@ -256,6 +264,15 @@ export function ActivityReadinessPanel({
                         <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="font-mono text-xs font-semibold">{c.code}</span>
                         <span className="truncate text-muted-foreground">{c.label}</span>
+                        {needed !== null && (
+                          <span
+                            className="shrink-0 text-xs font-semibold tabular-nums"
+                            title={`${needed} needed`}
+                            data-testid="quantity"
+                          >
+                            {quantityLabel(needed)}
+                          </span>
+                        )}
                       </div>
                     </td>
                     {showWell && (

@@ -685,6 +685,36 @@ describe("Readiness panel — category sub-sections (spec §8.8)", () => {
     expect(within(logistics).queryByText("Jack-up Barge")).not.toBeInTheDocument();
   });
 
+  it("names how many of a type are needed, beside the type (equipment quantity)", async () => {
+    // W-1 repeats Bonga's 2 PSVs and has no number for DSV; PO takes none.
+    team = {
+      ...team,
+      checks: team.checks.map((c) => ({ ...c, takes_quantity: !!c.category })),
+      well_rows: team.well_rows.map((r) =>
+        r.well_name === "W-1"
+          ? {
+              ...r,
+              checks: {
+                ...r.checks,
+                PSV: { ...r.checks.PSV, quantity: 2, quantity_source: "project" as const },
+                PO: { ...r.checks.PO, quantity: 7, quantity_source: "well" as const },
+              },
+            }
+          : r,
+      ),
+    };
+    renderPanel();
+    const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });
+    await userEvent.click(await within(logistics).findByRole("button", { name: "Vessels · 2 selected · 1 behind" }));
+    const psv = within(logistics).getByText("Platform Support Vessel").closest("tr")!;
+    expect(within(psv).getByTestId("quantity")).toHaveTextContent("×2");
+    const dsv = within(logistics).getByText("Diving Support Vessel").closest("tr")!;
+    expect(within(dsv).queryByTestId("quantity")).not.toBeInTheDocument();
+    // A check that takes no quantity never shows one, whatever is served.
+    const po = within(logistics).getByText("Purchase Order").closest("tr")!;
+    expect(within(po).queryByTestId("quantity")).not.toBeInTheDocument();
+  });
+
   it("the field-project column is blank where the field project didn't select the type", async () => {
     renderPanel();
     const logistics = await screen.findByRole("region", { name: "Logistics Execution Readiness" });

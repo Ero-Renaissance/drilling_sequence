@@ -60,6 +60,11 @@ export interface CatalogCheck {
    *  always true for a check that locks with the plan. Optional: a definition
    *  without it starts ticked, as every check did before migration 039. */
   applies_by_default?: boolean;
+  /** A target may state HOW MANY of this type it needs (equipment quantity,
+   *  docs/equipment-quantity-spec.md §3) — "PSV ×2". Admin-editable; affects no
+   *  figure. Never true for a check that locks with the plan. Optional: a
+   *  definition from before migration 041 takes none. */
+  takes_quantity?: boolean;
 }
 
 /** One code-defined status set, as the catalog serves it. */
@@ -144,6 +149,14 @@ export interface TeamCheckState extends CheckState {
   /** Where the tick comes from: the well's own choice ("set on this well"), its
    *  field project's, or the check's default (`applies_by_default`). */
   applies_source: CheckSource;
+  /** How many of this type the target needs — only a check that takes a
+   *  quantity ever has one; null / absent = not stated. Information only: no
+   *  figure reads it. A field project's number is the need of the WHOLE field
+   *  project; wells are never added together. */
+  quantity?: number | null;
+  /** Where the number comes from: the well's own, its field project's, or
+   *  "default" when none is stated. */
+  quantity_source?: CheckSource;
 }
 
 /** A well's cell: `source` says where the STATUS comes from (`applies_source`
@@ -261,6 +274,27 @@ export async function resetWellReadiness(
     },
   );
   if (!resp.ok) await throwApiError(resp, `Failed to reset ${checkCode}`);
+}
+
+/** How many of one equipment type a target needs (docs/equipment-quantity-spec.md
+ *  §3): a whole number 1–999, or `null` to clear the target's own number — a
+ *  field project then states none, a well follows its field project again.
+ *  Names travel in the body (DS-001). */
+export async function setQuantity(
+  projectId: string,
+  checkCode: CheckCode,
+  target: ReadinessTarget,
+  quantity: number | null,
+): Promise<void> {
+  const resp = await fetch(
+    `/api/projects/${projectId}/readiness/${encodeURIComponent(checkCode)}/quantity`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: JSON.stringify({ ...target, quantity }),
+    },
+  );
+  if (!resp.ok) await throwApiError(resp, `Failed to save the quantity of ${checkCode}`);
 }
 
 // ── Checks that apply (phase 6, spec §3.8) ──────────────────────────────────

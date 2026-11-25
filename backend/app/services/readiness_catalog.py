@@ -45,12 +45,19 @@ _DEFINITION_FIELDS = (
     # with it, and knows which checks started unticked.
     "category",
     "applies_by_default",
+    # Equipment quantity (migration 041): which checks could state a number —
+    # so a revision's recorded quantities read against the definitions it froze.
+    "takes_quantity",
 )
 
 # What a definition field reads as where the source predates it: the original
 # gates (``LEGACY_BUILTIN_CHECKS`` keeps migration 034's shape) have no category and
 # start ticked — as every check did before migration 039.
-_DEFINITION_DEFAULTS: dict[str, Any] = {"category": "", "applies_by_default": True}
+_DEFINITION_DEFAULTS: dict[str, Any] = {
+    "category": "",
+    "applies_by_default": True,
+    "takes_quantity": False,
+}
 
 
 async def active_checks(

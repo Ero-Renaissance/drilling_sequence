@@ -166,8 +166,9 @@ logic against these active business rules:
   project create/clone, project wells add/edit (`project_wells_added`/
   `project_wells_updated`), readiness team grant/revoke, readiness catalog changes
   (`readiness_team_*` / `readiness_check_*`), every real readiness value change
-  (`readiness_updated`, old → new) and every real applicability change
-  (`readiness_applicability_changed`, one per changed code) must emit governance
+  (`readiness_updated`, old → new), every real applicability change
+  (`readiness_applicability_changed`, one per changed code) and every real
+  equipment-quantity change (`readiness_quantity_changed`, old → new) must emit governance
   events via `app/services/audit.py::governance_event` (migration 038 writes its
   per-campaign `readiness_applicability_migrated` rows in the same shape, in
   SQL). Do not add or change a governance-relevant action without writing its
@@ -244,10 +245,32 @@ logic against these active business rules:
   activities to the worst per check, and still read older snapshots per field
   project (or per activity, before 2026-07-16) with On Track for a missing gate. Revisions freeze their check definitions (`catalog_json`). A check's team,
   status set, scope, lock behaviour and "starts unticked" are fixed at creation
-  (only label, icon, order and category are editable); `projects` checks must lock with the plan, ONLY `projects`
+  (only label, icon, order, category and "takes a quantity" are editable); `projects` checks must lock with the plan, ONLY `projects`
   checks may (admin catalog 422s a governed check in any other team), and a check
   that locks with the plan is enabled at BOTH levels on the `execution` set
   (422 otherwise; phase 8).
+- **Equipment quantity is information, never a figure**
+  (`docs/equipment-quantity-spec.md` §3, migration 041): a check flagged
+  `takes_quantity` (admin-set per check, editable later, audited; never on a
+  check that locks with the plan — 422; seeded for the Logistics categories
+  Aviation, Vessels, Barges, Land transport, Lifting — not Permits) lets a
+  target state HOW MANY it needs: a whole number 1–999, **blank until stated**
+  (zero is not a quantity — deselect the type). Stored in its own table,
+  `readiness_quantities`, keyed by names like the status entry and the
+  applicability row, so it survives deselecting; the three move together on a
+  rename and none moves if the new name has any of them
+  (`readiness_rekey.py`). **A field project's number is the need of the WHOLE
+  field project**: a well repeats it until it has its own (and only while the
+  check applies to the field project, as for a status); clearing a well's
+  follows the project again; **wells are never added together** — no
+  campaign-wide total. Written only through
+  `PUT .../readiness/{check_code}/quantity` (`assert_can_edit_check`, then
+  `lock_campaign_writes`; 422 for a check that takes none or a level it isn't
+  enabled at; 409 where the check doesn't apply; never 423). No rollup, tile or
+  % reads it. A revision records it in `readiness_at_submission` (where the
+  check applies) and never diffs it; a clone copies it. Shown as "×2" on the
+  Readiness page, in Checks… and in the well dialog — not on the chart or the
+  prints. Turning `takes_quantity` off hides the numbers and keeps them.
 - **Readiness rollups have ONE definition** (spec §3.7,
   `app/services/readiness_rollup.py`) — every tile, KPI and % goes through it,
   never a local formula; Readiness-tab grids add up the server's per-row

@@ -782,10 +782,15 @@ async def test_team_rows_report_applies_and_the_gates_keep_their_shape(
 ) -> None:
     pid = await _setup(client, db)
     lens = await _lens(client, pid)
-    assert set(_cell(lens, "PO")) == {"status", "notes", "updated_at", "applies", "applies_source"}
+    assert set(_cell(lens, "PO")) == {
+        "status", "notes", "updated_at", "applies", "applies_source", "quantity", "quantity_source",
+    }  # fmt: skip
     assert set(_cell(lens, "PO", "W-1")) == {
-        "status", "notes", "updated_at", "applies", "applies_source", "source",
-    }
+        "status", "notes", "updated_at", "applies", "applies_source", "quantity",
+        "quantity_source", "source",
+    }  # fmt: skip
+    # PO takes no quantity: none is ever stated.
+    assert (_cell(lens, "PO")["quantity"], _cell(lens, "PO")["quantity_source"]) == (None, "default")
     assert (_cell(lens, "PO")["applies"], _cell(lens, "PO")["applies_source"]) == (True, "default")
 
     # GET /readiness — the Project gates — keeps its shape: no applies, no tags.
