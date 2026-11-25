@@ -249,6 +249,31 @@ def focus_start_of(activities: Iterable[ActivityLike]) -> date | None:
     return min((a.start_date for a in activities if carries_readiness(a)), default=None)
 
 
+def activities_in_range(
+    activities: Iterable[ActivityLike], window: tuple[date | None, date | None] | None
+) -> list:
+    """The activities that put their target in a year range — the ONE range rule
+    (spec §3.7, 2026-11-24) for the Overview, the team read's folds and its
+    rows: a TARGET is in range when its work left STARTS within the range, i.e.
+    its focus start (``focus_start_of``) falls in ``window``. A target is a well
+    activity group (field project + well + activity type); an activity with no
+    well name is its own target. Returns every activity carrying readiness of
+    the targets in range — so a well with unfinished work from before the range
+    is out, later activities included, exactly as its row is hidden."""
+    groups: dict[tuple, list] = {}
+    for i, a in enumerate(activities):
+        if not carries_readiness(a):
+            continue
+        key = (a.well_project or "", a.well_name, a.activity_type) if a.well_name else ("", i)
+        groups.setdefault(key, []).append(a)
+    return [
+        a
+        for acts in groups.values()
+        if in_window(min(x.start_date for x in acts), window)
+        for a in acts
+    ]
+
+
 def days_until(day: date | None, today: date) -> int | None:
     """Days from the SERVER's today to ``day`` — sent with each row so the browser
     windows rows on the server's calendar, exactly as the Overview tile does."""

@@ -369,3 +369,78 @@ async def test_the_project_gates_tile_is_unchanged(client: AsyncClient, db: Asyn
     assert r.status_code == 200, r.text
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     assert (d["readiness"]["focus_count"], d["readiness"]["behind_cells"]) == (1, 1)
+
+
+# ── One range rule, both sides of the lower boundary (PR 35 review) ─────────
+
+
+@pytest.mark.asyncio
+async def test_a_well_with_work_left_from_before_the_range_is_out_of_it_on_the_tile_and_the_tab(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """W-OLD has unfinished work that spud last year AND more this year. Its work
+    left starts before a range of this year only, so it is out of that range
+    everywhere — the tile, the field project's fold and its Wells row — and its
+    Behind can't reach the tile while the tab reads the project without it."""
+    await _seed_logistics(client, db)
+    pid = await _campaign(
+        client,
+        [
+            ("W-OLD", FP, date(YEAR - 1, 6, 1)),
+            ("W-OLD", FP, date(YEAR, 6, 1)),
+            ("W-THIS", FP, date(YEAR, 3, 1)),
+            ("E-OLD", "Egina", date(YEAR - 1, 6, 1)),
+            ("E-OLD", "Egina", date(YEAR, 6, 1)),
+        ],
+    )
+    await _put(client, pid, "PO", _w("W-OLD"), "Behind")
+    await _put(client, pid, "PO", _w("E-OLD", "Egina"), "Behind")
+
+    async def rows(rng: Range) -> dict[str, dict]:
+        return {r["well_project"]: r for r in (await _lens(client, pid, rng))["project_rows"]}
+
+    # This year only: W-OLD is out, so Bonga reads W-THIS alone; Egina is out.
+    this = await rows((YEAR, 1))
+    assert (this[FP]["in_range"], this[FP]["figures"]["behind"], this[FP]["wells_behind"]) == (
+        True, 0, 0,
+    )  # fmt: skip
+    assert this["Egina"]["in_range"] is False
+    tile = await _tile(client, pid, (YEAR, 1))
+    assert (tile["focus_count"], tile["behind_cells"]) == (1, 0)
+    # The Wells row says why: its work left starts last year.
+    old = next(w for w in (await _lens(client, pid))["well_rows"] if w["well_name"] == "W-OLD")
+    assert old["focus_start"] == date(YEAR - 1, 6, 1).isoformat()
+
+    # Moved back a year: both wells are in, on the tile and the tab alike.
+    back = await rows((YEAR - 1, 2))
+    assert (back[FP]["figures"]["behind"], back[FP]["wells_behind"]) == (1, 1)
+    assert back["Egina"]["in_range"] is True
+    tile = await _tile(client, pid, (YEAR - 1, 2))
+    assert (tile["focus_count"], tile["behind_cells"]) == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_a_bad_range_is_refused_with_or_without_a_first_year_and_before_a_save(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    await _seed_logistics(client, db)
+    pid = await _campaign(client, [("W-1", FP, 30)])
+    lens = f"/api/projects/{pid}/readiness/teams/logistics"
+    # ``years`` alone is still on the allow-list — never an unlimited read.
+    for bad in ("years=0", "years=4", f"from_year={YEAR}&years=4", "from_year=1800"):
+        assert (await client.get(f"{lens}?{bad}")).status_code == 422, bad
+    assert (await client.get(f"{lens}?years=2")).status_code == 200
+
+    # A tick save with a bad range saves NOTHING: no tick, no audit event.
+    body = {"scope": "project", "well_project": FP, "applies": {"PO": False}}
+    for bad in ("years=4", f"from_year={YEAR}&years=4"):
+        r = await client.put(f"{lens}/applicability?{bad}", json=body)
+        assert r.status_code == 422, bad
+    row = (await client.get(lens)).json()["project_rows"][0]
+    assert row["checks"]["PO"]["applies"] is True
+    events = (await client.get(f"/api/projects/{pid}/audit")).json()
+    assert "readiness_applicability_changed" not in str(events)
+    # The same save with a good range goes through.
+    r = await client.put(f"{lens}/applicability?from_year={YEAR}&years=1", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["project_rows"][0]["checks"]["PO"]["applies"] is False

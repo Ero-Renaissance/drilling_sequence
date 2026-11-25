@@ -368,6 +368,10 @@ export function TeamReadinessGrid({
     }
   }, [projectId, teamCode, range]);
 
+  // A write that settles after the years changed must reload the years shown
+  // NOW, not the ones it started under — it calls the newest `load`.
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
   useEffect(() => {
     load();
   }, [load]);
@@ -391,9 +395,9 @@ export function TeamReadinessGrid({
   const applyTicks = useCallback(
     (result: ApplicabilityResult) => {
       setData((prev) => (prev ? mergeApplicability(prev, result) : prev));
-      if (loadPending.current) void load();
+      if (loadPending.current) void latestLoad.current();
     },
-    [load],
+    [],
   );
 
   // Write, then reload: inheritance means one project write can change many wells.
@@ -402,14 +406,14 @@ export function TeamReadinessGrid({
       setSaving(key);
       try {
         await action();
-        await load();
+        await latestLoad.current();
       } catch (err: unknown) {
         toast.error(err instanceof Error ? err.message : "Failed to save readiness");
       } finally {
         setSaving(null);
       }
     },
-    [load],
+    [],
   );
 
   const projectChecks = useMemo(() => data?.checks.filter((c) => c.applies_project) ?? [], [data]);
