@@ -275,6 +275,9 @@ export function ReadinessSheet({
   // The checks that lock with the plan — the well execution readiness checks —
   // have no tick list: one that doesn't apply is marked N/A (decision 31).
   const hasTickList = !!data?.checks.some((c) => !c.locks_with_plan);
+  // A well has ticks of its own only for a check enabled at well level; a team
+  // whose checks are all project-level ticks them on the field project.
+  const hasWellTicks = !!data?.checks.some((c) => !c.locks_with_plan && c.applies_well);
 
   // A tick save answers with the target's new rows (a field project's plus its
   // wells', built as the read builds them): fold them in rather than reload.
@@ -763,7 +766,7 @@ export function ReadinessSheet({
                             </div>
                             <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
                               <span>{row.activity_type}</span>
-                            {hasTickList && (
+                            {hasWellTicks && (
                               <ApplicabilityPicker
                                 range={range}
                                 projectId={projectId}
