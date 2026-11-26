@@ -764,6 +764,7 @@ export function DrillChart({
         _barText?: string | null;
         tooltip?: { checks?: Record<string, ChartCheckState> | null };
         readinessRole?: "anchor" | "sibling" | "none";
+        market?: string | null;
       };
       const isConflict = item?.isConflict ?? false;
       const isCompleted = item?.isCompleted ?? false;
@@ -790,7 +791,10 @@ export function DrillChart({
       const project = api.value(8) as string | null;
       const risk = api.value(7) as string | null;
       const barType = api.value(3) as string | null;
-      const barStream = valueStreamOf(api.value(9) as string | null);
+      // From the item itself, never `api.value()`: a text dimension can come
+      // back as NaN (ECharts types it from the first rows), and a bar whose
+      // drawing throws is simply not drawn.
+      const barStream = valueStreamOf(item?.market);
       // A bar dims when it fails ANY active bar-level dimension.
       const dimmed =
         enableFilters &&

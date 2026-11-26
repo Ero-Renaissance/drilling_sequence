@@ -12,6 +12,9 @@ describe("value streams (the wells' Market)", () => {
     expect(valueStreamOf("Oil")).toBe("Oil");
     expect(valueStreamOf("  Domestic Gas ")).toBe("Domestic Gas");
     for (const none of [null, undefined, "", "   "]) expect(valueStreamOf(none)).toBe(NO_VALUE_STREAM);
+    // Not text — the chart library hands back NaN for a missing text value —
+    // is "none", never an error (it once stopped every bar from drawing).
+    for (const odd of [Number.NaN, 0, 7, {}, []]) expect(valueStreamOf(odd)).toBe(NO_VALUE_STREAM);
     expect(NO_VALUE_STREAM).toBe("No value stream");
   });
 

@@ -8,9 +8,11 @@
 /** A well with no Market set — its own group, listed last. */
 export const NO_VALUE_STREAM = "No value stream";
 
-/** The value stream a Market value names (trimmed; blank = none). */
-export function valueStreamOf(market: string | null | undefined): string {
-  return market?.trim() || NO_VALUE_STREAM;
+/** The value stream a Market value names (trimmed; blank = none). Anything
+ *  that isn't text — a chart library can hand back NaN for a missing text
+ *  value — reads as none, never an error. */
+export function valueStreamOf(market: unknown): string {
+  return (typeof market === "string" && market.trim()) || NO_VALUE_STREAM;
 }
 
 /** Value streams by name; wells with none last. */
