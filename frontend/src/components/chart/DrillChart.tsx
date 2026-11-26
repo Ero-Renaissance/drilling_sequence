@@ -762,7 +762,12 @@ export function DrillChart({
         isConflict?: boolean;
         isCompleted?: boolean;
         _barText?: string | null;
-        tooltip?: { checks?: Record<string, ChartCheckState> | null };
+        tooltip?: {
+          checks?: Record<string, ChartCheckState> | null;
+          activity?: string;
+          project?: string | null;
+          risk?: string | null;
+        };
         readinessRole?: "anchor" | "sibling" | "none";
         market?: string | null;
       };
@@ -788,12 +793,15 @@ export function DrillChart({
       // upstream): when a project selection is active, a bar whose project
       // isn't selected (or that has none) fades to background context — no
       // outline / label / icons / marker.
-      const project = api.value(8) as string | null;
-      const risk = api.value(7) as string | null;
-      const barType = api.value(3) as string | null;
-      // From the item itself, never `api.value()`: a text dimension can come
-      // back as NaN (ECharts types it from the first rows), and a bar whose
-      // drawing throws is simply not drawn.
+      // Every TEXT value comes from the item itself, never `api.value()`:
+      // ECharts types a dimension from its first rows, so when the first wells
+      // have no project (or Market) a later text value comes back as NaN — the
+      // project tag and flood mark vanish, a chosen project dims, and calling
+      // a string method on it stops the bar from drawing at all. `api.value()`
+      // stays for the numeric dimensions (lane, start, end) only.
+      const project = item?.tooltip?.project || null;
+      const risk = item?.tooltip?.risk ?? null;
+      const barType = item?.tooltip?.activity ?? null;
       const barStream = valueStreamOf(item?.market);
       // A bar dims when it fails ANY active bar-level dimension.
       const dimmed =
