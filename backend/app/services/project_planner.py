@@ -401,20 +401,61 @@ def plan_project_edit(
         return months_to_days(payload.wells[i].duration_months or 0)
 
     # 2. Dates. Kept wells stay put; new wells are placed by the gap rules. A
-    # re-sequence lays every open well out again, in list order, keeping each
-    # existing well's duration.
+    # re-sequence lays the open wells out again, in list order, keeping each
+    # existing well's duration — every open well, or (``resequence_from``) only
+    # the chosen well and the open wells listed after it.
     placed: dict[int, PlannedWellOut] = {}
     if payload.layout == "resequence":
         assert payload.start_date is not None  # schema-enforced
-        open_rows = [
-            i for i, (act, _) in enumerate(rows) if act is None or act.completed_at is None
-        ]
+        first = payload.resequence_from
+        chains = None
+        if first is None:
+            open_rows = [
+                i for i, (act, _) in enumerate(rows) if act is None or act.completed_at is None
+            ]
+        else:
+            start_act, start_values = rows[first]
+            if start_act is not None and start_act.completed_at is not None:
+                raise EditRefused(
+                    f"{start_values.well_name} is completed: a re-sequence can't start from it"
+                )
+            # A new well has no dates to keep, so none may sit above the start.
+            stranded = next((v for act, v in rows[:first] if act is None), None)
+            if stranded is not None:
+                raise EditRefused(
+                    f"{stranded.well_name} is new and has no dates yet: start the "
+                    "re-sequence from it, or list it after the well you start from"
+                )
+            open_rows = [
+                i
+                for i in range(first, len(rows))
+                if rows[i][0] is None or rows[i][0].completed_at is None
+            ]
+            # The wells that keep their dates — those listed before the start,
+            # and completed ones — still hold their rigs: the re-sequenced wells
+            # continue after them on the same rig, with the usual gap, rather
+            # than being laid on top of them.
+            moving = set(open_rows)
+            chains = seed_chains(
+                [
+                    (key, v.end_date)
+                    for i, (_, v) in enumerate(rows)
+                    if i not in moving
+                    and v.end_date is not None
+                    and (key := _key_of(v.rig_name, v.hwu_name, v.location)) is not None
+                ],
+                assumptions,
+            )
         specs = [
             _spec(rows[i][1], new_days(i) if rows[i][0] is None else _span(rows[i][1]))
             for i in open_rows
         ]
         laid = place_wells(
-            specs, start_date=payload.start_date, existing=others, assumptions=assumptions
+            specs,
+            start_date=payload.start_date,
+            existing=others,
+            chains=chains,
+            assumptions=assumptions,
         )
         placed = dict(zip(open_rows, laid, strict=True))
     else:
