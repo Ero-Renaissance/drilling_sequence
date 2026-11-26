@@ -211,7 +211,10 @@ async def test_leaving_behind_with_a_note_keeps_that_note(
     assert (await _status(client, pid, "PO", PROJECT, "Behind", notes="Vendor late")).status_code == 200
     r = await _status(client, pid, "PO", PROJECT, "Completed", notes="Delivered 12 Nov")
     assert r.status_code == 200 and r.json()["notes"] == "Delivered 12 Nov"
-    assert (await _details(db, pid, UPDATED))[-1].endswith("Behind -> Completed; notes changed")
+    # The reason it replaces is still on record, with the event that ends it.
+    assert (await _details(db, pid, UPDATED))[-1] == (
+        f"PO for {FP}: Behind -> Completed; no longer behind - reason was: Vendor late; notes changed"
+    )
 
 
 # ── Who, and locks ──────────────────────────────────────────────────────────
@@ -304,3 +307,70 @@ async def test_a_revision_records_why_each_check_was_behind(
     assert stored["W-1"]["readiness_reasons"] == {"FID": "FID deferred"}
     assert stored["W-1"]["readiness_at_submission"]["PO"]["reason"] == "Vendor late"
 
+
+# ── The trail never loses a reason (PR 39 review) ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_note_already_on_the_entry_is_written_out_when_it_becomes_the_reason(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The note's text doesn't change — the status does — so the event must
+    still say why the check is behind."""
+    pid = await _setup(client, db, [])
+    assert (
+        await _status(client, pid, "PO", PROJECT, "On Track", notes="Awaiting quote")
+    ).status_code == 200
+    assert (
+        await _status(client, pid, "PO", PROJECT, "Behind", notes="Awaiting quote")
+    ).status_code == 200
+    assert (await _details(db, pid, UPDATED))[-1] == (
+        f"PO for {FP}: On Track -> Behind; reason: Awaiting quote"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_well_leaving_the_behind_it_followed_records_the_reason_it_showed(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """W-1 follows its field project's Behind and its reason. Giving the well
+    its own On Track ends that for the well: the event names the reason the
+    well was showing, though the well never stored it."""
+    pid = await _setup(client, db, [])
+    assert (
+        await _status(client, pid, "PO", PROJECT, "Behind", notes="Vendor not awarded")
+    ).status_code == 200
+    assert (await _status(client, pid, "PO", _well("W-1"), "On Track")).status_code == 200
+    assert (await _details(db, pid, UPDATED))[-1] == (
+        f"PO for W-1 ({FP}, Oil Development): Behind -> On Track; "
+        "no longer behind - reason was: Vendor not awarded"
+    )
+    # The field project — and the well still following it — keep the reason.
+    lens = await _lens(client, pid)
+    assert _cell(lens, "PO")["notes"] == "Vendor not awarded"
+    assert _cell(lens, "PO", "W-2")["notes"] == "Vendor not awarded"
+    assert _cell(lens, "PO", "W-1")["notes"] is None
+
+    # The well takes its own Behind over the project's, with its own reason.
+    assert (
+        await _status(client, pid, "PO", _well("W-2"), "Behind", notes="Its PO is disputed")
+    ).status_code == 200
+    assert (await _details(db, pid, UPDATED))[-1] == (
+        f"PO for W-2 ({FP}, Oil Development): Behind -> Behind; reason: Its PO is disputed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_leaving_a_behind_that_never_had_a_reason_is_a_plain_change(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    pid = await _setup(client, db, [])
+    db.add(
+        ReadinessEntry(
+            project_id=uuid.UUID(pid), check_code="PO", scope="project", well_project=FP,
+            well_name="", activity_type="", status="Behind", notes=None,
+        )  # fmt: skip
+    )
+    await db.commit()
+    assert (await _status(client, pid, "PO", PROJECT, "On Track")).status_code == 200
+    assert (await _details(db, pid, UPDATED))[-1] == f"PO for {FP}: Behind -> On Track"
