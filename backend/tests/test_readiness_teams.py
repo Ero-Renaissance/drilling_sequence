@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditLog
 from app.models.user import User
+from tests.readiness_seed import BEHIND_REASON, with_reason
 
 LOGISTICS_CHECK = {
     "code": "L-BUD",
@@ -64,7 +65,7 @@ async def _campaign(client: AsyncClient, name: str = "Teams Test") -> str:
 async def _put(client: AsyncClient, pid: str, code: str, status: str = "Completed", notes=None):
     return await client.put(
         f"/api/projects/{pid}/readiness/{code}",
-        json={"well_project": "Bonga Phase 3", "status": status, "notes": notes},
+        json=with_reason({"well_project": "Bonga Phase 3", "status": status, "notes": notes}),
     )
 
 
@@ -470,7 +471,9 @@ async def test_readiness_changes_are_audited_in_the_campaign_feed(
     assert len(events) == 1
     assert events[0].field == "readiness_updated"
     assert events[0].old_value == "Not started"
-    assert events[0].new_value == "FID for Bonga Phase 3: Not started -> Behind"
+    assert events[0].new_value == (
+        f"FID for Bonga Phase 3: Not started -> Behind; reason: {BEHIND_REASON}"
+    )
 
     feed = (await client.get(f"/api/projects/{pid}/audit")).json()
     assert any(e["field"] == "readiness_updated" for e in feed)
@@ -488,6 +491,6 @@ async def test_no_audit_noise_for_unchanged_saves(client: AsyncClient, db: Async
 
     events = await _readiness_events(db, pid)
     assert [e.new_value for e in events] == [
-        "FID for Bonga Phase 3: Not started -> Behind",
-        "FID for Bonga Phase 3: Behind -> Behind; notes changed",
+        f"FID for Bonga Phase 3: Not started -> Behind; reason: {BEHIND_REASON}",
+        "FID for Bonga Phase 3: Behind -> Behind; reason: Board slipped to Q3",
     ]

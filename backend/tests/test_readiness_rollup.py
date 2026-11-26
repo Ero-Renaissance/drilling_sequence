@@ -21,6 +21,7 @@ from app.services.readiness_rollup import (
     worst_status,
 )
 from app.services.revision_diff import diff_snapshots
+from tests.readiness_seed import with_reason
 
 TODAY = date.today()
 SEVEN = ["FDP", "LLI", "LOC", "FE", "FID", "EIA", "BUD"]
@@ -219,7 +220,7 @@ async def _activity(
 async def _gate(client: AsyncClient, pid: str, project: str, code: str, status: str) -> None:
     r = await client.put(
         f"/api/projects/{pid}/readiness/{code}",
-        json={"well_project": project, "status": status},
+        json=with_reason({"well_project": project, "status": status}),
     )
     assert r.status_code == 200, r.text
 

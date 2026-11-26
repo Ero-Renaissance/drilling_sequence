@@ -19,6 +19,7 @@ from app.models.project import ProjectMember, ProjectRole
 from app.models.user import User
 from app.schemas.project_wells import ProjectWellsEditIn
 from app.services.project_planner import EditRefused, plan_project_edit
+from tests.readiness_seed import BEHIND_REASON
 
 PROJECT = "Bonga Phase 4"
 NOW = datetime(2026, 10, 1, tzinfo=timezone.utc)
@@ -309,7 +310,7 @@ async def test_rename_takes_the_readiness_along(client: AsyncClient, db: AsyncSe
     pid = await _campaign(client)
     wells = await _seed(client, pid)
     assert (
-        await client.put(f"/api/projects/{pid}/readiness/FID", json={"well_project": PROJECT, "status": "Behind"})
+        await client.put(f"/api/projects/{pid}/readiness/FID", json={"well_project": PROJECT, "status": "Behind", "notes": BEHIND_REASON})
     ).status_code == 200
 
     r = await _put(client, pid, {

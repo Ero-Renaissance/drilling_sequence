@@ -249,6 +249,27 @@ logic against these active business rules:
   checks may (admin catalog 422s a governed check in any other team), and a check
   that locks with the plan is enabled at BOTH levels on the `execution` set
   (422 otherwise; phase 8).
+- **Behind needs a reason** (2026-11-26, every team): a check can't be saved
+  as BEHIND — by shared severity (`blocked`), never status text — without
+  saying why. The reason IS the entry's note (free text, non-blank, ≤512); no
+  new storage. Enforced in the status PUT (`upsert_readiness_check`, 422
+  "Say why it is behind…"), after the role check, so every screen follows it:
+  becoming behind (a new value, or a well taking its own where it only followed
+  its field project's) must carry a note; while behind the note can be reworded
+  but never blanked, and a request that sends no note keeps it — so a check
+  that was behind with no reason before this rule stays as it is until its next
+  change ("no reason given"); leaving behind clears the note from the entry
+  unless the request sends one. A well that follows a behind field project
+  shows the project's reason. The `readiness_updated` audit detail carries the
+  text ("…-> Behind; reason: …", and "…; no longer behind - reason was: …"
+  when it stops applying). A revision records it: `reason` beside the status in
+  `readiness_at_submission`, and `readiness_reasons` {code: text} beside the
+  governed `readiness` block (whose values stay plain statuses) — recorded,
+  never diffed. Every screen that sets a status asks first
+  (`BehindReason.tsx::useBehindReason`: the Readiness sheet, "Set for all
+  wells", the well dialog, the well edit dialog, the Activities grid); reasons
+  are SHOWN on the Readiness tab only (the cell, cut short, full text on hover
+  and in its menu) — not on the Sequence page, the prints or presentation mode.
 - **Equipment quantity is information, never a figure**
   (`docs/equipment-quantity-spec.md` §3, migration 041): a check flagged
   `takes_quantity` (admin-set per check, editable later, audited; never on a

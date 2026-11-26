@@ -42,6 +42,7 @@ from app.services.readiness_effective import (
 )
 from app.services.readiness_rollup import in_scope, live_cells, rollup
 from app.services.snapshot import build_project_snapshot
+from tests.readiness_seed import with_reason
 
 FP = "Bonga Phase 3"
 ACT = "Oil Development"
@@ -118,7 +119,7 @@ def _target(well: str | None = None, project: str = FP) -> dict:
 
 
 async def _put(client: AsyncClient, pid: str, code: str, target: dict, status: str) -> None:
-    r = await client.put(f"/api/projects/{pid}/readiness/{code}", json={**target, "status": status})
+    r = await client.put(f"/api/projects/{pid}/readiness/{code}", json=with_reason({**target, "status": status}))
     assert r.status_code == 200, r.text
 
 

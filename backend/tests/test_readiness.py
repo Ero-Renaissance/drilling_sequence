@@ -3,6 +3,8 @@ column), shared by every activity under it — not on individual activities."""
 import pytest
 from httpx import AsyncClient
 
+from tests.readiness_seed import BEHIND_REASON
+
 
 async def _create_project(client: AsyncClient, name: str = "Test Campaign") -> dict:
     resp = await client.post("/api/projects", json={"name": name})
@@ -145,7 +147,7 @@ async def test_upsert_updates_existing_gate(client: AsyncClient) -> None:
     await _create_activity(client, project["id"])
     url = _url(project["id"], "BUD")
     body = {"well_project": "Bonga Phase 3"}
-    assert (await client.put(url, json={**body, "status": "Behind"})).status_code == 200
+    assert (await client.put(url, json={**body, "status": "Behind", "notes": BEHIND_REASON})).status_code == 200
     assert (await client.put(url, json={**body, "status": "Completed"})).status_code == 200
     rows = (await client.get(f"/api/projects/{project['id']}/readiness")).json()
     assert rows[0]["checks"]["BUD"]["status"] == "Completed"

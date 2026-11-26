@@ -14,6 +14,8 @@ import pytest
 from httpx import AsyncClient
 from openpyxl import Workbook
 
+from tests.readiness_seed import BEHIND_REASON
+
 LEGACY_HEADER = (
     "Location,Rig Name,HWU Name,Activity Type,Plan Type,Project,Well Name,"
     "Start Date,End Date,Rig Contract Expiry Date,HWU Contract Expiry Date,Risk,"
@@ -195,7 +197,7 @@ async def test_replace_import_preserves_app_set_readiness(client: AsyncClient) -
 
     # Planner sets a gate in the app…
     put = await client.put(
-        f"/api/projects/{pid}/readiness/FID", json={"well_project": "P1", "status": "Behind"}
+        f"/api/projects/{pid}/readiness/FID", json={"well_project": "P1", "status": "Behind", "notes": BEHIND_REASON}
     )
     assert put.status_code == 200, put.text
 

@@ -120,8 +120,8 @@ describe("ReadinessSheet (Well Execution Readiness) — the layout", () => {
     renderGrid();
     const t = await table();
     const adtu = rowOf(t, "OGBO ADTU-1");
-    // Its own FDP: Behind, with the note shown in the cell.
-    const fdp = cell(adtu, /^Approved FDP\/IP for OGBO ADTU-1: Behind schedule — set on this well — Note: 10k/);
+    // Its own FDP: Behind, with its reason shown in the cell.
+    const fdp = cell(adtu, /^Approved FDP\/IP for OGBO ADTU-1: Behind schedule — set on this well — Reason: 10k/);
     expect(fdp).toHaveAttribute("data-status", "Behind");
     expect(fdp).toHaveTextContent("10k");
     // FID follows the field project; Well Permits is not set anywhere.
@@ -290,17 +290,19 @@ describe("ReadinessSheet (Well Execution Readiness) — editing", () => {
     );
   });
 
-  it("saves a note with the cell's current status", async () => {
+  it("a behind cell's note is its reason: it can be reworded, never left empty", async () => {
     renderGrid();
     const t = await table();
     await userEvent.click(cell(rowOf(t, "OGBO ADTU-1"), /^Approved FDP\/IP for OGBO ADTU-1/));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Edit note/ }));
-    const dialog = await screen.findByRole("dialog", { name: /Note — Approved FDP\/IP · OGBO ADTU-1/ });
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Edit reason/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Reason — Approved FDP\/IP · OGBO ADTU-1/ });
+    expect(dialog).toHaveTextContent("Why it is behind — it can't be left empty.");
     const box = within(dialog).getByLabelText("Note");
     expect(box).toHaveValue("10k");
     await userEvent.clear(box);
+    expect(within(dialog).getByRole("button", { name: "Save reason" })).toBeDisabled();
     await userEvent.type(box, "12k, awaiting partners");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Save note" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save reason" }));
     await waitFor(() =>
       expect(puts[0]).toMatchObject({
         code: "FDP",

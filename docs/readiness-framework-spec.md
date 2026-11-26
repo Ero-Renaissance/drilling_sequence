@@ -1903,6 +1903,15 @@ Updated **in the same commit as the code that changes them**, not before:
     never added together. Its own table (`readiness_quantities`), so it survives
     deselecting; it moves with the status and the tick on a rename. Spec and
     as-built notes: `docs/equipment-quantity-spec.md` §3.
+46. **Behind needs a reason (2026-11-26):** a check can't be saved as Behind
+    without a reason — free text, the entry's existing note — on every team.
+    Chosen over a fixed list of reasons: nobody knows the real reasons yet, and
+    a guessed list pushes everyone to "Other"; after a quarter of real ones they
+    can be grouped into categories, keeping the text as the detail. Enforced on
+    the server (422); a check already behind with no reason is left alone until
+    its next change; leaving Behind clears the reason (the audit trail keeps
+    it). The audit event and the revision record the text. Shown on the
+    Readiness tab only — the Sequence page is busy enough.
 
 ## 12. Open questions
 

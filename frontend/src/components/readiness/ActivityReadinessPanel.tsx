@@ -27,6 +27,7 @@ import {
 import { toast } from "@/components/ui/toaster";
 import { useAuthStore } from "@/store/auth";
 import { quantityLabel, quantityOf } from "@/lib/readiness-quantity";
+import { needsReason, useBehindReason } from "./BehindReason";
 import { formatDate } from "@/lib/utils";
 import { categoryCell } from "@/lib/chart-layout";
 import { categoryOf, groupByCategory } from "@/lib/readiness-categories";
@@ -167,6 +168,21 @@ export function ActivityReadinessPanel({
     }
   }
 
+  // Behind needs a reason (2026-11-26): this dialog asks for it — the server
+  // refuses the save otherwise — though reasons are read on the Readiness tab.
+  const { askReason, reasonDialog } = useBehindReason();
+  async function setStatus(
+    key: string,
+    check: CatalogCheck,
+    target: ReadinessTarget,
+    subject: string,
+    status: CheckStatus,
+  ) {
+    const reason = needsReason(status) ? await askReason({ check: check.label, subject }) : undefined;
+    if (reason === null) return; // cancelled: the status stays as it was
+    await write(key, () => setReadiness(projectId, check.code, target, status, reason));
+  }
+
   const optedOut = activity.readiness_required === false;
   const subtitle = [
     activity.activity_type,
@@ -175,6 +191,7 @@ export function ActivityReadinessPanel({
   ].join(" · ");
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
@@ -293,8 +310,12 @@ export function ActivityReadinessPanel({
                               project?.[c.code]?.applies !== false
                             }
                             onSave={(status) =>
-                              write(`w:${c.code}`, () =>
-                                setReadiness(projectId, c.code, { scope: "well", ...wellKey }, status),
+                              setStatus(
+                                `w:${c.code}`,
+                                c,
+                                { scope: "well", ...wellKey },
+                                wellKey.well_name,
+                                status,
                               )
                             }
                             onReset={
@@ -330,8 +351,12 @@ export function ActivityReadinessPanel({
                             disabled={!editable || saving === `p:${c.code}`}
                             inherited={false}
                             onSave={(status) =>
-                              write(`p:${c.code}`, () =>
-                                setReadiness(projectId, c.code, { scope: "project", well_project: wp }, status),
+                              setStatus(
+                                `p:${c.code}`,
+                                c,
+                                { scope: "project", well_project: wp },
+                                `${wp} (field project)`,
+                                status,
                               )
                             }
                           />
@@ -451,6 +476,8 @@ export function ActivityReadinessPanel({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {reasonDialog}
+    </>
   );
 }
 

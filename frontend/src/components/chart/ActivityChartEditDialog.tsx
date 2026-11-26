@@ -32,6 +32,7 @@ import {
 import type { RigContract } from "@/api/contracts";
 import type { HwuContract } from "@/api/hwu-contracts";
 import { LOCATIONS, MARKETS, PLAN_TYPES, RISKS } from "@/components/data-grid/ActivityFormDialog";
+import { needsReason, useBehindReason } from "@/components/readiness/BehindReason";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { PROJECTS_TEAM, useProjectGates } from "@/components/readiness/catalog";
 import { defaultStatusOf } from "@/components/readiness/check-meta";
@@ -144,8 +145,13 @@ export function ActivityChartEditDialog({
   // default) — loaded when the dialog opens — and what the user changed here.
   const [loaded, setLoaded] = useState<Record<CheckCode, EffectiveCheckState> | null>(null);
   const [edited, setEdited] = useState<Record<CheckCode, CheckStatus>>({});
+  // Behind needs a reason (2026-11-26): asked when the status is picked, kept
+  // here, and sent with it on Save — the server refuses behind without one.
+  const [reasons, setReasons] = useState<Record<CheckCode, string>>({});
+  const { askReason, reasonDialog } = useBehindReason();
   useEffect(() => {
     setEdited({});
+    setReasons({});
     setLoaded(null);
     if (!open || !activity.well_name) return;
     let active = true;
@@ -365,7 +371,15 @@ export function ActivityChartEditDialog({
   // project's value and the project's other wells are untouched.
   async function saveGates(target: ReadinessTarget) {
     await Promise.all(
-      changedGates.map(({ code }) => setReadiness(projectId, code, target, edited[code])),
+      changedGates.map(({ code }) =>
+        setReadiness(
+          projectId,
+          code,
+          target,
+          edited[code],
+          needsReason(edited[code]) ? reasons[code] : undefined,
+        ),
+      ),
     );
   }
 
@@ -408,6 +422,7 @@ export function ActivityChartEditDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Focus lands on the dialog, not its first field: an opened dialog with a
           field's text selected turns one stray key into a rename. */}
@@ -766,7 +781,19 @@ export function ActivityChartEditDialog({
                       status={status}
                       inherited={inherited}
                       disabled={!hasWell || loaded === null}
-                      onChange={(next) => setEdited((prev) => ({ ...prev, [code]: next }))}
+                      onChange={async (next) => {
+                        // Asked only when it becomes behind here — picking the
+                        // status already shown changes nothing.
+                        if (needsReason(next) && next !== status) {
+                          const reason = await askReason({
+                            check: label,
+                            subject: activity.well_name ?? "this well",
+                          });
+                          if (reason === null) return; // cancelled
+                          setReasons((prev) => ({ ...prev, [code]: reason }));
+                        }
+                        setEdited((prev) => ({ ...prev, [code]: next }));
+                      }}
                     />
                     <span className="text-[10px] text-muted-foreground">{status}</span>
                   </div>
@@ -823,5 +850,7 @@ export function ActivityChartEditDialog({
         </form>
       </DialogContent>
     </Dialog>
+    {reasonDialog}
+    </>
   );
 }

@@ -213,6 +213,13 @@ function renderGrid(path = "/") {
   );
 }
 
+/** Behind needs a reason: answer the prompt that a "Behind" pick opens. */
+async function giveReason(text = "Vendor late") {
+  const dialog = await screen.findByRole("dialog", { name: "Why is it behind?" });
+  await userEvent.type(within(dialog).getByLabelText("Reason it is behind"), text);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Set as behind" }));
+}
+
 const sheet = () => screen.findByRole("table", { name: "Logistics execution readiness" });
 const rowOf = (table: HTMLElement, well: string) => within(table).getByText(well).closest("tr")!;
 /** A target's **Checks…** — a well's, or "<project> (field project)". The first
@@ -616,6 +623,7 @@ describe("Logistics page — a tick save while a status write's reload is in fli
     // Set B-1's L-BUD to Behind: saved, and its reload is now in flight.
     await userEvent.click(within(rowOf(table, "B-1")).getByLabelText(/^Budget Availability for B-1/));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+    await giveReason();
     await waitFor(() => expect(gets).toBe(2));
 
     // Meanwhile, untick NAV on Egbema.

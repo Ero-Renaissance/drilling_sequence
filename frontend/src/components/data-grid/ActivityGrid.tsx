@@ -48,6 +48,7 @@ import {
 } from "@/api/readiness";
 import { defaultStatusOf } from "@/components/readiness/check-meta";
 import { teamValuesFor } from "@/lib/readiness-lens";
+import { needsReason, useBehindReason } from "@/components/readiness/BehindReason";
 import { ReadinessDot } from "@/components/readiness/ReadinessDot";
 import { ActivityReadinessPanel } from "@/components/readiness/ActivityReadinessPanel";
 import { PROJECTS_TEAM, statusOf, useProjectGates } from "@/components/readiness/catalog";
@@ -554,9 +555,19 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
     setHistoryActivityId((prev) => (prev === id ? null : id));
   }, []);
 
+  // Behind needs a reason (2026-11-26): asked here before the save, since the
+  // server refuses a check set to behind without one.
+  const { askReason, reasonDialog } = useBehindReason();
   const onReadinessChange = useCallback(
     async (a: Activity, code: CheckCode, next: CheckStatus) => {
       if (!a.well_name) return;
+      const reason = needsReason(next)
+        ? await askReason({
+            check: gateData?.checks.find((g) => g.code === code)?.label ?? code,
+            subject: a.well_name,
+          })
+        : undefined;
+      if (reason === null) return; // cancelled: the status stays as it was
       setSavingReadinessKey(`${a.id}:${code}`);
       try {
         // Set on THIS well; the field project's value and its other wells stay.
@@ -570,6 +581,7 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
             activity_type: a.activity_type,
           },
           next,
+          reason,
         );
         // Re-read: the row's figures and sources are the server's.
         setGateData(await getTeamReadiness(projectId, PROJECTS_TEAM));
@@ -579,7 +591,7 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
         setSavingReadinessKey(null);
       }
     },
-    [projectId],
+    [projectId, askReason, gateData],
   );
 
   const columns = useMemo(
@@ -1365,6 +1377,7 @@ export function ActivityGrid({ projectId, canEditPlan = false }: ActivityGridPro
           onChanged={() => load()}
         />
       )}
+      {reasonDialog}
     </div>
   );
 }

@@ -23,6 +23,7 @@ from app.services.readiness_rollup import (
     snapshot_readiness_scope,
 )
 from app.services.revision_diff import diff_snapshots
+from tests.readiness_seed import BEHIND_REASON, with_reason
 
 TODAY = date.today()
 EIGHT = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
@@ -69,7 +70,7 @@ async def _activity(
 
 async def _put(client: AsyncClient, pid: str, code: str, target: dict, status: str) -> Response:
     return await client.put(
-        f"/api/projects/{pid}/readiness/{code}", json={**target, "status": status}
+        f"/api/projects/{pid}/readiness/{code}", json=with_reason({**target, "status": status})
     )
 
 
@@ -157,7 +158,7 @@ async def test_a_well_follows_its_field_project_until_it_has_its_own_value(
 
     assert await _details(db, pid, "readiness_updated") == [
         f"FID for {FP}: Not started -> On Track",
-        f"FID for W-1 ({FP}, Oil Development): On Track -> Behind",
+        f"FID for W-1 ({FP}, Oil Development): On Track -> Behind; reason: {BEHIND_REASON}",
     ]
     assert await _details(db, pid, "readiness_reset") == [
         f"FID for W-1 ({FP}, Oil Development): Behind -> On Track (now follows the field project)"
@@ -189,19 +190,19 @@ async def test_a_status_change_keeps_the_cells_note_unless_one_is_sent(
 
     r = await client.put(url, json={**_well("W-1"), "status": "On Track", "notes": "10k"})
     assert r.status_code == 200 and r.json()["notes"] == "10k"
-    r = await client.put(url, json={**_well("W-1"), "status": "Behind"})  # no notes sent
+    r = await client.put(url, json={**_well("W-1"), "status": "Completed"})  # no notes sent
     assert r.status_code == 200 and r.json()["notes"] == "10k"
     cell = _cells(await _lens(client, pid), "W-1")["FDP"]
-    assert (cell["status"], cell["notes"]) == ("Behind", "10k")
-    r = await client.put(url, json={**_well("W-1"), "status": "Behind", "notes": None})
+    assert (cell["status"], cell["notes"]) == ("Completed", "10k")
+    r = await client.put(url, json={**_well("W-1"), "status": "Completed", "notes": None})
     assert r.status_code == 200 and r.json()["notes"] is None
-    too_long = await client.put(url, json={**_well("W-1"), "status": "Behind", "notes": "x" * 513})
+    too_long = await client.put(url, json={**_well("W-1"), "status": "Completed", "notes": "x" * 513})
     assert too_long.status_code == 422
 
     assert await _details(db, pid, "readiness_updated") == [
         f"FDP for W-1 ({FP}, Oil Development): Not started -> On Track; notes changed",
-        f"FDP for W-1 ({FP}, Oil Development): On Track -> Behind",
-        f"FDP for W-1 ({FP}, Oil Development): Behind -> Behind; notes changed",
+        f"FDP for W-1 ({FP}, Oil Development): On Track -> Completed",
+        f"FDP for W-1 ({FP}, Oil Development): Completed -> Completed; notes changed",
     ]
     row = next(r for r in (await _lens(client, pid))["well_rows"] if r["well_name"] == "W-1")
     assert row["market"] is None  # the helper sets no Market

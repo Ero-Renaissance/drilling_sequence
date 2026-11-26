@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.audit import AuditLog
 from app.models.readiness import ReadinessApplicability, ReadinessCheck
 from app.models.user import User
+from tests.readiness_seed import BEHIND_REASON, with_reason
 
 FP = "Bonga Phase 3"
 ACT = "Oil Development"
@@ -115,7 +116,7 @@ async def _apply(
 
 
 async def _put(client: AsyncClient, pid: str, code: str, target: dict, status: str) -> Response:
-    return await client.put(f"/api/projects/{pid}/readiness/{code}", json={**target, "status": status})
+    return await client.put(f"/api/projects/{pid}/readiness/{code}", json=with_reason({**target, "status": status}))
 
 
 async def _lens(client: AsyncClient, pid: str, team: str = "logistics") -> dict:
@@ -278,7 +279,9 @@ async def test_a_project_gate_stays_editable_while_the_plan_is_locked(
     rows = (await client.get(f"/api/projects/{pid}/readiness")).json()
     assert rows[0]["checks"]["FID"]["status"] == "Completed" and rows[0]["locked"] is True
     assert (await _details(db, pid, "readiness_updated"))[len(before) :] == [
-        "FID for Bonga Phase 3: Behind -> Completed; plan locked"
+        # Leaving behind clears the reason from the entry; the trail keeps it.
+        f"FID for Bonga Phase 3: Behind -> Completed; plan locked; "
+        f"no longer behind - reason was: {BEHIND_REASON}"
     ]
 
     # The approved revision still reads what was signed.
@@ -663,7 +666,9 @@ async def test_a_well_ticked_under_an_unticked_field_project_reads_the_default(
     assert (await _put(client, pid, "PO", _well(), "Behind")).status_code == 200
     updated = (await _events(db, pid, "readiness_updated"))[-1]
     assert updated.old_value == "On Track"
-    assert updated.new_value == "PO for W-1 (Bonga Phase 3, Oil Development): On Track -> Behind"
+    assert updated.new_value == (
+        f"PO for W-1 (Bonga Phase 3, Oil Development): On Track -> Behind; reason: {BEHIND_REASON}"
+    )
 
     reset = await client.post(f"/api/projects/{pid}/readiness/PO/reset", json=_well())
     assert reset.status_code == 200
