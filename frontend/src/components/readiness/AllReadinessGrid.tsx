@@ -147,11 +147,17 @@ export function AllReadinessGrid({
     return out.sort((x, y) => x.start_date.localeCompare(y.start_date));
   }, [activities]);
 
+  // The value streams on offer, and the one actually filtering: the one chosen
+  // while it is still on offer — a reload can take it away, and it must not go
+  // on hiding every well with no control left to undo it.
+  const streams = valueStreamsOf(rows.map((r) => r.market));
+  const offerStreams = hasValueStreams(rows.map((r) => r.market));
+  const activeStream = offerStreams && streams.includes(stream) ? stream : "";
   const q = search.trim().toLowerCase();
   const filtered = rows.filter(
     (r) =>
       inYears({ focus_start: r.start_date }, range) &&
-      (!stream || valueStreamOf(r.market) === stream) &&
+      (!activeStream || valueStreamOf(r.market) === activeStream) &&
       (!q ||
         r.well_name.toLowerCase().includes(q) ||
         r.well_project.toLowerCase().includes(q) ||
@@ -217,12 +223,8 @@ export function AllReadinessGrid({
           changes.
         </p>
         <div className="ml-auto flex items-center gap-2">
-          {hasValueStreams(rows.map((r) => r.market)) && (
-            <ValueStreamSelect
-              streams={valueStreamsOf(rows.map((r) => r.market))}
-              value={stream}
-              onChange={setStream}
-            />
+          {offerStreams && (
+            <ValueStreamSelect streams={streams} value={activeStream} onChange={setStream} />
           )}
           <ReadinessYearsPicker value={range} onChange={setRange} />
           <SearchInput

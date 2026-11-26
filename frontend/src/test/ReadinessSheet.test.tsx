@@ -180,6 +180,30 @@ describe("ReadinessSheet — when the Value stream filter is offered", () => {
     expect(screen.getByLabelText("Value stream")).toBeInTheDocument();
   });
 
+  it("a chosen stream that disappears on reload stops filtering — the wells come back", async () => {
+    // Oil is chosen; then the Market is cleared on every well (by someone else)
+    // and the page reloads. The selector goes — and so must the filter.
+    let cleared = false;
+    const data = team();
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json({
+          ...data,
+          well_rows: data.well_rows.map((r) => ({ ...r, market: cleared ? null : r.market })),
+        }),
+      ),
+    );
+    renderGrid();
+    await table();
+    await userEvent.selectOptions(screen.getByLabelText("Value stream"), "Oil");
+    expect(screen.getAllByTestId("well-name")).toHaveLength(2);
+    cleared = true;
+    await userEvent.click(screen.getByRole("button", { name: /refresh/i }));
+    await waitFor(() => expect(screen.queryByLabelText("Value stream")).not.toBeInTheDocument());
+    expect(screen.getAllByTestId("well-name")).toHaveLength(4);
+    expect(screen.getByTestId("readiness-count")).toHaveTextContent("4 wells");
+  });
+
   it("is hidden when no well names a value stream — nothing to choose between", async () => {
     serve(() => null);
     renderGrid();

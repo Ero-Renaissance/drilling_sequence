@@ -363,6 +363,10 @@ export function ReadinessSheet({
     () => hasValueStreams((data?.well_rows ?? []).map((r) => r.market)),
     [data],
   );
+  // The stream actually filtering: the one chosen, while it is still on offer.
+  // A reload can take it away (the Market cleared on its wells) — it must not
+  // go on hiding every well with no control left to undo it.
+  const activeStream = offerStreams && streams.includes(stream) ? stream : "";
   const q = search.trim().toLowerCase();
   const scoped = useMemo(
     () => (data?.well_rows ?? []).filter((r) => inYears(r, range)),
@@ -373,7 +377,7 @@ export function ReadinessSheet({
       scoped
         .filter(
           (r) =>
-            (!stream || streamOf(r) === stream) &&
+            (!activeStream || streamOf(r) === activeStream) &&
             (!behindFocus || (r.figures?.behind ?? 0) > 0) &&
             (projectFilter === null || r.well_project === projectFilter) &&
             (!q ||
@@ -389,7 +393,7 @@ export function ReadinessSheet({
             spudOf(x).localeCompare(spudOf(y)) ||
             x.well_name.localeCompare(y.well_name),
         ),
-    [scoped, stream, behindFocus, projectFilter, q],
+    [scoped, activeStream, behindFocus, projectFilter, q],
   );
   useEffect(
     () => setPageIndex(0),
@@ -430,7 +434,7 @@ export function ReadinessSheet({
   // "Well Execution Readiness" for the built-in team, "<Team> Execution
   // Readiness" for every other (the lens label, `catalog.tsx::lensLabel`).
   const sheetName = `${data.team.code === PROJECTS_TEAM ? "Well" : teamName} Execution Readiness`;
-  const filtering = Boolean(q) || Boolean(stream) || behindFocus || projectFilter !== null;
+  const filtering = Boolean(q) || Boolean(activeStream) || behindFocus || projectFilter !== null;
   const anyOpen = columns.some((c) => c.kind === "category" && c.open);
   const headRows = anyOpen ? 3 : 2;
   const th =
@@ -616,7 +620,7 @@ export function ReadinessSheet({
           viewSwitch={
             // Offered once any well names a value stream.
             offerStreams ? (
-              <ValueStreamSelect streams={streams} value={stream} onChange={setStream} />
+              <ValueStreamSelect streams={streams} value={activeStream} onChange={setStream} />
             ) : undefined
           }
           years={{ value: range, onChange: setRange }}

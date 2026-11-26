@@ -506,10 +506,12 @@ export function DrillChart({
     [visibleActivities],
   );
   // Offered once any well names a value stream — with none there is nothing to
-  // choose between.
+  // choose between — and for as long as a stream is selected: a selection made
+  // before the location filter (or a link) narrowed the wells must stay
+  // removable, or the chart would sit empty with no control to undo it.
   const streamControlVisible = useMemo(
-    () => hasValueStreams(visibleActivities.map((a) => a.market)),
-    [visibleActivities],
+    () => selectedStreams.size > 0 || hasValueStreams(visibleActivities.map((a) => a.market)),
+    [visibleActivities, selectedStreams],
   );
 
   // Distinct locations (terrains) in domain order (LAND → SWAMP → OFFSHORE),
@@ -1733,12 +1735,15 @@ export function DrillChart({
           <button
             type="button"
             onClick={() => {
+              // Every bar-level filter: any one of them can be the dead one
+              // (a link naming a value stream that no longer exists, say).
               setSelectedProjects(new Set());
+              setSelectedStreams(new Set());
               setSelectedActivities(new Set());
             }}
             className="font-medium text-primary hover:underline"
           >
-            Clear project & activity filters
+            Clear project, value stream & activity filters
           </button>
         </div>
       ) : (
@@ -1774,7 +1779,10 @@ export function DrillChart({
     >
       {(years.length > 1 ||
         (enableFilters &&
-          (projectControlVisible || activityControlVisible || locations.length > 1))) && (
+          (projectControlVisible ||
+            streamControlVisible ||
+            activityControlVisible ||
+            locations.length > 1))) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {years.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
