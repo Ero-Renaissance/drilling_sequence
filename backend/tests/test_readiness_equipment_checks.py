@@ -43,9 +43,11 @@ from app.services.readiness_effective import not_selected as is_not_selected
 from app.services.readiness_rollup import in_scope, live_cells, pct, rollup
 from app.services.snapshot import build_project_snapshot
 from tests.readiness_seed import (
+    BEHIND_REASON,
     EQUIPMENT_CODES,
     seed_core_logistics_checks,
     seed_equipment_checks,
+    with_reason,
 )
 
 FP = "Bonga Phase 3"
@@ -133,7 +135,7 @@ async def _apply(
 
 
 async def _put(client: AsyncClient, pid: str, code: str, target: dict, status: str) -> Response:
-    return await client.put(f"/api/projects/{pid}/readiness/{code}", json={**target, "status": status})
+    return await client.put(f"/api/projects/{pid}/readiness/{code}", json=with_reason({**target, "status": status}))
 
 
 async def _lens(client: AsyncClient, pid: str, team: str = "logistics") -> dict:
@@ -784,7 +786,7 @@ async def test_no_status_on_a_check_that_is_not_selected(
     assert (await _put(client, pid, "PSV", _well("W-2"), "Behind")).status_code == 409
     assert (await _put(client, pid, "PSV", PROJECT, "Behind")).status_code == 409
     assert await _details(db, pid, "readiness_updated") == [
-        "PSV for W-1 (Bonga Phase 3, Oil Development): On Track -> Behind"
+        f"PSV for W-1 (Bonga Phase 3, Oil Development): On Track -> Behind; reason: {BEHIND_REASON}"
     ]
     reset = await client.post(f"/api/projects/{pid}/readiness/PSV/reset", json=_well("W-1"))
     assert reset.status_code == 200

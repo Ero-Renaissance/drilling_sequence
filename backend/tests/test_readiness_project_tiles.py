@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.services.readiness_rollup import fold_project_cells, pct, worst_status
+from tests.readiness_seed import BEHIND_REASON
 from tests.test_readiness_logistics import _admin, _put, _seed_logistics
 
 FP = "Bonga Phase 3"
@@ -365,7 +366,7 @@ async def test_the_project_gates_tile_is_unchanged(client: AsyncClient, db: Asyn
     """The gates have no well level: each field project reads its own gates."""
     await _seed_logistics(client, db)
     pid = await _campaign(client, [("W-1", FP, 30), ("W-2", FP, 60)])
-    r = await client.put(f"/api/projects/{pid}/readiness/FID", json={**PROJECT, "status": "Behind"})
+    r = await client.put(f"/api/projects/{pid}/readiness/FID", json={**PROJECT, "status": "Behind", "notes": BEHIND_REASON})
     assert r.status_code == 200, r.text
     d = (await client.get(f"/api/projects/{pid}/dashboard")).json()
     assert (d["readiness"]["focus_count"], d["readiness"]["behind_cells"]) == (1, 1)
@@ -466,7 +467,7 @@ async def test_a_team_with_project_level_checks_only_still_lists_its_wells(
     await _check(client, "C-SIG", project=True, well=False, order=20, team="contracts")
     pid = await _campaign(client, [("W-1", FP, 30), ("W-2", FP, 60), ("LONE-1", None, 30)])
     lens_url = f"/api/projects/{pid}/readiness/teams/contracts"
-    r = await client.put(f"/api/projects/{pid}/readiness/C-AWD", json={**PROJECT, "status": "Behind"})
+    r = await client.put(f"/api/projects/{pid}/readiness/C-AWD", json={**PROJECT, "status": "Behind", "notes": BEHIND_REASON})
     assert r.status_code == 200, r.text
 
     lens = (await client.get(lens_url)).json()

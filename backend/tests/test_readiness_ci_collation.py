@@ -175,7 +175,7 @@ async def test_a_gate_write_on_a_case_variant_field_project_updates_the_stored_r
     # One row — the stored one, updated — and the audit's old value is what it held.
     assert await _entries(db, pid, "FDP") == [("project", FP, "", "Behind")]
     assert (await _details(db, pid, "readiness_updated"))[-1] == (
-        f"FDP for {FP_UPPER}: Completed -> Behind"
+        f"FDP for {FP_UPPER}: Completed -> Behind; reason: Awaiting vendor"
     )
 
 

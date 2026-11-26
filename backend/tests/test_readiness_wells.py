@@ -18,6 +18,7 @@ from app.models.activity import Activity
 from app.models.audit import AuditLog
 from app.models.readiness import ReadinessEntry
 from app.models.user import User
+from tests.readiness_seed import BEHIND_REASON, with_reason
 
 WELL_CHECK = {
     "code": "LPR",
@@ -94,7 +95,7 @@ def _well(well="W-1", project="Bonga Phase 3", activity_type="Oil Development") 
 
 async def _put(client: AsyncClient, pid: str, code: str, target: dict, status="Completed", notes=None):
     return await client.put(
-        f"/api/projects/{pid}/readiness/{code}", json={**target, "status": status, "notes": notes}
+        f"/api/projects/{pid}/readiness/{code}", json=with_reason({**target, "status": status, "notes": notes})
     )
 
 
@@ -249,7 +250,7 @@ async def test_well_inherits_the_project_value_until_it_overrides(
     lens = await _lens(client, pid, "logistics")
     assert _row(lens, "W-2")["checks"]["L-BUD"] == {
         **_row(lens, "W-2")["checks"]["L-BUD"],
-        "status": "Behind",
+        "status": "Behind", "notes": BEHIND_REASON,
         "source": "well",
     }
     assert _row(lens, "W-1")["checks"]["L-BUD"]["source"] == "project"

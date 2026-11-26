@@ -120,10 +120,19 @@ describe("ActivityReadinessPanel", () => {
     const row = within(logistics).getByText("Budget Availability").closest("tr")!;
     const [wellDot, projectDot] = within(row).getAllByRole("button", { name: /click to change/i });
 
+    // Behind needs a reason: the dialog asks before it saves, and sends it.
     await userEvent.click(wellDot);
     await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+    const prompt = await screen.findByRole("dialog", { name: "Why is it behind?" });
+    expect(prompt).toHaveTextContent("Budget Availability · W-1");
+    expect(within(prompt).getByRole("button", { name: "Set as behind" })).toBeDisabled();
+    expect(puts).toHaveLength(0);
+    await userEvent.type(within(prompt).getByLabelText("Reason it is behind"), "Budget not released");
+    await userEvent.click(within(prompt).getByRole("button", { name: "Set as behind" }));
     await waitFor(() =>
-      expect(puts[0]).toMatchObject({ code: "L-BUD", scope: "well", well_name: "W-1", status: "Behind" }),
+      expect(puts[0]).toMatchObject({
+        code: "L-BUD", scope: "well", well_name: "W-1", status: "Behind", notes: "Budget not released",
+      }),
     );
 
     // A team check's menu never offers N/A (spec §3.3) — "doesn't apply" is

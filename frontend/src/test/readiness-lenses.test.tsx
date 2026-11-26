@@ -243,6 +243,13 @@ function renderTeam(path = "/") {
   );
 }
 
+/** Behind needs a reason: answer the prompt that a "Behind" pick opens. */
+async function giveReason(text = "Vendor late") {
+  const dialog = await screen.findByRole("dialog", { name: "Why is it behind?" });
+  await userEvent.type(within(dialog).getByLabelText("Reason it is behind"), text);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Set as behind" }));
+}
+
 const sheet = () => screen.findByRole("table", { name: "Logistics execution readiness" });
 const rowOf = (table: HTMLElement, well: string) => within(table).getByText(well).closest("tr")!;
 const cell = (scope: HTMLElement, label: RegExp) => within(scope).getByLabelText(label);
@@ -319,6 +326,7 @@ describe("ReadinessSheet — a team's page", () => {
     renderTeam();
     await userEvent.click(cell(rowOf(await sheet(), "W-1"), /^Budget Availability for W-1/));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+    await giveReason();
     await waitFor(() =>
       expect(body).toEqual({
         scope: "well",
@@ -326,6 +334,8 @@ describe("ReadinessSheet — a team's page", () => {
         well_name: "W-1",
         activity_type: "Oil Development",
         status: "Behind",
+        // Behind needs a reason: the prompt's answer is sent as the note.
+        notes: "Vendor late",
       }),
     );
   });
@@ -369,8 +379,15 @@ describe("ReadinessSheet — a team's page", () => {
     ]);
     await userEvent.click(within(list).getByRole("button", { name: /Budget Availability/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+    await giveReason();
     await waitFor(() =>
-      expect(body).toEqual({ code: "L-BUD", scope: "project", well_project: "Bonga Phase 3", status: "Behind" }),
+      expect(body).toEqual({
+        code: "L-BUD",
+        scope: "project",
+        well_project: "Bonga Phase 3",
+        status: "Behind",
+        notes: "Vendor late",
+      }),
     );
   });
 
@@ -413,8 +430,15 @@ describe("ReadinessSheet — a team's page", () => {
     }
     await userEvent.click(within(table).getByLabelText(/^Budget Availability for Bonga Phase 3/));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Behind/ }));
+    await giveReason();
     await waitFor(() =>
-      expect(body).toEqual({ code: "L-BUD", scope: "project", well_project: "Bonga Phase 3", status: "Behind" }),
+      expect(body).toEqual({
+        code: "L-BUD",
+        scope: "project",
+        well_project: "Bonga Phase 3",
+        status: "Behind",
+        notes: "Vendor late",
+      }),
     );
     // Ticks are the field project's too: Checks… sits there, not on each well.
     const pickers = within(table).getAllByRole("button", { name: /^Checks…/ });

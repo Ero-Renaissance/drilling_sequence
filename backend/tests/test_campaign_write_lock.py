@@ -15,6 +15,7 @@ from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from tests.readiness_seed import BEHIND_REASON
 
 _LOCK = "UPDATE projects SET name=projects.name"
 
@@ -152,10 +153,10 @@ _WELL = {
 
 READINESS_WRITES: dict[str, Callable] = {
     "project gate status": lambda c, pid: c.put(
-        f"/api/projects/{pid}/readiness/FID", json={"well_project": "Bonga", "status": "Behind"}
+        f"/api/projects/{pid}/readiness/FID", json={"well_project": "Bonga", "status": "Behind", "notes": BEHIND_REASON}
     ),
     "team check status": lambda c, pid: c.put(
-        f"/api/projects/{pid}/readiness/L-BUD", json={**_WELL, "status": "Behind"}
+        f"/api/projects/{pid}/readiness/L-BUD", json={**_WELL, "status": "Behind", "notes": BEHIND_REASON}
     ),
     "reset to project": lambda c, pid: c.post(f"/api/projects/{pid}/readiness/L-BUD/reset", json=_WELL),
     "applicability": lambda c, pid: c.put(

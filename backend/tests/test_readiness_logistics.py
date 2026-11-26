@@ -37,6 +37,7 @@ from app.models.readiness import (
 )
 from app.models.user import User
 from app.services.readiness_catalog import active_checks, gate_codes_of
+from tests.readiness_seed import BEHIND_REASON, with_reason
 
 MIGRATION_036 = (
     Path(__file__).resolve().parents[1] / "alembic" / "versions" / "036_logistics_readiness.py"
@@ -199,7 +200,7 @@ def _well(name: str) -> dict:
 
 async def _put(client: AsyncClient, pid: str, code: str, target: dict, status: str, **extra):
     return await client.put(
-        f"/api/projects/{pid}/readiness/{code}", json={**target, "status": status, **extra}
+        f"/api/projects/{pid}/readiness/{code}", json=with_reason({**target, "status": status, **extra})
     )
 
 
@@ -413,7 +414,12 @@ async def test_live_checks_are_recorded_at_submission(client: AsyncClient, db: A
     by_well = {a["well_name"]: a for a in json.loads(detail["snapshot_json"])}
 
     # Effective values with their source — and no tags, in any new snapshot.
-    assert by_well["W-1"]["readiness_at_submission"]["PO"] == {"status": "Behind", "source": "well"}
+    # A behind check records why (2026-11-26).
+    assert by_well["W-1"]["readiness_at_submission"]["PO"] == {
+        "status": "Behind",
+        "source": "well",
+        "reason": BEHIND_REASON,
+    }
     assert by_well["W-2"]["readiness_at_submission"]["PO"] == {
         "status": "Completed",
         "source": "project",

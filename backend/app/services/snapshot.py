@@ -16,13 +16,23 @@ from app.models.rig_contract import RigContract
 from app.services.readiness import resolve_activity_contract
 from app.services.readiness_catalog import active_checks, governed_project_checks
 from app.services.readiness_effective import (
+    Effective,
     cell_status,
     load_index,
     not_selected,
     project_value,
     well_value,
 )
-from app.services.readiness_rollup import WELL_SCOPE
+from app.services.readiness_rollup import WELL_SCOPE, severity_of
+
+
+def behind_reason(value: Effective) -> str | None:
+    """The reason a cell is BEHIND — the note entered with the status — or None
+    when it isn't behind (by shared severity), doesn't apply, or was behind
+    before a reason was required."""
+    if not value.applies or severity_of(value.status) != "blocked":
+        return None
+    return (value.notes or "").strip() or None
 
 
 async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> list[dict]:
@@ -47,19 +57,27 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
     governed = await governed_project_checks(db)
     governed_index = await load_index(db, project_id, [c.code for c in governed])
 
-    def governed_block(a: Activity) -> dict[str, str]:
-        block: dict[str, str] = {}
+    def governed_values(a: Activity) -> dict[str, Effective]:
+        values: dict[str, Effective] = {}
         for c in governed:
             if c.applies_well and a.well_name:
-                v = well_value(
+                values[c.code] = well_value(
                     governed_index, c, (a.well_project or "", a.well_name, a.activity_type)
                 )
             elif a.well_project:
-                v = project_value(governed_index, c, a.well_project)
-            else:
-                continue  # no well name and no field project: nothing to read
-            block[c.code] = cell_status(v)
-        return block
+                values[c.code] = project_value(governed_index, c, a.well_project)
+            # else: no well name and no field project — nothing to read
+        return values
+
+    def governed_block(a: Activity) -> dict[str, str]:
+        return {code: cell_status(v) for code, v in governed_values(a).items()}
+
+    def governed_reasons(a: Activity) -> dict[str, str]:
+        """Why each governed check that is BEHIND was behind, as it stood at
+        submission (2026-11-26) — what signers were told. Beside ``readiness``,
+        whose values stay plain statuses for every existing reader."""
+        reasons = {code: behind_reason(v) for code, v in governed_values(a).items()}
+        return {code: reason for code, reason in reasons.items() if reason}
 
     # Live (operational) checks — Wells, Logistics… — are recorded too, as they
     # stood at submission, for the revision print; they never lock or diff.
@@ -93,6 +111,11 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # that didn't apply (no icon, not counted). No tags: Nominated
             # Equipment is withdrawn.
             values[c.code] = {"status": cell_status(v), "source": v.source}
+            # Why it was behind, as it stood at submission (2026-11-26) — the
+            # reason entered with the status. Recorded, never compared.
+            reason = behind_reason(v)
+            if reason:
+                values[c.code]["reason"] = reason
             # How many of this type were needed at submission, where stated
             # (docs/equipment-quantity-spec.md §3.2) — only on a check that
             # applies. Recorded, never compared: it isn't part of the diff.
@@ -194,6 +217,9 @@ async def build_project_snapshot(project_id: uuid.UUID, db: AsyncSession) -> lis
             # well's, so the gate KPIs fold a field project's wells (worst of).
             "readiness": governed_block(a),
             "readiness_scope": WELL_SCOPE,
+            # Only where a governed check is behind with a reason, so snapshots
+            # without one are unchanged.
+            **({"readiness_reasons": r} if (r := governed_reasons(a)) else {}),
             "resource_planned": resource_planned(a),
             **contract_fields(a),
             # Only once live checks exist, so snapshots without them are unchanged.

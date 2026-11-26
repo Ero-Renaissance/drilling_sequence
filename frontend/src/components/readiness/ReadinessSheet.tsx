@@ -59,6 +59,7 @@ import { categoryLine } from "@/lib/team-summary";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { ApplicabilityPicker } from "./ApplicabilityPicker";
+import { needsReason, useBehindReason } from "./BehindReason";
 import { FrozenCatalogProvider, PROJECTS_TEAM } from "./catalog";
 import { categoryTitle, columnSpan, gridColumns, type GridColumn } from "./category-columns";
 import { useOpenCategories } from "./category-folds";
@@ -329,6 +330,24 @@ export function ReadinessSheet({
     }
   }, []);
 
+  // Behind needs a reason (2026-11-26): ask why before the status is saved; a
+  // cancelled prompt leaves the status as it was.
+  const { askReason, reasonDialog } = useBehindReason();
+  const setStatus = useCallback(
+    async (
+      key: string,
+      check: CatalogCheck,
+      target: ReadinessTarget,
+      subject: string,
+      next: CheckStatus,
+    ) => {
+      const reason = needsReason(next) ? await askReason({ check: check.label, subject }) : undefined;
+      if (reason === null) return;
+      await write(key, () => setReadiness(projectId, check.code, target, next, reason));
+    },
+    [askReason, write, projectId],
+  );
+
   const checks = useMemo(() => data?.checks ?? [], [data]);
   // Checks without a category are columns of their own; each category is one
   // folded column until its header unfolds it.
@@ -467,7 +486,7 @@ export function ReadinessSheet({
                 : undefined
             }
             onStatus={(next) => {
-              if (next !== cell.status) void write(key, () => setReadiness(projectId, c.code, target, next));
+              if (next !== cell.status) void setStatus(key, c, target, name, next);
             }}
             onNote={() =>
               setNoteFor({ target, name, check: c, status: cell.status, note, writeKey: key })
@@ -533,7 +552,7 @@ export function ReadinessSheet({
           onStatus={(next) => {
             // Picking the status already shown still makes it the well's own.
             if (next !== status || !own) {
-              void write(key, () => setReadiness(projectId, c.code, wellTarget(row), next));
+              void setStatus(key, c, wellTarget(row), row.well_name, next);
             }
           }}
           onReset={
@@ -894,6 +913,8 @@ export function ReadinessSheet({
           />
         )}
 
+        {reasonDialog}
+
         {quantityFor && (
           <QuantityDialog
             quantity={quantityFor}
@@ -963,13 +984,12 @@ export function ReadinessSheet({
                             disabled={saving === key}
                             statuses={pickableStatuses(c)}
                             onChange={(next) =>
-                              write(key, () =>
-                                setReadiness(
-                                  projectId,
-                                  c.code,
-                                  { scope: "project", well_project: projectFor },
-                                  next,
-                                ),
+                              setStatus(
+                                key,
+                                c,
+                                { scope: "project", well_project: projectFor },
+                                `${projectFor} (field project)`,
+                                next,
                               )
                             }
                           />
@@ -1180,12 +1200,23 @@ function StatusCell({
   onQuantity?: () => void;
 }) {
   const label = sheetLabel(status);
+  const behind = needsReason(status);
+  // What the HOVER says — short: WHICH check this is, and the one thing the
+  // cell can't show in full: the reason it is behind (or its note), else its
+  // status. The check's name, not the well's: the Wells column is pinned, so
+  // the well is always on screen, while the column heading scrolls away and an
+  // unfolded group is headed by codes ("SEV"). The dot, the quantity and the
+  // colour are already in the cell and explained in the key.
+  const hover = `${check.label}: ${note || (behind ? "no reason given" : label)}`;
+  // The full description, for assistive technology (the cell's label).
   const title = [
     `${check.label} for ${subject}: ${label}`,
     origin,
     ownTick ? "applies — set on this well" : "",
     quantity !== null ? `${quantity} needed${quantityOwn ? " (set on this well)" : ""}` : "",
-    note ? `Note: ${note}` : "",
+    // A behind check's note is its reason; one behind from before reasons were
+    // required says it has none.
+    note ? `${behind ? "Reason" : "Note"}: ${note}` : behind ? "no reason given" : "",
   ]
     .filter(Boolean)
     .join(" — ");
@@ -1215,7 +1246,7 @@ function StatusCell({
   // A history-only set offers nothing to pick: the cell is read-only.
   if (!editable || statuses.length === 0) {
     return (
-      <div className={cellClass} title={title} role="img" aria-label={title} data-status={status}>
+      <div className={cellClass} title={hover} role="img" aria-label={title} data-status={status}>
         {body}
       </div>
     );
@@ -1229,7 +1260,7 @@ function StatusCell({
             cellClass,
             "transition-[filter] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60",
           )}
-          title={title}
+          title={hover}
           aria-label={`${title}. Click to change.`}
           data-status={status}
           disabled={busy}
@@ -1256,7 +1287,9 @@ function StatusCell({
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onNote} className="gap-2.5 py-2">
           <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="flex-1">{note ? "Edit note…" : "Add note…"}</span>
+          <span className="flex-1">
+            {behind ? (note ? "Edit reason…" : "Add reason…") : note ? "Edit note…" : "Add note…"}
+          </span>
         </DropdownMenuItem>
         {onQuantity && (
           <DropdownMenuItem onClick={onQuantity} className="gap-2.5 py-2">
@@ -1427,14 +1460,19 @@ function NoteDialog({
   const [text, setText] = useState(note.note);
   const [busy, setBusy] = useState(false);
   const forWell = note.target.scope === "well";
+  // While a check is behind its note is the reason: it can be reworded, never
+  // blanked (the server refuses it too).
+  const reasonRequired = needsReason(note.status);
+  const blank = text.trim() === "";
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            Note — {note.check.label} · {note.name}
+            {reasonRequired ? "Reason" : "Note"} — {note.check.label} · {note.name}
           </DialogTitle>
           <DialogDescription>
+            {reasonRequired ? "Why it is behind — it can't be left empty. " : ""}
             {forWell
               ? `Shown in the cell. Saving makes this check ${note.name}'s own value.`
               : "Shown in the cell, for every well of this field project."}
@@ -1443,6 +1481,7 @@ function NoteDialog({
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            if (reasonRequired && blank) return;
             setBusy(true);
             await onSave(text.trim() || null);
             setBusy(false);
@@ -1467,8 +1506,8 @@ function NoteDialog({
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Save note"}
+            <Button type="submit" disabled={busy || (reasonRequired && blank)}>
+              {busy ? "Saving…" : reasonRequired ? "Save reason" : "Save note"}
             </Button>
           </DialogFooter>
         </form>

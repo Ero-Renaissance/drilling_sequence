@@ -126,3 +126,18 @@ async def seed_equipment_checks(
 async def _exists(db: AsyncSession, code: str) -> bool:
     found = await db.execute(select(ReadinessCheck.id).where(ReadinessCheck.code == code))
     return found.scalar_one_or_none() is not None
+
+
+# ── A reason for Behind (2026-11-26) ────────────────────────────────────────
+
+# A check can't be saved as Behind without a reason (the note). Tests that are
+# not about that rule send this one.
+BEHIND_REASON = "Awaiting vendor"
+
+
+def with_reason(body: dict[str, Any]) -> dict[str, Any]:
+    """A status PUT body, with a reason added where it sets Behind and carries
+    no note of its own."""
+    if body.get("status") == "Behind" and not body.get("notes"):
+        return {**body, "notes": BEHIND_REASON}
+    return body

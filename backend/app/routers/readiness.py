@@ -75,6 +75,7 @@ from app.services.readiness_rollup import (
     focus_start_of,
     fold_project_cells,
     in_window,
+    severity_of,
     target_figures,
     valid_year_range,
     well_level_statuses,
@@ -116,6 +117,10 @@ _NOT_APPLICABLE_DETAIL = "This check doesn't apply here — tick it first"
 # The Project gates have no tick list (decision 31): a gate that doesn't apply is
 # set to N/A in its status menu instead.
 _GATES_USE_NA_DETAIL = "The Project gates use N/A"
+# The 422 for a status write that would leave a check BEHIND with no reason
+# (2026-11-26): everybody asks why something is behind, so the reason is asked
+# for when it is set.
+_REASON_REQUIRED_DETAIL = "Say why it is behind: a reason is required"
 # The 409 when a write's insert still hits a readiness unique key (the backstop
 # behind ``_target_index``): generic — no names, ids or SQL reach the client.
 _CONFLICT_DETAIL = "This readiness value changed while saving — reload and try again"
@@ -363,6 +368,12 @@ def _shown(index: EntryIndex, check: ReadinessCheck, target: WellTarget) -> Effe
     if target.scope == "project":
         return project_value(index, check, target.well_project)
     return well_value(index, check, _well_key(target))
+
+
+def _is_behind(status_value: str) -> bool:
+    """Whether a status reads as BEHIND — by shared severity (``blocked``),
+    never status text."""
+    return severity_of(status_value) == "blocked"
 
 
 def _own_entry(
@@ -648,6 +659,31 @@ async def upsert_readiness_check(
     sets_notes = "notes" in payload.model_fields_set
     gate = _own_entry(index, check, payload)
     gate_is_new = gate is None
+
+    # Behind needs a reason (2026-11-26, every team): the note IS the reason.
+    # - Becoming behind — the target's own entry isn't behind yet (a new entry,
+    #   or a well taking its own value where it only followed its field
+    #   project's) — the request must carry a non-blank note.
+    # - Already behind: the reason can be reworded, never blanked; a request
+    #   that sends no note keeps it. So a check that was behind with no reason
+    #   before this rule stays as it is until its next change.
+    # - Leaving behind: the reason no longer applies. Unless the request sends a
+    #   note of its own, it is cleared from the entry; the audit trail keeps it.
+    was_behind = gate is not None and _is_behind(gate.status)
+    now_behind = _is_behind(payload.status)
+    reason = (payload.notes or "").strip() if sets_notes else ""
+    if now_behind and (sets_notes or not was_behind) and not reason:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_REASON_REQUIRED_DETAIL
+        )
+    clears_reason = was_behind and not now_behind and not sets_notes
+    new_notes: str | None
+    if sets_notes:
+        new_notes = payload.notes
+    elif clears_reason or gate is None:
+        new_notes = None
+    else:
+        new_notes = gate.notes
     if gate is None:
         gate = ReadinessEntry(
             project_id=project_id,
@@ -657,14 +693,13 @@ async def upsert_readiness_check(
             well_name=payload.well_name or "",
             activity_type=payload.activity_type or "",
             status=payload.status,
-            notes=payload.notes,
+            notes=new_notes,
             updated_by=current_user.id,
         )
         db.add(gate)
     else:
         gate.status = payload.status
-        if sets_notes:
-            gate.notes = payload.notes
+        gate.notes = new_notes
         gate.updated_by = current_user.id
     await _flush_or_409(db, project_id, current_user, [check.code])  # assigns gate.id
 
@@ -672,8 +707,20 @@ async def upsert_readiness_check(
     # and team grants span every campaign, so the full history must be on record.
     # Same transaction as the write, so the trail can't miss a committed change.
     notes_changed = (
-        shown.notes != payload.notes if sets_notes else gate_is_new and shown.notes is not None
+        shown.notes != payload.notes
+        if sets_notes
+        else clears_reason or (gate_is_new and shown.notes is not None)
     )
+    # The trail keeps what was SAID, not only that something was: the reason a
+    # check is behind is written out; so is the one that stops applying.
+    if now_behind and notes_changed:
+        said = f"; reason: {reason}"
+    elif clears_reason and shown.notes:
+        said = f"; no longer behind - reason was: {shown.notes.strip()}"
+    elif notes_changed:
+        said = "; notes changed"
+    else:
+        said = ""
     if shown.status != payload.status or notes_changed:
         db.add(
             governance_event(
@@ -683,12 +730,14 @@ async def upsert_readiness_check(
                 entity_id=gate.id,
                 action="readiness_updated",
                 # ASCII "->": audit columns may be VARCHAR on SQL Server.
+                # Bounded: a reason is at most 512 characters, the rest is
+                # names and fixed words (the column is unbounded text).
                 detail=(
                     f"{check.code} for {_target_label(payload)}: "
                     f"{shown.status} -> {payload.status}"
-                    + ("; notes changed" if notes_changed else "")
                     + ("; plan locked" if under_lock else "")
-                )[:512],
+                    + said
+                )[:1536],
                 old_value=shown.status,
             )
         )

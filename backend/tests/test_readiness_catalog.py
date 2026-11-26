@@ -27,6 +27,7 @@ from app.models.readiness import (
 )
 from app.models.revision import Revision
 from app.models.user import User
+from tests.readiness_seed import with_reason
 
 # The well execution readiness checks (phase 8), in catalog order.
 EIGHT = ["FDP", "FID", "BUD", "FE", "EIA", "LLI", "LOC", "WP"]
@@ -60,7 +61,7 @@ async def _campaign_with_activity(client: AsyncClient) -> str:
 async def _put_gate(client: AsyncClient, pid: str, code: str, status: str = "Completed"):
     return await client.put(
         f"/api/projects/{pid}/readiness/{code}",
-        json={"well_project": "Bonga Phase 3", "status": status},
+        json=with_reason({"well_project": "Bonga Phase 3", "status": status}),
     )
 
 
