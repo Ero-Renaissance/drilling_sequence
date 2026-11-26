@@ -717,6 +717,89 @@ describe("Value stream filter (the activities' Market)", () => {
   });
 });
 
+describe("bars read their text from their own data, not the chart's dimensions", () => {
+  // ECharts types a dimension from its first rows: when the first wells have no
+  // project (or Market), every later TEXT value read back through api.value()
+  // arrives as NaN. Seven wells on one rig: five with no project, then one each
+  // for Project Alpha (flood risk) and Project Beta.
+  const day = (n: number) => new Date(Date.UTC(2026, 0, 1 + n)).toISOString().slice(0, 10);
+  const well = (i: number, over: Partial<Activity>): Activity => ({
+    ...MOCK_ACTIVITIES[0],
+    id: `w-${i}`,
+    well_name: `W-${i}`,
+    start_date: day(i * 100),
+    end_date: day(i * 100 + 90),
+    well_project: null,
+    risk: "No Flood Risk",
+    ...over,
+  });
+  const WELLS: Activity[] = [
+    ...[0, 1, 2, 3, 4].map((i) => well(i, {})),
+    well(5, { well_project: "Project Alpha", risk: "Flood Risk" }),
+    well(6, { well_project: "Project Beta" }),
+  ];
+  type Child = { type: string; style: { text?: string; opacity?: number; image?: string } };
+  type Bars = {
+    encode?: { x?: unknown };
+    data: { value: unknown[]; activityId: string }[];
+    renderItem: (params: unknown, api: unknown) => { children: Child[] };
+  };
+  const draw = (id: string): Child[] => {
+    const series = (captured.option as { series: Bars[] }).series.find((s) =>
+      Array.isArray(s.encode?.x),
+    )!;
+    const index = series.data.findIndex((d) => d.activityId === id);
+    const item = series.data[index];
+    const start = item.value[1] as number;
+    const api = {
+      // As ECharts does for a number-typed dimension: anything else is NaN.
+      value: (i: number) => (typeof item.value[i] === "number" ? item.value[i] : Number.NaN),
+      coord: ([x]: [number, number]) => [100 + ((x - start) / 86_400_000) * 4, 200],
+      size: () => [0, 56],
+      visual: () => "#888888",
+    };
+    const params = { dataIndex: index, coordSys: { x: 0, y: 0, width: 100_000, height: 1_000 } };
+    return series.renderItem(params, api).children;
+  };
+  const texts = (id: string) =>
+    draw(id).flatMap((c) => (c.type === "text" && c.style.text ? [c.style.text] : []));
+  const opacity = (id: string) => draw(id).find((c) => c.type === "rect")!.style.opacity;
+
+  it("still tags a bar with its project and marks a flood-risk well", () => {
+    render(<DrillChart activities={WELLS} enableFilters />);
+    expect(texts("w-5")).toContain("Project Alpha");
+    expect(texts("w-6")).toContain("Project Beta");
+    expect(texts("w-0")).not.toContain("Project Alpha");
+    // The flood-risk droplet is one more drawn child than a plain bar has.
+    const marks = (id: string) => draw(id).filter((c) => c.type !== "rect" && c.type !== "text").length;
+    expect(marks("w-5")).toBeGreaterThan(marks("w-6"));
+  });
+
+  it("the Projects filter keeps the chosen project vivid and dims the rest", async () => {
+    render(<DrillChart activities={WELLS} enableFilters />);
+    await userEvent.click(screen.getByRole("button", { name: /All projects/i }));
+    await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Project Alpha" }));
+    await userEvent.keyboard("{Escape}");
+    expect(opacity("w-5")).toBe(1);
+    expect(opacity("w-6")).toBe(0.16);
+    expect(opacity("w-0")).toBe(0.16);
+  });
+
+  it("the Activity filter judges each bar by its own type", async () => {
+    render(
+      <DrillChart
+        activities={[...WELLS, well(7, { activity_type: "Workover" })]}
+        enableFilters
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /All activities/i }));
+    await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Workover" }));
+    await userEvent.keyboard("{Escape}");
+    expect(opacity("w-7")).toBe(1);
+    expect(opacity("w-0")).toBe(0.16);
+  });
+});
+
 describe("Faceted filter narrowing", () => {
   it("selecting an activity narrows the Projects checklist to matching projects", async () => {
     render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
