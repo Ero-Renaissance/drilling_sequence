@@ -39,6 +39,7 @@ import {
 } from "@/lib/chart-layout";
 import { codeWithLabel, lookAlikeCodes } from "@/lib/readiness-categories";
 import { quantityNote } from "@/lib/readiness-quantity";
+import { byValueStream, hasValueStreams, valueStreamOf } from "@/lib/value-stream";
 import {
   categoryLine,
   notApplicableCodesLine,
@@ -117,9 +118,16 @@ interface DrillChartProps {
   initialProjects?: string[];
   initialLocations?: string[];
   initialActivityTypes?: string[];
+  /** Value streams (the activities' Market) to single out. */
+  initialStreams?: string[];
   /** Fires when the project/location filters change, so a parent can carry the
    *  current selection (e.g. into the presentation link). */
-  onFiltersChange?: (filters: { projects: string[]; locations: string[]; activities: string[] }) => void;
+  onFiltersChange?: (filters: {
+    projects: string[];
+    locations: string[];
+    activities: string[];
+    streams: string[];
+  }) => void;
   /** Where the legend sits relative to the chart. "right" is for the wide
    *  presentation view (aligned with the chart, below the filters); "bottom"
    *  (default) everywhere else. */
@@ -340,6 +348,7 @@ export function DrillChart({
   initialProjects,
   initialLocations,
   initialActivityTypes,
+  initialStreams,
   onFiltersChange,
   legendPosition = "bottom",
   stickyScale = false,
@@ -375,6 +384,9 @@ export function DrillChart({
   const [selectedActivities, setSelectedActivities] = useState<Set<string>>(
     () => new Set(initialActivityTypes),
   );
+  // Selected VALUE STREAMS (the activity's Market) — a bar-level attribute like
+  // the project, so the same dim semantics; "No value stream" is selectable.
+  const [selectedStreams, setSelectedStreams] = useState<Set<string>>(() => new Set(initialStreams));
   // Selected locations (terrains) — empty Set means "no filter"; otherwise only
   // rows in these terrains are shown (the rest are removed, not dimmed).
   const [selectedLocations, setSelectedLocations] = useState<Set<string>>(() => new Set(initialLocations));
@@ -386,8 +398,9 @@ export function DrillChart({
       projects: [...selectedProjects],
       locations: [...selectedLocations],
       activities: [...selectedActivities],
+      streams: [...selectedStreams],
     });
-  }, [selectedProjects, selectedLocations, selectedActivities, onFiltersChange]);
+  }, [selectedProjects, selectedLocations, selectedActivities, selectedStreams, onFiltersChange]);
 
   // Distinct calendar years the campaign spans — drives the focus-year strip.
   const years = useMemo(() => {
@@ -419,15 +432,35 @@ export function DrillChart({
   // lane with ZERO matching bars carries no signal at all, so it collapses —
   // honest cleanup (whole irrelevant rigs go) without fabricating idle gaps
   // inside busy lanes the way per-bar removal would.
+  const matchesProjects = useCallback(
+    (a: Activity) =>
+      selectedProjects.size === 0 || (!!a.well_project && selectedProjects.has(a.well_project)),
+    [selectedProjects],
+  );
+  const matchesTypes = useCallback(
+    (a: Activity) => selectedActivities.size === 0 || selectedActivities.has(a.activity_type),
+    [selectedActivities],
+  );
+  const matchesStreams = useCallback(
+    (a: Activity) => selectedStreams.size === 0 || selectedStreams.has(valueStreamOf(a.market)),
+    [selectedStreams],
+  );
   const chartActivities = useMemo(() => {
-    if (selectedProjects.size === 0 && selectedActivities.size === 0) return visibleActivities;
-    const matches = (a: Activity) =>
-      (selectedProjects.size === 0 ||
-        (!!a.well_project && selectedProjects.has(a.well_project))) &&
-      (selectedActivities.size === 0 || selectedActivities.has(a.activity_type));
+    if (selectedProjects.size === 0 && selectedActivities.size === 0 && selectedStreams.size === 0) {
+      return visibleActivities;
+    }
+    const matches = (a: Activity) => matchesProjects(a) && matchesTypes(a) && matchesStreams(a);
     const keptLanes = new Set(visibleActivities.filter(matches).map(activityLaneLabel));
     return visibleActivities.filter((a) => keptLanes.has(activityLaneLabel(a)));
-  }, [visibleActivities, selectedProjects, selectedActivities]);
+  }, [
+    visibleActivities,
+    selectedProjects,
+    selectedActivities,
+    selectedStreams,
+    matchesProjects,
+    matchesTypes,
+    matchesStreams,
+  ]);
 
   // Faceted checklists: each list is narrowed by the OTHER filters (location +
   // the other bar dimension) but NEVER by itself — that asymmetry is what
@@ -435,24 +468,32 @@ export function DrillChart({
   // Options you already picked never vanish from their own list either, or you
   // couldn't unselect your way back out of a dead combination.
   const activityTypeOptions = useMemo(() => {
-    const matchesProjects = (a: Activity) =>
-      selectedProjects.size === 0 ||
-      (!!a.well_project && selectedProjects.has(a.well_project));
     const s = new Set<string>();
-    for (const a of visibleActivities) if (matchesProjects(a)) s.add(a.activity_type);
+    for (const a of visibleActivities) {
+      if (matchesProjects(a) && matchesStreams(a)) s.add(a.activity_type);
+    }
     for (const t of selectedActivities) s.add(t);
     return [...s].sort((x, y) => x.localeCompare(y));
-  }, [visibleActivities, selectedProjects, selectedActivities]);
+  }, [visibleActivities, selectedActivities, matchesProjects, matchesStreams]);
 
   const projects = useMemo(() => {
-    const matchesTypes = (a: Activity) =>
-      selectedActivities.size === 0 || selectedActivities.has(a.activity_type);
     const s = new Set<string>();
-    for (const a of visibleActivities)
-      if (a.well_project && matchesTypes(a)) s.add(a.well_project);
+    for (const a of visibleActivities) {
+      if (a.well_project && matchesTypes(a) && matchesStreams(a)) s.add(a.well_project);
+    }
     for (const pName of selectedProjects) s.add(pName);
     return [...s].sort((x, y) => x.localeCompare(y));
-  }, [visibleActivities, selectedActivities, selectedProjects]);
+  }, [visibleActivities, selectedProjects, matchesTypes, matchesStreams]);
+
+  // Value streams, narrowed by the other filters and never by itself.
+  const streamOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of visibleActivities) {
+      if (matchesProjects(a) && matchesTypes(a)) s.add(valueStreamOf(a.market));
+    }
+    for (const stream of selectedStreams) s.add(stream);
+    return [...s].sort(byValueStream);
+  }, [visibleActivities, selectedStreams, matchesProjects, matchesTypes]);
 
   // Control VISIBILITY stays keyed to the location-scoped totals, so using one
   // filter can never make the other's control disappear mid-interaction.
@@ -462,6 +503,12 @@ export function DrillChart({
   );
   const activityControlVisible = useMemo(
     () => new Set(visibleActivities.map((a) => a.activity_type)).size > 1,
+    [visibleActivities],
+  );
+  // Offered once any well names a value stream — with none there is nothing to
+  // choose between.
+  const streamControlVisible = useMemo(
+    () => hasValueStreams(visibleActivities.map((a) => a.market)),
     [visibleActivities],
   );
 
@@ -741,11 +788,13 @@ export function DrillChart({
       const project = api.value(8) as string | null;
       const risk = api.value(7) as string | null;
       const barType = api.value(3) as string | null;
+      const barStream = valueStreamOf(api.value(9) as string | null);
       // A bar dims when it fails ANY active bar-level dimension.
       const dimmed =
         enableFilters &&
         ((selectedProjects.size > 0 && (!project || !selectedProjects.has(project))) ||
-          (selectedActivities.size > 0 && (!barType || !selectedActivities.has(barType))));
+          (selectedActivities.size > 0 && (!barType || !selectedActivities.has(barType))) ||
+          (selectedStreams.size > 0 && !selectedStreams.has(barStream)));
 
       const children: Array<Record<string, unknown>> = [
         {
@@ -1492,7 +1541,7 @@ export function DrillChart({
 
       _chartHeight: chartHeight,
     } as unknown as EChartsOption;
-  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, enableFilters, gates, readinessHeading, lens, projectClickable]);
+  }, [categories, displayData, theme, resolved, contractsByRig, rigContractsByLane, contractsByHwu, categoryToResource, focusSpan, dataMin, dataMax, selectedProjects, selectedActivities, selectedStreams, enableFilters, gates, readinessHeading, lens, projectClickable]);
 
   const chartHeight = (option as { _chartHeight?: number })._chartHeight ?? 500;
 
@@ -1672,7 +1721,7 @@ export function DrillChart({
       )}
       {enableFilters &&
       categories.length === 0 &&
-      (selectedProjects.size > 0 || selectedActivities.size > 0) ? (
+      (selectedProjects.size > 0 || selectedActivities.size > 0 || selectedStreams.size > 0) ? (
         // A dead filter combination (e.g. a project with none of the selected
         // activity types, picked mid-edit) collapses every lane — say so
         // instead of presenting a silently empty chart.
@@ -1775,6 +1824,20 @@ export function DrillChart({
                 onChange={setSelectedProjects}
                 allLabel="All projects"
                 filterLabel="Filter by project"
+              />
+            </div>
+          )}
+          {enableFilters && streamControlVisible && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                Value stream
+              </span>
+              <MultiSelectFilter
+                items={streamOptions}
+                selected={selectedStreams}
+                onChange={setSelectedStreams}
+                allLabel="All value streams"
+                filterLabel="Filter by value stream"
               />
             </div>
           )}

@@ -146,6 +146,48 @@ describe("ReadinessSheet (Well Execution Readiness) — the layout", () => {
   });
 });
 
+describe("ReadinessSheet — when the Value stream filter is offered", () => {
+  const serve = (market: (well: string) => string | null) => {
+    const data = team();
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json({
+          ...data,
+          well_rows: data.well_rows.map((r) => ({ ...r, market: market(r.well_name) })),
+        }),
+      ),
+    );
+  };
+
+  it("is there with ONE named stream — wells with none are the other choice", async () => {
+    serve((well) => (well === "Forc151" ? null : "Oil"));
+    renderGrid();
+    await table();
+    const select = screen.getByLabelText("Value stream");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "All value streams",
+      "Oil",
+      "No value stream",
+    ]);
+    await userEvent.selectOptions(select, "No value stream");
+    expect(screen.getAllByTestId("well-name").map((el) => el.textContent)).toEqual(["Forc151"]);
+  });
+
+  it("is there when every well shares one stream", async () => {
+    serve(() => "Oil");
+    renderGrid();
+    await table();
+    expect(screen.getByLabelText("Value stream")).toBeInTheDocument();
+  });
+
+  it("is hidden when no well names a value stream — nothing to choose between", async () => {
+    serve(() => null);
+    renderGrid();
+    await table();
+    expect(screen.queryByLabelText("Value stream")).not.toBeInTheDocument();
+  });
+});
+
 describe("ReadinessSheet (Well Execution Readiness) — the years shown", () => {
   it("shows a spud column per year — three at most — and hides wells that spud outside them", async () => {
     renderGrid();

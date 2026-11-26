@@ -130,6 +130,7 @@ export function Presentation() {
                 initialProjects={searchParams.getAll("projects")}
                 initialLocations={searchParams.getAll("locations")}
                 initialActivityTypes={searchParams.getAll("activities")}
+                initialStreams={searchParams.getAll("streams")}
                 legendExtra={
                   <section className="space-y-2">
                     <h2 className="text-sm font-semibold text-foreground">Change notes</h2>
