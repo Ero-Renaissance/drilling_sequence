@@ -52,9 +52,12 @@ export interface ChartResource {
 export interface ChartDataItem {
   activityId: string;
   name: string;
-  /** yIndex, start, end, activity type, well, rig, plan type, risk, field
-   *  project, value stream (Market). */
-  value: [number, number, number, string, string | null, string | null, string | null, string | null, string | null, string | null];
+  value: [number, number, number, string, string | null, string | null, string | null, string | null, string | null];
+  /** The activity's Market — its value stream. A property of the item, NOT a
+   *  chart dimension: ECharts types a dimension from the first rows, so a text
+   *  value read back through `api.value()` can arrive as NaN when the first
+   *  wells have none — the bar code reads it from here instead. */
+  market: string | null;
   itemStyle: { color: string; borderRadius: number };
   label: { show: boolean; formatter: string; color: string; fontSize: number };
   tooltip: {
@@ -202,7 +205,8 @@ export function activitiesToChartData(
     return {
       activityId: a.id,
       name: a.activity_type,
-      value: [yIndex, startMs, endMs, a.activity_type, a.well_name, a.rig_name, a.plan_type, a.risk, a.well_project, a.market ?? null],
+      value: [yIndex, startMs, endMs, a.activity_type, a.well_name, a.rig_name, a.plan_type, a.risk, a.well_project],
+      market: a.market ?? null,
       itemStyle: { color, borderRadius: 3 },
       label: {
         show: durationDays >= 10,

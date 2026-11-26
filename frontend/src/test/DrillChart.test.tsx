@@ -669,6 +669,47 @@ describe("Value stream filter (the activities' Market)", () => {
     expect(screen.getByRole("button", { name: /All value streams/i })).toBeInTheDocument();
   });
 
+  it("still draws every bar when wells have no Market — and dims by the bar's own stream", async () => {
+    // The real shape that broke the chart: most wells have no Market. ECharts
+    // types a dimension from the first rows, so a text value read back through
+    // api.value() arrives as NaN — the bar code must not depend on it.
+    render(<DrillChart activities={STREAMS} enableFilters />);
+    type Bars = {
+      encode?: { x?: unknown };
+      data: { value: unknown[]; market: string | null }[];
+      renderItem: (
+        params: unknown,
+        api: unknown,
+      ) => { children: { type: string; style: { opacity?: number } }[] };
+    };
+    const bars = () =>
+      (captured.option as { series: Bars[] }).series.find((s) => Array.isArray(s.encode?.x))!;
+    const draw = (index: number) => {
+      const series = bars();
+      const item = series.data[index];
+      const api = {
+        // As ECharts does for a number-typed dimension: anything else is NaN.
+        value: (i: number) => (typeof item.value[i] === "number" ? item.value[i] : Number.NaN),
+        coord: ([x]: [number, number]) => [100 + Number(x) / 86_400_000, 200],
+        size: () => [0, 56],
+        visual: () => "#888888",
+      };
+      const params = { dataIndex: index, coordSys: { x: 0, y: 0, width: 100_000, height: 1_000 } };
+      return series.renderItem(params, api).children.find((c) => c.type === "rect")!;
+    };
+    // The value stream travels on the item, not as a chart dimension.
+    expect(bars().data.map((d) => d.market).sort()).toEqual(["Oil", null]);
+    expect(bars().data[0].value).toHaveLength(9);
+    // Both bars draw — the well with no Market included — at full strength.
+    expect(draw(0).style.opacity).toBe(1);
+    expect(draw(1).style.opacity).toBe(1);
+
+    // With Oil chosen the lanes collapse to Rig Alpha's; its bar stays vivid.
+    await pick(/All value streams/i, "Oil");
+    expect(bars().data.map((d) => d.market)).toEqual(["Oil"]);
+    expect(draw(0).style.opacity).toBe(1);
+  });
+
   it("opens on the streams it is given (presentation mode's link)", () => {
     render(<DrillChart activities={STREAMS} enableFilters initialStreams={["Oil"]} />);
     expect(lanes()).toHaveLength(1);
