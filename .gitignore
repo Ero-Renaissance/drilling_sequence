@@ -79,6 +79,8 @@ node_modules/
 *.sh
 *.bat
 *.ps1
+# The one script kept on purpose: the read-only IIS sign-in check.
+!deploy/iis/check-signin.ps1
 # Test & temp data
 *.test
 *.spec

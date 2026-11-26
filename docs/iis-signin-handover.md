@@ -4,6 +4,19 @@
 **Ask:** do the same on the Drilling Sequence IIS site. About 30 minutes.
 **Full detail:** [deployment-guide.md](deployment-guide.md) §2 and Appendix B.6.
 
+## Start here: the check script
+
+[`deploy/iis/check-signin.ps1`](../deploy/iis/check-signin.ps1) reports every
+item on this page as OK or FAIL, with the fix. It changes nothing. On the app
+server, in PowerShell opened with "Run as administrator":
+
+```powershell
+.\check-signin.ps1                       # lists the IIS sites
+.\check-signin.ps1 -SiteName "SITE-NAME" | Tee-Object signin-check.txt
+```
+
+Send back `signin-check.txt`. Only the items marked FAIL need the steps below.
+
 ## What the app needs from IIS
 
 IIS signs the user in with Windows, then forwards every request to the app on
@@ -12,10 +25,12 @@ app does the rest. No passwords, no app registration.
 
 ## Steps (run elevated on the app server; replace `SITE-NAME`)
 
-`appcmd` is at `%windir%\system32\inetsrv\appcmd.exe`.
+Open both windows with "Run as administrator". Steps 1 and 5 are **PowerShell**
+commands. Steps 2 and 3 are **Command Prompt (cmd)** commands — `%windir%` does
+not work in PowerShell.
 
 1. **Install the pieces** — Windows Authentication role service, URL Rewrite,
-   and Application Request Routing (ARR).
+   and Application Request Routing (ARR). In PowerShell:
    ```powershell
    Install-WindowsFeature Web-Windows-Auth
    ```
@@ -23,15 +38,17 @@ app does the rest. No passwords, no app registration.
    Server Proxy Settings → tick **Enable proxy**.
 
 2. **Turn Windows sign-in on, anonymous off, kernel mode on** (site level).
+   In Command Prompt:
    ```bat
-   appcmd set config "SITE-NAME" -section:system.webServer/security/authentication/windowsAuthentication /enabled:true /useKernelMode:true /commit:apphost
-   appcmd set config "SITE-NAME" -section:system.webServer/security/authentication/anonymousAuthentication /enabled:false /commit:apphost
+   %windir%\system32\inetsrv\appcmd set config "SITE-NAME" -section:system.webServer/security/authentication/windowsAuthentication /enabled:true /useKernelMode:true /commit:apphost
+   %windir%\system32\inetsrv\appcmd set config "SITE-NAME" -section:system.webServer/security/authentication/anonymousAuthentication /enabled:false /commit:apphost
    ```
 
-3. **Allow the two header variables** (server level — they cannot go in `web.config`).
+3. **Allow the two header variables** (server level — they cannot go in
+   `web.config`). In Command Prompt:
    ```bat
-   appcmd set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_REMOTE_USER']" /commit:apphost
-   appcmd set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_PROXY_AUTH']" /commit:apphost
+   %windir%\system32\inetsrv\appcmd set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_REMOTE_USER']" /commit:apphost
+   %windir%\system32\inetsrv\appcmd set config -section:system.webServer/rewrite/allowedServerVariables /+"[name='HTTP_X_PROXY_AUTH']" /commit:apphost
    ```
 
 4. **Copy [`deploy/iis/web.config`](../deploy/iis/web.config) into the site
