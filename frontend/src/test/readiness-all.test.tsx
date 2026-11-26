@@ -318,6 +318,35 @@ describe("AllReadinessGrid", () => {
     expect(screen.getByText("W-1")).toBeInTheDocument();
   });
 
+  it("a chosen stream that disappears on reload stops filtering", async () => {
+    let cleared = false;
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          act("a1", { market: cleared ? null : "Oil" } as Partial<Activity>),
+          act("a4", { well_name: "W-GAS", market: cleared ? null : "Domestic Gas" } as Partial<Activity>),
+        ]),
+      ),
+    );
+    render(
+      <ReadinessCatalogProvider>
+        <AllReadinessGrid projectId={PID} onOpenLens={vi.fn()} />
+      </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
+    );
+    await screen.findByText("W-1");
+    await userEvent.selectOptions(screen.getByLabelText("Value stream"), "Domestic Gas");
+    expect(screen.queryByText("W-1")).not.toBeInTheDocument();
+    // The Market is cleared on every well and the grid reloads: the selector
+    // goes, and the wells must come back — not an empty grid with no way out.
+    cleared = true;
+    const refresh = screen.getAllByRole("button").find((b) => b.querySelector("svg.lucide-refresh-cw"))!;
+    await userEvent.click(refresh);
+    await waitFor(() => expect(screen.queryByLabelText("Value stream")).not.toBeInTheDocument());
+    expect(screen.getByText("W-1")).toBeInTheDocument();
+    expect(screen.getByText("W-GAS")).toBeInTheDocument();
+  });
+
   it("no Value stream filter when no well names one", async () => {
     render(
       <ReadinessCatalogProvider>

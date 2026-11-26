@@ -633,6 +633,42 @@ describe("Value stream filter (the activities' Market)", () => {
     ]);
   });
 
+  it("is offered on its own — one year, one project, one activity type, one location", () => {
+    // Nothing else puts a filter toolbar on this chart: the value stream must.
+    render(<DrillChart activities={[{ ...FILTER_ACTIVITIES[0], market: "Oil" }]} enableFilters />);
+    expect(screen.queryByRole("button", { name: /All projects/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /All value streams/i })).toBeInTheDocument();
+  });
+
+  it("stays while a stream is selected, even when the location shown names none", async () => {
+    // Rig Alpha (OFFSHORE) drills Oil; Rig Beta (LAND) has no Market.
+    render(<DrillChart activities={STREAMS} enableFilters />);
+    await pick(/All value streams/i, "Oil");
+    await pick(/All locations/i, "LAND");
+    // LAND has no named stream — but Oil is still filtering, so the control
+    // that can undo it must stay.
+    expect(await screen.findByTestId("chart-filters-empty")).toBeInTheDocument();
+    // Two controls read "1 selected" now; Value stream comes before Location.
+    await userEvent.click(screen.getAllByRole("button", { name: "1 selected" })[0]);
+    await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Oil" }));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByTestId("chart-filters-empty")).not.toBeInTheDocument();
+    expect(lanes()).toHaveLength(1);
+    expect(lanes()[0]).toContain("Rig Beta");
+  });
+
+  it("the empty notice's clear action removes a dead stream selection too", async () => {
+    // A presentation link naming a value stream that no longer exists.
+    render(<DrillChart activities={STREAMS} enableFilters initialStreams={["Export Gas"]} />);
+    expect(await screen.findByTestId("chart-filters-empty")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Clear project, value stream & activity filters" }),
+    );
+    expect(screen.queryByTestId("chart-filters-empty")).not.toBeInTheDocument();
+    expect(lanes()).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /All value streams/i })).toBeInTheDocument();
+  });
+
   it("opens on the streams it is given (presentation mode's link)", () => {
     render(<DrillChart activities={STREAMS} enableFilters initialStreams={["Oil"]} />);
     expect(lanes()).toHaveLength(1);
@@ -719,7 +755,7 @@ describe("Faceted filter narrowing", () => {
       // Alpha + Gas = dead → notice replaces the chart; clear restores it.
       expect(await screen.findByTestId("chart-filters-empty")).toBeInTheDocument();
       await userEvent.click(
-        screen.getByRole("button", { name: /clear project & activity filters/i }),
+        screen.getByRole("button", { name: /clear project, value stream & activity filters/i }),
       );
       expect(await screen.findByTestId("echarts-instance")).toBeInTheDocument();
     }
