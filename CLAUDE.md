@@ -44,6 +44,11 @@ Three near-synonyms mean three different things here; keep them straight.
   DATABASE the team stays **`projects`**, the flag **`locks_with_plan`**, and
   the helpers `project_gate_checks` / `gate_codes_of` / `useProjectGates`. Do NOT
   rename them — UI copy only, same precedent as Campaign/`Project`.
+- **Value stream** — the USER-FACING name for an activity's **`market`** ("Oil",
+  "Domestic Gas"…): the Readiness pages group and filter by it, and the Sequence
+  chart filters by it. Wells with none set read "No value stream" and are listed
+  last (`frontend/src/lib/value-stream.ts`). The Edit project form still labels
+  the field "Market". Code and the database keep `market`.
 Net: Campaign (the container, code=`Project`) · Project (the well's field group,
 code=`well_project`) · Sequence (the chart + print + product name).
 
@@ -115,7 +120,11 @@ logic against these active business rules:
   (activity create/edit/complete/delete, CSV import, "Add project" bulk wells
   (`POST .../activities/project-wells`) and "Edit project" (`PUT` same path —
   all-or-nothing, must list every well of the project, 409 on a stale well or a
-  rename onto another project's name), rig/HWU contract upsert/delete) is then
+  rename onto another project's name; a re-sequence lays out every open well,
+  or — `resequence_from`, a 0-based index into the wells sent — only that well
+  and the open wells after it, the wells listed before it keeping their dates
+  and still holding their rigs; never from a completed well, never with a new
+  well listed above it), rig/HWU contract upsert/delete) is then
   refused with **423** via `app/core/locks.py`
   (`ensure_activity_unlocked` / `assert_project_not_locked`). **Readiness is NOT
   frozen by the lock** (decided 2026-11-23): every readiness write — status

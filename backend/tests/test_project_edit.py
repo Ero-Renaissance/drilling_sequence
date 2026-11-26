@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,6 +122,149 @@ def test_changed_dates_are_kept_exactly_and_marked_changed() -> None:
     ).plan()
     assert (plan.wells[0].start_date, plan.wells[0].end_date) == (date(2027, 2, 1), date(2027, 5, 1))
     assert (plan.wells[0].gap_kind, plan.wells[0].change) == ("kept", "changed")
+
+
+# ── Re-sequence from a chosen well ──────────────────────────────────────────
+
+
+def _four_wells() -> list[Activity]:
+    """W-1..W-4 on Rig A, 60 days each, two weeks apart."""
+    return [act(f"W-{i + 1}", START + timedelta(days=74 * i), 60) for i in range(4)]
+
+
+def test_resequence_from_a_well_leaves_the_wells_before_it_alone() -> None:
+    wells = _four_wells()
+    later = date(2027, 9, 1)
+    plan = plan_project_edit(
+        edit(
+            [row(w) for w in wells],
+            layout="resequence",
+            start_date=later.isoformat(),
+            resequence_from=2,  # W-3
+        ),
+        wells,
+        [],
+    ).plan()
+    # W-1 and W-2 keep their dates, untouched.
+    for i in (0, 1):
+        assert (plan.wells[i].gap_kind, plan.wells[i].change) == ("kept", "unchanged")
+        assert plan.wells[i].start_date == wells[i].start_date
+    # W-3 starts on the date given; W-4 follows it, durations kept. The rig's
+    # batch count carries on from the kept wells — W-4 is the fourth on Rig A,
+    # so it takes the batch gap, exactly as in a whole re-sequence.
+    assert (plan.wells[2].start_date, plan.wells[2].duration_days) == (later, 60)
+    assert plan.wells[2].change == "changed"
+    assert (plan.wells[3].gap_kind, plan.wells[3].gap_before_days) == ("batch", 28)
+    assert plan.wells[3].start_date == later + timedelta(days=60 + 28)
+    assert plan.wells[3].duration_days == 60
+
+
+def test_the_resequenced_wells_wait_for_a_kept_well_still_on_their_rig() -> None:
+    """The date given is the earliest start: W-3 can't be laid on top of W-2,
+    which keeps its dates on the same rig — it follows W-2, with the gap."""
+    wells = _four_wells()
+    early = wells[1].start_date + timedelta(days=5)  # while W-2 is on Rig A
+    plan = plan_project_edit(
+        edit([row(w) for w in wells], layout="resequence", start_date=early.isoformat(), resequence_from=2),
+        wells,
+        [],
+    ).plan()
+    assert plan.wells[2].start_date == wells[1].end_date + timedelta(days=14)
+    assert plan.wells[2].gap_kind == "inter_well"
+    # The batch counter continues from the kept wells: W-4 is the fourth on the
+    # rig, so it takes the batch gap.
+    assert (plan.wells[3].gap_kind, plan.wells[3].gap_before_days) == ("batch", 28)
+    assert plan.conflicts == []
+    # A well on another rig isn't held back by Rig A's kept wells.
+    w5 = act("W-5", START, 30, rig="Rig B")
+    plan = plan_project_edit(
+        edit(
+            [*(row(w) for w in wells[:2]), row(w5)],
+            layout="resequence",
+            start_date=early.isoformat(),
+            resequence_from=2,
+        ),
+        [*wells[:2], w5],
+        [],
+    ).plan()
+    assert plan.wells[2].start_date == early
+
+
+def test_resequence_from_the_first_well_is_the_whole_project() -> None:
+    wells = _four_wells()
+    body = {"layout": "resequence", "start_date": "2027-06-01"}
+    whole = plan_project_edit(edit([row(w) for w in wells], **body), wells, []).plan()
+    first = plan_project_edit(
+        edit([row(w) for w in wells], **body, resequence_from=0), wells, []
+    ).plan()
+    assert [(w.start_date, w.end_date) for w in first.wells] == [
+        (w.start_date, w.end_date) for w in whole.wells
+    ]
+
+
+def test_resequence_from_follows_the_list_order_and_takes_new_wells_with_it() -> None:
+    w1, w2 = act("W-1", START, 60), act("W-2", START + timedelta(days=74), 60)
+    plan = plan_project_edit(
+        edit(
+            # W-2 is moved above W-1 and a new well is added after the start.
+            [row(w2), row(w1), new_row("W-3", months=1)],
+            layout="resequence",
+            start_date="2027-08-01",
+            resequence_from=1,
+        ),
+        [w1, w2],
+        [],
+    ).plan()
+    assert plan.wells[0].start_date == w2.start_date  # kept
+    assert plan.wells[1].start_date == date(2027, 8, 1)
+    assert (plan.wells[2].change, plan.wells[2].gap_kind) == ("new", "inter_well")
+    assert plan.wells[2].start_date == plan.wells[1].end_date + timedelta(days=14)
+
+
+def test_resequence_cannot_start_from_a_completed_well_or_strand_a_new_one() -> None:
+    done = act("W-0", START - timedelta(days=200), 50, completed_at=NOW)
+    w1 = act("W-1", START, 60)
+    with pytest.raises(EditRefused, match="W-0 is completed: a re-sequence can't start from it"):
+        plan_project_edit(
+            edit([row(done), row(w1)], layout="resequence", start_date="2027-06-01", resequence_from=0),
+            [done, w1],
+            [],
+        )
+    # A new well above the start has no dates to keep.
+    with pytest.raises(EditRefused, match="W-2 is new and has no dates yet"):
+        plan_project_edit(
+            edit(
+                [new_row("W-2"), row(w1)],
+                layout="resequence",
+                start_date="2027-06-01",
+                resequence_from=1,
+            ),
+            [w1],
+            [],
+        )
+    # A completed well after the start is never moved.
+    plan = plan_project_edit(
+        edit([row(w1), row(done)], layout="resequence", start_date="2027-06-01", resequence_from=0),
+        [done, w1],
+        [],
+    ).plan()
+    assert plan.wells[1].start_date == done.start_date and plan.wells[1].gap_kind == "kept"
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"layout": "keep", "resequence_from": 0},  # only with a re-sequence
+        {"layout": "resequence", "start_date": "2027-06-01", "resequence_from": 1},  # past the list
+        {"layout": "resequence", "start_date": "2027-06-01", "resequence_from": -1},
+        {"layout": "resequence", "start_date": "2027-06-01", "resequence_from": "0"},
+    ],
+    ids=["keep", "past-the-list", "negative", "not-a-number"],
+)
+def test_resequence_from_is_validated(over: dict) -> None:
+    w1 = act("W-1", START, 60)
+    with pytest.raises(ValidationError):
+        edit([row(w1)], **over)
 
 
 def test_resequence_lays_open_wells_out_again_keeping_durations() -> None:
@@ -303,6 +447,56 @@ async def test_save_changes_adds_and_removes_in_one_go(client: AsyncClient, db: 
     assert event.new_value == (
         f"Edited {PROJECT}: 2 well(s) changed; 1 added; 1 removed (B4-2)"
     )
+
+
+@pytest.mark.asyncio
+async def test_resequence_from_a_chosen_well_through_the_api(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Start the re-sequence at B4-3: the wells listed before it keep their
+    dates, B4-3 moves, and the audit event says where it started."""
+    pid = await _campaign(client)
+    wells = {w["well_name"]: w for w in await _seed(client, pid)}
+    order = [wells["B4-1"], wells["B4-2"], wells["B4-3"]]
+    body = {
+        "well_project": PROJECT,
+        "wells": [_row(w) for w in order],
+        "layout": "resequence",
+        "start_date": "2027-10-01",
+        "resequence_from": 2,
+    }
+    # The preview first: nothing is written.
+    preview = await _put(client, pid, {**body, "dry_run": True})
+    assert preview.status_code == 200, preview.text
+    assert [w["change"] for w in preview.json()["wells"]] == ["unchanged", "unchanged", "changed"]
+    assert preview.json()["wells"][2]["start_date"] == "2027-10-01"
+    assert {w["well_name"]: w["start_date"] for w in await _wells(client, pid)} == {
+        name: w["start_date"] for name, w in wells.items()
+    }
+
+    saved = await _put(client, pid, {**body, "dry_run": False})
+    assert saved.status_code == 200, saved.text
+    after = {w["well_name"]: w for w in await _wells(client, pid)}
+    for kept in ("B4-1", "B4-2"):
+        assert (after[kept]["start_date"], after[kept]["end_date"]) == (
+            wells[kept]["start_date"],
+            wells[kept]["end_date"],
+        )
+    assert after["B4-3"]["start_date"] == "2027-10-01"
+    detail = (
+        await db.execute(
+            select(AuditLog.new_value).where(AuditLog.field == "project_wells_updated")
+        )
+    ).scalars().all()[-1]
+    assert detail == f"Edited {PROJECT}: re-sequenced from B4-3 on, from 2027-10-01; 1 well(s) changed"
+
+    # Off the allow-list or impossible: refused, nothing moves.
+    stale = {w["well_name"]: w for w in await _wells(client, pid)}
+    fresh = [_row(stale[n]) for n in ("B4-1", "B4-2", "B4-3")]
+    for bad in ({"resequence_from": 3}, {"resequence_from": -1}, {"layout": "keep"}):
+        r = await _put(client, pid, {**body, "wells": fresh, **bad, "dry_run": False})
+        assert r.status_code == 422, bad
+    assert (await _wells(client, pid))[-1]["start_date"] == "2027-10-01"
 
 
 @pytest.mark.asyncio

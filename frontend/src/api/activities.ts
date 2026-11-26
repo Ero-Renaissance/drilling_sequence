@@ -226,10 +226,16 @@ export interface ProjectWellsEditIn {
   readiness_required?: boolean;
   wells: EditedWellIn[];
   removed: { id: string; expected_updated_at: string }[];
-  /** keep: existing wells keep their dates. resequence: lay every open well out
+  /** keep: existing wells keep their dates. resequence: lay the open wells out
    *  again from start_date, keeping durations. */
   layout: "keep" | "resequence";
   start_date?: string;
+  /** With "resequence": the well — a 0-based index into `wells` — the
+   *  re-sequence STARTS from. The wells listed before it keep their dates; it
+   *  and the open wells after it are laid out again, no earlier than
+   *  `start_date` and after the kept wells on the same rig. Omitted = every
+   *  open well. */
+  resequence_from?: number;
   dry_run: boolean;
 }
 

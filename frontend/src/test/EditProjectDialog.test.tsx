@@ -162,7 +162,7 @@ describe("EditProjectDialog", () => {
     const { dialog } = renderDialog();
     await userEvent.clear(within(dialog).getByLabelText("Project *"));
     await userEvent.type(within(dialog).getByLabelText("Project *"), "Bonga 4B");
-    await userEvent.click(within(dialog).getByLabelText(/re-sequence every open well/i));
+    await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
 
     expect(await within(dialog).findByText("Preview — renamed to Bonga 4B")).toBeInTheDocument();
@@ -170,6 +170,118 @@ describe("EditProjectDialog", () => {
       new_name: "Bonga 4B",
       layout: "resequence",
       start_date: "2027-01-01", // defaults to the project's first open well
+    });
+    // From the first open well — every open well — unless another is chosen.
+    expect(calls[0]).not.toHaveProperty("resequence_from");
+  });
+
+  describe("re-sequence from a chosen well", () => {
+    const fromWell = (dialog: HTMLElement) => within(dialog).getByLabelText("Re-sequence from well");
+    const fromDate = (dialog: HTMLElement) => within(dialog).getByLabelText("Re-sequence from");
+
+    it("offers the open wells in list order; the first one means every open well", async () => {
+      const { dialog } = renderDialog();
+      // Off until Re-sequence is chosen.
+      expect(fromWell(dialog)).toBeDisabled();
+      await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
+      expect(fromWell(dialog)).toBeEnabled();
+      expect(within(fromWell(dialog)).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "the first open well (every open well)",
+        "B4-2",
+      ]);
+      expect(fromWell(dialog)).toHaveValue("");
+      expect(dialog).toHaveTextContent("(durations kept; completed wells stay put)");
+    });
+
+    it("starts from the chosen well: its date is suggested, and the wells before it are kept", async () => {
+      const calls = capture(() => HttpResponse.json(editPlan()));
+      const { dialog } = renderDialog();
+      await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
+      await userEvent.selectOptions(fromWell(dialog), "B4-2");
+      // The date moves to where that well is now — the user changes it from there.
+      expect(fromDate(dialog)).toHaveValue("2027-04-01");
+      expect(dialog).toHaveTextContent("the wells listed before it keep their dates");
+      await userEvent.clear(fromDate(dialog));
+      await userEvent.type(fromDate(dialog), "2027-07-01");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+      await within(dialog).findByRole("region", { name: "Preview" });
+      expect(calls[0]).toMatchObject({
+        layout: "resequence",
+        start_date: "2027-07-01",
+        resequence_from: 1, // B4-2 is the second well sent
+      });
+      expect((calls[0] as { wells: { well_name: string }[] }).wells.map((w) => w.well_name)).toEqual([
+        "B4-1",
+        "B4-2",
+      ]);
+
+      // Back to the first open well: the whole project again, no index sent.
+      await userEvent.selectOptions(fromWell(dialog), "");
+      expect(fromDate(dialog)).toHaveValue("2027-01-01");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+      await waitFor(() => expect(calls).toHaveLength(2));
+      expect(calls[1]).not.toHaveProperty("resequence_from");
+    });
+
+    it("changing the well asks for a fresh preview", async () => {
+      capture(() => HttpResponse.json(editPlan()));
+      const { dialog } = renderDialog();
+      await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
+      await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+      await within(dialog).findByRole("region", { name: "Preview" });
+      await userEvent.selectOptions(fromWell(dialog), "B4-2");
+      expect(within(dialog).queryByRole("region", { name: "Preview" })).not.toBeInTheDocument();
+    });
+
+    it("removing the chosen well falls back to the first open well", async () => {
+      const calls = capture(() => HttpResponse.json(editPlan()));
+      const { dialog } = renderDialog();
+      await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
+      await userEvent.selectOptions(fromWell(dialog), "B4-2");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Remove B4-2" }));
+      expect(fromWell(dialog)).toHaveValue("");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).not.toHaveProperty("resequence_from");
+    });
+
+    it("a completed well is never a place to start from", async () => {
+      const { dialog } = renderDialog({
+        activities: [
+          { ...ACTIVITIES[1], completed_at: "2026-12-01T00:00:00Z" } as Activity, // B4-1, done
+          ACTIVITIES[0], // B4-2
+          act("a3", "B4-3", "2027-08-01", "2027-10-01"),
+        ],
+      });
+      await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
+      // B4-2 is the first OPEN well — "every open well"; B4-3 can be chosen.
+      expect(within(fromWell(dialog)).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "the first open well (every open well)",
+        "B4-3",
+      ]);
+    });
+
+    it("a new well has no dates to keep: nothing listed after it can be the start", async () => {
+      const calls = capture(() => HttpResponse.json(editPlan()));
+      const { dialog } = renderDialog({
+        activities: [...ACTIVITIES, act("a3", "B4-3", "2027-08-01", "2027-10-01")],
+      });
+      await userEvent.click(within(dialog).getByRole("radio", { name: /^Re-sequence/ }));
+      await userEvent.click(within(dialog).getByRole("button", { name: /add well/i }));
+      await userEvent.type(within(dialog).getByLabelText("Well 4 name"), "B4-4");
+      // The new well is listed last, so every existing open well stays a
+      // choice — and so is the new well itself.
+      expect(within(fromWell(dialog)).getAllByRole("option").map((o) => o.textContent)).toEqual([
+        "the first open well (every open well)",
+        "B4-2",
+        "B4-3",
+        "B4-4",
+      ]);
+      await userEvent.selectOptions(fromWell(dialog), "B4-3");
+      await userEvent.type(within(dialog).getByLabelText("Well 4 activity"), "Oil Development");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toMatchObject({ layout: "resequence", resequence_from: 2 });
     });
   });
 

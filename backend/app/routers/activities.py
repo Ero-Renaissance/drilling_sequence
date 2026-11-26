@@ -965,7 +965,12 @@ async def edit_project_wells(
     changed = sum(1 for w in edit.wells if w.activity is not None and w.changes)
     parts = [f"renamed to {edit.name}"] if edit.renamed else []
     if payload.layout == "resequence":
-        parts.append(f"re-sequenced from {payload.start_date}")
+        if payload.resequence_from is None:
+            parts.append(f"re-sequenced from {payload.start_date}")
+        else:
+            # Which well it started from: the wells before it kept their dates.
+            first = payload.wells[payload.resequence_from].well_name
+            parts.append(f"re-sequenced from {first} on, from {payload.start_date}")
     if changed:
         parts.append(f"{changed} well(s) changed")
     if created:

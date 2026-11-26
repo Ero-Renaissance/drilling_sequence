@@ -211,6 +211,12 @@ class ProjectWellsEditIn(BaseModel):
     # in list order, from ``start_date`` with the gap rules (durations kept).
     layout: Literal["keep", "resequence"] = "keep"
     start_date: date | None = None
+    # With "resequence": the row — a 0-based index into ``wells`` — the
+    # re-sequence STARTS from. The rows listed before it keep their dates; it
+    # and the open wells after it are laid out again, no earlier than
+    # ``start_date`` and after the kept wells on the same rig. Absent = every
+    # open well, as before.
+    resequence_from: int | None = Field(default=None, ge=0, strict=True)
     dry_run: bool = True
 
     @model_validator(mode="after")
@@ -221,6 +227,11 @@ class ProjectWellsEditIn(BaseModel):
                 raise ValueError(f"{field.replace('_', ' ')} cannot be cleared")
         if self.layout == "resequence" and self.start_date is None:
             raise ValueError("A re-sequence needs a start date")
+        if self.resequence_from is not None:
+            if self.layout != "resequence":
+                raise ValueError("resequence_from applies to a re-sequence only")
+            if self.resequence_from >= len(self.wells):
+                raise ValueError("resequence_from must point at a listed well")
         ids = [w.id for w in self.wells if w.id is not None] + [r.id for r in self.removed]
         if len(ids) != len(set(ids)):
             raise ValueError("A well is listed more than once")

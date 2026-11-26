@@ -184,6 +184,9 @@ export function EditProjectDialog({
   const [rows, setRows] = useState<EditRow[]>(() => projectWells.map(fromActivity));
   const [layout, setLayout] = useState<"keep" | "resequence">("keep");
   const [resequenceStart, setResequenceStart] = useState(initial.start);
+  // The well the re-sequence starts from (its row key); null = the first open
+  // well, i.e. every open well. The wells listed before it keep their dates.
+  const [resequenceFrom, setResequenceFrom] = useState<number | null>(null);
   const [plan, setPlan] = useState<ProjectWellsEditPlan | null>(null);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -196,6 +199,18 @@ export function EditProjectDialog({
 
   const readOnly = !canEdit;
   const kept = rows.filter((r) => !r.removed);
+  // The wells a re-sequence may start from, in list order: an open well with
+  // no NEW well listed above it — a new well has no dates to keep, so it has
+  // to be part of the re-sequence. The first open well means "all of them".
+  const firstNew = kept.findIndex((r) => r.id === null);
+  const startOptions = kept
+    .map((r, index) => ({ row: r, index }))
+    .filter(({ row, index }) => !row.completed && (firstNew === -1 || index <= firstNew));
+  const firstOpenKey = startOptions[0]?.row.key ?? null;
+  // The chosen start, while it is still a valid choice (not removed, no new
+  // well added above it); else the first open well.
+  const startFrom =
+    startOptions.find(({ row }) => row.key === resequenceFrom && row.key !== firstOpenKey) ?? null;
 
   // Any edit invalidates the preview — dates and clashes must be recomputed.
   function changed() {
@@ -269,7 +284,11 @@ export function EditProjectDialog({
     if (market !== initial.market && market !== MIXED) body.market = market || null;
     if (readiness !== initial.readiness && readiness !== MIXED)
       body.readiness_required = readiness === "yes";
-    if (layout === "resequence") body.start_date = resequenceStart;
+    if (layout === "resequence") {
+      body.start_date = resequenceStart;
+      // Its position among the wells sent (removed rows aren't listed).
+      if (startFrom) body.resequence_from = startFrom.index;
+    }
     for (const r of rows) {
       if (r.removed) {
         if (r.id && r.updatedAt) body.removed.push({ id: r.id, expected_updated_at: r.updatedAt });
@@ -614,15 +633,42 @@ export function EditProjectDialog({
               />
               Keep each well's dates (new wells follow the project's last well on their rig)
             </label>
-            <label className="flex flex-wrap items-center gap-2">
-              <input
-                type="radio"
-                name="ep-layout"
-                className="accent-primary"
-                checked={layout === "resequence"}
-                onChange={() => touch(setLayout)("resequence")}
-              />
-              Re-sequence every open well, in this order, from
+            {/* The label holds only the radio: the well and the date beside it
+                are controls of their own, each with its own name. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="ep-layout"
+                  className="accent-primary"
+                  checked={layout === "resequence"}
+                  onChange={() => touch(setLayout)("resequence")}
+                />
+                Re-sequence, in this order, from
+              </label>
+              <select
+                aria-label="Re-sequence from well"
+                value={startFrom ? String(startFrom.row.key) : ""}
+                disabled={layout !== "resequence"}
+                onChange={(e) => {
+                  const key = e.target.value === "" ? null : Number(e.target.value);
+                  setResequenceFrom(key);
+                  // Start from where that well is now — a sensible first date.
+                  const chosen = startOptions.find(({ row }) => row.key === key)?.row;
+                  const start = (chosen ?? startOptions[0]?.row)?.start_date;
+                  if (start) setResequenceStart(start);
+                  changed();
+                }}
+                className="h-7 max-w-[14rem] rounded-md border border-input bg-background px-2 text-xs"
+              >
+                <option value="">the first open well (every open well)</option>
+                {startOptions.slice(1).map(({ row, index }) => (
+                  <option key={row.key} value={row.key}>
+                    {row.well_name.trim() || `Well ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+              starting
               <Input
                 aria-label="Re-sequence from"
                 type="date"
@@ -631,8 +677,12 @@ export function EditProjectDialog({
                 onChange={(e) => touch(setResequenceStart)(e.target.value)}
                 className="h-7 w-40"
               />
-              <span className="text-muted-foreground">(durations kept; completed wells stay put)</span>
-            </label>
+              <span className="text-muted-foreground">
+                {startFrom
+                  ? "(the wells listed before it keep their dates; durations kept; completed wells stay put)"
+                  : "(durations kept; completed wells stay put)"}
+              </span>
+            </div>
           </fieldset>
         )}
 
