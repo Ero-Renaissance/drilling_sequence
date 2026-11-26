@@ -564,6 +564,82 @@ describe("Activity-type filter + lane collapse", () => {
   });
 });
 
+describe("Value stream filter (the activities' Market)", () => {
+  // Rig Alpha drills an Oil well for Project Alpha; Rig Beta a well with no
+  // Market for Project Beta.
+  const STREAMS: Activity[] = [
+    { ...FILTER_ACTIVITIES[0], market: "Oil" },
+    { ...FILTER_ACTIVITIES[1], market: null },
+  ];
+  const lanes = () => {
+    const opt = captured.option as { yAxis: Array<{ data?: string[] }> | { data?: string[] } };
+    return (Array.isArray(opt.yAxis) ? opt.yAxis[0].data : opt.yAxis.data) ?? [];
+  };
+  const pick = async (trigger: RegExp, option: string) => {
+    await userEvent.click(screen.getByRole("button", { name: trigger }));
+    await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: option }));
+    await userEvent.keyboard("{Escape}");
+  };
+
+  it("is offered only when enabled and at least one well names a value stream", () => {
+    const first = render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);
+    expect(screen.queryByRole("button", { name: /All value streams/i })).not.toBeInTheDocument();
+    first.unmount();
+    const off = render(<DrillChart activities={STREAMS} />);
+    expect(screen.queryByRole("button", { name: /All value streams/i })).not.toBeInTheDocument();
+    off.unmount();
+    render(<DrillChart activities={STREAMS} enableFilters />);
+    expect(screen.getByRole("button", { name: /All value streams/i })).toBeInTheDocument();
+  });
+
+  it("lists the streams by name, wells with none last, and keeps the lanes that match", async () => {
+    render(<DrillChart activities={STREAMS} enableFilters />);
+    expect(lanes()).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: /All value streams/i }));
+    expect((await screen.findAllByRole("menuitemcheckbox")).map((o) => o.textContent)).toEqual([
+      "Oil",
+      "No value stream",
+    ]);
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: "Oil" }));
+    await userEvent.keyboard("{Escape}");
+    // Rig Beta has no Oil bar: its whole lane collapses, as for a project.
+    expect(lanes()).toHaveLength(1);
+    expect(lanes()[0]).toContain("Rig Alpha");
+  });
+
+  it("'No value stream' singles out the wells with none", async () => {
+    render(<DrillChart activities={STREAMS} enableFilters />);
+    await pick(/All value streams/i, "No value stream");
+    expect(lanes()).toHaveLength(1);
+    expect(lanes()[0]).toContain("Rig Beta");
+  });
+
+  it("narrows the Projects list to the chosen streams, and reports the selection", async () => {
+    const onFiltersChange = vi.fn();
+    render(<DrillChart activities={STREAMS} enableFilters onFiltersChange={onFiltersChange} />);
+    expect(onFiltersChange).toHaveBeenLastCalledWith({
+      projects: [],
+      locations: [],
+      activities: [],
+      streams: [],
+    });
+    await pick(/All value streams/i, "Oil");
+    expect(onFiltersChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ streams: ["Oil"] }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /All projects/i }));
+    expect((await screen.findAllByRole("menuitemcheckbox")).map((o) => o.textContent)).toEqual([
+      "Project Alpha",
+    ]);
+  });
+
+  it("opens on the streams it is given (presentation mode's link)", () => {
+    render(<DrillChart activities={STREAMS} enableFilters initialStreams={["Oil"]} />);
+    expect(lanes()).toHaveLength(1);
+    expect(lanes()[0]).toContain("Rig Alpha");
+  });
+});
+
 describe("Faceted filter narrowing", () => {
   it("selecting an activity narrows the Projects checklist to matching projects", async () => {
     render(<DrillChart activities={FILTER_ACTIVITIES} enableFilters />);

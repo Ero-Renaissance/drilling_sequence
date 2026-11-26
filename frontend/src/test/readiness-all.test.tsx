@@ -286,6 +286,49 @@ describe("AllReadinessGrid", () => {
     expect(onOpenLens).toHaveBeenCalledWith("logistics");
   });
 
+  it("has the Value stream filter every team's page has", async () => {
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          act("a1", { market: "Oil" } as Partial<Activity>),
+          act("a4", { well_name: "W-GAS", market: "Domestic Gas" } as Partial<Activity>),
+          act("a5", { well_name: "W-NONE", market: null } as Partial<Activity>),
+        ]),
+      ),
+    );
+    render(
+      <ReadinessCatalogProvider>
+        <AllReadinessGrid projectId={PID} onOpenLens={vi.fn()} />
+      </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
+    );
+    await screen.findByText("W-1");
+    const select = screen.getByLabelText("Value stream");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "All value streams",
+      "Domestic Gas",
+      "Oil",
+      "No value stream",
+    ]);
+    await userEvent.selectOptions(select, "Domestic Gas");
+    expect(screen.getByText("W-GAS")).toBeInTheDocument();
+    expect(screen.queryByText("W-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("W-NONE")).not.toBeInTheDocument();
+    await userEvent.selectOptions(select, "");
+    expect(screen.getByText("W-1")).toBeInTheDocument();
+  });
+
+  it("no Value stream filter when no well names one", async () => {
+    render(
+      <ReadinessCatalogProvider>
+        <AllReadinessGrid projectId={PID} onOpenLens={vi.fn()} />
+      </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
+    );
+    await screen.findByText("W-1");
+    expect(screen.queryByLabelText("Value stream")).not.toBeInTheDocument();
+  });
+
   it("a folded team where nothing applies reads '—', not a badge", async () => {
     server.use(
       http.get("/api/projects/:projectId/readiness/teams/projects", () => HttpResponse.json(gateData())),

@@ -289,9 +289,13 @@ describe("ProjectDashboard", () => {
       target: { value: "logistics" },
     });
     expect(within(group).getAllByTestId("readiness-card")).toHaveLength(1);
-    expect(card(/Logistics/)).toBeInTheDocument();
+    // The card is named as the page it opens — "<Team> Execution Readiness".
+    expect(card(/^Logistics Execution Readiness/)).toBeInTheDocument();
+    expect(within(group).getByLabelText("Readiness teams shown")).toHaveTextContent(
+      "Logistics Execution Readiness",
+    );
     expect(screen.getByTestId("readiness-focus-note")).toHaveTextContent(
-      "Focused on Logistics · 1 other team hidden · Show all",
+      "Focused on Logistics Execution Readiness · 1 other team hidden · Show all",
     );
     // The by-gate card is the Project gates' — hidden while focused elsewhere.
     expect(screen.queryByText(/Well execution readiness by check/i)).not.toBeInTheDocument();

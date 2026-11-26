@@ -14,10 +14,21 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/components/chart/DrillChart", async () => {
   const { useLens } = await import("@/components/readiness/catalog");
   return {
-    DrillChart: ({ readinessMap }: { readinessMap?: Map<string, unknown> }) => {
+    DrillChart: ({
+      readinessMap,
+      initialStreams,
+    }: {
+      readinessMap?: Map<string, unknown>;
+      initialStreams?: string[];
+    }) => {
       const lens = useLens();
       return (
-        <div data-testid="chart" data-lens={lens} data-readiness={readinessMap ? readinessMap.size : "none"} />
+        <div
+          data-testid="chart"
+          data-lens={lens}
+          data-readiness={readinessMap ? readinessMap.size : "none"}
+          data-streams={(initialStreams ?? []).join("|")}
+        />
       );
     },
   };
@@ -95,6 +106,13 @@ describe("Presentation", () => {
     expect(chart).toHaveAttribute("data-lens", "logistics");
     // The Logistics readiness (keyed per well) reaches the chart.
     await waitFor(() => expect(chart).toHaveAttribute("data-readiness", "1"));
+  });
+
+  it("presents the value streams the link asks for", async () => {
+    serve();
+    renderAt(`/projects/${PID}/present?lens=logistics&streams=Oil&streams=Domestic+Gas`);
+    const chart = await screen.findByTestId("chart");
+    expect(chart).toHaveAttribute("data-streams", "Oil|Domestic Gas");
   });
 
   it("falls back to the well execution readiness checks without a lens", async () => {

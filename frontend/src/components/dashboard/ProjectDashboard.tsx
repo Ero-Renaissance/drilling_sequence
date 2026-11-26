@@ -6,7 +6,7 @@ import { getActivityColor } from "@/lib/chart-colors";
 import { readinessFiguresHint, readinessScope } from "@/lib/readiness-figures";
 import { defaultYearRange, rangePhrase, type YearRange } from "@/lib/readiness-window";
 import { ReadinessYearsPicker } from "@/components/readiness/ReadinessWindow";
-import { ALL_LENS, PROJECTS_TEAM } from "@/components/readiness/catalog";
+import { ALL_LENS, PROJECTS_TEAM, lensLabel } from "@/components/readiness/catalog";
 
 type Tone = "neutral" | "good" | "warn" | "bad";
 
@@ -413,7 +413,9 @@ export function ProjectDashboard({
     },
     ...(data.team_readiness ?? []).map((t) => ({
       code: t.team_code,
-      label: t.name,
+      // Named as the page it opens: "<Team> Execution Readiness" (the lens
+      // label — the team's own name is unchanged elsewhere).
+      label: lensLabel({ code: t.team_code, name: t.name }),
       completePct: t.overall_pct,
       onTrackPct: t.on_track_pct,
       behind: t.behind_cells,

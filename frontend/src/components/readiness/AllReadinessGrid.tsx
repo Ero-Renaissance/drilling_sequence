@@ -35,8 +35,10 @@ import {
   type GridColumn,
 } from "./category-columns";
 import { NOTHING_APPLIES, NOT_APPLICABLE, STATUS_ICON_COLOR, applies, notSelected } from "./check-meta";
+import { hasValueStreams, valueStreamOf, valueStreamsOf } from "@/lib/value-stream";
 import { checkIcon } from "./icon-registry";
 import { OutsideYears, ReadinessYearsPicker, useReadinessYears } from "./ReadinessWindow";
+import { ValueStreamSelect } from "./ValueStreamSelect";
 
 interface WellRow {
   key: string;
@@ -44,6 +46,8 @@ interface WellRow {
   well_name: string;
   activity_type: string;
   start_date: string;
+  /** The well's Market — its value stream (the first of its activities'). */
+  market: string | null;
 }
 
 // Project-gate cells (no `applies`) or a team's cells (with `applies`).
@@ -109,7 +113,9 @@ export function AllReadinessGrid({
     load();
   }, [load]);
   const [range, setRange] = useReadinessYears();
-  useEffect(() => setPageIndex(0), [search, range]);
+  // The value stream to list ("" = all) — the same filter every team's page has.
+  const [stream, setStream] = useState("");
+  useEffect(() => setPageIndex(0), [search, range, stream]);
 
   // One row per well activity (project + well + activity type) with readiness
   // work left (spec §3.7): opt-outs carry no readiness from any team, and
@@ -126,6 +132,7 @@ export function AllReadinessGrid({
           well_project: a.well_project ?? "",
           well_name: a.well_name,
           activity_type: a.activity_type,
+          market: a.market ?? null,
         },
         acts: [],
       };
@@ -144,6 +151,7 @@ export function AllReadinessGrid({
   const filtered = rows.filter(
     (r) =>
       inYears({ focus_start: r.start_date }, range) &&
+      (!stream || valueStreamOf(r.market) === stream) &&
       (!q ||
         r.well_name.toLowerCase().includes(q) ||
         r.well_project.toLowerCase().includes(q) ||
@@ -209,6 +217,13 @@ export function AllReadinessGrid({
           changes.
         </p>
         <div className="ml-auto flex items-center gap-2">
+          {hasValueStreams(rows.map((r) => r.market)) && (
+            <ValueStreamSelect
+              streams={valueStreamsOf(rows.map((r) => r.market))}
+              value={stream}
+              onChange={setStream}
+            />
+          )}
           <ReadinessYearsPicker value={range} onChange={setRange} />
           <SearchInput
             value={search}

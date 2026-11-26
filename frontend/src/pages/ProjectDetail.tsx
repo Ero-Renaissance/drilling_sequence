@@ -377,7 +377,7 @@ function ResourceConflictBanner({ conflicts }: { conflicts: ResourceConflict[] }
 
 function presentTo(
   projectId: string,
-  filters: { projects: string[]; locations: string[]; activities: string[] },
+  filters: { projects: string[]; locations: string[]; activities: string[]; streams: string[] },
   lens: string,
 ): string {
   // The chart's team view travels too, so the room sees what the presenter chose.
@@ -385,6 +385,7 @@ function presentTo(
   filters.projects.forEach((p) => params.append("projects", p));
   filters.locations.forEach((l) => params.append("locations", l));
   filters.activities.forEach((t) => params.append("activities", t));
+  filters.streams.forEach((s) => params.append("streams", s));
   const query = params.toString();
   return `/projects/${projectId}/present${query ? `?${query}` : ""}`;
 }
@@ -425,10 +426,12 @@ export function ChartTab() {
     projects: string[];
     locations: string[];
     activities: string[];
+    streams: string[];
   }>({
     projects: [],
     locations: [],
     activities: [],
+    streams: [],
   });
 
   const conflicts = useMemo(

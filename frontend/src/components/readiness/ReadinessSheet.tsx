@@ -56,6 +56,7 @@ import {
 } from "@/lib/readiness-quantity";
 import { inYears, rangePhrase, yearsOf } from "@/lib/readiness-window";
 import { categoryLine } from "@/lib/team-summary";
+import { byValueStream, hasValueStreams, valueStreamOf, valueStreamsOf } from "@/lib/value-stream";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { ApplicabilityPicker } from "./ApplicabilityPicker";
@@ -76,14 +77,13 @@ import {
 import { ReadinessDot } from "./ReadinessDot";
 import { ReadinessSummary } from "./ReadinessSummary";
 import { ReadinessToolbar } from "./ReadinessToolbar";
+import { ValueStreamSelect } from "./ValueStreamSelect";
 import { OutsideYears, useReadinessYears } from "./ReadinessWindow";
 import { PROJECT_PARAM } from "./team-view";
 
 /** The longest note a cell takes (backend `CheckUpsert.notes`). */
 export const NOTE_MAX_LENGTH = 512;
 
-/** A well with no Market set — its own group, listed last. */
-const NO_STREAM = "No value stream";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** How each status is worded on this page — the sheet's legend. Stored statuses
@@ -129,7 +129,7 @@ const wellTarget = (row: TeamWellRow): Extract<ReadinessTarget, { scope: "well" 
 const wellKey = (row: TeamWellRow) =>
   `${row.well_project}\u0001${row.well_name}\u0001${row.activity_type}`;
 
-const streamOf = (row: TeamWellRow) => row.market?.trim() || NO_STREAM;
+const streamOf = (row: TeamWellRow) => valueStreamOf(row.market);
 /** The spud date a row is listed and filtered by: when its work left starts
  *  (its earliest activity may be completed, and in a year not shown). */
 const spudOf = (row: TeamWellRow) => row.focus_start ?? row.start_date;
@@ -356,7 +356,11 @@ export function ReadinessSheet({
   const lookAlikes = useMemo(() => lookAlikeCodes(checks.map((c) => c.code)), [checks]);
   const projectChecks = useMemo(() => checks.filter((c) => c.applies_project), [checks]);
   const streams = useMemo(
-    () => [...new Set((data?.well_rows ?? []).map(streamOf))].sort(byStream),
+    () => valueStreamsOf((data?.well_rows ?? []).map((r) => r.market)),
+    [data],
+  );
+  const offerStreams = useMemo(
+    () => hasValueStreams((data?.well_rows ?? []).map((r) => r.market)),
     [data],
   );
   const q = search.trim().toLowerCase();
@@ -380,7 +384,7 @@ export function ReadinessSheet({
         // Grouped as the sheet: value stream, then field project, then spud date.
         .sort(
           (x, y) =>
-            byStream(streamOf(x), streamOf(y)) ||
+            byValueStream(streamOf(x), streamOf(y)) ||
             byProject(x.well_project, y.well_project) ||
             spudOf(x).localeCompare(spudOf(y)) ||
             x.well_name.localeCompare(y.well_name),
@@ -610,20 +614,9 @@ export function ReadinessSheet({
           onRefresh={load}
           locked={plannerEdited && data.locked}
           viewSwitch={
-            streams.length > 1 ? (
-              <select
-                aria-label="Value stream"
-                value={stream}
-                onChange={(e) => setStream(e.target.value)}
-                className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-              >
-                <option value="">All value streams</option>
-                {streams.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+            // Offered once any well names a value stream.
+            offerStreams ? (
+              <ValueStreamSelect streams={streams} value={stream} onChange={setStream} />
             ) : undefined
           }
           years={{ value: range, onChange: setRange }}
@@ -1012,14 +1005,6 @@ export function ReadinessSheet({
       </div>
     </FrozenCatalogProvider>
   );
-}
-
-/** Value streams by name; wells with none last. */
-function byStream(a: string, b: string): number {
-  if (a === b) return 0;
-  if (a === NO_STREAM) return 1;
-  if (b === NO_STREAM) return -1;
-  return a.localeCompare(b);
 }
 
 /** Field projects by name; wells with none last. */
