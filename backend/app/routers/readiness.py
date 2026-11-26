@@ -658,7 +658,6 @@ async def upsert_readiness_check(
     # clears it. A NEW entry starts with no note unless one is sent.
     sets_notes = "notes" in payload.model_fields_set
     gate = _own_entry(index, check, payload)
-    gate_is_new = gate is None
 
     # Behind needs a reason (2026-11-26, every team): the note IS the reason.
     # - Becoming behind — the target's own entry isn't behind yet (a new entry,
@@ -706,21 +705,27 @@ async def upsert_readiness_check(
     # Every real change is audited — `updated_by` only remembers the LAST editor,
     # and team grants span every campaign, so the full history must be on record.
     # Same transaction as the write, so the trail can't miss a committed change.
-    notes_changed = (
-        shown.notes != payload.notes
-        if sets_notes
-        else clears_reason or (gate_is_new and shown.notes is not None)
-    )
-    # The trail keeps what was SAID, not only that something was: the reason a
-    # check is behind is written out; so is the one that stops applying.
-    if now_behind and notes_changed:
-        said = f"; reason: {reason}"
-    elif clears_reason and shown.notes:
-        said = f"; no longer behind - reason was: {shown.notes.strip()}"
-    elif notes_changed:
-        said = "; notes changed"
+    # Worded from what the target SHOWED before — its own entry, or the value it
+    # followed — and what its own entry holds now, never from how the entry was
+    # stored: so the trail loses no reason, whichever way the change was made.
+    notes_changed = shown.notes != new_notes
+    was_shown_behind = _is_behind(shown.status)
+    old_reason = (shown.notes or "").strip()
+    new_note = (new_notes or "").strip()
+    if now_behind:
+        # Becoming behind, or its reason reworded: the reason is written out —
+        # also where the text was already the entry's note.
+        told = new_note and (not was_shown_behind or old_reason != new_note)
+        said = f"; reason: {new_note}" if told else ""
+    elif was_shown_behind:
+        # No longer behind: the reason that stops applying is kept here — the
+        # entry's own, or the field project's the well was following — and a
+        # note set in its place is flagged.
+        said = f"; no longer behind - reason was: {old_reason}" if old_reason else ""
+        if new_note:
+            said += "; notes changed"
     else:
-        said = ""
+        said = "; notes changed" if notes_changed else ""
     if shown.status != payload.status or notes_changed:
         db.add(
             governance_event(
