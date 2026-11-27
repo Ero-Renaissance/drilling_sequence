@@ -184,6 +184,11 @@ LOG_LEVEL=INFO
 > **Secrets:** `.env` contains a DB password. Keep it readable only by the service
 > account (`chmod 600 .env`), and never commit it to git.
 
+> **Where the file is read from:** `.env` in the folder the app is started from.
+> To keep it elsewhere, set the environment variable `DS_ENV_FILE` to its path
+> before starting the app. Any setting can also be given as an environment
+> variable, which takes precedence over the file.
+
 ### 4b. Build and run the backend container
 The backend `Dockerfile` already installs the Microsoft ODBC Driver 18 needed for
 MSSQL. From `backend/`:
