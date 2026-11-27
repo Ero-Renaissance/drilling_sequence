@@ -43,26 +43,84 @@ class Settings(BaseSettings):
     # production — the validator below refuses to start if this is set there.
     dev_mode: bool = False
 
+    # Pilot sign-in (docs/deployment-guide.md Appendix E): a stop-gap for a
+    # deployment where Windows sign-in is not available yet. People on the
+    # admin-kept list sign in with the part of their email before the "@"
+    # (USER_EMAIL_DOMAIN supplies the rest); anyone who can edit or administer
+    # must also give PILOT_PASSCODE. Submitting, signing and declining revisions
+    # are refused while it is on (approvals_enabled) — a name anyone can type is
+    # no basis for a signature. Off by default; it REPLACES the proxy header, so
+    # the two can't be set together, and the guard below checks every piece.
+    pilot_mode: bool = False
+    # One shared passcode for planners, team editors and admins. >= 12 characters.
+    pilot_passcode: str = ""
+    # Signs the session cookie. >= 32 random characters; changing it signs
+    # everyone out.
+    pilot_session_secret: str = ""
+    # How long a browser stays signed in.
+    pilot_session_days: int = 30
+
     @property
     def is_production(self) -> bool:
         return self.environment.strip().lower() == "production"
+
+    @property
+    def approvals_enabled(self) -> bool:
+        """Submit / sign / decline are available only under real sign-in."""
+        return not self.pilot_mode
+
+    @property
+    def sign_in_mode(self) -> str:
+        if self.dev_mode:
+            return "dev"
+        return "pilot" if self.pilot_mode else "sso"
 
     @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
         """Fail closed: a misconfigured production deployment must crash on startup
         rather than silently bypass authentication."""
+        if self.pilot_mode:
+            self._guard_pilot()
         if self.is_production:
             if self.dev_mode:
                 raise ValueError(
                     "DEV_MODE must be false when ENVIRONMENT=production — "
                     "dev mode bypasses authentication."
                 )
-            if not self.proxy_user_header.strip():
+            if not self.pilot_mode and not self.proxy_user_header.strip():
                 raise ValueError(
                     "PROXY_USER_HEADER is required when ENVIRONMENT=production — "
-                    "it names the header the authenticating reverse proxy injects."
+                    "it names the header the authenticating reverse proxy injects "
+                    "(or set PILOT_MODE with its passcode and session secret)."
                 )
         return self
+
+    def _guard_pilot(self) -> None:
+        """Pilot sign-in is all-or-nothing in EVERY environment: a half-configured
+        pilot must crash on startup, never run with a blank passcode or key."""
+        if self.dev_mode:
+            raise ValueError(
+                "PILOT_MODE and DEV_MODE can't both be on — dev mode bypasses sign-in."
+            )
+        if self.proxy_user_header.strip():
+            raise ValueError(
+                "PILOT_MODE replaces PROXY_USER_HEADER — set one, not both."
+            )
+        if len(self.pilot_passcode) < 12:
+            raise ValueError("PILOT_PASSCODE must be at least 12 characters in PILOT_MODE.")
+        if len(self.pilot_session_secret) < 32:
+            raise ValueError(
+                "PILOT_SESSION_SECRET must be at least 32 characters in PILOT_MODE."
+            )
+        if self.pilot_passcode == self.pilot_session_secret:
+            raise ValueError("PILOT_PASSCODE and PILOT_SESSION_SECRET must differ.")
+        if not self.user_email_domain.strip():
+            raise ValueError(
+                "USER_EMAIL_DOMAIN is required in PILOT_MODE — people sign in with "
+                "the part of their email before the @."
+            )
+        if not 1 <= self.pilot_session_days <= 90:
+            raise ValueError("PILOT_SESSION_DAYS must be between 1 and 90.")
 
     # Rig fleet optimizer engine: "heuristic" (owned code, default) or "milp"
     # (exact solver — requires a solver library that must pass IT review before

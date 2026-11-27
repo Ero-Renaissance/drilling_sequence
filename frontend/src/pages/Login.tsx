@@ -1,15 +1,103 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { SIGNED_OUT_KEY } from "@/lib/auth";
+import { ApiError } from "@/api/http";
+
+/** Pilot sign-in: the part of the email before the "@", plus the passcode for
+ *  anyone who edits or administers. The server decides; this only collects. */
+function PilotSignInForm({ emailDomain }: { emailDomain: string | null }) {
+  const signIn = useAuthStore((s) => s.signIn);
+  const [name, setName] = useState("");
+  const [passcode, setPasscode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await signIn(name.trim(), passcode || undefined);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "Sign-in failed. Try again.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="space-y-4" onSubmit={submit} noValidate>
+      <div className="space-y-1.5">
+        <label htmlFor="sign-in-name" className="text-sm font-medium">
+          Your email
+        </label>
+        <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring">
+          <input
+            id="sign-in-name"
+            className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
+            autoFocus
+            maxLength={320}
+            placeholder="firstname.lastname"
+            aria-describedby="sign-in-name-help"
+          />
+          {emailDomain && (
+            <span className="shrink-0 pr-3 text-sm text-muted-foreground">@{emailDomain}</span>
+          )}
+        </div>
+        <p id="sign-in-name-help" className="text-xs text-muted-foreground">
+          Only the part before the @.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="sign-in-passcode" className="text-sm font-medium">
+          Passcode{" "}
+          <span className="font-normal text-muted-foreground">
+            (planners and administrators only)
+          </span>
+        </label>
+        <input
+          id="sign-in-passcode"
+          type="password"
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          value={passcode}
+          onChange={(e) => setPasscode(e.target.value)}
+          autoComplete="off"
+          maxLength={256}
+        />
+      </div>
+
+      {error && (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {error}
+        </div>
+      )}
+
+      <Button className="w-full" size="lg" type="submit" disabled={busy || !name.trim()}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        Sign in
+      </Button>
+    </form>
+  );
+}
 
 export function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, loading, fetchMe, clear } = useAuthStore();
+  const { user, loading, fetchMe, clear, loadOptions, options } = useAuthStore();
+  const pilot = options.sign_in === "pilot";
   const initTheme = useThemeStore((s) => s.init);
   const isDev = import.meta.env.VITE_DEV_MODE === "true";
   // Dev-only: /login?preview lets you view this page without dev mode auto
@@ -35,14 +123,16 @@ export function Login() {
 
   useEffect(() => {
     if (previewMode || signedOut) {
-      clear(); // render the login UI (no user, not loading) without auto sign-in
+      // Render the login UI (no user, not loading) without auto sign-in — once
+      // the options are known, so pilot sign-in shows its form straight away.
+      void loadOptions().then(clear);
     } else {
       // Windows Integrated Auth: the reverse proxy has already authenticated the
       // browser, so resolving /api/auth/me signs the user in with no interaction.
       // In dev mode the backend injects a dev user, so this works there too.
       fetchMe();
     }
-  }, [fetchMe, clear, previewMode, signedOut]);
+  }, [fetchMe, clear, loadOptions, previewMode, signedOut]);
 
   useEffect(() => {
     if (!loading && user && !previewMode) navigate("/dashboard", { replace: true });
@@ -92,10 +182,14 @@ export function Login() {
           </p>
         </div>
 
-        <div className="relative flex items-center gap-2 text-xs text-white/50">
-          <ShieldCheck className="h-4 w-4" />
-          Secured with Windows single sign-on
-        </div>
+        {pilot ? (
+          <div />
+        ) : (
+          <div className="relative flex items-center gap-2 text-xs text-white/50">
+            <ShieldCheck className="h-4 w-4" />
+            Secured with Windows single sign-on
+          </div>
+        )}
       </aside>
 
       {/* Login form panel */}
@@ -121,6 +215,8 @@ export function Login() {
             <div className="flex justify-center py-4">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
+          ) : !user && pilot ? (
+            <PilotSignInForm emailDomain={options.email_domain} />
           ) : !user ? (
             <div className="space-y-3">
               <Button className="w-full" size="lg" onClick={() => fetchMe()}>

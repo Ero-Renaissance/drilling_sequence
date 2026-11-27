@@ -68,6 +68,8 @@ code=`well_project`) · Sequence (the chart + print + product name).
 4. **Robust Authentication & AuthZ:** Auth is Windows Integrated Auth at a reverse
    proxy (IIS) that injects the signed-in user into a trusted header
    `app/core/auth.py` reads (backend bound to localhost; optional shared secret).
+   Where that isn't available yet, the deliberate stop-gap is **pilot sign-in**
+   (`PILOT_MODE`, see the business rules) — never `DEV_MODE`.
    Enforce authorization explicitly at the **start of every
    endpoint** using the shared helpers in `app/core/rbac.py`:
    - `assert_member(project_id, user, db, allowed_roles={...})` — gate by project
@@ -173,7 +175,8 @@ logic against these active business rules:
   `review_signed`/`review_completed`/`review_changes_requested`, sign/approve/reject/
   request-changes/discard, reviewer/approver add/remove, `review_policy_changed`,
   project create/clone, project wells add/edit (`project_wells_added`/
-  `project_wells_updated`), readiness team grant/revoke, readiness catalog changes
+  `project_wells_updated`), sign-in list changes (`user_added`, `user_blocked`,
+  `user_unblocked`), readiness team grant/revoke, readiness catalog changes
   (`readiness_team_*` / `readiness_check_*`), every real readiness value change
   (`readiness_updated`, old → new), every real applicability change
   (`readiness_applicability_changed`, one per changed code) and every real
@@ -183,8 +186,38 @@ logic against these active business rules:
   SQL). Do not add or change a governance-relevant action without writing its
   audit entry. The audit log is append-only — never expose update/delete on it.
 - **Production must fail closed:** when `ENVIRONMENT=production`, the app refuses
-  to start if `dev_mode=True` or if `proxy_user_header` is missing. Never weaken
-  this guard or introduce a dev-mode auth bypass that can reach prod.
+  to start if `dev_mode=True`, or if it has neither `proxy_user_header` nor a
+  COMPLETE pilot sign-in (next rule). Never weaken this guard or introduce a
+  dev-mode auth bypass that can reach prod.
+- **Pilot sign-in is a stop-gap, not a second auth system** (decided 2026-11-26,
+  `PILOT_MODE`, `app/core/pilot.py`, deployment guide Appendix E) — for a
+  deployment where Windows sign-in isn't available yet. All-or-nothing in EVERY
+  environment (`config.py::_guard_pilot`): it needs `PILOT_PASSCODE` (≥12),
+  `PILOT_SESSION_SECRET` (≥32, different) and `USER_EMAIL_DOMAIN`, and refuses to
+  start alongside `DEV_MODE` or `PROXY_USER_HEADER` (it replaces the header). The
+  sign-in list is the `users` table, kept by an admin (`POST /api/admin/users`,
+  pilot only, audited `user_added`) plus `ADMIN_EMAILS`; nobody is auto-created.
+  A person signs in with the part of their email before the "@"
+  (`POST /api/auth/sign-in`); **anyone who can edit or administer — admin,
+  `can_plan`, a readiness team grant — must also give the shared passcode**, and
+  a passcode that is sent must be right. Every refusal is the same generic 401;
+  failures are throttled per name and overall. The session is a signed cookie
+  (stdlib HMAC, HttpOnly, SameSite=Strict, `PILOT_SESSION_DAYS`, default 30).
+  **A session opened without the passcode is read-only** — safe methods plus the
+  browser's error reports — and never reaches an admin route, whatever the
+  account later becomes (`auth.py::_pilot_user`). **Approvals are OFF**
+  (`settings.approvals_enabled`): submit, sign, endorse, reject and both
+  request-changes are refused with 403 by `assert_approvals_enabled` and the UI
+  hides them — a name anyone can type is no basis for a signature; approvals go
+  on paper. Only the Admin page says "pilot"; no other screen does. Do NOT add
+  self-registration, per-person passwords, a "remember this passcode" store, or
+  a dependency for any of it; do not let pilot mode sign anything.
+- **A blocked user can't sign in, in any mode:** `users.is_active` (migration
+  042), set on the Admin page (`PATCH /api/admin/users/{id}`, audited
+  `user_blocked` / `user_unblocked`). `get_current_user` refuses a blocked user
+  with the generic 401 under Windows sign-in and pilot alike. An admin can't
+  block themselves (400) or an `ADMIN_EMAILS` admin (409). It is how a person
+  leaves the pilot list — users are never deleted.
 - **Domain integrity:** the flood-risk classification (Flood Risk / No Flood Risk),
   plan types, and contract-expiry semantics are oil & gas specific — validate
   against the canonical enums, don't accept free-form equivalents.

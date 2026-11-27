@@ -599,6 +599,7 @@ export function RevisionDetail() {
   // stages confirm through the attestation checkbox instead of one bare click.
   const [signStage, setSignStage] = useState<"approval" | "review" | null>(null);
   const user = useAuthStore((s) => s.user);
+  const approvalsEnabled = useAuthStore((s) => s.options.approvals_enabled);
 
   useEffect(() => {
     if (!projectId || !revisionId) return;
@@ -732,8 +733,10 @@ export function RevisionDetail() {
         (r) => r.signed && r.email.toLowerCase() === user.email.toLowerCase(),
       )
     : false;
-  const canSign = revision.status === "pending_approval" && !alreadySigned;
-  const canReview = revision.status === "pending_review" && !alreadySupported;
+  // approvalsEnabled is false under pilot sign-in: no sign or decline action.
+  const canSign = approvalsEnabled && revision.status === "pending_approval" && !alreadySigned;
+  const canReview =
+    approvalsEnabled && revision.status === "pending_review" && !alreadySupported;
   const isPending =
     revision.status === "pending_review" || revision.status === "pending_approval";
 

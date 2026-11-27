@@ -25,6 +25,8 @@ export interface AdminUser {
   admin_via_allowlist: boolean;
   /** Readiness teams this user may edit in every campaign (global team grants). */
   teams?: string[];
+  /** False = an admin blocked this person from signing in. Absent = allowed. */
+  is_active?: boolean;
 }
 
 export interface ProjectMember {

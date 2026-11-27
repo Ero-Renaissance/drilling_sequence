@@ -9,6 +9,12 @@ Production:                the request is authenticated by a reverse proxy (IIS/
                            because the app is reachable solely via the proxy (uvicorn bound
                            to loopback) and, optionally, a shared secret.
 
+Pilot mode (PILOT_MODE):   a stop-gap where Windows sign-in is not available. The
+                           request is authenticated by the signed session cookie that
+                           POST /api/auth/sign-in issued (app/core/pilot.py). Only
+                           people on the admin-kept list have one; a session opened
+                           without the shared passcode is read-only.
+
 Tests override get_current_user via app.dependency_overrides — no header needed.
 """
 
@@ -22,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.pilot import COOKIE_NAME, read_session
 from app.database import get_db
 from app.models.user import User
 
@@ -29,6 +36,13 @@ logger = logging.getLogger(__name__)
 
 # Header carrying the optional proxy shared secret (settings.proxy_shared_secret).
 _PROXY_SECRET_HEADER = "X-Proxy-Auth"
+
+# Requests a read-only pilot session may still make.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# The browser's error reports: every signed-in user sends them, and they change
+# no data.
+_READ_ONLY_WRITE_PATHS = frozenset({"/api/client-logs"})
+_READ_ONLY_DETAIL = "Sign in with the passcode to make changes"
 
 # A normalized Windows account name: letters, digits, and . _ - only, length-
 # bounded and anchored so a malformed/hostile header value can't slip through.
@@ -86,6 +100,20 @@ async def _extract_claims(request: Request) -> dict:
     otherwise derives identity from the trusted reverse-proxy header."""
     if settings.dev_mode:
         return _DEV_CLAIMS
+
+    if settings.pilot_mode:
+        # The signed session cookie is the whole credential: missing, forged and
+        # expired all read as "not signed in" (one generic 401).
+        session = read_session(request.cookies.get(COOKIE_NAME))
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            )
+        return {
+            "oid": session.subject,
+            "pilot": True,
+            "passcode_verified": session.passcode_verified,
+        }
 
     # Optional shared secret: reject anything that doesn't present it, so a forged
     # user header can't be trusted even if the app is reached directly. Constant-
@@ -159,11 +187,37 @@ def _resolve_admin(email: str, username: str) -> bool:
     return bool(username) and username.lower() in allow
 
 
+async def _pilot_user(claims: dict, request: Request, db: AsyncSession) -> User:
+    """The user behind a pilot session. Unlike Windows sign-in nobody is created
+    here: the list is the users table, kept by an admin, and a person removed
+    from it (blocked) loses their session at once. A session opened without the
+    passcode may read, and nothing else."""
+    result = await db.execute(select(User).where(User.ad_object_id == claims["oid"]))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+    read_only = not claims.get("passcode_verified", False)
+    request.state.read_only_session = read_only
+    if (
+        read_only
+        and request.method not in _SAFE_METHODS
+        and request.url.path.rstrip("/") not in _READ_ONLY_WRITE_PATHS
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_READ_ONLY_DETAIL)
+    return user
+
+
 async def get_current_user(
+    request: Request,
     claims: Annotated[dict, Depends(_extract_claims)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Resolve token claims to a database User, creating the record on first login."""
+    if claims.get("pilot"):
+        return await _pilot_user(claims, request, db)
+
     oid = claims["oid"]
     name = claims.get("name", "Unknown User")
     email = claims.get("preferred_username", "")
@@ -188,14 +242,22 @@ async def get_current_user(
             await db.commit()
             await db.refresh(user)
 
+    if not user.is_active:
+        # Blocked on the Admin page. Same generic 401 as any failed sign-in.
+        logger.warning("Blocked user refused (user_id=%s)", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
     return user
 
 
 async def get_current_admin(
+    request: Request,
     user: Annotated[User, Depends(get_current_user)],
 ) -> User:
-    """Require the current user to be a global admin."""
-    if not user.is_admin:
+    """Require the current user to be a global admin. A read-only pilot session
+    (no passcode) never reaches the admin pages, even for an admin's name."""
+    if not user.is_admin or getattr(request.state, "read_only_session", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
         )

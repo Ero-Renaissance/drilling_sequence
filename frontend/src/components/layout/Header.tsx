@@ -34,10 +34,17 @@ function ThemeIcon({ theme }: { theme: Theme }) {
 export function Header() {
   const user = useAuthStore((s) => s.user);
   const clear = useAuthStore((s) => s.clear);
+  const signOut = useAuthStore((s) => s.signOut);
+  const pilotSignIn = useAuthStore((s) => s.options.sign_in === "pilot");
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
   const handleLogout = () => {
+    if (pilotSignIn) {
+      // Pilot sign-in has a real session: end it on the server.
+      void signOut();
+      return;
+    }
     // Windows Integrated Auth has no browser-side session to end. Mark the
     // deliberate sign-out so Login shows the signed-out screen instead of
     // instantly re-authenticating via /api/auth/me and bouncing back in.

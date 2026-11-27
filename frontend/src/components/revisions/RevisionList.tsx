@@ -23,6 +23,7 @@ import {
   type ApproverSignStatus,
 } from "@/api/revisions";
 import { CreateRevisionDialog } from "./CreateRevisionDialog";
+import { useAuthStore } from "@/store/auth";
 import { RevisionPrintControl } from "./RevisionPrintControl";
 import { projectsApi } from "@/api/projects";
 import type { Project } from "@/types";
@@ -341,6 +342,8 @@ export function RevisionList({ projectId }: RevisionListProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   // Refresh the campaign's Revise Plan banner after an action changes the lock.
   const ctx = useOutletContext<CampaignOutletContext | null>();
+  // Off under pilot sign-in: nothing can be submitted (the server refuses too).
+  const approvalsEnabled = useAuthStore((s) => s.options.approvals_enabled);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -391,14 +394,18 @@ export function RevisionList({ projectId }: RevisionListProps) {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 shadow-soft-sm">
-        <CreateRevisionDialog
-          projectId={projectId}
-          onCreated={(rev) => {
-            setRevisions((prev) => [rev, ...prev]);
-            ctx?.refreshLock?.();
-          }}
-        />
-        <div className="mx-1 h-4 w-px bg-border" />
+        {approvalsEnabled && (
+          <>
+            <CreateRevisionDialog
+              projectId={projectId}
+              onCreated={(rev) => {
+                setRevisions((prev) => [rev, ...prev]);
+                ctx?.refreshLock?.();
+              }}
+            />
+            <div className="mx-1 h-4 w-px bg-border" />
+          </>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -434,7 +441,9 @@ export function RevisionList({ projectId }: RevisionListProps) {
               <PenLine className="h-5 w-5" />
             </div>
             <p className="font-medium text-foreground">No revisions yet</p>
-            <p className="text-sm">Create a revision to start the approval workflow.</p>
+            {approvalsEnabled && (
+              <p className="text-sm">Create a revision to start the approval workflow.</p>
+            )}
           </div>
         </div>
       )}

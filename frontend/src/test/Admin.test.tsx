@@ -8,15 +8,27 @@ vi.mock("@/lib/auth", () => ({
   loginRequest: {},
 }));
 
+// Mutable so a test can switch pilot sign-in on (vi.hoisted: the mock factory
+// below is hoisted above ordinary declarations).
+const authState = vi.hoisted(() => ({
+  user: { id: "me-id" },
+  options: {
+    sign_in: "sso" as "sso" | "pilot",
+    email_domain: null as string | null,
+    approvals_enabled: true,
+    session_days: null as number | null,
+  },
+}));
 vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector: (s: { user: { id: string } }) => unknown) =>
-    selector({ user: { id: "me-id" } }),
+  useAuthStore: (selector: (s: typeof authState) => unknown) => selector(authState),
 }));
 
 const listUsers = vi.fn();
 const setAdmin = vi.fn();
 const setCanPlan = vi.fn();
 const setTeams = vi.fn();
+const setActive = vi.fn();
+const addUser = vi.fn();
 const readinessCatalog = vi.fn();
 vi.mock("@/api/admin", () => ({
   adminApi: {
@@ -24,6 +36,8 @@ vi.mock("@/api/admin", () => ({
     setAdmin: (id: string, isAdmin: boolean) => setAdmin(id, isAdmin),
     setCanPlan: (id: string, canPlan: boolean) => setCanPlan(id, canPlan),
     setTeams: (id: string, teams: string[]) => setTeams(id, teams),
+    setActive: (id: string, isActive: boolean) => setActive(id, isActive),
+    addUser: (body: { username: string; name: string }) => addUser(body),
     readinessCatalog: () => readinessCatalog(),
   },
 }));
@@ -76,6 +90,14 @@ describe("Admin", () => {
     listUsers.mockReset();
     setAdmin.mockReset();
     setTeams.mockReset();
+    setActive.mockReset();
+    addUser.mockReset();
+    authState.options = {
+      sign_in: "sso",
+      email_domain: null,
+      approvals_enabled: true,
+      session_days: null,
+    };
     readinessCatalog.mockReset();
     readinessCatalog.mockResolvedValue(catalog(true));
     window.localStorage.clear(); // section fold state is remembered per browser
@@ -178,6 +200,95 @@ describe("Admin", () => {
     await waitFor(() => screen.getByText("Ada Lovelace"));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /^teams/i })).toBeDisabled(),
+    );
+  });
+
+  it("blocks and allows a person's sign-in", async () => {
+    listUsers.mockResolvedValue([user({})]);
+    setActive.mockResolvedValue(user({ is_active: false }));
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /block sign-in/i }));
+    await waitFor(() => expect(setActive).toHaveBeenCalledWith("u1", false));
+    expect(await screen.findByText("Blocked")).toBeInTheDocument();
+
+    setActive.mockResolvedValue(user({ is_active: true }));
+    await userEvent.click(screen.getByRole("button", { name: /allow sign-in/i }));
+    await waitFor(() => expect(setActive).toHaveBeenLastCalledWith("u1", true));
+    await waitFor(() => expect(screen.queryByText("Blocked")).not.toBeInTheDocument());
+  });
+
+  it("never offers to block yourself or an allowlist admin", async () => {
+    listUsers.mockResolvedValue([
+      user({ id: "me-id", name: "Me Myself", is_admin: true }),
+      user({ id: "a1", name: "Allowed Admin", is_admin: true, admin_via_allowlist: true }),
+    ]);
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Me Myself"));
+    for (const button of screen.getAllByRole("button", { name: /block sign-in/i })) {
+      expect(button).toBeDisabled();
+    }
+  });
+
+  it("says nothing about a pilot under Windows sign-in", async () => {
+    listUsers.mockResolvedValue([user({})]);
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+    expect(screen.queryByTestId("pilot-sign-in-card")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add person/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the pilot notice and adds a person to the list", async () => {
+    authState.options = {
+      sign_in: "pilot",
+      email_domain: "renaissanceafrica.com",
+      approvals_enabled: false,
+      session_days: 30,
+    };
+    listUsers.mockResolvedValue([user({})]);
+    addUser.mockResolvedValue(
+      user({ id: "u2", name: "Ngozi Eze", email: "n.eze@renaissanceafrica.com" }),
+    );
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+
+    const card = screen.getByTestId("pilot-sign-in-card");
+    expect(within(card).getByText("Pilot sign-in is on")).toBeInTheDocument();
+    expect(within(card).getByText(/approvals are handled on paper/i)).toBeInTheDocument();
+    expect(within(card).getByText("@renaissanceafrica.com")).toBeInTheDocument();
+    expect(within(card).getByText(/a sign-in lasts 30 days/i)).toBeInTheDocument();
+
+    const add = within(card).getByRole("button", { name: /add person/i });
+    expect(add).toBeDisabled(); // nothing typed yet
+    await userEvent.type(within(card).getByLabelText(/part before the @/i), " n.eze ");
+    await userEvent.type(within(card).getByLabelText("Full name"), "Ngozi Eze");
+    await userEvent.click(add);
+
+    await waitFor(() =>
+      expect(addUser).toHaveBeenCalledWith({ username: "n.eze", name: "Ngozi Eze" }),
+    );
+    expect(await screen.findByText("n.eze@renaissanceafrica.com")).toBeInTheDocument();
+  });
+
+  it("shows the server's reason when a person can't be added", async () => {
+    authState.options = {
+      sign_in: "pilot",
+      email_domain: "renaissanceafrica.com",
+      approvals_enabled: false,
+      session_days: 30,
+    };
+    listUsers.mockResolvedValue([user({})]);
+    addUser.mockRejectedValue(new Error("This person is already on the list"));
+    render(<Admin />);
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+    const card = screen.getByTestId("pilot-sign-in-card");
+    await userEvent.type(within(card).getByLabelText(/part before the @/i), "ada");
+    await userEvent.type(within(card).getByLabelText("Full name"), "Ada");
+    await userEvent.click(within(card).getByRole("button", { name: /add person/i }));
+    expect(await within(card).findByRole("alert")).toHaveTextContent(
+      "This person is already on the list",
     );
   });
 });

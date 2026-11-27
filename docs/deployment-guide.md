@@ -975,6 +975,93 @@ distinct Windows accounts.
 
 ---
 
+## Appendix E — Pilot sign-in (until Windows sign-in is set up)
+
+Use this when the IIS Windows sign-in of §2 is not available yet but people need
+the app now. It is a stop-gap, safer than `DEV_MODE` (Appendix D), where anyone
+who opens the link is a full admin.
+
+### E.1 What it does
+
+- **Only listed people can sign in.** An admin keeps the list on the Admin page.
+- **People sign in with the part of their email before the @** (`j.okoro` for
+  `j.okoro@renaissanceafrica.com`). The browser stays signed in for 30 days.
+- **Anyone who can change anything also needs the passcode**: admins, planners
+  and readiness team editors. It is one shared passcode that you hand out.
+  Viewers need no passcode.
+- **Approvals are switched off.** Submit, Endorse & Sign, Approve & Sign, Reject
+  and Request changes are hidden, and the server refuses them. Approvals go on
+  paper. The reason: a name that anyone can type is no basis for a signature.
+- **Only the Admin page says "pilot".** No other screen mentions it.
+
+What it is not: proof of who someone is. A person who knows a colleague's email
+can sign in as that colleague, as a viewer. To change anything they would also
+need the passcode. Run it on the internal network only.
+
+### E.2 Settings (`backend\.env`)
+
+```ini
+ENVIRONMENT=production
+DEV_MODE=false
+PILOT_MODE=true
+# At least 12 characters. Give it only to planners, team editors and admins.
+PILOT_PASSCODE=<choose one>
+# At least 32 random characters, different from the passcode. Changing it signs
+# everyone out.
+PILOT_SESSION_SECRET=<random>
+PILOT_SESSION_DAYS=30
+USER_EMAIL_DOMAIN=renaissanceafrica.com
+# The first admin. They sign in with their name and the passcode, then add
+# everyone else on the Admin page.
+ADMIN_EMAILS=you@renaissanceafrica.com
+```
+
+Leave `PROXY_USER_HEADER` and `PROXY_SHARED_SECRET` **unset**: pilot sign-in
+replaces them, and the app refuses to start if both are set. It also refuses to
+start if any pilot setting is missing or too short.
+
+A random secret, in PowerShell:
+
+```powershell
+-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 48 | ForEach-Object { [char]$_ })
+```
+
+Build the frontend as for production (`VITE_DEV_MODE=false`, §5) and run the
+database upgrade (`alembic upgrade head`): this release adds migration 042.
+
+### E.3 Running it
+
+Any of the hosting shapes works, because the app does its own sign-in:
+
+- **Single process, no IIS** (Appendix C): simplest. Use HTTPS so the session
+  cookie is marked secure (`APP_BASE_URL=https://...`).
+- **Behind IIS as a plain proxy**: keep the `deploy/iis/web.config` rule, but
+  leave Anonymous Authentication enabled. The `X-Remote-User` header is ignored
+  in pilot mode.
+
+### E.4 Day to day
+
+- **Add a person:** Admin page → "Pilot sign-in is on" → email and full name →
+  Add person. They start as a viewer; grant planner, teams or admin as usual.
+- **Remove a person:** Admin page → **Block sign-in**. Their history is kept.
+  Their open session stops working at once.
+- **Change the passcode:** edit `PILOT_PASSCODE` and restart. People already
+  signed in stay signed in until their 30 days end; to sign everyone out now,
+  change `PILOT_SESSION_SECRET` too.
+- **Too many wrong attempts:** five failures lock that name's sign-in for 15
+  minutes. People already signed in are not affected.
+- The startup log says `PILOT SIGN-IN IS ON` every time the app starts.
+
+### E.5 Moving to Windows sign-in
+
+Only settings change: set `PILOT_MODE=false` (or remove the `PILOT_*` lines), set
+`PROXY_USER_HEADER=X-Remote-User`, and put IIS Windows sign-in in front (§2,
+[`iis-signin-handover.md`](./iis-signin-handover.md)). People keep their
+accounts and grants as long as their Windows username is the part of their email
+before the @. Approvals come back on their own.
+
+---
+
 *Open items still owned by IT before go-live are tracked in
 [`mssql-migration.md`](./mssql-migration.md) §5 (auth method, server cert,
 collation, host/port).*
