@@ -76,3 +76,52 @@ describe("Add Activity — Project field", () => {
     expect(sent.body?.well_project).toBeNull();
   });
 });
+
+// The form's rules (zod schema + resolver). Kept here so an upgrade of either
+// package can't quietly change what the form accepts or says.
+describe("Add Activity — what the form refuses", () => {
+  async function openDialog() {
+    const sent = captureCreate();
+    render(<ActivityFormDialog projectId={PID} onCreated={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: /add activity/i }));
+    return { sent, dialog: await screen.findByRole("dialog") };
+  }
+
+  it("names every missing field, asks for a resource, and sends nothing", async () => {
+    const { sent, dialog } = await openDialog();
+    await userEvent.click(within(dialog).getByRole("button", { name: /^add activity$/i }));
+
+    // Activity type, start, end, well name, location, plan type, risk.
+    await waitFor(() => expect(within(dialog).getAllByText("Required")).toHaveLength(7));
+    expect(
+      within(dialog).getByText("Required — or tick “No resource needed”"),
+    ).toBeInTheDocument();
+    expect(sent.body).toBeNull();
+  });
+
+  it("refuses an end date before the start date", async () => {
+    const { sent, dialog } = await openDialog();
+    await fillRequired(dialog);
+    const end = within(dialog).getByLabelText("End Date *");
+    await userEvent.clear(end);
+    await userEvent.type(end, "2026-10-01"); // start is 2026-11-01
+    await userEvent.click(within(dialog).getByRole("button", { name: /^add activity$/i }));
+
+    expect(
+      await within(dialog).findByText("End date must be on or after start date"),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText("Required")).not.toBeInTheDocument();
+    expect(sent.body).toBeNull();
+  });
+
+  it("refuses a project name over 256 characters", async () => {
+    const { sent, dialog } = await openDialog();
+    await fillRequired(dialog);
+    await userEvent.click(within(dialog).getByLabelText("Project"));
+    await userEvent.paste("x".repeat(257));
+    await userEvent.click(within(dialog).getByRole("button", { name: /^add activity$/i }));
+
+    expect(await within(dialog).findByText("At most 256 characters")).toBeInTheDocument();
+    expect(sent.body).toBeNull();
+  });
+});
