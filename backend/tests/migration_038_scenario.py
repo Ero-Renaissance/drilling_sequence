@@ -28,7 +28,6 @@ from app.models.readiness import (
     ReadinessEntryTag,
     ReadinessTeam,
 )
-from app.models.user import User
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -61,6 +60,17 @@ CHECKS = sa.table(
     sa.column("sort_order", sa.Integer()),
     sa.column("retired_at", sa.DateTime(timezone=True)),
     sa.column("created_at", sa.DateTime(timezone=True)),
+)
+# users as it stands at 037/038, for the same reason: the model has migration
+# 042's is_active, which doesn't exist yet where the SQL Server test seeds.
+USERS = sa.table(
+    "users",
+    sa.column("id", sa.Uuid()),
+    sa.column("ad_object_id", sa.String(256)),
+    sa.column("name", sa.String(256)),
+    sa.column("email", sa.String(256)),
+    sa.column("is_admin", sa.Boolean()),
+    sa.column("can_plan", sa.Boolean()),
 )
 AUDIT = AuditLog.__table__
 CHECK_EVENTS = ("readiness_check_retired", "readiness_check_restored")
@@ -192,11 +202,13 @@ def seed(conn: sa.Connection) -> Seeded:
     s.neq_events = len(_check_events(conn, neq.id))
 
     conn.execute(
-        User.__table__.insert().values(
+        USERS.insert().values(
             id=s.user_id,
             ad_object_id=f"m038-{suffix}",
             name="Migration 038",
             email=f"m038-{suffix.lower()}@example.test",
+            is_admin=False,
+            can_plan=False,
         )
     )
     for cid, name in ((s.campaign_id, "convert"), (s.other_campaign_id, "keep")):
@@ -545,4 +557,4 @@ def teardown(conn: sa.Connection, s: Seeded) -> None:
     conn.execute(ENTRIES.delete().where(ENTRIES.c.project_id.in_(campaigns)))
     conn.execute(Project.__table__.delete().where(Project.__table__.c.id.in_(campaigns)))
     conn.execute(CHECKS.delete().where(CHECKS.c.code.in_(s.test_codes)))
-    conn.execute(User.__table__.delete().where(User.__table__.c.id == s.user_id))
+    conn.execute(USERS.delete().where(USERS.c.id == s.user_id))
