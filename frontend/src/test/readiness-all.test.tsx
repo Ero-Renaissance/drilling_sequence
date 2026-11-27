@@ -286,6 +286,37 @@ describe("AllReadinessGrid", () => {
     expect(onOpenLens).toHaveBeenCalledWith("logistics");
   });
 
+  it("names a row by its well; the activity type shows only where two rows share one", async () => {
+    server.use(
+      http.get("/api/projects/:projectId/activities", () =>
+        HttpResponse.json([
+          act("a1"),
+          act("a6", { well_name: "W-TWICE" }),
+          act("a7", { well_name: "W-TWICE", activity_type: "Workover", start_date: "2027-03-01" }),
+        ]),
+      ),
+    );
+    render(
+      <ReadinessCatalogProvider>
+        <AllReadinessGrid projectId={PID} onOpenLens={vi.fn()} />
+      </ReadinessCatalogProvider>,
+      { wrapper: MemoryRouter },
+    );
+    const w1 = (await screen.findByText("W-1")).closest("tr")!;
+    // One row for the well: its name, field project and date — no activity type,
+    // which is still there on hover.
+    expect(within(w1).queryByText(/Oil Development/)).not.toBeInTheDocument();
+    expect(within(w1).getByText(/^Bonga Phase 3 ·/)).toBeInTheDocument();
+    expect(within(w1).getByText("W-1")).toHaveAttribute("title", "Oil Development");
+
+    // Two rows for one well (one per activity type) still say which is which.
+    const twice = screen.getAllByText("W-TWICE").map((el) => el.closest("tr")!);
+    expect(twice).toHaveLength(2);
+    const lines = twice.map((row) => within(row).getByText(/^Bonga Phase 3 ·/).textContent);
+    expect(lines.filter((l) => l?.includes("Oil Development"))).toHaveLength(1);
+    expect(lines.filter((l) => l?.includes("Workover"))).toHaveLength(1);
+  });
+
   it("has the Value stream filter every team's page has", async () => {
     server.use(
       http.get("/api/projects/:projectId/activities", () =>

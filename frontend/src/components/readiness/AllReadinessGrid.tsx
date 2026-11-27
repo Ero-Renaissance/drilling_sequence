@@ -147,6 +147,19 @@ export function AllReadinessGrid({
     return out.sort((x, y) => x.start_date.localeCompare(y.start_date));
   }, [activities]);
 
+  // A row is named by its well alone; only a well with two kinds of work (two
+  // rows, one per activity type) still says which is which — as on the sheet.
+  const sharedWellNames = useMemo(() => {
+    const seen = new Set<string>();
+    const shared = new Set<string>();
+    for (const r of rows) {
+      const name = `${r.well_project}\u0001${r.well_name}`;
+      if (seen.has(name)) shared.add(name);
+      seen.add(name);
+    }
+    return shared;
+  }, [rows]);
+
   // The value streams on offer, and the one actually filtering: the one chosen
   // while it is still on offer — a reload can take it away, and it must not go
   // on hiding every well with no control left to undo it.
@@ -342,9 +355,13 @@ export function AllReadinessGrid({
                     {/* A sensible width, so the sub-line doesn't wrap word by word:
                         with many columns the table scrolls sideways instead. */}
                     <div className="min-w-[14rem]">
-                      <div className="font-medium">{row.well_name}</div>
+                      <div className="font-medium" title={row.activity_type}>
+                        {row.well_name}
+                      </div>
                       <div className="text-xs text-muted-foreground">
-                        {row.well_project || "No field project"} · {row.activity_type} ·{" "}
+                        {row.well_project || "No field project"} ·{" "}
+                        {sharedWellNames.has(`${row.well_project}\u0001${row.well_name}`) &&
+                          `${row.activity_type} · `}
                         {formatDate(row.start_date)}
                       </div>
                     </div>
