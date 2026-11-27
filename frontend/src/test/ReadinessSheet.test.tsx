@@ -94,6 +94,51 @@ const rowOf = (t: HTMLElement, well: string) => within(t).getByText(well).closes
 const cell = (row: HTMLElement, label: RegExp) => within(row).getByLabelText(label);
 
 describe("ReadinessSheet (Well Execution Readiness) — the layout", () => {
+  it("names a row by its well alone, with the activity type on hover", async () => {
+    renderGrid();
+    const t = await table();
+    expect(within(t).queryByText("Oil Development")).not.toBeInTheDocument();
+    expect(within(t).queryAllByTestId("well-activity-type")).toHaveLength(0);
+    for (const name of within(t).getAllByTestId("well-name")) {
+      expect(name).toHaveAttribute("title", "Oil Development");
+    }
+  });
+
+  it("still says the activity type where two rows share a well name", async () => {
+    // Readiness is kept per field project, well AND activity type: a well that
+    // is drilled and later worked over has two rows, and they must be told apart.
+    server.use(
+      http.get("/api/projects/:projectId/readiness/teams/projects", () =>
+        HttpResponse.json(
+          mockGateTeam({
+            wells: [
+              { well_project: "SSAGS3 Swamp", well_name: "OGBO ADTU-1", start_date: "2027-01-10" },
+              {
+                well_project: "SSAGS3 Swamp",
+                well_name: "OGBO ADTU-1",
+                activity_type: "Workover",
+                start_date: "2027-06-01",
+              },
+              { well_project: "SSAGS3 Swamp", well_name: "OGBO BATP-1", start_date: "2027-04-02" },
+              // The same well name under another field project is another well.
+              { well_project: "SSAGS3 Land", well_name: "OGBO BATP-1", start_date: "2027-05-02" },
+            ],
+          }),
+        ),
+      ),
+    );
+    renderGrid();
+    const t = await table();
+    await waitFor(() => expect(within(t).getAllByTestId("well-name")).toHaveLength(4));
+    const types = within(t)
+      .getAllByTestId("well-activity-type")
+      .map((el) => el.textContent);
+    expect(types.sort()).toEqual(["Oil Development", "Workover"]);
+    for (const el of within(t).getAllByTestId("well-activity-type")) {
+      expect(within(el.closest("tr")!).getByTestId("well-name")).toHaveTextContent("OGBO ADTU-1");
+    }
+  });
+
   it("groups wells by value stream, then field project, with the spud month under its year", async () => {
     renderGrid();
     const t = await table();

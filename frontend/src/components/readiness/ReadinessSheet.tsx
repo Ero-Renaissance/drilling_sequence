@@ -372,6 +372,19 @@ export function ReadinessSheet({
     () => (data?.well_rows ?? []).filter((r) => inYears(r, range)),
     [data, range],
   );
+  // A row is named by its well alone. Readiness is kept per field project, well
+  // AND activity type, though, so a well with two kinds of work (drilled, then
+  // worked over) has two rows: only those still say which is which.
+  const sharedWellNames = useMemo(() => {
+    const seen = new Set<string>();
+    const shared = new Set<string>();
+    for (const r of scoped) {
+      const name = `${r.well_project}\u0001${r.well_name}`;
+      if (seen.has(name)) shared.add(name);
+      seen.add(name);
+    }
+    return shared;
+  }, [scoped]);
   const rows = useMemo(
     () =>
       scoped
@@ -763,6 +776,7 @@ export function ReadinessSheet({
                       const month = MONTHS[Number(spud.slice(5, 7)) - 1];
                       const year = spud.slice(0, 4);
                       const project = row.well_project;
+                      const sharesName = sharedWellNames.has(`${project}\u0001${row.well_name}`);
                       return (
                         <tr key={wk}>
                           {streamSpans[i] > 0 && (
@@ -822,7 +836,11 @@ export function ReadinessSheet({
                             data-pinned=""
                           >
                             <div className="flex items-center gap-1.5">
-                              <span className="font-medium" data-testid="well-name">
+                              <span
+                                className="font-medium"
+                                data-testid="well-name"
+                                title={row.activity_type}
+                              >
                                 {row.well_name}
                               </span>
                               {row.activity_count > 1 && (
@@ -835,8 +853,9 @@ export function ReadinessSheet({
                                 </span>
                               )}
                             </div>
+                            {(sharesName || hasWellTicks) && (
                             <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-                              <span>{row.activity_type}</span>
+                              {sharesName && <span data-testid="well-activity-type">{row.activity_type}</span>}
                             {hasWellTicks && (
                               <ApplicabilityPicker
                                 range={range}
@@ -854,6 +873,7 @@ export function ReadinessSheet({
                               />
                             )}
                             </div>
+                            )}
                           </td>
                           {years.map((y) => (
                             <td
