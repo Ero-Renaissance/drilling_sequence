@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Ban,
   ClipboardList,
@@ -38,7 +39,17 @@ import { ReadinessCatalogAdmin } from "@/components/admin/ReadinessCatalogAdmin"
 import { useRefreshReadinessCatalog } from "@/components/readiness/catalog";
 import { adminApi, type AdminReadinessCatalog } from "@/api/admin";
 import { useAuthStore } from "@/store/auth";
+import { cn } from "@/lib/utils";
 import type { AdminUser } from "@/types";
+
+/** The page's two jobs, one tab each: who may do what, and the readiness
+ *  catalog. The tab is kept in the link (`?tab=readiness`) so it can be shared;
+ *  anything else in the link reads as Users. */
+const TABS = [
+  { key: "users", label: "Users", icon: Users },
+  { key: "readiness", label: "Readiness checks", icon: ListChecks },
+] as const;
+type AdminTab = (typeof TABS)[number]["key"];
 
 /** Shown only while pilot sign-in is on: says what it means and lets the admin
  *  add people to the list. The one place the app names the pilot. */
@@ -157,6 +168,29 @@ export function Admin() {
   const [catalog, setCatalog] = useState<AdminReadinessCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const refreshLiveCatalog = useRefreshReadinessCatalog();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: AdminTab = searchParams.get("tab") === "readiness" ? "readiness" : "users";
+
+  const selectTab = (next: AdminTab) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === "users") params.delete("tab");
+        else params.set("tab", next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
+
+  // Left / Right move between the tabs, as a tab list should.
+  const onTabKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next: AdminTab = tab === "users" ? "readiness" : "users";
+    selectTab(next);
+    document.getElementById(`admin-tab-${next}`)?.focus();
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -263,270 +297,317 @@ export function Admin() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
-        <p className="text-sm text-muted-foreground">
-          Grant or revoke global access. Admins can view and manage every campaign; planners
-          can create campaigns and manage the plans they hold the planner role on. A readiness
-          team grant lets a user update that team&apos;s readiness checks in every campaign —
-          nothing else.
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Admins granted via the allowlist (marked) — the user&apos;s email or Windows
-          username in <code>ADMIN_EMAILS</code> — can&apos;t be revoked here; update the
-          allowlist instead.
-        </p>
+      <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
+
+      <div
+        role="tablist"
+        aria-label="Administration"
+        className="flex items-center gap-1 border-b border-border/70"
+      >
+        {TABS.map(({ key, label, icon: Icon }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`admin-tab-${key}`}
+              aria-selected={active}
+              aria-controls={`admin-panel-${key}`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => selectTab(key)}
+              onKeyDown={onTabKey}
+              className={cn(
+                "relative -mb-px flex items-center gap-2 rounded-t-md px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon
+                className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground/80")}
+                strokeWidth={active ? 2.25 : 2}
+              />
+              {label}
+              {active && (
+                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {signInOptions.sign_in === "pilot" && (
-        <PilotSignInCard
-          emailDomain={signInOptions.email_domain}
-          sessionDays={signInOptions.session_days}
-          onAdded={(added) =>
-            setUsers((prev) => [...prev, added].sort((a, b) => a.name.localeCompare(b.name)))
-          }
-        />
-      )}
-
-      {error && (
+      {tab === "users" && (
         <div
-          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          role="alert"
+          role="tabpanel"
+          id="admin-panel-users"
+          aria-labelledby="admin-tab-users"
+          className="space-y-6"
         >
-          {error}
-        </div>
-      )}
-
-      <CollapsibleSection
-        title="Users"
-        icon={Users}
-        storageKey="ds.admin-section.users"
-        count={
-          loading
-            ? ""
-            : filtered.length === users.length
-              ? users.length
-              : `${filtered.length} of ${users.length}`
-        }
-        actions={
-          <>
-            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={privilegedOnly}
-                onChange={(e) => setPrivilegedOnly(e.target.checked)}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              Privileged only
-            </label>
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Search name or email…"
-              ariaLabel="Search users"
-              testId="admin-user-search"
-            />
-          </>
-        }
-      >
-        {loading ? (
-          <div className="space-y-2 p-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full rounded-lg" />
-            ))}
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Grant or revoke global access. Admins can view and manage every campaign; planners
+              can create campaigns and manage the plans they hold the planner role on. A readiness
+              team grant lets a user update that team&apos;s readiness checks in every campaign —
+              nothing else.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Admins granted via the allowlist (marked) — the user&apos;s email or Windows
+              username in <code>ADMIN_EMAILS</code> — can&apos;t be revoked here; update the
+              allowlist instead.
+            </p>
           </div>
-        ) : (
-          <ul className="divide-y divide-border/60">
-            {filtered.length === 0 && (
-              <li className="px-4 py-6 text-center text-sm text-muted-foreground">
-                No users match{search ? ` “${search}”` : " the filter"}.
-              </li>
-            )}
-            {filtered.map((user) => {
-              const isSelf = currentUser?.id === user.id;
-              const revokeLocked = user.is_admin && (isSelf || user.admin_via_allowlist);
-              const lockReason = !revokeLocked
-                ? undefined
-                : isSelf
-                  ? "You cannot revoke your own admin access"
-                  : "Admin via the email allowlist — remove them from admin_emails to revoke";
-              return (
-                <li key={user.id} className="flex items-center gap-3 px-4 py-3">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-primary/15 text-xs text-primary">
-                      {initials(user.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1 leading-tight">
-                    {/* Wraps: with the Teams menu the name column can get narrow,
-                        and badges must never overlap the project count. */}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="truncate font-medium text-foreground">{user.name}</span>
-                      {user.is_admin && (
-                        <Badge
-                          variant="secondary"
-                          className="gap-1 text-[10px] text-primary"
-                        >
-                          <ShieldCheck className="h-3 w-3" />
-                          Admin
-                        </Badge>
-                      )}
-                      {user.can_plan && (
-                        <Badge variant="secondary" className="gap-1 text-[10px]">
-                          <ClipboardList className="h-3 w-3" />
-                          Planner
-                        </Badge>
-                      )}
-                      {user.is_active === false && (
-                        <Badge variant="destructive" className="gap-1 text-[10px]">
-                          <Ban className="h-3 w-3" />
-                          Blocked
-                        </Badge>
-                      )}
-                      {user.is_admin && user.admin_via_allowlist && (
-                        <span
-                          className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                          title="Admin granted by the email allowlist — revoke by editing admin_emails"
-                        >
-                          via allowlist
-                        </span>
-                      )}
-                      {(user.teams ?? []).map((t) => (
-                        <Badge key={t} variant="info" className="gap-1 text-[10px]">
-                          <ListChecks className="h-3 w-3" />
-                          {teamName(t)}
-                        </Badge>
-                      ))}
-                      {isSelf && (
-                        <span className="text-[10px] text-muted-foreground">(you)</span>
-                      )}
-                    </div>
-                    <div className="truncate text-xs text-muted-foreground">{user.email}</div>
-                  </div>
-                  <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-                    {user.project_count} project{user.project_count !== 1 ? "s" : ""}
-                  </span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+
+          {signInOptions.sign_in === "pilot" && (
+            <PilotSignInCard
+              emailDomain={signInOptions.email_domain}
+              sessionDays={signInOptions.session_days}
+              onAdded={(added) =>
+                setUsers((prev) => [...prev, added].sort((a, b) => a.name.localeCompare(b.name)))
+              }
+            />
+          )}
+
+          {error && (
+            <div
+              className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              role="alert"
+            >
+              {error}
+            </div>
+          )}
+
+          <CollapsibleSection
+            title="Users"
+            icon={Users}
+            collapsible={false}
+            count={
+              loading
+                ? ""
+                : filtered.length === users.length
+                  ? users.length
+                  : `${filtered.length} of ${users.length}`
+            }
+            actions={
+              <>
+                <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={privilegedOnly}
+                    onChange={(e) => setPrivilegedOnly(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Privileged only
+                </label>
+                <SearchInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search name or email…"
+                  ariaLabel="Search users"
+                  testId="admin-user-search"
+                />
+              </>
+            }
+          >
+            {loading ? (
+              <div className="space-y-2 p-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : (
+              <ul className="divide-y divide-border/60">
+                {filtered.length === 0 && (
+                  <li className="px-4 py-6 text-center text-sm text-muted-foreground">
+                    No users match{search ? ` “${search}”` : " the filter"}.
+                  </li>
+                )}
+                {filtered.map((user) => {
+                  const isSelf = currentUser?.id === user.id;
+                  const revokeLocked = user.is_admin && (isSelf || user.admin_via_allowlist);
+                  const lockReason = !revokeLocked
+                    ? undefined
+                    : isSelf
+                      ? "You cannot revoke your own admin access"
+                      : "Admin via the email allowlist — remove them from admin_emails to revoke";
+                  return (
+                    <li key={user.id} className="flex items-center gap-3 px-4 py-3">
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback className="bg-primary/15 text-xs text-primary">
+                          {initials(user.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1 leading-tight">
+                        {/* Wraps: with the Teams menu the name column can get narrow,
+                            and badges must never overlap the project count. */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="truncate font-medium text-foreground">{user.name}</span>
+                          {user.is_admin && (
+                            <Badge
+                              variant="secondary"
+                              className="gap-1 text-[10px] text-primary"
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              Admin
+                            </Badge>
+                          )}
+                          {user.can_plan && (
+                            <Badge variant="secondary" className="gap-1 text-[10px]">
+                              <ClipboardList className="h-3 w-3" />
+                              Planner
+                            </Badge>
+                          )}
+                          {user.is_active === false && (
+                            <Badge variant="destructive" className="gap-1 text-[10px]">
+                              <Ban className="h-3 w-3" />
+                              Blocked
+                            </Badge>
+                          )}
+                          {user.is_admin && user.admin_via_allowlist && (
+                            <span
+                              className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                              title="Admin granted by the email allowlist — revoke by editing admin_emails"
+                            >
+                              via allowlist
+                            </span>
+                          )}
+                          {(user.teams ?? []).map((t) => (
+                            <Badge key={t} variant="info" className="gap-1 text-[10px]">
+                              <ListChecks className="h-3 w-3" />
+                              {teamName(t)}
+                            </Badge>
+                          ))}
+                          {isSelf && (
+                            <span className="text-[10px] text-muted-foreground">(you)</span>
+                          )}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+                      </div>
+                      <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
+                        {user.project_count} project{user.project_count !== 1 ? "s" : ""}
+                      </span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            disabled={
+                              pendingId === user.id ||
+                              (grantableTeams.length === 0 && (user.teams ?? []).length === 0)
+                            }
+                            title={
+                              grantableTeams.length === 0
+                                ? "Add a readiness team on the Readiness checks tab to grant it"
+                                : "Readiness teams this user can update in every campaign"
+                            }
+                          >
+                            <ListChecks className="h-3.5 w-3.5" />
+                            Teams
+                            {(user.teams ?? []).length > 0 && ` (${(user.teams ?? []).length})`}
+                            <ChevronDown className="h-3 w-3 opacity-60" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuLabel className="text-xs">Readiness team grants</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {grantableTeams.map((t) => (
+                            <DropdownMenuCheckboxItem
+                              key={t.code}
+                              checked={(user.teams ?? []).includes(t.code)}
+                              onCheckedChange={(on) => toggleTeam(user, t.code, on === true)}
+                            >
+                              {t.name}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                          {/* A grant for a since-deactivated team can still be revoked. */}
+                          {(user.teams ?? [])
+                            .filter((code) => !grantableTeams.some((t) => t.code === code))
+                            .map((code) => (
+                              <DropdownMenuCheckboxItem
+                                key={code}
+                                checked
+                                onCheckedChange={() => toggleTeam(user, code, false)}
+                              >
+                                {teamName(code)} (inactive)
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         className="shrink-0"
                         disabled={
                           pendingId === user.id ||
-                          (grantableTeams.length === 0 && (user.teams ?? []).length === 0)
+                          (user.is_active !== false && (isSelf || user.admin_via_allowlist))
                         }
                         title={
-                          grantableTeams.length === 0
-                            ? "Add a readiness team below to grant it"
-                            : "Readiness teams this user can update in every campaign"
+                          user.is_active === false
+                            ? "Let this person sign in again"
+                            : isSelf
+                              ? "You cannot block your own sign-in"
+                              : user.admin_via_allowlist
+                                ? "Admin via the email allowlist — remove them from admin_emails to block"
+                                : "Stop this person signing in. Their history is kept."
                         }
+                        onClick={() => toggleActive(user)}
                       >
-                        <ListChecks className="h-3.5 w-3.5" />
-                        Teams
-                        {(user.teams ?? []).length > 0 && ` (${(user.teams ?? []).length})`}
-                        <ChevronDown className="h-3 w-3 opacity-60" />
+                        <Ban className="h-3.5 w-3.5" />
+                        {user.is_active === false ? "Allow sign-in" : "Block sign-in"}
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuLabel className="text-xs">Readiness team grants</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {grantableTeams.map((t) => (
-                        <DropdownMenuCheckboxItem
-                          key={t.code}
-                          checked={(user.teams ?? []).includes(t.code)}
-                          onCheckedChange={(on) => toggleTeam(user, t.code, on === true)}
-                        >
-                          {t.name}
-                        </DropdownMenuCheckboxItem>
-                      ))}
-                      {/* A grant for a since-deactivated team can still be revoked. */}
-                      {(user.teams ?? [])
-                        .filter((code) => !grantableTeams.some((t) => t.code === code))
-                        .map((code) => (
-                          <DropdownMenuCheckboxItem
-                            key={code}
-                            checked
-                            onCheckedChange={() => toggleTeam(user, code, false)}
-                          >
-                            {teamName(code)} (inactive)
-                          </DropdownMenuCheckboxItem>
-                        ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0"
-                    disabled={
-                      pendingId === user.id ||
-                      (user.is_active !== false && (isSelf || user.admin_via_allowlist))
-                    }
-                    title={
-                      user.is_active === false
-                        ? "Let this person sign in again"
-                        : isSelf
-                          ? "You cannot block your own sign-in"
-                          : user.admin_via_allowlist
-                            ? "Admin via the email allowlist — remove them from admin_emails to block"
-                            : "Stop this person signing in. Their history is kept."
-                    }
-                    onClick={() => toggleActive(user)}
-                  >
-                    <Ban className="h-3.5 w-3.5" />
-                    {user.is_active === false ? "Allow sign-in" : "Block sign-in"}
-                  </Button>
-                  <Button
-                    variant={user.can_plan ? "ghost" : "outline"}
-                    size="sm"
-                    className="shrink-0"
-                    disabled={pendingId === user.id}
-                    title={
-                      user.can_plan
-                        ? "Remove the planner grant — they immediately lose planning rights on every campaign"
-                        : "Grant planner — they can create campaigns and be added as a campaign planner"
-                    }
-                    onClick={() => toggleCanPlan(user)}
-                  >
-                    <ClipboardList className="h-3.5 w-3.5" />
-                    {user.can_plan ? "Revoke planner" : "Make planner"}
-                  </Button>
-                  <Button
-                    variant={user.is_admin ? "ghost" : "outline"}
-                    size="sm"
-                    className="shrink-0"
-                    disabled={pendingId === user.id || revokeLocked}
-                    title={lockReason}
-                    onClick={() => setConfirmUser(user)}
-                  >
-                    {pendingId === user.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : user.is_admin ? (
-                      <ShieldOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                    )}
-                    {user.is_admin ? "Revoke admin" : "Make admin"}
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CollapsibleSection>
+                      <Button
+                        variant={user.can_plan ? "ghost" : "outline"}
+                        size="sm"
+                        className="shrink-0"
+                        disabled={pendingId === user.id}
+                        title={
+                          user.can_plan
+                            ? "Remove the planner grant — they immediately lose planning rights on every campaign"
+                            : "Grant planner — they can create campaigns and be added as a campaign planner"
+                        }
+                        onClick={() => toggleCanPlan(user)}
+                      >
+                        <ClipboardList className="h-3.5 w-3.5" />
+                        {user.can_plan ? "Revoke planner" : "Make planner"}
+                      </Button>
+                      <Button
+                        variant={user.is_admin ? "ghost" : "outline"}
+                        size="sm"
+                        className="shrink-0"
+                        disabled={pendingId === user.id || revokeLocked}
+                        title={lockReason}
+                        onClick={() => setConfirmUser(user)}
+                      >
+                        {pendingId === user.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : user.is_admin ? (
+                          <ShieldOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                        )}
+                        {user.is_admin ? "Revoke admin" : "Make admin"}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CollapsibleSection>
+        </div>
+      )}
 
-      {/* Configuration sections start folded so the page opens on the people;
-          each remembers being opened. */}
-      <ReadinessCatalogAdmin
-        catalog={catalog}
-        loading={catalogLoading}
-        defaultOpen={false}
-        storageKey="ds.admin-section.readiness"
-        onChanged={() => {
-          loadCatalog();
-          refreshLiveCatalog();
-        }}
-      />
+      {tab === "readiness" && (
+        <div role="tabpanel" id="admin-panel-readiness" aria-labelledby="admin-tab-readiness">
+          <ReadinessCatalogAdmin
+            catalog={catalog}
+            loading={catalogLoading}
+            collapsible={false}
+            onChanged={() => {
+              loadCatalog();
+              refreshLiveCatalog();
+            }}
+          />
+        </div>
+      )}
 
       <Dialog open={!!confirmUser} onOpenChange={(o) => !o && setConfirmUser(null)}>
         <DialogContent className="sm:max-w-sm">

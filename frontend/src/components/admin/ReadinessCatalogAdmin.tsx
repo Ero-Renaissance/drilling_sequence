@@ -570,6 +570,7 @@ export function ReadinessCatalogAdmin({
   onChanged,
   defaultOpen = true,
   storageKey,
+  collapsible = true,
 }: {
   catalog: AdminReadinessCatalog | null;
   loading: boolean;
@@ -579,6 +580,8 @@ export function ReadinessCatalogAdmin({
   defaultOpen?: boolean;
   /** Remember the folded/unfolded choice under this key. */
   storageKey?: string;
+  /** False where the section has a tab to itself: always open, no fold. */
+  collapsible?: boolean;
 }) {
   const [teamDialog, setTeamDialog] = useState<TeamDialogState>(null);
   const [checkDialog, setCheckDialog] = useState<CheckDialogState>(null);
@@ -612,6 +615,7 @@ export function ReadinessCatalogAdmin({
       icon={ListChecks}
       defaultOpen={defaultOpen}
       storageKey={storageKey}
+      collapsible={collapsible}
       count={
         catalog
           ? `${catalog.teams.length} ${catalog.teams.length === 1 ? "team" : "teams"} · ${
@@ -633,7 +637,7 @@ export function ReadinessCatalogAdmin({
     >
       <p className="px-4 pt-3 text-xs text-muted-foreground">
         Each team owns its readiness checks. The well execution readiness checks are updated by campaign planners;
-        other teams by the users given that team&apos;s grant above. Retire a check instead of
+        other teams by the users given that team&apos;s grant on the Users tab. Retire a check instead of
         deleting it — its saved values and past revisions are kept.
       </p>
 

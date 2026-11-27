@@ -19,6 +19,9 @@ function readOpen(storageKey: string | undefined, fallback: boolean): boolean {
  * beside it and only show while the section is open. With `storageKey` the
  * open/closed choice is remembered per browser (a viewing habit, like the
  * horizon pickers); it falls back to `defaultOpen` when storage is unavailable.
+ *
+ * `collapsible={false}` gives the same card with a plain heading and no fold —
+ * for a section that already has a tab to itself (the Admin page).
  */
 export function CollapsibleSection({
   title,
@@ -27,6 +30,7 @@ export function CollapsibleSection({
   actions,
   defaultOpen = true,
   storageKey,
+  collapsible = true,
   children,
   className,
 }: {
@@ -36,10 +40,13 @@ export function CollapsibleSection({
   actions?: ReactNode;
   defaultOpen?: boolean;
   storageKey?: string;
+  /** False: always open, no toggle, and the remembered choice is ignored. */
+  collapsible?: boolean;
   children: ReactNode;
   className?: string;
 }) {
-  const [open, setOpenState] = useState(() => readOpen(storageKey, defaultOpen));
+  const [stored, setOpenState] = useState(() => readOpen(storageKey, defaultOpen));
+  const open = !collapsible || stored;
   const bodyId = useId();
 
   const toggle = () =>
@@ -55,6 +62,18 @@ export function CollapsibleSection({
       return next;
     });
 
+  const heading = (
+    <>
+      {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />}
+      <h2 className="text-sm font-semibold">
+        {title}
+        {count !== undefined && count !== "" && (
+          <span className="ml-2 font-normal text-muted-foreground">{count}</span>
+        )}
+      </h2>
+    </>
+  );
+
   return (
     <section
       aria-label={title}
@@ -66,26 +85,24 @@ export function CollapsibleSection({
           open && "border-b border-border/70",
         )}
       >
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={open}
-          aria-controls={bodyId}
-          className="-mx-1 flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />}
-          <h2 className="text-sm font-semibold">
-            {title}
-            {count !== undefined && count !== "" && (
-              <span className="ml-2 font-normal text-muted-foreground">{count}</span>
+        {collapsible ? (
+          <button
+            type="button"
+            onClick={toggle}
+            aria-expanded={open}
+            aria-controls={bodyId}
+            className="-mx-1 flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {heading}
+            {open ? (
+              <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
             )}
-          </h2>
-          {open ? (
-            <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-          )}
-        </button>
+          </button>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2 py-1">{heading}</div>
+        )}
         {open && actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
       </div>
       {open && <div id={bodyId}>{children}</div>}
