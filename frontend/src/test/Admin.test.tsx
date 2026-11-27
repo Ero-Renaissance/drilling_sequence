@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 vi.mock("@/lib/auth", () => ({
   getAccessToken: async () => "test-token",
@@ -85,6 +86,20 @@ function user(over: Partial<AdminUser>): AdminUser {
   };
 }
 
+/** Shows the page link's query, so a test can see the tab being kept in it. */
+function LinkProbe() {
+  return <output data-testid="link-query">{useLocation().search}</output>;
+}
+
+function renderAdmin(link = "/admin") {
+  return render(
+    <MemoryRouter initialEntries={[link]}>
+      <Admin />
+      <LinkProbe />
+    </MemoryRouter>,
+  );
+}
+
 describe("Admin", () => {
   beforeEach(() => {
     listUsers.mockReset();
@@ -100,27 +115,69 @@ describe("Admin", () => {
     };
     readinessCatalog.mockReset();
     readinessCatalog.mockResolvedValue(catalog(true));
-    window.localStorage.clear(); // section fold state is remembered per browser
+    window.localStorage.clear();
   });
 
-  it("opens on the users; the readiness configuration starts folded", async () => {
+  it("opens on the Users tab; the readiness checks have a tab of their own", async () => {
     listUsers.mockResolvedValue([user({})]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
-    expect(screen.getByRole("button", { name: /^users/i })).toHaveAttribute("aria-expanded", "true");
-    const checks = await screen.findByRole("button", { name: /readiness checks/i });
-    expect(checks).toHaveAttribute("aria-expanded", "false");
+    const usersTab = screen.getByRole("tab", { name: "Users" });
+    const checksTab = screen.getByRole("tab", { name: "Readiness checks" });
+    expect(usersTab).toHaveAttribute("aria-selected", "true");
+    expect(checksTab).toHaveAttribute("aria-selected", "false");
     expect(screen.queryByRole("region", { name: "Projects checks" })).not.toBeInTheDocument();
+    // A tab's section has no fold of its own.
+    expect(screen.queryByRole("button", { name: /^users/i })).not.toBeInTheDocument();
 
-    fireEvent.click(checks);
+    fireEvent.click(checksTab);
     expect(await screen.findByRole("region", { name: "Projects checks" })).toBeInTheDocument();
+    expect(checksTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-query")).toHaveTextContent("?tab=readiness");
+
+    fireEvent.click(usersTab);
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.getByTestId("link-query")).toHaveTextContent(/^$/);
+  });
+
+  it("opens the tab the link names, and reads anything else as Users", async () => {
+    listUsers.mockResolvedValue([user({})]);
+    const first = renderAdmin("/admin?tab=readiness");
+    expect(await screen.findByRole("region", { name: "Projects checks" })).toBeInTheDocument();
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+    first.unmount();
+
+    renderAdmin("/admin?tab=%3Cscript%3E");
+    await waitFor(() => screen.getByText("Ada Lovelace"));
+    expect(screen.getByRole("tab", { name: "Users" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps the search when moving between the tabs, and moves with the arrow keys", async () => {
+    listUsers.mockResolvedValue([
+      user({}),
+      user({ id: "u-2", name: "Grace Hopper", email: "grace@x.test" }),
+    ]);
+    renderAdmin();
+    await waitFor(() => screen.getByText("Grace Hopper"));
+    fireEvent.change(screen.getByTestId("admin-user-search"), { target: { value: "grace" } });
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Users" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Readiness checks" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Readiness checks" }), { key: "ArrowLeft" });
+    expect(screen.getByText("Grace Hopper")).toBeInTheDocument();
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
   });
 
   it("marks allowlist admins and disables their revoke button", async () => {
     listUsers.mockResolvedValue([
       user({ id: "a1", name: "Allowed Admin", is_admin: true, admin_via_allowlist: true }),
     ]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Allowed Admin"));
 
     expect(screen.getByText("via allowlist")).toBeInTheDocument();
@@ -130,7 +187,7 @@ describe("Admin", () => {
   it("requires confirmation before granting admin", async () => {
     listUsers.mockResolvedValue([user({})]);
     setAdmin.mockResolvedValue(user({ is_admin: true }));
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
 
     // The row button opens a confirm dialog — it does NOT grant yet.
@@ -148,7 +205,7 @@ describe("Admin", () => {
       user({ id: "u1", name: "Ada Lovelace", email: "ada@company.com", can_plan: true }),
       user({ id: "u2", name: "Bob Viewer", email: "bob@company.com" }),
     ]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
     expect(screen.getByText("Bob Viewer")).toBeInTheDocument();
 
@@ -169,7 +226,7 @@ describe("Admin", () => {
       user({ id: "u1", name: "Lola Logistics", teams: ["logistics"] }),
       user({ id: "u2", name: "Bob Viewer", email: "bob@company.com" }),
     ]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Lola Logistics"));
     fireEvent.click(screen.getByRole("checkbox", { name: /privileged only/i }));
     expect(screen.getByText("Lola Logistics")).toBeInTheDocument();
@@ -179,7 +236,7 @@ describe("Admin", () => {
   it("grants a readiness team from the user's Teams menu", async () => {
     listUsers.mockResolvedValue([user({})]);
     setTeams.mockResolvedValue({ teams: ["logistics"] });
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
 
     const teamsButton = await screen.findByRole("button", { name: /^teams/i });
@@ -196,7 +253,7 @@ describe("Admin", () => {
   it("disables the Teams menu until a grantable team exists", async () => {
     readinessCatalog.mockResolvedValue(catalog(false));
     listUsers.mockResolvedValue([user({})]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /^teams/i })).toBeDisabled(),
@@ -206,7 +263,7 @@ describe("Admin", () => {
   it("blocks and allows a person's sign-in", async () => {
     listUsers.mockResolvedValue([user({})]);
     setActive.mockResolvedValue(user({ is_active: false }));
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
     expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
 
@@ -225,7 +282,7 @@ describe("Admin", () => {
       user({ id: "me-id", name: "Me Myself", is_admin: true }),
       user({ id: "a1", name: "Allowed Admin", is_admin: true, admin_via_allowlist: true }),
     ]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Me Myself"));
     for (const button of screen.getAllByRole("button", { name: /block sign-in/i })) {
       expect(button).toBeDisabled();
@@ -234,7 +291,7 @@ describe("Admin", () => {
 
   it("says nothing about a pilot under Windows sign-in", async () => {
     listUsers.mockResolvedValue([user({})]);
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
     expect(screen.queryByTestId("pilot-sign-in-card")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /add person/i })).not.toBeInTheDocument();
@@ -251,7 +308,7 @@ describe("Admin", () => {
     addUser.mockResolvedValue(
       user({ id: "u2", name: "Ngozi Eze", email: "n.eze@renaissanceafrica.com" }),
     );
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
 
     const card = screen.getByTestId("pilot-sign-in-card");
@@ -281,7 +338,7 @@ describe("Admin", () => {
     };
     listUsers.mockResolvedValue([user({})]);
     addUser.mockRejectedValue(new Error("This person is already on the list"));
-    render(<Admin />);
+    renderAdmin();
     await waitFor(() => screen.getByText("Ada Lovelace"));
     const card = screen.getByTestId("pilot-sign-in-card");
     await userEvent.type(within(card).getByLabelText(/part before the @/i), "ada");

@@ -47,4 +47,23 @@ describe("CollapsibleSection", () => {
     renderSection(false);
     expect(screen.getByText("Body text")).toBeInTheDocument();
   });
+
+  it("has no fold when it is not collapsible, whatever was remembered", () => {
+    window.localStorage.setItem(KEY, "0"); // folded earlier, under the same key
+    render(
+      <CollapsibleSection
+        title="Things"
+        count={3}
+        storageKey={KEY}
+        collapsible={false}
+        actions={<button type="button">Add thing</button>}
+      >
+        <p>Body text</p>
+      </CollapsibleSection>,
+    );
+    expect(screen.queryByRole("button", { name: /things/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /things/i })).toBeInTheDocument();
+    expect(screen.getByText("Body text")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add thing" })).toBeInTheDocument();
+  });
 });
