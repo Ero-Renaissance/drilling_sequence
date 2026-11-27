@@ -1,9 +1,19 @@
+import os
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Settings come from the process environment first, then from this file.
+    # DS_ENV_FILE names another file or, when set to an empty value, no file at
+    # all: the test suite does that so it never reads a developer's local .env
+    # (tests/__init__.py). It grants nothing new — an environment variable
+    # already overrides any line of the file — and the guards below check
+    # whatever was loaded, wherever it came from.
+    model_config = SettingsConfigDict(
+        env_file=os.environ.get("DS_ENV_FILE", ".env") or None, extra="ignore"
+    )
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/drilling_sequence"
 
