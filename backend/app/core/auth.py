@@ -171,6 +171,15 @@ async def _extract_claims(request: Request) -> dict:
     }
 
 
+def on_admin_allowlist(email: str, username: str) -> bool:
+    """Whether ADMIN_EMAILS names this person — by email OR by username
+    (users.ad_object_id), the one rule sign-in and the Admin page share."""
+    allow = settings.admin_emails_list  # already lowercased
+    if email and email.lower() in allow:
+        return True
+    return bool(username) and username.lower() in allow
+
+
 def _resolve_admin(email: str, username: str) -> bool:
     """Decide whether a logging-in user is a global admin.
 
@@ -181,10 +190,7 @@ def _resolve_admin(email: str, username: str) -> bool:
     """
     if settings.dev_mode:
         return True
-    allow = settings.admin_emails_list  # already lowercased
-    if email and email.lower() in allow:
-        return True
-    return bool(username) and username.lower() in allow
+    return on_admin_allowlist(email, username)
 
 
 async def _pilot_user(claims: dict, request: Request, db: AsyncSession) -> User:

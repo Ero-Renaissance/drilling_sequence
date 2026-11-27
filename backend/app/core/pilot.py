@@ -78,6 +78,10 @@ def read_session(token: str | None, now: float | None = None) -> PilotSession | 
     forged or expired. Never raises: every bad cookie reads as "not signed in"."""
     if not token or len(token) > _MAX_TOKEN_CHARS or not settings.pilot_session_secret:
         return None
+    # Ours is ASCII throughout. A non-ASCII one would make the signing and the
+    # constant-time compare below raise, so it is refused here instead.
+    if not token.isascii():
+        return None
     parts = token.split(".")
     if len(parts) != 3 or parts[0] != _VERSION:
         return None
@@ -157,6 +161,32 @@ def record_sign_in_failure(name: str, now: float | None = None) -> None:
         if len(_failures_by_name) >= _MAX_TRACKED_NAMES:
             return
     _failures_by_name[name] = bump(_failures_by_name.get(name))
+
+
+def begin_sign_in_attempt(name: str, now: float | None = None) -> bool:
+    """Count one sign-in attempt for `name`, or return False when it is locked
+    out. The check and the count happen together, with nothing awaited between
+    them, so a burst of requests sent at once can't all pass the check before
+    any failure is counted. A sign-in that then succeeds gives its count back
+    (`forgive_sign_in_attempt`); a refused one keeps it."""
+    if sign_in_throttled(name, now):
+        return False
+    record_sign_in_failure(name, now)
+    return True
+
+
+def forgive_sign_in_attempt(name: str, now: float | None = None) -> None:
+    """Give back the count `begin_sign_in_attempt` took: the sign-in succeeded."""
+    global _failures_overall
+    current = time.monotonic() if now is None else now
+    if _count(_failures_overall, current) > 0 and _failures_overall is not None:
+        _failures_overall = (_failures_overall[0], _failures_overall[1] - 1)
+    entry = _failures_by_name.get(name)
+    if entry is not None and _count(entry, current) > 0:
+        if entry[1] <= 1:
+            del _failures_by_name[name]
+        else:
+            _failures_by_name[name] = (entry[0], entry[1] - 1)
 
 
 def reset_throttle() -> None:

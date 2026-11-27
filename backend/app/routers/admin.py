@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.auth import get_current_admin
+from app.core.auth import get_current_admin, on_admin_allowlist
 from app.database import get_db
 from app.models.project import ProjectMember
 from app.models.readiness import UserTeamGrant
@@ -56,7 +56,7 @@ async def list_users(_admin: CurrentAdmin, db: DB) -> list[AdminUserResponse]:
             is_admin=u.is_admin,
             can_plan=u.can_plan,
             project_count=counts.get(u.id, 0),
-            admin_via_allowlist=u.email.lower() in settings.admin_emails_list,
+            admin_via_allowlist=on_admin_allowlist(u.email, u.ad_object_id),
             teams=teams_by_user.get(u.id, []),
             is_active=u.is_active,
         )
@@ -115,7 +115,7 @@ async def add_user(payload: AdminUserCreate, admin: CurrentAdmin, db: DB) -> Adm
         is_admin=user.is_admin,
         can_plan=user.can_plan,
         project_count=0,
-        admin_via_allowlist=user.email.lower() in settings.admin_emails_list,
+        admin_via_allowlist=on_admin_allowlist(user.email, user.ad_object_id),
         teams=[],
         is_active=user.is_active,
     )
@@ -149,7 +149,8 @@ async def update_user(
 
     # The allowlist (admin_emails) is a floor: it re-grants admin at every login, so a
     # manual revoke here wouldn't stick. Reject it with a clear, actionable message.
-    via_allowlist = user.email.lower() in settings.admin_emails_list
+    # Matched as sign-in matches it: by email or by username.
+    via_allowlist = on_admin_allowlist(user.email, user.ad_object_id)
     if payload.is_admin is False and via_allowlist:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -7,14 +7,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.auth import _USERNAME_RE, get_current_user
+from app.core.auth import _USERNAME_RE, get_current_user, on_admin_allowlist
 from app.core.pilot import (
     COOKIE_NAME,
+    begin_sign_in_attempt,
+    forgive_sign_in_attempt,
     issue_session,
     passcode_matches,
-    record_sign_in_failure,
     session_max_age,
-    sign_in_throttled,
 )
 from app.database import get_db
 from app.models.readiness import UserTeamGrant
@@ -90,10 +90,10 @@ def _short_name(raw: str) -> str | None:
     return value if _USERNAME_RE.match(value) else None
 
 
-def _refuse(name: str, reason: str) -> HTTPException:
-    """Count the failure and build the one generic refusal. The log carries the
-    reason code only — never the name that was typed."""
-    record_sign_in_failure(name)
+def _refuse(reason: str) -> HTTPException:
+    """The one generic refusal. The attempt was counted when it began
+    (begin_sign_in_attempt) and stays counted. The log carries the reason code
+    only — never the name that was typed."""
     logger.warning("Pilot sign-in refused (reason=%s)", reason)
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_SIGN_IN_FAILED)
 
@@ -112,17 +112,19 @@ async def sign_in(payload: SignInRequest, response: Response, db: DB) -> UserRes
 
     name = _short_name(payload.username)
     throttle_key = name or "?"
-    if sign_in_throttled(throttle_key):
+    # Counted NOW, before anything is awaited: requests sent in a burst are each
+    # counted before any of them reaches the passcode check. Only a sign-in that
+    # succeeds gets its count back.
+    if not begin_sign_in_attempt(throttle_key):
         logger.warning("Pilot sign-in refused (reason=throttled)")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=_TOO_MANY_ATTEMPTS
         )
     if name is None:
-        raise _refuse(throttle_key, "bad_name")
+        raise _refuse("bad_name")
 
     email = f"{name}@{settings.user_email_domain.strip().lower()}"
-    allowlist = settings.admin_emails_list
-    allowlisted = email in allowlist or name in allowlist
+    allowlisted = on_admin_allowlist(email, name)
 
     user = (
         await db.execute(select(User).where(User.ad_object_id == name))
@@ -133,19 +135,19 @@ async def sign_in(payload: SignInRequest, response: Response, db: DB) -> UserRes
         ).scalar_one_or_none()
 
     if user is None and not allowlisted:
-        raise _refuse(name, "not_listed")
+        raise _refuse("not_listed")
     if user is not None and not user.is_active:
-        raise _refuse(name, "blocked")
+        raise _refuse("blocked")
 
     passcode_ok = passcode_matches(payload.passcode)
     if payload.passcode is not None and not passcode_ok:
-        raise _refuse(name, "passcode")
+        raise _refuse("passcode")
     can_edit = allowlisted or (
         user is not None
         and (user.is_admin or user.can_plan or bool(await _team_codes(user, db)))
     )
     if can_edit and not passcode_ok:
-        raise _refuse(name, "passcode_required")
+        raise _refuse("passcode_required")
 
     if user is None:
         # First sign-in of an ADMIN_EMAILS admin: the one account nobody has to
@@ -158,9 +160,10 @@ async def sign_in(payload: SignInRequest, response: Response, db: DB) -> UserRes
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise _refuse(name, "conflict") from None
+        raise _refuse("conflict") from None
     await db.refresh(user)
 
+    forgive_sign_in_attempt(throttle_key)
     response.set_cookie(
         COOKIE_NAME,
         issue_session(user.ad_object_id, passcode_verified=passcode_ok),

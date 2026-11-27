@@ -9,6 +9,7 @@ import { Login } from "@/pages/Login";
 import { RevisionList } from "@/components/revisions/RevisionList";
 import { DEFAULT_SIGN_IN_OPTIONS, useAuthStore } from "@/store/auth";
 import { UNAUTHENTICATED_EVENT } from "@/lib/session-events";
+import { ApiError, throwApiError } from "@/api/http";
 import type { User } from "@/types";
 
 const PILOT = { sign_in: "pilot", email_domain: "renaissanceafrica.com", approvals_enabled: false };
@@ -118,6 +119,47 @@ describe("pilot sign-in", () => {
     useAuthStore.setState({ options: PILOT as typeof DEFAULT_SIGN_IN_OPTIONS });
     window.dispatchEvent(new Event(UNAUTHENTICATED_EVENT));
     expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it("returns to sign-in on a 401 from ANY api call, not only the api wrapper", async () => {
+    // The modules that call fetch themselves (readiness, activities…) hand a
+    // failed response straight to throwApiError, so that is where a 401 is heard.
+    useAuthStore.setState({
+      user: VIEWER,
+      loading: false,
+      options: PILOT as typeof DEFAULT_SIGN_IN_OPTIONS,
+    });
+    const expired = new Response(JSON.stringify({ detail: "Not authenticated" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+    await expect(throwApiError(expired, "Request failed")).rejects.toBeInstanceOf(ApiError);
+    expect(useAuthStore.getState().user).toBeNull();
+
+    // Any other failure leaves the session alone.
+    useAuthStore.setState({ user: VIEWER });
+    const refused = new Response(JSON.stringify({ detail: "Access denied" }), { status: 403 });
+    await expect(throwApiError(refused, "Request failed")).rejects.toBeInstanceOf(ApiError);
+    expect(useAuthStore.getState().user).not.toBeNull();
+  });
+
+  it("stays signed in when the server could not end the session", async () => {
+    // The cookie is HttpOnly: only the server can drop it. A failed sign-out
+    // must not look like one, or the next page load signs the person back in.
+    useAuthStore.setState({
+      user: VIEWER,
+      loading: false,
+      options: PILOT as typeof DEFAULT_SIGN_IN_OPTIONS,
+    });
+    server.use(http.post("/api/auth/sign-out", () => HttpResponse.error()));
+    await expect(useAuthStore.getState().signOut()).rejects.toBeDefined();
+    expect(useAuthStore.getState().user).not.toBeNull();
+
+    server.use(
+      http.post("/api/auth/sign-out", () => HttpResponse.json({ detail: "boom" }, { status: 500 })),
+    );
+    await expect(useAuthStore.getState().signOut()).rejects.toBeInstanceOf(ApiError);
+    expect(useAuthStore.getState().user).not.toBeNull();
   });
 
   it("signs out on the server and forgets the user", async () => {

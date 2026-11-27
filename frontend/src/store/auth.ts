@@ -32,7 +32,8 @@ interface AuthState {
   fetchMe: () => Promise<void>;
   /** Pilot sign-in. Rejects with the server's message (ApiError) when refused. */
   signIn: (username: string, passcode?: string) => Promise<void>;
-  /** End the pilot session on the server, then forget the user here. */
+  /** End the pilot session on the server, then forget the user here. Rejects,
+   *  leaving the user signed in, when the server could not be reached. */
   signOut: () => Promise<void>;
   clear: () => void;
 }
@@ -72,11 +73,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
-    try {
-      await api.post<void>("/api/auth/sign-out", {});
-    } catch {
-      /* the cookie may already be gone; signing out locally is still right */
-    }
+    // Only the server can drop the session cookie (it is HttpOnly). If the call
+    // fails the cookie is still valid, so the user stays signed in here and the
+    // caller says so — a local-only "sign out" would sign them straight back in.
+    await api.post<void>("/api/auth/sign-out", {});
     set({ user: null, loading: false });
   },
 
