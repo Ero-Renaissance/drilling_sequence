@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user
 from app.core.locks import lock_campaign_writes
+from app.core.pilot import assert_approvals_enabled
 from app.core.rbac import (
     assert_can_review,
     assert_can_sign,
@@ -352,7 +353,10 @@ async def _lock_revision(
     return revision
 
 
-@router.post("", response_model=RevisionResponse, status_code=201)
+@router.post(
+    "", response_model=RevisionResponse, status_code=201,
+    dependencies=[Depends(assert_approvals_enabled)],
+)
 async def create_revision(
     project_id: uuid.UUID,
     payload: RevisionCreate,
@@ -781,7 +785,10 @@ async def get_revision(
     return RevisionDetailResponse.model_validate(base)
 
 
-@router.put("/{revision_id}/sign", response_model=RevisionResponse)
+@router.put(
+    "/{revision_id}/sign", response_model=RevisionResponse,
+    dependencies=[Depends(assert_approvals_enabled)],
+)
 async def sign_revision(
     project_id: uuid.UUID,
     revision_id: uuid.UUID,
@@ -871,7 +878,10 @@ async def sign_revision(
     )
 
 
-@router.put("/{revision_id}/sign-review", response_model=RevisionResponse)
+@router.put(
+    "/{revision_id}/sign-review", response_model=RevisionResponse,
+    dependencies=[Depends(assert_approvals_enabled)],
+)
 async def sign_review(
     project_id: uuid.UUID,
     revision_id: uuid.UUID,
@@ -1118,7 +1128,10 @@ async def _record_decision(
     )
 
 
-@router.post("/{revision_id}/reject", response_model=RevisionResponse)
+@router.post(
+    "/{revision_id}/reject", response_model=RevisionResponse,
+    dependencies=[Depends(assert_approvals_enabled)],
+)
 async def reject_revision(
     project_id: uuid.UUID,
     revision_id: uuid.UUID,
@@ -1140,7 +1153,10 @@ async def reject_revision(
     )
 
 
-@router.post("/{revision_id}/request-changes", response_model=RevisionResponse)
+@router.post(
+    "/{revision_id}/request-changes", response_model=RevisionResponse,
+    dependencies=[Depends(assert_approvals_enabled)],
+)
 async def request_changes(
     project_id: uuid.UUID,
     revision_id: uuid.UUID,
@@ -1162,7 +1178,10 @@ async def request_changes(
     )
 
 
-@router.post("/{revision_id}/review-changes", response_model=RevisionResponse)
+@router.post(
+    "/{revision_id}/review-changes", response_model=RevisionResponse,
+    dependencies=[Depends(assert_approvals_enabled)],
+)
 async def review_request_changes(
     project_id: uuid.UUID,
     revision_id: uuid.UUID,

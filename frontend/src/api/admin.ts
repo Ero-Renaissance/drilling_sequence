@@ -69,6 +69,13 @@ export const adminApi = {
     api.patch<AdminUser>(`/api/admin/users/${userId}`, { is_admin: isAdmin }),
   setCanPlan: (userId: string, canPlan: boolean) =>
     api.patch<AdminUser>(`/api/admin/users/${userId}`, { can_plan: canPlan }),
+  /** Block (false) or allow (true) the person's sign-in. */
+  setActive: (userId: string, isActive: boolean) =>
+    api.patch<AdminUser>(`/api/admin/users/${userId}`, { is_active: isActive }),
+  /** Pilot sign-in only: add a person to the list. `username` is the part of
+   *  their email before the "@". 409 if already there, or outside pilot mode. */
+  addUser: (body: { username: string; name: string }) =>
+    api.post<AdminUser>("/api/admin/users", body),
   /** Replace the user's global readiness team grants with `teams`. */
   setTeams: (userId: string, teams: string[]) =>
     api.put<{ teams: string[] }>(`/api/admin/users/${userId}/teams`, { teams }),

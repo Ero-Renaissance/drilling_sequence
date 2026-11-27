@@ -25,4 +25,10 @@ class User(Base):
         Boolean, nullable=False, default=False, server_default=expression.false()
     )
 
+    # False = an admin blocked this person from signing in (Admin page, audited
+    # user_blocked / user_unblocked). Refused at sign-in and on every request.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=expression.true()
+    )
+
     project_memberships: Mapped[list["ProjectMember"]] = relationship(back_populates="user")

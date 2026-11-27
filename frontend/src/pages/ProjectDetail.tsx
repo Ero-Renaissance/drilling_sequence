@@ -183,6 +183,7 @@ export function ProjectDetail() {
   const [fetchedProject, setFetchedProject] = useState<Project | null>(null);
   const project = storeProject ?? fetchedProject ?? null;
   const user = useAuthStore((s) => s.user);
+  const approvalsEnabled = useAuthStore((s) => s.options.approvals_enabled);
 
   // The detail carries the fresh plan-lock summary (the store copy from the list
   // doesn't), which drives the Revise Plan banner.
@@ -256,6 +257,7 @@ export function ProjectDetail() {
 
       {fetchedProject?.lock?.locked &&
         (fetchedProject.lock.reason === "pending" &&
+        approvalsEnabled &&
         fetchedProject.approval?.your_action &&
         fetchedProject.lock.revision_id ? (
           <SignerActionBanner

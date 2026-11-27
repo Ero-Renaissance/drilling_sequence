@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  Ban,
   ClipboardList,
+  KeyRound,
+  UserPlus,
   ShieldCheck,
   ShieldOff,
   Loader2,
@@ -37,6 +40,100 @@ import { adminApi, type AdminReadinessCatalog } from "@/api/admin";
 import { useAuthStore } from "@/store/auth";
 import type { AdminUser } from "@/types";
 
+/** Shown only while pilot sign-in is on: says what it means and lets the admin
+ *  add people to the list. The one place the app names the pilot. */
+function PilotSignInCard({
+  emailDomain,
+  sessionDays,
+  onAdded,
+}: {
+  emailDomain: string | null;
+  sessionDays: number | null | undefined;
+  onAdded: (user: AdminUser) => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = username.trim() !== "" && name.trim() !== "";
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!ready || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const added = await adminApi.addUser({ username: username.trim(), name: name.trim() });
+      onAdded(added);
+      setUsername("");
+      setName("");
+      toast.success(`${added.name} can now sign in`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not add this person");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      data-testid="pilot-sign-in-card"
+      className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+    >
+      <div className="flex items-center gap-2 font-semibold">
+        <KeyRound className="h-4 w-4" />
+        Pilot sign-in is on
+      </div>
+      <p className="mt-1 text-xs">
+        Windows sign-in is not set up yet. Only the people listed below can sign in, with the part
+        of their email before the @. Planners, readiness team editors and admins must also enter
+        the pilot passcode. Submitting, signing and declining revisions are switched off —
+        approvals are handled on paper.
+        {sessionDays ? ` A sign-in lasts ${sessionDays} days.` : ""}
+      </p>
+      <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={submit} noValidate>
+        <label className="flex flex-col gap-1 text-xs font-medium">
+          Email
+          <span className="flex items-center rounded-md border border-input bg-background text-foreground">
+            <input
+              className="w-44 bg-transparent px-2 py-1.5 text-sm outline-none"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="firstname.lastname"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={64}
+              aria-label="Email, the part before the @"
+            />
+            {emailDomain && (
+              <span className="pr-2 text-xs text-muted-foreground">@{emailDomain}</span>
+            )}
+          </span>
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium">
+          Full name
+          <input
+            className="w-52 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={256}
+            aria-label="Full name"
+          />
+        </label>
+        <Button type="submit" size="sm" disabled={!ready || busy}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+          Add person
+        </Button>
+      </form>
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function initials(value: string): string {
   return value
     .split(/[\s.@_-]+/)
@@ -49,6 +146,7 @@ function initials(value: string): string {
 
 export function Admin() {
   const currentUser = useAuthStore((s) => s.user);
+  const signInOptions = useAuthStore((s) => s.options);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +223,20 @@ export function Admin() {
     }
   }
 
+  async function toggleActive(user: AdminUser) {
+    const allow = user.is_active === false;
+    setPendingId(user.id);
+    setError(null);
+    try {
+      const updated = await adminApi.setActive(user.id, allow);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update user");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   async function toggleCanPlan(user: AdminUser) {
     setPendingId(user.id);
     setError(null);
@@ -165,6 +277,16 @@ export function Admin() {
           allowlist instead.
         </p>
       </div>
+
+      {signInOptions.sign_in === "pilot" && (
+        <PilotSignInCard
+          emailDomain={signInOptions.email_domain}
+          sessionDays={signInOptions.session_days}
+          onAdded={(added) =>
+            setUsers((prev) => [...prev, added].sort((a, b) => a.name.localeCompare(b.name)))
+          }
+        />
+      )}
 
       {error && (
         <div
@@ -255,6 +377,12 @@ export function Admin() {
                           Planner
                         </Badge>
                       )}
+                      {user.is_active === false && (
+                        <Badge variant="destructive" className="gap-1 text-[10px]">
+                          <Ban className="h-3 w-3" />
+                          Blocked
+                        </Badge>
+                      )}
                       {user.is_admin && user.admin_via_allowlist && (
                         <span
                           className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
@@ -326,6 +454,28 @@ export function Admin() {
                         ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={
+                      pendingId === user.id ||
+                      (user.is_active !== false && (isSelf || user.admin_via_allowlist))
+                    }
+                    title={
+                      user.is_active === false
+                        ? "Let this person sign in again"
+                        : isSelf
+                          ? "You cannot block your own sign-in"
+                          : user.admin_via_allowlist
+                            ? "Admin via the email allowlist — remove them from admin_emails to block"
+                            : "Stop this person signing in. Their history is kept."
+                    }
+                    onClick={() => toggleActive(user)}
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                    {user.is_active === false ? "Allow sign-in" : "Block sign-in"}
+                  </Button>
                   <Button
                     variant={user.can_plan ? "ghost" : "outline"}
                     size="sm"

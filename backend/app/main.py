@@ -97,7 +97,15 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # is still never reachable unauthenticated. FastAPI caches dependency results
 # per request, so endpoints that also declare the user pay nothing extra.
 # Authorization (assert_member / assert_can_sign / admin) stays per-endpoint.
-# GET /api/health below is deliberately public — defined on the app, not a router.
+# GET /api/health below is deliberately public — defined on the app, not a router;
+# so is auth.public_router (sign-in options, pilot sign-in and sign-out).
+app.include_router(auth.public_router)
+if settings.pilot_mode:
+    logger.warning(
+        "PILOT SIGN-IN IS ON: people sign in by name (plus a shared passcode to "
+        "edit) and approvals are switched off. Turn PILOT_MODE off once Windows "
+        "sign-in is available."
+    )
 for _router in (
     auth.router,
     me.router,
