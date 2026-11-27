@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { useThemeStore, type Theme } from "@/store/theme";
 import { SIGNED_OUT_KEY } from "@/lib/auth";
+import { toast } from "@/components/ui/toaster";
 import { Breadcrumbs } from "./Breadcrumbs";
 
 function initials(name: string): string {
@@ -41,8 +42,11 @@ export function Header() {
 
   const handleLogout = () => {
     if (pilotSignIn) {
-      // Pilot sign-in has a real session: end it on the server.
-      void signOut();
+      // Pilot sign-in has a real session: end it on the server. If that fails
+      // the session is still open, so say so rather than pretend.
+      signOut().catch(() => {
+        toast.error("Couldn't sign out. Check your connection and try again.");
+      });
       return;
     }
     // Windows Integrated Auth has no browser-side session to end. Mark the

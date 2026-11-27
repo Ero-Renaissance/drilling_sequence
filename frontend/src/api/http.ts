@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { UNAUTHENTICATED_EVENT } from "@/lib/session-events";
 
 /** A failed API call, carrying the HTTP status and the server's human-readable
  *  message so the UI can show it (e.g. the 423 "revision awaiting approval" lock
@@ -16,9 +17,15 @@ export class ApiError extends Error {
 /**
  * Read a failed response's FastAPI `detail` and throw it as an {@link ApiError},
  * so callers surface the server's actual message. Falls back to `fallback` when
- * the body has no string detail.
+ * the body has no string detail. A 401 also announces that the session ended.
  */
 export async function throwApiError(resp: Response, fallback: string): Promise<never> {
+  // Every failed call ends here — the `api` wrapper and the modules that call
+  // fetch themselves — so this is the one place that says "the session ended".
+  // The auth store listens and returns a pilot user to the sign-in screen.
+  if (resp.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(UNAUTHENTICATED_EVENT));
+  }
   let detail: string | undefined;
   try {
     const body = await resp.json();

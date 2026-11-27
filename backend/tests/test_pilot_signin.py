@@ -256,6 +256,18 @@ async def test_forged_tampered_and_expired_cookies_are_refused(pilot, browser, d
         assert (await browser.get("/api/auth/me")).status_code == 401
 
 
+@pytest.mark.parametrize("token", ["v1.\u00e9.invalid", "v1.bad.\u00e9", "\u00e9", "v1.\u00e9.\u00e9"])
+async def test_non_ascii_cookie_reads_as_not_signed_in(pilot, browser, token) -> None:
+    # Signing or comparing a non-ASCII token would raise; it must read as "no
+    # session" (the generic 401), never a 500.
+    assert read_session(token) is None
+    resp = await browser.get(
+        "/api/auth/me", headers={"cookie": f"{COOKIE_NAME}={token}".encode("latin-1")}
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Not authenticated"
+
+
 async def test_cookie_signed_with_another_key_is_refused(pilot, monkeypatch) -> None:
     token = issue_session("j.okoro", passcode_verified=True)
     monkeypatch.setattr(settings, "pilot_session_secret", "t" * 40)
@@ -305,6 +317,44 @@ async def test_repeated_failures_lock_the_name_for_a_while(pilot, browser, db) -
     # Another name is not affected by this one's failures.
     await _person(db, "j.okoro")
     assert (await _sign_in(browser, "j.okoro")).status_code == 200
+
+
+async def test_attempts_still_in_flight_count_towards_the_lock(pilot, browser, db) -> None:
+    # A burst sent at once: each request is counted when it BEGINS, so the ones
+    # still being worked on already lock the name for the next.
+    await _person(db, "p.lanner", can_plan=True)
+    for _ in range(pilot_core.MAX_FAILURES_PER_NAME):
+        assert pilot_core.begin_sign_in_attempt("p.lanner")
+    assert not pilot_core.begin_sign_in_attempt("p.lanner")
+    assert (await _sign_in(browser, "p.lanner", PASSCODE)).status_code == 429
+
+
+async def test_successful_sign_ins_are_not_counted(pilot, browser, db) -> None:
+    await _person(db, "p.lanner", can_plan=True)
+    for _ in range(pilot_core.MAX_FAILURES_PER_NAME * 2):
+        assert (await _sign_in(browser, "p.lanner", PASSCODE)).status_code == 200
+    # Failures before a success still count: the success gives back only its own.
+    for _ in range(pilot_core.MAX_FAILURES_PER_NAME - 1):
+        assert (await _sign_in(browser, "p.lanner", "wrong-passcode-123")).status_code == 401
+    assert (await _sign_in(browser, "p.lanner", PASSCODE)).status_code == 200
+    assert (await _sign_in(browser, "p.lanner", "wrong-passcode-123")).status_code == 401
+    assert (await _sign_in(browser, "p.lanner", PASSCODE)).status_code == 429
+
+
+def test_forgiving_an_attempt_gives_back_one_count_only() -> None:
+    pilot_core.reset_throttle()
+    try:
+        for _ in range(pilot_core.MAX_FAILURES_PER_NAME):
+            assert pilot_core.begin_sign_in_attempt("a", now=1000.0)
+        assert not pilot_core.begin_sign_in_attempt("a", now=1001.0)
+        pilot_core.forgive_sign_in_attempt("a", now=1001.0)
+        assert pilot_core.begin_sign_in_attempt("a", now=1002.0)
+        assert not pilot_core.begin_sign_in_attempt("a", now=1003.0)
+        # Forgiving a name with nothing counted changes nothing.
+        pilot_core.forgive_sign_in_attempt("nobody", now=1003.0)
+        assert not pilot_core.sign_in_throttled("nobody", now=1003.0)
+    finally:
+        pilot_core.reset_throttle()
 
 
 def test_throttle_window_expires_and_overall_cap_applies() -> None:
@@ -466,6 +516,28 @@ async def test_admin_cannot_block_themselves_or_an_allowlisted_admin(pilot, brow
     assert (
         await browser.patch(f"/api/admin/users/{boss.id}", json={"is_active": False})
     ).status_code == 409
+
+
+async def test_admin_named_in_the_allowlist_by_username_is_protected_too(
+    pilot, browser, db, monkeypatch
+) -> None:
+    # ADMIN_EMAILS may hold a bare username; sign-in honours that, so the Admin
+    # page must as well — the same rule, by email OR username.
+    monkeypatch.setattr(settings, "admin_emails", BOSS)
+    boss = await _person(db, BOSS, is_admin=True)
+    await _person(db, "a.dmin", is_admin=True)
+    await _sign_in(browser, "a.dmin", PASSCODE)
+
+    listed = {u["email"]: u for u in (await browser.get("/api/admin/users")).json()}
+    assert listed[f"{BOSS}@{DOMAIN}"]["admin_via_allowlist"] is True
+    assert listed[f"a.dmin@{DOMAIN}"]["admin_via_allowlist"] is False
+
+    block = await browser.patch(f"/api/admin/users/{boss.id}", json={"is_active": False})
+    assert block.status_code == 409
+    revoke = await browser.patch(f"/api/admin/users/{boss.id}", json={"is_admin": False})
+    assert revoke.status_code == 409
+    await db.refresh(boss)
+    assert boss.is_active is True and boss.is_admin is True
 
 
 async def test_is_active_must_be_a_real_boolean(pilot, browser, db) -> None:

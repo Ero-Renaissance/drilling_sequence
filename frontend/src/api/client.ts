@@ -1,5 +1,4 @@
 import { getAccessToken } from "@/lib/auth";
-import { UNAUTHENTICATED_EVENT } from "@/lib/session-events";
 import { throwApiError } from "./http";
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -14,9 +13,6 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
 
-  if (response.status === 401 && typeof window !== "undefined") {
-    window.dispatchEvent(new Event(UNAUTHENTICATED_EVENT));
-  }
   if (!response.ok) await throwApiError(response, "Request failed");
 
   if (response.status === 204) return undefined as T;
